@@ -1,24 +1,27 @@
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common_kafka_consumer::Partition;
 use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
 use rdkafka::{Offset, TopicPartitionList};
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
-use crate::dispatcher::{Dispatcher, EagerFlush, SubBatch};
+use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
+use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
-use crate::transport::HttpTransport;
-use crate::types::SerializedKafkaMessage;
+use crate::transport::SendError;
+use crate::types::{Accumulator, Group, SerializedKafkaMessage};
+use crate::worker_registry::WorkerId;
 
 /// Statistics gathered while collecting a batch, used to emit parity metrics.
 struct BatchStats {
@@ -45,7 +48,8 @@ impl BatchStats {
 
 /// Output of `collect_batch`.
 struct CollectedBatch {
-    messages: Vec<SerializedKafkaMessage>,
+    /// The poll's messages, demuxed per partition and routing key.
+    groups: Vec<Group>,
     offsets: HashMap<(String, i32), OffsetSpan>,
     stats: BatchStats,
 }
@@ -67,6 +71,16 @@ struct InFlightBatch {
     handle: JoinHandle<anyhow::Result<ProcessedBatch>>,
 }
 
+/// A sub-batch whose send order is already established on its worker's stream
+/// (`GrpcTransport::begin_send`), plus the metadata the resolve protocol needs.
+struct PendingSubBatch {
+    worker: WorkerId,
+    routing_keys: Vec<String>,
+    key_offsets: Vec<KeyOffset>,
+    message_count: usize,
+    pending: PendingWorkerStreamSend,
+}
+
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
 /// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
@@ -84,18 +98,15 @@ pub struct IngestionConsumerOptions {
     pub deferred_flush_timeout: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
-    /// Release a deferring key's next stashed group as soon as the send
-    /// blocking it resolves (see `DISPATCHER_EAGER_DEFERRED_FLUSH`).
-    pub eager_deferred_flush: bool,
 }
 
-/// The main consumer loop: reads from Kafka, routes messages by distinct_id
+/// The main consumer loop: reads from Kafka, routes messages by Kafka key
 /// via the health-aware Dispatcher, dispatches sub-batches to workers over
-/// HTTP, and commits offsets only after all workers ACK.
+/// ordered gRPC streams, and commits offsets only after all workers ACK.
 pub struct IngestionConsumer {
     consumer: Arc<StreamConsumer<SentinelContext>>,
     dispatcher: Arc<Dispatcher>,
-    transport: Arc<HttpTransport>,
+    transport: Arc<GrpcTransport>,
     worker_urls: Vec<String>,
     batch_size: usize,
     batch_size_bytes: usize,
@@ -109,8 +120,6 @@ pub struct IngestionConsumer {
     commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    /// Whether to enable eager deferred flushing on the dispatcher.
-    eager_deferred_flush: bool,
 }
 
 impl IngestionConsumer {
@@ -119,7 +128,7 @@ impl IngestionConsumer {
     pub fn from_parts(
         consumer: StreamConsumer<SentinelContext>,
         dispatcher: Arc<Dispatcher>,
-        transport: Arc<HttpTransport>,
+        transport: Arc<GrpcTransport>,
         worker_urls: Vec<String>,
         options: IngestionConsumerOptions,
         handle: Handle,
@@ -141,14 +150,13 @@ impl IngestionConsumer {
             deferred_flush_timeout: options.deferred_flush_timeout,
             handle,
             group_id: options.group_id,
-            eager_deferred_flush: options.eager_deferred_flush,
         }
     }
 
     pub fn new(
         config: &Config,
         dispatcher: Arc<Dispatcher>,
-        transport: Arc<HttpTransport>,
+        transport: Arc<GrpcTransport>,
         handle: Handle,
         debug_recorder: Option<Arc<DebugRecorder>>,
     ) -> anyhow::Result<Self> {
@@ -175,7 +183,8 @@ impl IngestionConsumer {
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = dispatcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
-        let context = SentinelContext::new(Arc::clone(&commit_sentinel), key_sentinel);
+        let mut context = SentinelContext::new(Arc::clone(&commit_sentinel), key_sentinel);
+        context.set_assignment_epoch(transport.assignment_epoch());
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
@@ -205,7 +214,6 @@ impl IngestionConsumer {
             ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
-            eager_deferred_flush: config.dispatcher_eager_deferred_flush,
         })
     }
 
@@ -230,20 +238,6 @@ impl IngestionConsumer {
         record_if(&self.debug_recorder, || DebugEventKind::ConsumerStarted {
             group_id: self.group_id.clone(),
             workers: self.worker_urls.clone(),
-        });
-
-        // Eager deferred flush: the dispatcher routes a deferring key's next
-        // stashed group the moment its blocking send resolves and hands it to
-        // this task to send. Aborted on drop; anything in flight at teardown
-        // replays from uncommitted offsets.
-        let _eager_flush_task = self.eager_deferred_flush.then(|| {
-            let (tx, rx) = mpsc::unbounded_channel();
-            self.dispatcher.set_eager_flush_sender(tx);
-            AbortOnDrop(tokio::spawn(Self::run_eager_flush_loop(
-                Arc::clone(&self.dispatcher),
-                Arc::clone(&self.transport),
-                rx,
-            )))
         });
 
         // Verify async commits actually land: librdkafka drops the result of
@@ -282,7 +276,7 @@ impl IngestionConsumer {
                             }
                         };
 
-                        if collected.messages.is_empty() {
+                        if collected.groups.is_empty() {
                             self.handle.report_healthy();
                             if in_flight_batches.is_empty() {
                                 continue;
@@ -309,7 +303,7 @@ impl IngestionConsumer {
     }
 
     fn spawn_batch_processing(&self, mut collected: CollectedBatch) -> InFlightBatch {
-        let batch_size = collected.messages.len();
+        let batch_size: usize = collected.groups.iter().map(Group::len).sum();
         let batch_id = make_batch_id();
         // Register AND assign here, on the consumer loop, so both happen in
         // true batch order. Registration first, so the stash learns batch
@@ -325,8 +319,16 @@ impl IngestionConsumer {
             partitions: debug_partition_offsets(&collected.offsets, &collected.stats.max_lag_ms),
         });
         let assign_start = Instant::now();
-        let messages = std::mem::take(&mut collected.messages);
-        let sub_batches = self.dispatcher.assign(&batch_id, messages);
+        let groups = std::mem::take(&mut collected.groups);
+        // Send order is established here too, still on the consumer loop and
+        // under the dispatcher's lock: `begin_send` is synchronous, so a key's
+        // sub-batches enter its worker's stream in assignment order — spawned
+        // tasks racing to send would scramble it.
+        let pending = self
+            .dispatcher
+            .assign_and_send(&batch_id, groups, |sub_batch| {
+                Self::begin_send(&self.transport, &batch_id, sub_batch, false)
+            });
         // Assignment serializes on the consumer loop (it no longer overlaps
         // batch collection) — watch this stays a small fraction of the batch
         // collection interval.
@@ -335,7 +337,6 @@ impl IngestionConsumer {
 
         let task_batch_id = batch_id.clone();
         let dispatcher = Arc::clone(&self.dispatcher);
-        let transport = Arc::clone(&self.transport);
         let group_id = self.group_id.clone();
         let max_batch_size = self.batch_size;
         let max_batch_bytes = self.batch_size_bytes;
@@ -343,11 +344,10 @@ impl IngestionConsumer {
         let handle = tokio::spawn(async move {
             Self::process_collected_batch(
                 collected,
-                sub_batches,
+                pending,
                 batch_size,
                 task_batch_id,
                 dispatcher,
-                transport,
                 group_id,
                 max_batch_size,
                 max_batch_bytes,
@@ -377,7 +377,7 @@ impl IngestionConsumer {
 
         // Flush this batch's deferred groups (keys whose worker was draining/dead)
         // in order, re-routing them to healthy workers. Doing it here — serialized,
-        // oldest batch first — preserves per-distinct_id order across batches. The
+        // oldest batch first — preserves per-key order across batches. The
         // batch isn't committable until all its messages are accepted.
         self.flush_deferred(&batch_id, &mut processed).await?;
 
@@ -414,19 +414,19 @@ impl IngestionConsumer {
 
     async fn await_processed_batch(&self, batch: InFlightBatch) -> anyhow::Result<ProcessedBatch> {
         let batch_id = batch.batch_id;
-        let mut handle = batch.handle;
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+        let processed = self.heartbeat_while(batch.handle).await??;
+        info!(batch_id = %batch_id, "Kafka batch processing completed");
+        Ok(processed)
+    }
+
+    async fn heartbeat_while<F: Future>(&self, fut: F) -> F::Output {
+        tokio::pin!(fut);
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
 
         loop {
             tokio::select! {
-                result = &mut handle => {
-                    let processed = result??;
-                    info!(batch_id = %batch_id, "Kafka batch processing completed");
-                    return Ok(processed);
-                }
-                _ = heartbeat.tick() => {
-                    self.handle.report_healthy();
-                }
+                output = &mut fut => return output,
+                _ = heartbeat.tick() => self.handle.report_healthy(),
             }
         }
     }
@@ -438,19 +438,14 @@ impl IngestionConsumer {
     /// messages flush in Kafka order.
     ///
     /// `deferred_flush_timeout` bounds **stalls, not total time**: the deadline
-    /// resets whenever any of the batch's messages are accepted (scatter or
-    /// eager path), so a large backlog draining slowly under saturation keeps
+    /// resets whenever any of the batch's messages are accepted, so a large
+    /// backlog draining slowly under saturation keeps
     /// going, and the batch only fails — exiting the process and replaying —
     /// when flushing is truly wedged: nothing landed for a full timeout
     /// (nothing routable, or a flapping worker re-deferring every send).
     /// Failing the whole process for a mere slow drain amplified today's
     /// saturation: each restart replayed all its partitions into an already
     /// overloaded pool.
-    ///
-    /// With eager flushing enabled, some (or all) of the batch's deferred
-    /// groups may instead be in flight on the eager path — the loop also waits
-    /// those out, crediting their acceptances (and counting them as progress)
-    /// as they land.
     async fn flush_deferred(
         &self,
         batch_id: &str,
@@ -463,110 +458,35 @@ impl IngestionConsumer {
                     anyhow::bail!("deferred messages made no progress within the flush timeout");
                 }
                 let mut accepted_this_round = 0u32;
-                let sub_batches = self.dispatcher.flush_deferred(batch_id);
-                if sub_batches.is_empty() {
-                    // Nothing routable right now (no healthy worker), or the
-                    // remaining work is in flight on the eager path — wait.
+                // Serialized on the consumer loop, oldest batch first, so
+                // begin_send order preserves the flush's key order.
+                let pending = self
+                    .dispatcher
+                    .flush_deferred_and_send(batch_id, |sub_batch| {
+                        Self::begin_send(&self.transport, batch_id, sub_batch, true)
+                    });
+                if pending.is_empty() {
+                    // Nothing is routable right now (no healthy worker), so wait.
                     tokio::select! {
                         _ = self.handle.shutdown_recv() => {
                             anyhow::bail!("shutdown while flushing deferred messages");
                         }
-                        _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+                        _ = tokio::time::sleep(Duration::from_millis(200)) => {
+                            self.handle.report_healthy();
+                        }
                     }
                 } else {
-                    accepted_this_round += Self::scatter(
-                        &self.dispatcher,
-                        &self.transport,
-                        batch_id,
-                        sub_batches,
-                        true,
-                    )
-                    .await?;
+                    accepted_this_round += self
+                        .heartbeat_while(Self::scatter(&self.dispatcher, batch_id, pending, true))
+                        .await?;
                 }
-                // Eager-path acceptances count as progress too — a batch whose
-                // remaining groups are all draining through eager chains must
-                // not time out while they are landing.
-                accepted_this_round += self.dispatcher.take_eager_accepted(batch_id);
                 processed.total_accepted += accepted_this_round;
                 if accepted_this_round > 0 {
                     stall_deadline = Instant::now() + self.deferred_flush_timeout;
                 }
             }
         }
-        // Credit messages the eager path accepted on this batch's behalf —
-        // even when nothing was deferred by completion time: a fast eager
-        // chain may have drained the batch's groups before this ran.
-        processed.total_accepted += self.dispatcher.take_eager_accepted(batch_id);
         Ok(())
-    }
-
-    /// Receive eagerly-released deferred groups from the dispatcher and send
-    /// each on its own task. A send's resolution may release the key's next
-    /// group, which arrives back on this channel — the chain advances at ACK
-    /// speed instead of batch-completion speed.
-    async fn run_eager_flush_loop(
-        dispatcher: Arc<Dispatcher>,
-        transport: Arc<HttpTransport>,
-        mut rx: mpsc::UnboundedReceiver<EagerFlush>,
-    ) {
-        while let Some(flush) = rx.recv().await {
-            let dispatcher = Arc::clone(&dispatcher);
-            let transport = Arc::clone(&transport);
-            tokio::spawn(async move {
-                Self::send_eager_flush(dispatcher, transport, flush).await;
-            });
-        }
-    }
-
-    /// Send one eagerly-released sub-batch, mirroring `scatter`'s resolve
-    /// protocol, and settle it in the owning batch's ledger. On failure the
-    /// messages re-stash under the owning batch (before the resolve, so the
-    /// pin survives) and the completion-time backstop retries them.
-    async fn send_eager_flush(
-        dispatcher: Arc<Dispatcher>,
-        transport: Arc<HttpTransport>,
-        flush: EagerFlush,
-    ) {
-        let EagerFlush {
-            batch_id,
-            sub_batch,
-        } = flush;
-        let worker = sub_batch.worker.clone();
-        let routing_keys = sub_batch.routing_keys.clone();
-        let key_offsets = sub_batch.key_offsets.clone();
-        let message_count = sub_batch.messages.len();
-
-        match transport
-            .send_batch(&worker, &batch_id, sub_batch.messages, true)
-            .await
-        {
-            Ok(accepted) => {
-                dispatcher.on_sub_batch_acked(&key_offsets);
-                // Credit before the resolve: the resolve may hand the batch's
-                // completion the all-clear, which must already see this
-                // acceptance in the ledger.
-                dispatcher.eager_flush_accepted(&batch_id, accepted);
-                dispatcher.on_sub_batch_resolved(
-                    &worker,
-                    message_count,
-                    &routing_keys,
-                    true,
-                    false,
-                );
-                dispatcher.record_send_outcome(&worker, false);
-            }
-            Err(send_err) => {
-                // Re-stash before the resolve. The eager release popped the
-                // group without decrementing its key's outstanding count, so
-                // across defer_failed (+1) and the clears_deferral resolve
-                // (-1) the count nets to unchanged and never dips to zero —
-                // newer batches keep deferring behind the re-stashed group.
-                dispatcher.defer_failed(&batch_id, send_err.messages);
-                dispatcher.eager_flush_failed(&batch_id);
-                dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys, true, true);
-                dispatcher.record_send_outcome(&worker, true);
-            }
-        }
     }
 
     fn fail_batch_processing(&self, err: anyhow::Error) {
@@ -580,18 +500,44 @@ impl IngestionConsumer {
             .signal_failure(format!("Batch processing failed: {err:#}"));
     }
 
-    /// Scatter a batch's pre-assigned sub-batches to workers, gather results,
-    /// and feed passive health signals. Assignment already happened on the
-    /// consumer loop (see `spawn_batch_processing`); offset commits happen
-    /// later, in Kafka batch order, in `complete_oldest_batch`.
+    /// Establish a sub-batch's send order. Synchronous and non-blocking on
+    /// purpose: called under the dispatcher's lock on the consumer loop, where
+    /// send order is decided, so a key's sub-batches enter its worker's stream
+    /// in exactly that order.
+    fn begin_send(
+        transport: &GrpcTransport,
+        batch_id: &str,
+        sub_batch: SubBatch,
+        replay: bool,
+    ) -> PendingSubBatch {
+        let SubBatch {
+            worker,
+            messages,
+            routing_keys,
+            key_offsets,
+        } = sub_batch;
+        let message_count = messages.len();
+        let pending = transport.begin_send(&worker, batch_id, messages, replay);
+        PendingSubBatch {
+            worker,
+            routing_keys,
+            key_offsets,
+            message_count,
+            pending,
+        }
+    }
+
+    /// Await a batch's pre-ordered sub-batch sends, gather results, and feed
+    /// passive health signals. Assignment and send ordering already happened
+    /// on the consumer loop (see `spawn_batch_processing`); offset commits
+    /// happen later, in Kafka batch order, in `complete_oldest_batch`.
     #[allow(clippy::too_many_arguments)]
     async fn process_collected_batch(
         collected: CollectedBatch,
-        sub_batches: Vec<SubBatch>,
+        pending: Vec<PendingSubBatch>,
         batch_size: usize,
         batch_id: String,
         dispatcher: Arc<Dispatcher>,
-        transport: Arc<HttpTransport>,
         group_id: String,
         max_batch_size: usize,
         max_batch_bytes: usize,
@@ -645,15 +591,13 @@ impl IngestionConsumer {
             .record(*lag_ms as f64);
         }
 
-        // Nothing to send and no flush-path activity (deferred, in-flight
-        // eager, or already eagerly accepted) → no usable workers.
-        if sub_batches.is_empty() && !dispatcher.batch_has_flush_activity(&batch_id) {
+        // Nothing to send and no deferred groups means no usable workers.
+        if pending.is_empty() && !dispatcher.batch_has_flush_activity(&batch_id) {
             counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
             anyhow::bail!("No healthy workers available to route batch");
         }
 
-        let total_accepted =
-            Self::scatter(&dispatcher, &transport, &batch_id, sub_batches, false).await?;
+        let total_accepted = Self::scatter(&dispatcher, &batch_id, pending, false).await?;
 
         Ok(ProcessedBatch {
             offsets: collected.offsets,
@@ -664,37 +608,36 @@ impl IngestionConsumer {
         })
     }
 
-    /// Send sub-batches to workers in parallel and resolve each in the
-    /// dispatcher. On a send failure (the worker died mid-send), the failed
-    /// messages are deferred — before the resolve, so the pin isn't evicted —
-    /// to be replayed in order. Returns the number of messages accepted.
+    /// Await sub-batch sends in parallel and resolve each in the dispatcher.
+    /// On a send failure (the worker died mid-send, or its worker stream was fenced),
+    /// the failed messages are deferred — before the resolve, so the pin
+    /// isn't evicted — to be replayed in order. Returns the number of
+    /// messages accepted.
     ///
-    /// `from_flush` is true when sending sub-batches produced by `flush_deferred`:
+    /// `from_flush` is true when awaiting sub-batches produced by `flush_deferred`:
     /// the resolve then clears one deferral per key, so a key stays deferring from
     /// when it was first held until its flushed messages actually land (preventing
     /// a newer batch from racing them).
     async fn scatter(
         dispatcher: &Arc<Dispatcher>,
-        transport: &Arc<HttpTransport>,
         batch_id: &str,
-        sub_batches: Vec<SubBatch>,
+        pending: Vec<PendingSubBatch>,
         from_flush: bool,
     ) -> anyhow::Result<u32> {
-        let mut handles = Vec::with_capacity(sub_batches.len());
-        for sub_batch in sub_batches {
-            let transport = Arc::clone(transport);
+        let mut handles = Vec::with_capacity(pending.len());
+        for sub_batch in pending {
             let dispatcher = Arc::clone(dispatcher);
-            let worker = sub_batch.worker.clone();
+            let PendingSubBatch {
+                worker,
+                routing_keys,
+                key_offsets,
+                message_count,
+                pending,
+            } = sub_batch;
             let bid = batch_id.to_string();
-            let routing_keys = sub_batch.routing_keys.clone();
-            let key_offsets = sub_batch.key_offsets.clone();
-            let message_count = sub_batch.messages.len();
 
             handles.push(tokio::spawn(async move {
-                match transport
-                    .send_batch(&worker, &bid, sub_batch.messages, from_flush)
-                    .await
-                {
+                match pending.wait().await {
                     Ok(accepted) => {
                         // Advance ACK high-water marks before the resolve, which
                         // may evict the keys' sentinel state.
@@ -716,7 +659,18 @@ impl IngestionConsumer {
                         // with the `clears_deferral` decrement in the resolve, so the
                         // outstanding count nets to unchanged (never dipping to zero)
                         // and the key keeps deferring across the retry.
-                        dispatcher.defer_failed(&bid, send_err.messages);
+                        // Backpressure (a busy worker) is transient, not a fault:
+                        // re-route the work but do not count it against the
+                        // worker's health, so passive health tracks real faults.
+                        let SendError {
+                            error,
+                            messages,
+                            fence_guard,
+                        } = send_err;
+                        let is_fault = !error.is_backpressure();
+                        dispatcher.defer_failed(&bid, messages);
+                        // Stashed: let the worker stream stop fencing new arrivals.
+                        drop(fence_guard);
                         dispatcher.on_sub_batch_resolved(
                             &worker,
                             message_count,
@@ -724,7 +678,7 @@ impl IngestionConsumer {
                             from_flush,
                             true,
                         );
-                        dispatcher.record_send_outcome(&worker, true);
+                        dispatcher.record_send_outcome(&worker, is_fault);
                         0
                     }
                 }
@@ -747,7 +701,7 @@ impl IngestionConsumer {
     /// bound still moves rather than wedging the partition — and overshoot is
     /// at most one message, itself bounded by `fetch.message.max.bytes`.
     async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
-        let mut messages = Vec::with_capacity(self.batch_size);
+        let mut accumulator = Accumulator::default();
         let mut offsets: HashMap<(String, i32), OffsetSpan> = HashMap::new();
         let mut stats = BatchStats::new();
         let deadline = Instant::now() + self.batch_timeout;
@@ -756,7 +710,7 @@ impl IngestionConsumer {
         let mut stream = self.consumer.stream();
 
         loop {
-            if messages.len() >= self.batch_size {
+            if accumulator.message_count() >= self.batch_size {
                 break;
             }
 
@@ -838,7 +792,7 @@ impl IngestionConsumer {
                         headers,
                     };
 
-                    messages.push(serialized);
+                    accumulator.push(Partition(partition), serialized.into());
                 }
                 Ok(Some(Err(err))) => {
                     warn!(error = %err, "Kafka recv error");
@@ -864,7 +818,7 @@ impl IngestionConsumer {
         }
 
         Ok(CollectedBatch {
-            messages,
+            groups: accumulator.into_groups(),
             offsets,
             stats,
         })

@@ -14,6 +14,7 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
+import { billingProductDisplayName } from './billingProductDisplayName'
 import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
@@ -95,6 +96,14 @@ export const summarizeUsage = (usage: number | null): string => {
         return ''
     }
     return compactNumber(usage)
+}
+
+export const isUsageAtOrOverLimit = (percentageUsage: number | null | undefined): boolean => {
+    return (percentageUsage ?? 0) >= 1
+}
+
+export const isUsageApproachingLimit = (percentageUsage: number | null | undefined, threshold: number): boolean => {
+    return (percentageUsage ?? 0) > threshold && !isUsageAtOrOverLimit(percentageUsage)
 }
 
 /**
@@ -702,8 +711,8 @@ export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'PostHog AI') {
         return 'PostHog AI will be unavailable'
     }
-    if (productName === 'Inbox') {
-        return 'Inbox agents will be paused'
+    if (productName === 'Self-driving inbox') {
+        return 'self-driving agents will be paused'
     }
     return 'data loss may occur'
 }
@@ -712,7 +721,7 @@ export function getUsageLimitConsequence(productName: string): string {
  * Build a consolidated message for products that have reached their usage limits
  */
 export function buildUsageLimitReachedMessage(
-    products: Array<{ name: string; subscribed: boolean | null }>,
+    products: Array<{ type?: string | null; name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): {
@@ -723,11 +732,11 @@ export function buildUsageLimitReachedMessage(
         return { title: '', message: '' }
     }
 
-    const productNames = products.map((p) => p.name)
+    const productNames = products.map(billingProductDisplayName)
     const allSubscribed = products.every((p) => p.subscribed === true)
 
     // Build consequence message, deduplicating common consequences
-    const consequences = [...new Set(products.map((p) => getUsageLimitConsequence(p.name)))]
+    const consequences = [...new Set(productNames.map(getUsageLimitConsequence))]
 
     const productListText = formatProductNames(productNames)
     const consequenceText = consequences.join(' and ')
@@ -753,6 +762,7 @@ export function buildUsageLimitReachedMessage(
  */
 export function buildUsageLimitApproachingMessage(
     products: Array<{
+        type?: string | null
         name: string
         percentage_usage: number
         usage_key?: string | null
@@ -766,7 +776,7 @@ export function buildUsageLimitApproachingMessage(
 
     const usageDetails = products.map((p) => {
         const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
-        const productName = p.name || p.usage_key?.toLowerCase() || 'usage'
+        const productName = (p.name && billingProductDisplayName(p)) || p.usage_key?.toLowerCase() || 'usage'
         return `${percentage}% of your ${productName} allocation`
     })
 

@@ -6,13 +6,15 @@
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
-        "kea-loaders": "catalog:"
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
     },
     "devDependencies": {
         "@testing-library/jest-dom": "^5.17.0",
         "@testing-library/react": "^14.3.1"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@types/react": "*",
         "clsx": "*",

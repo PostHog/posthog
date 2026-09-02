@@ -15,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { BillingType } from '~/types'
 
 import type { OrganizationType, StartupProgramLabel, UserType } from '../../types'
+import { YC_VERIFICATION_URL_REGEX } from './constants'
 import { getEmailDomain, getYCBatchOptions, isPublicEmailDomain } from './utils'
 
 export enum StartupProgramType {
@@ -29,6 +30,7 @@ export interface StartupProgramFormValues {
     organization_id: string
     raised?: string
     incorporation_date?: Dayjs
+    yc_verification_url?: string
     yc_batch?: string
     yc_proof_screenshot_url?: string
     yc_merch_count?: number
@@ -67,6 +69,32 @@ function validateFunding(raised: string | undefined, isYC: boolean): string | un
     const raisedAmount = parseInt(raised)
     if (raisedAmount >= 5000000) {
         return 'Companies that have raised $5M or more are not eligible for the startup program'
+    }
+    return undefined
+}
+
+/** Ensure the link has a scheme before it's sent to the billing service, which expects a full URL. */
+function normalizeYcVerificationUrl(url: string | undefined): string | undefined {
+    const trimmed = url?.trim()
+    if (!trimmed) {
+        return undefined
+    }
+    return /^https?:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`
+}
+
+/**
+ * Only the URL shape is checked client-side. The billing service does the real verification
+ * against YC once, on submit, and its errors surface through the submit failure path.
+ */
+function validateYcVerificationUrl(url: string | undefined, isYC: boolean): string | undefined {
+    if (!isYC) {
+        return undefined
+    }
+    if (!url) {
+        return 'Please enter your YC verification link'
+    }
+    if (!YC_VERIFICATION_URL_REGEX.test(url.trim())) {
+        return 'This should look like https://www.ycombinator.com/verify/your-unique-code'
     }
     return undefined
 }
@@ -310,6 +338,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 organization_id: values.currentOrganizationId,
                 raised: undefined,
                 incorporation_date: undefined,
+                yc_verification_url: values.isYC ? '' : undefined,
                 yc_batch: values.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
                 yc_merch_count: values.isYC ? 1 : undefined,
@@ -323,6 +352,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         organization_id,
                         raised,
                         incorporation_date,
+                        yc_verification_url,
                         yc_batch,
                         yc_proof_screenshot_url,
                     }: StartupProgramFormValues,
@@ -346,6 +376,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         organization_id: !organization_id ? 'Please select an organization' : undefined,
                         raised: validateFunding(raised, isYC),
                         incorporation_date: validateIncorporationDate(incorporation_date, isYC),
+                        yc_verification_url: validateYcVerificationUrl(yc_verification_url, isYC),
                         yc_batch: isYC && !yc_batch ? 'Please select your YC batch' : undefined,
                         yc_proof_screenshot_url:
                             isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
@@ -360,6 +391,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
 
                 if (values.isYC) {
+                    valuesToSubmit.yc_verification_url = normalizeYcVerificationUrl(formValues.yc_verification_url)
                     valuesToSubmit.yc_batch = formValues.yc_batch
                     valuesToSubmit.yc_proof_screenshot_url = formValues.yc_proof_screenshot_url
                 }
@@ -377,7 +409,9 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 try {
                     await api.create('api/billing/startups/apply', valuesToSubmit)
                     actions.setFormSubmitted(true)
-                    posthog.capture('startup program application submitted', valuesToSubmit)
+                    // The verification link is bearer proof of YC founder status, so it stays out of analytics
+                    const { yc_verification_url: _discarded, ...capturedValues } = valuesToSubmit
+                    posthog.capture('startup program application submitted', capturedValues)
                 } catch (error: any) {
                     // Billing-service validation errors can arrive as an object under error.detail
                     const detail = typeof error.detail === 'string' ? error.detail : error.detail?.detail

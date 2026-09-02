@@ -72,9 +72,9 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 tracer = trace.get_tracer(__name__)
@@ -191,6 +191,7 @@ class HogQLQueryExecutor:
                         modifiers=self.query_modifiers,
                         timings=self.timings,
                         bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                        trigger="executor",
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -255,6 +256,7 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 connection_id=self.connection_id,
                 bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                trigger="executor",
             )
 
         # Reset between executions: the resolver/printer append per query, and dataclasses.replace

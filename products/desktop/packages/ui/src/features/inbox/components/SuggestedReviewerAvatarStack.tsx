@@ -25,7 +25,10 @@ import {
   useInboxReportArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import {
+  useReportActionResultTracker,
+  useReportActionTracker,
+} from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 
 const MAX_VISIBLE = 4;
 // Keep this stable because autocapture insights and UI tests can depend on it.
@@ -38,12 +41,14 @@ interface SuggestedReviewerAvatarStackProps {
   /** Analytics surface for the remove-self action; the stack lives on list
    * cards by default, but the detail header reuses it. */
   surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 export function SuggestedReviewerAvatarStack({
   report,
   artefacts,
   surface = "list_row",
+  triageId,
 }: SuggestedReviewerAvatarStackProps) {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
@@ -55,7 +60,8 @@ export function SuggestedReviewerAvatarStack({
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
-  const fireAction = useReportActionTracker(report, surface);
+  const fireAction = useReportActionTracker(report, surface, triageId);
+  const trackResult = useReportActionResultTracker(report, surface, triageId);
   const reviewerArtefact = selectSuggestedReviewersArtefact(
     artefacts?.results ?? data?.results ?? [],
   );
@@ -96,15 +102,25 @@ export function SuggestedReviewerAvatarStack({
     const nextReviewers = reviewerArtefact.content.filter(
       (reviewer) => reviewer.user?.uuid !== currentUser?.uuid,
     );
-    fireAction("remove_suggested_reviewer", {
-      suggested_reviewer_login: currentReviewer.github_login,
-      suggested_reviewer_uuid: currentReviewer.user?.uuid,
-    });
-    updateReviewers({
-      artefactId: reviewerArtefact.id,
-      content: toSuggestedReviewerWriteContent(nextReviewers),
-      optimisticReviewers: nextReviewers,
-    });
+    const startedAt = Date.now();
+    fireAction("remove_suggested_reviewer");
+    updateReviewers(
+      {
+        content: toSuggestedReviewerWriteContent(nextReviewers),
+        optimisticReviewers: nextReviewers,
+      },
+      {
+        onSuccess: () =>
+          trackResult("remove_suggested_reviewer", "succeeded", startedAt),
+        onError: () =>
+          trackResult(
+            "remove_suggested_reviewer",
+            "failed",
+            startedAt,
+            "request_failed",
+          ),
+      },
+    );
   };
 
   return (

@@ -61,12 +61,13 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,
@@ -454,6 +455,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual("$pageview", response.results[0]["label"])
+
+    def test_multi_series_builds_database_once(self):
+        self._create_test_events()
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as mock_create_for:
+            response = self._run_trends_query(
+                self.default_date_from,
+                self.default_date_to,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            )
+
+        assert len(response.results) == 2
+        assert mock_create_for.call_count == 1
 
     @parameterized.expand(
         [

@@ -30,25 +30,41 @@ const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: stri
     { value: 'percentage', label: 'Percentage' },
 ]
 
+const LEGEND_POSITION_OPTIONS: { value: 'top' | 'bottom' | 'left' | 'right'; label: string }[] = [
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' },
+]
+
 const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
     { value: 'smooth', label: 'Smooth' },
     { value: 'linear', label: 'Straight' },
 ]
 
 export const DisplayTab = (): JSX.Element => {
-    const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
+    const { effectiveVisualizationType, xData } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
+    // Scatter and box plots have a single Y axis, so there is no separate right axis to configure.
+    const isSingleAxisChart = isScatterPlot || isBoxPlot
     const isLineChart =
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
+    const supportsAnnotations =
+        isDateXAxis &&
+        (isLineChart ||
+            effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+            effectiveVisualizationType === ChartDisplayType.ActionsStackedBar)
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
-        const leftPlaceholder = isScatterPlot ? 'Y-axis label' : 'Left Y-axis label'
+        const leftPlaceholder = isSingleAxisChart ? 'Y-axis label' : 'Left Y-axis label'
         const labelPlaceholder = name === 'leftYAxisSettings' ? leftPlaceholder : 'Right Y-axis label'
 
         return (
@@ -87,17 +103,19 @@ export const DisplayTab = (): JSX.Element => {
                     }}
                 />
 
-                <LemonSwitch
-                    className="flex-1 w-full"
-                    label="Begin at zero"
-                    checked={
-                        chartSettings[name]?.startAtZero ??
-                        (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
-                    }
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { startAtZero: value } })
-                    }}
-                />
+                {!isBoxPlot && (
+                    <LemonSwitch
+                        className="flex-1 w-full"
+                        label="Begin at zero"
+                        checked={
+                            chartSettings[name]?.startAtZero ??
+                            (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
+                        }
+                        onChange={(value) => {
+                            updateChartSettings({ [name]: { startAtZero: value } })
+                        }}
+                    />
+                )}
                 <LemonSwitch
                     className="flex-1 w-full"
                     label="Show grid lines"
@@ -131,6 +149,42 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showLegend: value })
                                     }}
                                 />
+                                <div className="flex flex-col gap-1">
+                                    <LemonLabel>Legend position</LemonLabel>
+                                    <LemonSelect
+                                        className="w-full"
+                                        value={chartSettings.legendPosition ?? (isPieChart ? 'right' : 'top')}
+                                        options={LEGEND_POSITION_OPTIONS}
+                                        disabledReason={
+                                            chartSettings.showLegend
+                                                ? undefined
+                                                : 'Turn the legend on to set its position'
+                                        }
+                                        onChange={(value) => updateChartSettings({ legendPosition: value })}
+                                        fullWidth
+                                    />
+                                </div>
+                                {isBoxPlot && (
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        label="Exclude outliers"
+                                        checked={chartSettings.boxPlot?.excludeOutliers !== false}
+                                        onChange={(value) => {
+                                            updateChartSettings({ boxPlot: { excludeOutliers: value } })
+                                        }}
+                                    />
+                                )}
+                                {supportsAnnotations && (
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        data-attr="data-visualization-show-annotations"
+                                        label="Show annotations"
+                                        checked={chartSettings.showAnnotations ?? false}
+                                        onChange={(value) => {
+                                            updateChartSettings({ showAnnotations: value })
+                                        }}
+                                    />
+                                )}
                                 {isPieChart ? (
                                     <>
                                         <div className="flex flex-col gap-1">
@@ -181,7 +235,7 @@ export const DisplayTab = (): JSX.Element => {
                                                 }}
                                             />
                                         )}
-                                        {!isScatterPlot && (
+                                        {!isSingleAxisChart && (
                                             <>
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
@@ -306,13 +360,13 @@ export const DisplayTab = (): JSX.Element => {
                     !isPieChart
                         ? {
                               key: 'left-y-axis',
-                              header: isScatterPlot ? 'Y-axis' : 'Left Y-axis',
+                              header: isSingleAxisChart ? 'Y-axis' : 'Left Y-axis',
                               className: 'p-2 flex flex-col gap-2',
                               content: renderYAxisSettings('leftYAxisSettings'),
                           }
                         : null,
                     // A scatter has one gutter per axis, so there is no second Y axis to configure.
-                    !isPieChart && !isScatterPlot
+                    !isPieChart && !isSingleAxisChart
                         ? {
                               key: 'right-y-axis',
                               header: 'Right Y-axis',
@@ -337,7 +391,7 @@ export const DisplayTab = (): JSX.Element => {
                               ),
                           }
                         : null,
-                    !isPieChart && !isScatterPlot
+                    !isPieChart && !isSingleAxisChart
                         ? {
                               key: 'goals',
                               header: (

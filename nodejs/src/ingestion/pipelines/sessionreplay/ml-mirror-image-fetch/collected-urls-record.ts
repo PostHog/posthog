@@ -1,6 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
+import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
 import { canonicalizeUrl } from './politeness-key'
 
 export const MAX_HOPS = 10
@@ -14,13 +15,14 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'oversized_record'
-export type RepublishReason =
+export type StoredRepublishReason =
     | 'redirect'
     | 'retry'
     | 'not_ready'
     | 'pass_deadline'
     | 'origin_map_full'
     | 'registrable_domain_map_full'
+export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
     originalRef: string
@@ -33,7 +35,9 @@ export interface FetchCandidate {
     firstSeenAtMs: number
     fetchCount: number
     republishCount: number
-    lastRepublishReason: RepublishReason | null
+    lastRepublishReason: StoredRepublishReason | null
+    lastBlockReason?: ImageFetchBlockReason
+    sourcePartitions?: readonly number[]
 }
 
 export interface FrontierRecord {
@@ -49,6 +53,7 @@ export interface FrontierRecord {
             | 'fetchCount'
             | 'republishCount'
             | 'lastRepublishReason'
+            | 'lastBlockReason'
         >
     >
 }
@@ -71,7 +76,7 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0
 }
 
-function isRepublishReason(value: unknown): value is RepublishReason | null {
+function isStoredRepublishReason(value: unknown): value is StoredRepublishReason | null {
     return (
         value === null ||
         value === 'redirect' ||
@@ -197,6 +202,8 @@ function parseJob(
         fetchCount,
         republishCount,
         lastRepublishReason,
+        lastBlockReason,
+        lowOriginDiversityDeferred,
     } = job
     if (
         typeof originalRef !== 'string' ||
@@ -207,7 +214,9 @@ function parseJob(
         !isNonNegativeSafeInteger(firstSeenAtMs) ||
         !isNonNegativeSafeInteger(fetchCount) ||
         !isNonNegativeSafeInteger(republishCount) ||
-        !isRepublishReason(lastRepublishReason)
+        !isStoredRepublishReason(lastRepublishReason) ||
+        (lastBlockReason !== undefined && !isImageFetchBlockReason(lastBlockReason)) ||
+        (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
     ) {
         return { ok: false, reason: 'bad_url' }
     }
@@ -236,6 +245,7 @@ function parseJob(
             fetchCount,
             republishCount,
             lastRepublishReason,
+            lastBlockReason,
         },
     }
 }
@@ -252,6 +262,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
             fetchCount: candidate.fetchCount,
             republishCount: candidate.republishCount,
             lastRepublishReason: candidate.lastRepublishReason,
+            lastBlockReason: candidate.lastBlockReason,
         })),
     }
     return Buffer.from(JSON.stringify(record))

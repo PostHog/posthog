@@ -380,34 +380,91 @@ describe("TaskCreationSaga", () => {
     expect(deleteTask).not.toHaveBeenCalled();
   });
 
-  it("starts a Pi session without creating an ACP session", async () => {
+  it("starts a Pi session before surfacing a new local task", async () => {
+    let resolvePiSession: () => void = () => {};
+    const piSessionCreated = new Promise<void>((resolve) => {
+      resolvePiSession = resolve;
+    });
     const createdTask = createTask({ repository: undefined });
     const createTaskRequest = vi.fn().mockResolvedValue(createdTask);
-    const saga = makeSaga({ createTask: createTaskRequest });
+    const onTaskReady = vi.fn();
+    piRunner.create.mockImplementationOnce(() => piSessionCreated);
+    const saga = makeSaga({ createTask: createTaskRequest }, { onTaskReady });
 
-    const result = await saga.run({
+    const run = saga.run({
       content: "Draft a launch email",
       workspaceMode: "local",
       runtime: "pi",
       model: "claude-sonnet",
       reasoningLevel: "medium",
+      customInstructions: "Keep the patch small.",
+      additionalDirectories: ["/tmp/shared"],
       allowNoRepo: true,
     });
 
+    await vi.waitFor(() => expect(piRunner.create).toHaveBeenCalledOnce());
+    expect(onTaskReady).not.toHaveBeenCalled();
+    resolvePiSession();
+
+    const result = await run;
+
     expect(result.success).toBe(true);
+    expect(onTaskReady).toHaveBeenCalledWith({
+      task: createdTask,
+      workspace: null,
+    });
     expect(createTaskRequest).toHaveBeenCalledWith(
       expect.objectContaining({ runtime: "pi" }),
     );
     expect(piRunner.create).toHaveBeenCalledWith({
-      taskId: "task-123",
-      cwd: "/tmp/scratch/task-123",
-      projectTrustPath: "/tmp/scratch/task-123",
+      taskContext: {
+        taskId: "task-123",
+        cwd: "/tmp/scratch/task-123",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
       prompt: "Draft a launch email",
       model: "claude-sonnet",
       thinkingLevel: "medium",
     });
     expect(sessionService.connectToTask).not.toHaveBeenCalled();
     expect(sessionService.markTaskCreationInFlight).not.toHaveBeenCalled();
+  });
+
+  it("starts a Pi session before surfacing a new worktree task", async () => {
+    let resolvePiSession: () => void = () => {};
+    const piSessionCreated = new Promise<void>((resolve) => {
+      resolvePiSession = resolve;
+    });
+    const createdTask = createTask();
+    const onTaskReady = vi.fn();
+    mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
+    piRunner.create.mockImplementationOnce(() => piSessionCreated);
+    const saga = makeSaga(
+      { createTask: vi.fn().mockResolvedValue(createdTask) },
+      { onTaskReady },
+    );
+
+    const run = saga.run({
+      content: "Fix the login flow",
+      repoPath: "/repo",
+      workspaceMode: "worktree",
+      runtime: "pi",
+    });
+
+    await vi.waitFor(() => expect(piRunner.create).toHaveBeenCalledOnce());
+    expect(onTaskReady).not.toHaveBeenCalled();
+    resolvePiSession();
+
+    const result = await run;
+
+    expect(result).toMatchObject({ success: true });
+    expect(mockHost.createWorkspace).toHaveBeenCalledOnce();
+    expect(onTaskReady).toHaveBeenCalledWith({
+      task: createdTask,
+      workspace: expect.objectContaining({ taskId: createdTask.id }),
+    });
   });
 
   it("uploads cloud Pi attachments before starting the run", async () => {
@@ -1429,7 +1486,7 @@ describe("TaskCreationSaga", () => {
   });
 
   it.each(["local", "worktree"] as const)(
-    "forwards context window and fast mode to the agent session for workspaceMode=%s",
+    "forwards run configuration to the agent session for workspaceMode=%s",
     async (workspaceMode) => {
       const createTaskMock = vi.fn().mockResolvedValue(createTask());
       mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
@@ -1441,14 +1498,45 @@ describe("TaskCreationSaga", () => {
         content: "Ship the fix",
         repoPath: "/repo",
         workspaceMode,
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
         contextWindow: "1m",
         fastMode: true,
       });
 
       expect(result.success).toBe(true);
       expect(sessionService.connectToTask).toHaveBeenCalledWith(
-        expect.objectContaining({ contextWindow: "1m", fastMode: true }),
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+          contextWindow: "1m",
+          fastMode: true,
+        }),
       );
     },
   );
+
+  it("forwards the selected Claude model access to the agent session", async () => {
+    const createTaskMock = vi.fn().mockResolvedValue(createTask());
+    mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
+    mockHost.detectRepo.mockResolvedValue(null);
+
+    const saga = makeSaga({ createTask: createTaskMock });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repoPath: "/repo",
+      workspaceMode: "local",
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sessionService.connectToTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      }),
+    );
+  });
 });

@@ -25,9 +25,9 @@ from posthog.hogql import ast
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import posthog_feature_flag_enabled
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.shared_link_user import SharedLinkUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import (
     METRICS_FEATURE_FLAG,
@@ -86,6 +86,14 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         raise NotImplementedError(
             "MetricsQuery composes one HogQL query per clause via the metrics facade; there is no single statement"
         )
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # `display` is presentation only — `_to_request` never reads it, so it must not namespace
+        # the cache. Without this, adding a goal line re-runs every bucket in ClickHouse, and two
+        # tiles differing only in chart type would each hold their own entry.
+        payload["query"].pop("display", None)
+        return payload
 
     def _query_date_range(self) -> QueryDateRange:
         # explicitDate keeps second-granular windows intact; without it,

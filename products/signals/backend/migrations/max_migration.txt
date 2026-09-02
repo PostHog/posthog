@@ -1,1 +1,1 @@
-0104_signalreport_suggested_prompts
+0110_signalreportartefact_team_type_recent_idx

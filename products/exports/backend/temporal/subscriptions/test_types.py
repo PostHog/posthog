@@ -3,20 +3,14 @@ from parameterized import parameterized
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.exports.backend.temporal.subscriptions.types import (
+    UNDISCLOSED_QUERY_ERROR_TYPES,
     DeliveryStatus,
     GenerateAIReportResult,
-    safe_query_error_details,
 )
 
 
-@parameterized.expand(
-    [
-        ("memory_limit", ClickHouseQueryMemoryLimitExceeded(), ClickHouseQueryMemoryLimitExceeded.default_code),
-        ("timeout", ClickHouseQueryTimeOut(), ClickHouseQueryTimeOut.default_code),
-    ]
-)
-def test_safe_query_error_details_matches_query_api(_name: str, exc, expected_code: str) -> None:
-    assert safe_query_error_details(exc) == {"code": expected_code, "message": str(exc.detail)}
+def test_undisclosed_query_error_types_track_the_exception_class() -> None:
+    assert ClickHouseQueryMemoryLimitExceeded.__name__ in UNDISCLOSED_QUERY_ERROR_TYPES
 
 
 class TestGenerateAIReportResult:
@@ -86,6 +80,20 @@ class TestGenerateAIReportResult:
                 ["ClickHouseQueryTimeOut", "ResolutionError"],
                 [{"code": ClickHouseQueryTimeOut.default_code, "message": ClickHouseQueryTimeOut.default_detail}],
                 ClickHouseQueryTimeOut.default_detail,
+            ),
+            (
+                "legacy_memory_limit_without_details_stays_generic",
+                1,
+                ["ClickHouseQueryMemoryLimitExceeded"],
+                [],
+                "The query the AI generated failed to run, so the report could not be computed.",
+            ),
+            (
+                "legacy_mixed_failure_omits_memory_limit_type",
+                2,
+                ["ClickHouseQueryMemoryLimitExceeded", "ResolutionError"],
+                [],
+                "All 2 queries the AI generated failed to run (ResolutionError), so the report could not be computed.",
             ),
         ]
     )

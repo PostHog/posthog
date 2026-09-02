@@ -112,6 +112,8 @@ export interface OverviewTotals {
     crawls: number
     crawlsPrevious: number
     pages: number
+    /** Forwarded access-log events. Without them the crawler numbers can only ever be zero. */
+    serverLogs: number
 }
 
 export type PagePerformanceBucket = 'hour' | 'day' | 'week'
@@ -192,6 +194,46 @@ const EMPTY_OVERVIEW_TOTALS: OverviewTotals = {
     crawls: 0,
     crawlsPrevious: 0,
     pages: 0,
+    serverLogs: 0,
+}
+
+export type PagePerformanceTabState = 'loading' | 'ready' | 'no-events' | 'no-traffic-in-range'
+export type PagePerformanceAiTrafficState = 'loading' | 'ready' | 'empty'
+export type PagePerformanceCrawlerState = 'loading' | 'ready' | 'empty' | 'needs-server-logs'
+
+export interface PagePerformanceDataState {
+    tab: PagePerformanceTabState
+    aiTraffic: PagePerformanceAiTrafficState
+    crawlers: PagePerformanceCrawlerState
+}
+
+const READY_DATA_STATE: PagePerformanceDataState = { tab: 'ready', aiTraffic: 'ready', crawlers: 'ready' }
+
+/**
+ * Which of the tab's three stories can actually be told from the data at hand. A zero here is
+ * ambiguous: crawlers never run JavaScript, so no forwarded access logs means no crawler rows are
+ * possible, whatever the site's real crawler traffic is. Separating that from a genuine zero keeps
+ * the tab from reporting an instrumentation gap as a fact about the world.
+ */
+export const resolvePagePerformanceDataState = (
+    totals: OverviewTotals | null,
+    hasIngestedEvents: boolean
+): PagePerformanceDataState => {
+    if (!totals) {
+        return { tab: 'loading', aiTraffic: 'loading', crawlers: 'loading' }
+    }
+    if (totals.visitors === 0 && totals.pages === 0 && totals.crawls === 0 && totals.serverLogs === 0) {
+        return {
+            tab: hasIngestedEvents ? 'no-traffic-in-range' : 'no-events',
+            aiTraffic: 'empty',
+            crawlers: hasIngestedEvents ? 'needs-server-logs' : 'empty',
+        }
+    }
+    return {
+        tab: 'ready',
+        aiTraffic: totals.llm > 0 ? 'ready' : 'empty',
+        crawlers: totals.crawls > 0 ? 'ready' : totals.serverLogs > 0 ? 'empty' : 'needs-server-logs',
+    }
 }
 
 const tsLiteral = (date: dayjs.Dayjs, timezone: string): string => date.tz(timezone).format("'YYYY-MM-DD HH:mm:ss'")
@@ -309,8 +351,7 @@ export const parsePagePerformanceOverviewResponse = (
 /** Aligns the human and crawler series onto one bucket axis — either query can miss a bucket entirely. */
 export const mergePagePerformanceSeries = (
     human: ParsedOverviewResponse,
-    crawler: ParsedOverviewResponse,
-    bucketSize: PagePerformanceBucket
+    crawler: ParsedOverviewResponse
 ): OverviewSeriesPoint[] => {
     const byBucket = new Map<number, OverviewSeriesPoint>()
 
@@ -321,7 +362,7 @@ export const mergePagePerformanceSeries = (
             return existing
         }
         const point: OverviewSeriesPoint = {
-            label: formatBucketLabel(bucket, bucketSize),
+            label: bucket.toISOString(),
             visitors: 0,
             google: 0,
             llm: 0,
@@ -375,16 +416,6 @@ const BUCKET_HOGQL_FN: Record<PagePerformanceBucket, string> = {
     day: 'toStartOfDay',
     week: 'toStartOfWeek',
 }
-
-const BUCKET_LABEL_FORMAT: Record<PagePerformanceBucket, string> = {
-    hour: 'MMM D, HH:mm',
-    day: 'MMM D',
-    week: 'MMM D',
-}
-
-// The bucket is parsed with `dayjs.tz(..., timezone)`, so it already carries the target offset.
-const formatBucketLabel = (bucket: dayjs.Dayjs, bucketSize: PagePerformanceBucket): string =>
-    bucket.format(BUCKET_LABEL_FORMAT[bucketSize])
 
 export interface MetricCellValue {
     current: number
@@ -449,6 +480,11 @@ const pageKeyExpr = (pathExpr: string): string => `concat(coalesce(properties.$h
 const pageCandidatesPredicate = (pageKey: string, candidates: string[]): string =>
     candidates.length > 0 ? `${pageKey} IN (${candidates.map(escapeHogQLString).join(', ')})` : 'false'
 
+/**
+ * In the page_durations subquery, `{filters}` matches the carrier event (the NEXT pageview, or the
+ * pageleave), not the measured page, so an event property that varies per pageview (e.g. $pathname)
+ * can skew avg_time. Session- and person-scoped filters are stable across the pair and stay coherent.
+ */
 export const buildPagePerformanceTableQuery = (
     window: PagePerformanceWindow,
     orderBy: PagePerformanceOrderBy,
@@ -560,7 +596,8 @@ const buildOverviewCrawlerQuery = (window: PagePerformanceWindow, bucketSize: Pa
 SELECT
     ${BUCKET_HOGQL_FN[bucketSize]}(timestamp) AS bucket,
     countIf((${CRAWLER}) AND ${cur}) AS crawls,
-    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous
+    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous,
+    countIf(event = '$http_log' AND ${cur}) AS server_logs
 FROM events
 WHERE and(
     event IN ${PAGE_PERFORMANCE_EVENTS},
@@ -642,12 +679,14 @@ export interface pagePerformanceLogicValues {
     dateFilter: DateFilterState
     filterTestAccounts: boolean
     isPathCleaningEnabled: boolean
+    webAnalyticsFilters: WebAnalyticsPropertyFilters
     aiSectionQueries: AiSectionQueries
     breakdownModal: PagePerformanceBreakdownState | null
     breakdownQuery: DataTableNode | null
     candidatesError: string | null
     candidatesInput: string
     candidatesLoading: boolean
+    dataState: PagePerformanceDataState
     footerText: string
     goalLabel: string | null
     orderBy: PagePerformanceOrderBy
@@ -718,12 +757,17 @@ export interface pagePerformanceLogicMeta {
         ) => PagePerformanceWindow
         pathExpr: (isPathCleaningEnabled: boolean, currentTeam: TeamPublicType | TeamType | null) => string
         previousPathExpr: (isPathCleaningEnabled: boolean, currentTeam: TeamPublicType | TeamType | null) => string
-        pageCandidateQuery: (dateFilter: DateFilterState, filterTestAccounts: boolean) => WebStatsTableQuery
+        pageCandidateQuery: (
+            dateFilter: DateFilterState,
+            filterTestAccounts: boolean,
+            webAnalyticsFilters: WebAnalyticsPropertyFilters
+        ) => WebStatsTableQuery
         pageTableQuery: (
             window: PagePerformanceWindow,
             orderBy: PagePerformanceOrderBy,
             conversionGoal: WebAnalyticsConversionGoal | null,
             filterTestAccounts: boolean,
+            webAnalyticsFilters: WebAnalyticsPropertyFilters,
             pathExpr: string,
             previousPathExpr: string,
             pageCandidates: string[] | null
@@ -732,7 +776,8 @@ export interface pagePerformanceLogicMeta {
             dateFilter: DateFilterState,
             filterTestAccounts: boolean,
             conversionGoal: WebAnalyticsConversionGoal | null,
-            compareFilter: CompareFilter
+            compareFilter: CompareFilter,
+            webAnalyticsFilters: WebAnalyticsPropertyFilters
         ) => AiSectionQueries
         bucketSize: (window: PagePerformanceWindow) => PagePerformanceBucket
         overviewHumanQuery: (
@@ -741,16 +786,27 @@ export interface pagePerformanceLogicMeta {
             bucketSize: PagePerformanceBucket
         ) => string
         overviewCrawlerQuery: (window: PagePerformanceWindow, bucketSize: PagePerformanceBucket) => string
-        overviewInput: (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean) => string
+        overviewInput: (
+            overviewHumanQuery: string,
+            overviewCrawlerQuery: string,
+            filterTestAccounts: boolean,
+            webAnalyticsFilters: WebAnalyticsPropertyFilters
+        ) => string
         candidatesInput: (pageCandidateQuery: WebStatsTableQuery) => string
         breakdownQuery: (
             breakdownModal: PagePerformanceBreakdownState | null,
             window: PagePerformanceWindow,
             filterTestAccounts: boolean,
+            webAnalyticsFilters: WebAnalyticsPropertyFilters,
             pathExpr: string
         ) => DataTableNode | null
         comparePeriods: (compareFilter: CompareFilter) => boolean
         siteVisitors: (overviewTotals: OverviewTotals | null) => number
+        dataState: (
+            overviewTotals: OverviewTotals | null,
+            overviewError: string | null,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => PagePerformanceDataState
         overviewMetrics: (
             overviewTotals: OverviewTotals | null,
             overviewSeries: OverviewSeriesPoint[],
@@ -784,6 +840,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 'compareFilter',
                 'conversionGoal',
                 'isPathCleaningEnabled',
+                'webAnalyticsFilters',
             ],
             teamLogic,
             ['currentTeam'],
@@ -896,12 +953,16 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 ),
         ],
         pageCandidateQuery: [
-            (s) => [s.dateFilter, s.filterTestAccounts],
-            (dateFilter: DateFilterState, filterTestAccounts: boolean): WebStatsTableQuery => ({
+            (s) => [s.dateFilter, s.filterTestAccounts, s.webAnalyticsFilters],
+            (
+                dateFilter: DateFilterState,
+                filterTestAccounts: boolean,
+                webAnalyticsFilters: WebAnalyticsPropertyFilters
+            ): WebStatsTableQuery => ({
                 kind: NodeKind.WebStatsTableQuery,
                 breakdownBy: WebStatsBreakdown.Page,
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                properties: [],
+                properties: webAnalyticsFilters,
                 compareFilter: { compare: false },
                 doPathCleaning: false,
                 filterTestAccounts,
@@ -918,6 +979,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 s.orderBy,
                 s.conversionGoal,
                 s.filterTestAccounts,
+                s.webAnalyticsFilters,
                 s.pathExpr,
                 s.previousPathExpr,
                 s.pageCandidates,
@@ -927,6 +989,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 orderBy: PagePerformanceOrderBy,
                 conversionGoal: WebAnalyticsConversionGoal | null,
                 filterTestAccounts: boolean,
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 pathExpr: string,
                 previousPathExpr: string,
                 pageCandidates: string[] | null
@@ -942,7 +1005,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                         previousPathExpr,
                         pageCandidates ?? []
                     ),
-                    filters: { filterTestAccounts },
+                    filters: { filterTestAccounts, properties: webAnalyticsFilters },
                     tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                 },
                 embedded: true,
@@ -959,12 +1022,13 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
             }),
         ],
         aiSectionQueries: [
-            (s) => [s.dateFilter, s.filterTestAccounts, s.conversionGoal, s.compareFilter],
+            (s) => [s.dateFilter, s.filterTestAccounts, s.conversionGoal, s.compareFilter, s.webAnalyticsFilters],
             (
                 dateFilter: DateFilterState,
                 filterTestAccounts: boolean,
                 conversionGoal: WebAnalyticsConversionGoal | null,
-                compareFilter: CompareFilter
+                compareFilter: CompareFilter,
+                webAnalyticsFilters: WebAnalyticsPropertyFilters
             ): AiSectionQueries => {
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
                 const interval = dateFilter.interval
@@ -976,6 +1040,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                         operator: PropertyOperator.Exact,
                         type: PropertyFilterType.Session,
                     },
+                    ...webAnalyticsFilters,
                 ]
                 const crawlerFilters: WebAnalyticsPropertyFilters = [
                     {
@@ -996,6 +1061,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                         operator: PropertyOperator.Exact,
                         type: PropertyFilterType.Event,
                     },
+                    ...webAnalyticsFilters,
                 ]
 
                 const referralColumns = [
@@ -1116,6 +1182,18 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
             (s) => [s.compareFilter],
             (compareFilter: CompareFilter): boolean => compareFilter.compare !== false,
         ],
+        dataState: [
+            (s) => [s.overviewTotals, s.overviewError, s.currentTeam],
+            (
+                overviewTotals: OverviewTotals | null,
+                overviewError: string | null,
+                currentTeam: TeamPublicType | TeamType | null
+            ): PagePerformanceDataState =>
+                // A failed overview says nothing about the sections, so let their own queries speak instead.
+                overviewError
+                    ? READY_DATA_STATE
+                    : resolvePagePerformanceDataState(overviewTotals, !!currentTeam?.ingested_event),
+        ],
         // A number rather than the totals object, so a reload doesn't re-render every row on identity alone.
         siteVisitors: [
             (s) => [s.overviewTotals],
@@ -1132,20 +1210,26 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 buildOverviewCrawlerQuery(window, bucketSize),
         ],
         overviewInput: [
-            (s) => [s.overviewHumanQuery, s.overviewCrawlerQuery, s.filterTestAccounts],
-            (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean): string =>
-                JSON.stringify([overviewHumanQuery, overviewCrawlerQuery, filterTestAccounts]),
+            (s) => [s.overviewHumanQuery, s.overviewCrawlerQuery, s.filterTestAccounts, s.webAnalyticsFilters],
+            (
+                overviewHumanQuery: string,
+                overviewCrawlerQuery: string,
+                filterTestAccounts: boolean,
+                webAnalyticsFilters: WebAnalyticsPropertyFilters
+            ): string =>
+                JSON.stringify([overviewHumanQuery, overviewCrawlerQuery, filterTestAccounts, webAnalyticsFilters]),
         ],
         candidatesInput: [
             (s) => [s.pageCandidateQuery],
             (pageCandidateQuery: WebStatsTableQuery): string => JSON.stringify(pageCandidateQuery),
         ],
         breakdownQuery: [
-            (s) => [s.breakdownModal, s.window, s.filterTestAccounts, s.pathExpr],
+            (s) => [s.breakdownModal, s.window, s.filterTestAccounts, s.webAnalyticsFilters, s.pathExpr],
             (
                 breakdownModal: PagePerformanceBreakdownState | null,
                 window: PagePerformanceWindow,
                 filterTestAccounts: boolean,
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 pathExpr: string
             ): DataTableNode | null => {
                 if (!breakdownModal) {
@@ -1160,7 +1244,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                     source: {
                         kind: NodeKind.HogQLQuery,
                         query,
-                        filters: { filterTestAccounts },
+                        filters: { filterTestAccounts, properties: webAnalyticsFilters },
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
@@ -1239,7 +1323,10 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 const overviewNode = (query: string): HogQLQuery => ({
                     kind: NodeKind.HogQLQuery,
                     query,
-                    filters: { filterTestAccounts: values.filterTestAccounts },
+                    filters: {
+                        filterTestAccounts: values.filterTestAccounts,
+                        properties: values.webAnalyticsFilters,
+                    },
                     tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                 })
                 try {
@@ -1248,7 +1335,7 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                         performQuery(overviewNode(values.overviewCrawlerQuery), { signal }),
                     ])
                     breakpoint()
-                    const { window: dateWindow, bucketSize } = values
+                    const { window: dateWindow } = values
                     const human = parsePagePerformanceOverviewResponse(
                         humanResponse.columns,
                         humanResponse.results,
@@ -1270,8 +1357,9 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                             crawls: crawler.totals.crawls ?? 0,
                             crawlsPrevious: crawler.totals.crawls_previous ?? 0,
                             pages: human.totals.pages ?? 0,
+                            serverLogs: crawler.totals.server_logs ?? 0,
                         },
-                        mergePagePerformanceSeries(human, crawler, bucketSize)
+                        mergePagePerformanceSeries(human, crawler)
                     )
                 } catch (error) {
                     if (isCancellation(error)) {

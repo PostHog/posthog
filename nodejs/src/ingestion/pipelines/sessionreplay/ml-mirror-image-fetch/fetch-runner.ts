@@ -1,6 +1,7 @@
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 
+import type { ImageFetchBlockReason } from './block-reason'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
 import {
     ConfigurationPolicyPass,
@@ -8,6 +9,7 @@ import {
     explicitFreshnessLifetimeMs,
 } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
+import { FetchCandidateLease, FetchCandidateQueue } from './fetch-candidate-queue'
 import { FrontierPublisher, RepublishBatch, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import {
@@ -20,6 +22,7 @@ import {
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 export type ShedReason =
     | 'breaker_open'
@@ -43,6 +46,7 @@ export interface FetchAttempt {
     outcome: AttemptOutcome
     finished: boolean
     lost: boolean
+    block?: { reason: ImageFetchBlockReason; waitMs: number }
     history?: UrlCrawlHistoryItem
     configurationUpdates: ConfigurationCacheItem[]
 }
@@ -67,6 +71,12 @@ function requirePositive(name: string, value: number): void {
     }
 }
 
+function requirePositiveSafeInteger(name: string, value: number): void {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`${name} must be a positive safe integer, got ${value}`)
+    }
+}
+
 export function isTransientOutcome(outcome: AttemptOutcome): outcome is TransientFetchOutcome {
     return TRANSIENT_OUTCOMES.has(outcome as TransientFetchOutcome)
 }
@@ -85,6 +95,10 @@ export interface FetchPass {
     ): Promise<FetchAttempt[]>
 }
 
+interface FetchPassState {
+    failure?: { error: unknown }
+}
+
 export class FetchRunner implements FetchPass {
     private readonly candidateWork: ConcurrencyController
 
@@ -94,13 +108,17 @@ export class FetchRunner implements FetchPass {
         private readonly scheduler: OriginRequestScheduler,
         private readonly configurationPolicy: ConfigurationPolicyService,
         private readonly options: FetchRunnerOptions,
-        private readonly publisher: FrontierPublisher
+        private readonly publisher: FrontierPublisher,
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics
     ) {
-        requirePositive(
+        requirePositiveSafeInteger(
             'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN',
             options.maxConcurrentPerRegistrableDomain
         )
-        requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
+        requirePositiveSafeInteger(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS',
+            options.maxInFlightRequests
+        )
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
         requirePositive('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS', options.seenTtlSeconds)
@@ -119,40 +137,51 @@ export class FetchRunner implements FetchPass {
         const activeRepublishBatch = republishBatch ?? this.publisher.createRepublishBatch()
         const deadlineMs = Date.now() + this.options.batchBudgetMs
         const configurationPolicy = this.configurationPolicy.createPass()
+        const passState: FetchPassState = {}
         const configurationItems = new Map<string, ConfigurationCacheItem>()
         for (const [key, item] of stored) {
             if (item.kind === 'robots' || item.kind === 'tdmrep') {
                 configurationItems.set(key, item)
             }
         }
-        const byRegistrableDomain = new Map<string, FetchCandidate[]>()
-        for (const candidate of candidates) {
-            const queue = byRegistrableDomain.get(candidate.registrableDomain)
-            if (queue) {
-                queue.push(candidate)
-            } else {
-                byRegistrableDomain.set(candidate.registrableDomain, [candidate])
-            }
-        }
-        const attempts: FetchAttempt[] = []
-        const registrableDomainRuns = [...byRegistrableDomain].map(([registrableDomain, queue]) =>
-            this.runRegistrableDomainQueue(
-                registrableDomain,
-                queue,
-                stored,
-                configurationItems,
-                configurationPolicy,
-                deadlineMs,
-                attempts,
-                activeRepublishBatch
-            )
+        const queue = new FetchCandidateQueue(candidates, this.options)
+        this.topHogMetrics?.recordConcurrencyLimitedUrls(candidates, (registrableDomain) =>
+            this.budget.availableConnections(registrableDomain, this.options.maxConcurrentPerRegistrableDomain)
         )
-        const settledRegistrableDomains = await Promise.allSettled(registrableDomainRuns)
-        const failedRegistrableDomain = settledRegistrableDomains.find(
+        const podRequestSlots = Math.max(0, this.options.maxInFlightRequests - this.candidateWork.running)
+        ImageFetchRequestMetrics.observeBatchSchedulableCapacity(
+            Math.min(
+                podRequestSlots,
+                queue.availableRequestSlotsAtStart((registrableDomain) =>
+                    this.budget.availableConnections(registrableDomain, this.options.maxConcurrentPerRegistrableDomain)
+                )
+            ),
+            this.options.maxInFlightRequests
+        )
+        const attempts: FetchAttempt[] = []
+        const workers = Array.from(
+            { length: Math.min(this.options.maxInFlightRequests, queue.schedulableSlotsAtStart) },
+            () =>
+                this.runQueueWorker(
+                    queue,
+                    stored,
+                    configurationItems,
+                    configurationPolicy,
+                    deadlineMs,
+                    attempts,
+                    activeRepublishBatch,
+                    passState
+                )
+        )
+        const settledWorkers = await Promise.allSettled(workers)
+        if (passState.failure) {
+            throw passState.failure.error
+        }
+        const failedWorker = settledWorkers.find(
             (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
         )
-        if (failedRegistrableDomain) {
-            throw failedRegistrableDomain.reason
+        if (failedWorker) {
+            throw failedWorker.reason
         }
         if (!republishBatch) {
             const result = await activeRepublishBatch.flush()
@@ -164,74 +193,91 @@ export class FetchRunner implements FetchPass {
         return attempts
     }
 
-    private async runRegistrableDomainQueue(
-        registrableDomain: string,
-        queue: FetchCandidate[],
+    private async runQueueWorker(
+        queue: FetchCandidateQueue,
         stored: Map<string, CrawlHistoryItem>,
         configurationItems: Map<string, ConfigurationCacheItem>,
         configurationPolicy: ConfigurationPolicyPass,
         deadlineMs: number,
         attempts: FetchAttempt[],
-        republishBatch: RepublishBatch
+        republishBatch: RepublishBatch,
+        passState: FetchPassState
     ): Promise<void> {
-        const byOrigin = new Map<string, FetchCandidate[]>()
-        for (const candidate of queue) {
-            const originQueue = byOrigin.get(candidate.origin)
-            if (originQueue) {
-                originQueue.push(candidate)
-            } else {
-                byOrigin.set(candidate.origin, [candidate])
+        for (;;) {
+            const lease = queue.take()
+            if (!lease) {
+                return
             }
-        }
-        const registrableDomainWork = new ConcurrencyController(this.options.maxConcurrentPerRegistrableDomain)
-        const runOriginQueue = async (originQueue: FetchCandidate[]): Promise<void> => {
-            for (const candidate of originQueue) {
-                if (candidate.remainingHops === 0) {
-                    attempts.push(this.terminal(candidate, HOPS_EXHAUSTED, undefined, []))
-                    continue
-                }
-                if (Date.now() > deadlineMs) {
-                    attempts.push(await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, []))
-                    continue
-                }
+            try {
                 attempts.push(
-                    await registrableDomainWork.run({
-                        debugTag: candidate.origin,
-                        fn: () =>
-                            this.candidateWork.run({
-                                debugTag: registrableDomain,
-                                fn: () => {
-                                    if (Date.now() > deadlineMs) {
-                                        return this.republish(
-                                            republishBatch,
-                                            candidate,
-                                            'deadline',
-                                            'pass_deadline',
-                                            0,
-                                            []
-                                        )
-                                    }
-                                    return this.fetchOne(
-                                        candidate,
-                                        stored,
-                                        configurationItems,
-                                        configurationPolicy,
-                                        deadlineMs,
-                                        republishBatch
-                                    )
-                                },
-                            }),
-                    })
+                    await this.processLease(
+                        lease,
+                        stored,
+                        configurationItems,
+                        configurationPolicy,
+                        deadlineMs,
+                        republishBatch,
+                        passState
+                    )
                 )
+            } catch (error) {
+                passState.failure ??= { error }
+                queue.abort()
+                throw error
+            } finally {
+                lease.release()
             }
         }
-        const settledWorkers = await Promise.allSettled([...byOrigin.values()].map(runOriginQueue))
-        const failedWorker = settledWorkers.find(
-            (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
-        )
-        if (failedWorker) {
-            throw failedWorker.reason
+    }
+
+    private async processLease(
+        lease: FetchCandidateLease,
+        stored: Map<string, CrawlHistoryItem>,
+        configurationItems: Map<string, ConfigurationCacheItem>,
+        configurationPolicy: ConfigurationPolicyPass,
+        deadlineMs: number,
+        republishBatch: RepublishBatch,
+        passState: FetchPassState
+    ): Promise<FetchAttempt> {
+        const candidate = lease.candidate
+        if (candidate.remainingHops === 0) {
+            return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
         }
+        if (Date.now() > deadlineMs) {
+            return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
+        }
+        return await this.candidateWork.run({
+            debugTag: candidate.registrableDomain,
+            fn: async () => {
+                if (passState.failure) {
+                    throw passState.failure.error
+                }
+                try {
+                    if (Date.now() > deadlineMs) {
+                        return await this.republish(
+                            republishBatch,
+                            candidate,
+                            'deadline',
+                            'pass_deadline',
+                            0,
+                            [],
+                            'pass_deadline'
+                        )
+                    }
+                    return await this.fetchOne(
+                        candidate,
+                        stored,
+                        configurationItems,
+                        configurationPolicy,
+                        deadlineMs,
+                        republishBatch
+                    )
+                } catch (error) {
+                    passState.failure ??= { error }
+                    throw error
+                }
+            },
+        })
     }
 
     private async fetchOne(
@@ -260,7 +306,8 @@ export class FetchRunner implements FetchPass {
                         policy.reason,
                         policy.reason,
                         ONE_MINUTE_MS,
-                        configurationUpdates
+                        configurationUpdates,
+                        policy.reason
                     )
                 }
                 const waitMs = policy.reason === 'configuration_unreachable' ? CONFIGURATION_RETRY_MS : ONE_MINUTE_MS
@@ -270,7 +317,10 @@ export class FetchRunner implements FetchPass {
                     'backoff',
                     'not_ready',
                     waitMs,
-                    configurationUpdates
+                    configurationUpdates,
+                    policy.reason === 'configuration_unreachable'
+                        ? 'configuration_unreachable'
+                        : 'configuration_deferred'
                 )
             }
             return this.terminal(
@@ -289,13 +339,15 @@ export class FetchRunner implements FetchPass {
                 'origin_map_full',
                 'origin_map_full',
                 ONE_MINUTE_MS,
-                configurationUpdates
+                configurationUpdates,
+                'origin_map_full'
             )
         }
 
         const previous = stored.get(candidate.originalRef)
         const previousUrl = previous?.kind === 'url' ? previous : undefined
         const result = await this.fetcher.fetch(candidate.currentUrl, {
+            sourcePartitions: candidate.sourcePartitions,
             maxBytes: this.options.maxBytes,
             timeoutMs: this.options.requestTimeoutMs,
             maxRedirects: Math.min(this.options.maxRedirects, candidate.remainingHops),
@@ -304,7 +356,12 @@ export class FetchRunner implements FetchPass {
             onRedirectResponse: () => this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now()),
             isDifferentOrigin: (url) => url.origin !== candidate.origin,
             scheduleRequest: (url, requestDeadlineMs, request) =>
-                this.scheduler.runImage(url, Math.min(deadlineMs, requestDeadlineMs), request),
+                this.scheduler.runImage(
+                    url,
+                    Math.min(deadlineMs, requestDeadlineMs),
+                    request,
+                    candidate.sourcePartitions
+                ),
             checkRedirectPolicy: async (url) => {
                 const redirectPolicy = await configurationPolicy.check(url, configurationItems, Date.now())
                 for (const update of redirectPolicy.updates) {
@@ -360,7 +417,12 @@ export class FetchRunner implements FetchPass {
                     reason,
                     republishReason,
                     waitMs,
-                    configurationUpdates
+                    configurationUpdates,
+                    stateFull
+                        ? reason
+                        : reason === 'configuration_unreachable'
+                          ? 'configuration_unreachable'
+                          : 'configuration_deferred'
                 )
             }
             return this.terminal(attemptedCandidate, reason, undefined, configurationUpdates, reason)
@@ -388,7 +450,15 @@ export class FetchRunner implements FetchPass {
                 reason,
                 republishReason,
                 waitMs,
-                configurationUpdates
+                configurationUpdates,
+                result.schedulingBlockingReason ??
+                    (republishReason === 'pass_deadline'
+                        ? 'pass_deadline'
+                        : reason === 'backoff'
+                          ? 'unknown_backoff'
+                          : reason === 'deadline'
+                            ? 'request_deadline'
+                            : reason)
             )
         }
 
@@ -406,7 +476,8 @@ export class FetchRunner implements FetchPass {
                 result.outcome,
                 'retry',
                 delayMs,
-                configurationUpdates
+                configurationUpdates,
+                result.retryAfterMs === undefined ? 'transient_backoff' : 'retry_after'
             )
             return attempt
         }
@@ -466,7 +537,8 @@ export class FetchRunner implements FetchPass {
         outcome: AttemptOutcome,
         reason: RepublishReason,
         waitMs: number,
-        configurationUpdates: ConfigurationCacheItem[]
+        configurationUpdates: ConfigurationCacheItem[],
+        blockingReason: ImageFetchBlockReason
     ): Promise<FetchAttempt> {
         return await this.republishToTarget(
             republishBatch,
@@ -480,7 +552,8 @@ export class FetchRunner implements FetchPass {
             },
             reason,
             waitMs,
-            configurationUpdates
+            configurationUpdates,
+            { reason: blockingReason, waitMs }
         )
     }
 
@@ -491,20 +564,26 @@ export class FetchRunner implements FetchPass {
         target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'registrableDomain'>,
         reason: RepublishReason,
         waitMs: number,
-        configurationUpdates: ConfigurationCacheItem[]
+        configurationUpdates: ConfigurationCacheItem[],
+        block?: { reason: ImageFetchBlockReason; waitMs: number }
     ): Promise<FetchAttempt> {
         if ((reason === 'redirect' || reason === 'retry') && candidate.remainingHops <= 1) {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, configurationUpdates)
         }
-        const result: RepublishResult = await republishBatch.republish(candidate, target, reason, waitMs)
+        const republishedCandidate: FetchCandidate = {
+            ...candidate,
+            lastBlockReason: block?.reason,
+        }
+        const result: RepublishResult = await republishBatch.republish(republishedCandidate, target, reason, waitMs)
         if (result === 'refused_delay') {
             return this.terminal(candidate, DELAY_TOO_LONG, undefined, configurationUpdates)
         }
         return {
-            candidate,
+            candidate: republishedCandidate,
             outcome,
             finished: false,
             lost: false,
+            block,
             configurationUpdates,
         }
     }

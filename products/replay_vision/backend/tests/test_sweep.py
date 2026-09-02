@@ -1207,9 +1207,8 @@ def test_limit_notification_excludes_users_denied_on_the_scanner() -> None:
     from posthog.constants import AvailableFeature
     from posthog.models import OrganizationMembership, User
 
+    from products.access_control.backend.models.access_control import AccessControl
     from products.notifications.backend.facade.enums import TargetType
-
-    from ee.models.rbac.access_control import AccessControl
 
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit)
@@ -1247,7 +1246,7 @@ def test_limit_notification_is_delivered_end_to_end() -> None:
     # whole delivery path regress invisibly.
     from posthog.models import User
 
-    from products.notifications.backend.models import NotificationEvent
+    from products.notifications.backend.facade.testing import stored_notification_for_resource
 
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit)
@@ -1261,7 +1260,7 @@ def test_limit_notification_is_delivered_end_to_end() -> None:
         output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.capped is True
-    event = NotificationEvent.objects.get(resource_type="replay_scanner", resource_id=str(scanner.id))
+    event = stored_notification_for_resource(resource_type="replay_scanner", resource_id=str(scanner.id))
     assert member.id in event.resolved_user_ids
     assert event.source_url == f"/project/{scanner.team.project_id}/replay-vision/{scanner.id}"
     assert scanner.name in event.title

@@ -5,7 +5,7 @@ import { DateTime } from 'luxon'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
@@ -42,9 +42,8 @@ describe('LegacyPluginExecutorService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         service = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         fn = createHogFunction({
             name: 'Plugin test',
@@ -55,8 +54,7 @@ describe('LegacyPluginExecutorService', () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
-        // Generate a unique plugin ID to avoid conflicts
-        uniquePluginId = 50000 + Math.floor(Math.random() * 100000)
+        uniquePluginId = uniqueTestId()
 
         // Create a plugin in the database
         await hub.postgres.query(
@@ -82,7 +80,7 @@ describe('LegacyPluginExecutorService', () => {
             'insertPlugin'
         )
 
-        pluginConfigId = 10001
+        pluginConfigId = uniquePluginId
 
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -226,7 +224,11 @@ describe('LegacyPluginExecutorService', () => {
             expect(res.error).toBeUndefined()
 
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
-            expect(forSnapshot(jest.mocked(customerIoPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
+            expect(
+                forSnapshot(jest.mocked(customerIoPlugin.onEvent!).mock.calls[0][0], {
+                    overrides: { team_id: '<TEAM_ID>' },
+                })
+            ).toMatchInlineSnapshot(`
                 {
                   "$set": undefined,
                   "$set_once": undefined,
@@ -236,11 +238,11 @@ describe('LegacyPluginExecutorService', () => {
                   "properties": {
                     "email": "test@posthog.com",
                   },
-                  "team_id": 2,
+                  "team_id": "<TEAM_ID>",
                   "timestamp": "2025-01-01T00:00:00.000Z",
                   "uuid": "<REPLACED-UUID-0>",
                 }
-            `)
+                `)
 
             // One for setup and then two calls
             expect(mockFetch).toHaveBeenCalledTimes(3)
@@ -414,7 +416,7 @@ describe('LegacyPluginExecutorService', () => {
 
                 expect(res.finished).toBe(true)
                 expect(res.error).toBeUndefined()
-                expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
+                expect(forSnapshot(res.execResult, { overrides: { team_id: '<TEAM_ID>' } })).toMatchInlineSnapshot(`
                     {
                       "$set": undefined,
                       "$set_once": undefined,
@@ -424,7 +426,7 @@ describe('LegacyPluginExecutorService', () => {
                       "properties": {
                         "email": "test@posthog.com",
                       },
-                      "team_id": 2,
+                      "team_id": "<TEAM_ID>",
                       "timestamp": "2025-01-01T00:00:00.000Z",
                       "uuid": "<REPLACED-UUID-0>",
                     }
@@ -466,7 +468,7 @@ describe('LegacyPluginExecutorService', () => {
 
                 expect(res.finished).toBe(true)
                 expect(res.error).toBeUndefined()
-                expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
+                expect(forSnapshot(res.execResult, { overrides: { team_id: '<TEAM_ID>' } })).toMatchInlineSnapshot(`
                     {
                       "$set": undefined,
                       "$set_once": undefined,
@@ -479,7 +481,7 @@ describe('LegacyPluginExecutorService', () => {
                         "version__minor": 12,
                         "version__patch": 20,
                       },
-                      "team_id": 2,
+                      "team_id": "<TEAM_ID>",
                       "timestamp": "2025-01-01T00:00:00.000Z",
                       "uuid": "<REPLACED-UUID-0>",
                     }
@@ -570,7 +572,7 @@ describe('LegacyPluginExecutorService', () => {
             const res = await service.execute(invocation)
 
             expect(res.finished).toBe(true)
-            expect(res.error).toMatchInlineSnapshot(`[Error: Plugin config 123 for team 2 not found]`)
+            expect(res.error).toEqual(new Error(`Plugin config 123 for team ${team.id} not found`))
         })
 
         it('should succeed if legacy plugin config id is provided', async () => {

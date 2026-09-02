@@ -15,12 +15,15 @@ from optimize_test_durations import (
     ShardTimings,
     _pick_outlier,
     average_durations,
+    drifting_shards,
     main,
     outlier_merge_durations,
     run_average_files,
     run_merge_files,
     scale_products_to_junit,
     scope_products_to_junit,
+    shard_clock_coverage,
+    shard_map_clock_ratios,
     shard_sets_match,
 )
 
@@ -28,6 +31,11 @@ from optimize_test_durations import (
 # _junit_to_pytest_id resolves cleanly.
 _MIN_JUNIT_XML = b"""<?xml version="1.0"?>
 <testsuite name="pytest"><testcase classname="posthog.test_foo.TestThing" name="test_one" time="0.5"/></testsuite>
+"""
+
+# What pytest writes for a product that has no tests yet: valid, parseable, and empty.
+_NO_TESTS_JUNIT_XML = b"""<?xml version="1.0"?>
+<testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="0" time="0.479"/></testsuites>
 """
 
 
@@ -450,6 +458,157 @@ def test_scale_products_to_junit_matches_sums_to_measured_work(tmp_path: Path) -
     assert scaled["products/big_one/backend/test_a.py::TestA::test_b"] == pytest.approx(200.0)
     assert scaled["posthog/test/test_x.py::test_x"] == 5.0
     assert scaled["products/.junit-scaled"] == 1.0
+
+
+def test_main_writes_sub_ten_millisecond_durations_as_recorded(tmp_path: Path, monkeypatch) -> None:
+    # A global floor once rewrote every fast test as 10 ms. Tens of thousands of
+    # parametrized tests really take 1 ms, so a shard of them planned at twice
+    # its real length.
+    shard_dir = tmp_path / "timing_artifacts" / "timing_data-Core-1"
+    shard_dir.mkdir(parents=True)
+    (shard_dir / ".test_durations").write_text(
+        json.dumps({"posthog/test_foo.py::TestThing::test_one": 0.5, "posthog/test_foo.py::TestThing::test_two": 0.001})
+    )
+    junit_dir = tmp_path / "junit_artifacts" / "junit-results-backend-core-1"
+    junit_dir.mkdir(parents=True)
+    (junit_dir / "junit.xml").write_bytes(
+        b'<?xml version="1.0"?><testsuite name="pytest">'
+        b'<testcase classname="posthog.test_foo.TestThing" name="test_one" time="0.5"/>'
+        b'<testcase classname="posthog.test_foo.TestThing" name="test_two" time="0.001"/></testsuite>'
+    )
+    out = tmp_path / "core_durations"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "optimize_test_durations.py",
+            str(tmp_path / "timing_artifacts"),
+            str(out),
+            "--segment",
+            "Core",
+            "--junit-dir",
+            str(tmp_path / "junit_artifacts"),
+            "--fail-on-drift",
+        ],
+    )
+
+    main()
+
+    assert json.loads(out.read_text())["posthog/test_foo.py::TestThing::test_two"] == 0.001
+
+
+@pytest.mark.parametrize("junit_shards_present", [(), ("1",), ("1", "2")])
+def test_fail_on_drift_refuses_an_incomplete_junit_set(tmp_path: Path, monkeypatch, junit_shards_present) -> None:
+    # No JUnit, JUnit for only one of two shards, or JUnit that shares no test
+    # with the timing data (the XML here names test_foo, the timings test_1 and
+    # test_2) would let the drift check pass on nothing; a strict run must
+    # refuse so the workflow keeps the previous slice instead of caching an
+    # unchecked one.
+    artifacts = tmp_path / "timing_artifacts"
+    for shard in ("1", "2"):
+        shard_dir = artifacts / f"timing_data-Core-{shard}"
+        shard_dir.mkdir(parents=True)
+        (shard_dir / ".test_durations").write_text(json.dumps({f"posthog/test_{shard}.py::test_{shard}": 1.0}))
+    junit_dir = tmp_path / "junit_artifacts"
+    junit_dir.mkdir()
+    for shard in junit_shards_present:
+        (junit_dir / f"junit-results-backend-core-{shard}").mkdir()
+        (junit_dir / f"junit-results-backend-core-{shard}" / "junit.xml").write_bytes(_MIN_JUNIT_XML)
+    out = tmp_path / "core_durations"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "optimize_test_durations.py",
+            str(artifacts),
+            str(out),
+            "--segment",
+            "Core",
+            "--junit-dir",
+            str(junit_dir),
+            "--fail-on-drift",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        main()
+    assert not out.exists()
+
+
+def test_fail_on_drift_accepts_a_shard_whose_junit_ran_no_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A product with no tests yet uploads a valid JUnit declaring tests="0". Reading that
+    # as a missing clock made the strict run exit, and the workflow then kept the previous
+    # products slice — freezing the timings of every product in the run, not just the empty
+    # one. The slice must be written, and keep the shard's entries.
+    artifacts = tmp_path / "timing_artifacts"
+    timings = {
+        "1": {"posthog/test_foo.py::TestThing::test_one": 0.5},
+        "2": {"posthog/test_bar.py::TestOther::test_two": 1.0},
+    }
+    for shard, entries in timings.items():
+        shard_dir = artifacts / f"timing_data-Core-{shard}"
+        shard_dir.mkdir(parents=True)
+        (shard_dir / ".test_durations").write_text(json.dumps(entries))
+    junit_dir = tmp_path / "junit_artifacts"
+    for shard, xml in (("1", _MIN_JUNIT_XML), ("2", _NO_TESTS_JUNIT_XML)):
+        (junit_dir / f"junit-results-backend-core-{shard}").mkdir(parents=True)
+        (junit_dir / f"junit-results-backend-core-{shard}" / "junit.xml").write_bytes(xml)
+    out = tmp_path / "core_durations"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "optimize_test_durations.py",
+            str(artifacts),
+            str(out),
+            "--segment",
+            "Core",
+            "--junit-dir",
+            str(junit_dir),
+            "--fail-on-drift",
+        ],
+    )
+
+    main()
+
+    assert json.loads(out.read_text()) == {
+        "posthog/test_foo.py::TestThing::test_one": 0.5,
+        "posthog/test_bar.py::TestOther::test_two": 1.0,
+    }
+
+
+@pytest.mark.parametrize(
+    "mapped_seconds, drifts",
+    [
+        (110.0, False),  # a tenth over: run-to-run noise
+        (250.0, True),  # the shape is wrong: tiny tests carrying phantom weight
+        (40.0, True),  # the other direction: heavy tests under-counted
+    ],
+)
+def test_shard_map_clock_ratio_flags_shape_drift(mapped_seconds: float, drifts: bool) -> None:
+    shard = JUnitShard(name="product-junit-results-3", call_times={"products/p/backend/test_a.py::test_a": 100.0})
+    durations = {"products/p/backend/test_a.py::test_a": mapped_seconds, "products/p/backend/test_b.py::test_b": 5.0}
+
+    ratios = shard_map_clock_ratios(durations, [shard])
+
+    # test_b never ran in this shard, so it does not count against the shard.
+    assert ratios == {"product-junit-results-3": pytest.approx(mapped_seconds / 100.0)}
+    assert bool(drifting_shards(ratios)) is drifts
+
+
+def test_shard_clock_coverage_counts_only_tests_the_map_holds() -> None:
+    # A test missing from the map drops out of the ratio on both sides, so the
+    # ratio alone cannot see a partial artifact; coverage can.
+    shard = JUnitShard(
+        name="product-junit-results-3",
+        call_times={"products/p/backend/test_a.py::test_a": 30.0, "products/p/backend/test_b.py::test_b": 70.0},
+    )
+
+    assert shard_clock_coverage({"products/p/backend/test_a.py::test_a": 31.0}, [shard]) == {
+        "product-junit-results-3": pytest.approx(0.3)
+    }
 
 
 def test_scale_products_to_junit_leaves_products_without_junit_alone(tmp_path: Path) -> None:

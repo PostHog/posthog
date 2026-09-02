@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * List all projects for the team.
  */
-export const VisualReviewReposListParams = /* @__PURE__ */ zod.object({
+export const VisualReviewReposListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const VisualReviewReposListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisualReviewReposListQueryParams = /* @__PURE__ */ zod.object({
+export const VisualReviewReposListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -27,7 +27,7 @@ export const VisualReviewReposListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Get a repo by ID.
  */
-export const VisualReviewReposRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisualReviewReposRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -37,9 +37,10 @@ export const VisualReviewReposRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List runs for the team, optionally filtered by review state, PR number, commit SHA, branch, or free-text search.
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
  */
-export const VisualReviewRunsListParams = /* @__PURE__ */ zod.object({
+export const VisualReviewReposFlakinessRetrieveParams = () => zod.object({
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -47,7 +48,68 @@ export const VisualReviewRunsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisualReviewRunsListQueryParams = /* @__PURE__ */ zod.object({
+/**
+ * List quarantined identifiers. Without filter: active only. With identifier: full history.
+ */
+export const VisualReviewReposQuarantineListParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
+    identifier: zod.string().optional().describe('Filter by identifier (returns full history)'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    run_type: zod.string().optional().describe('Filter by run type'),
+})
+
+/**
+ * List runs in this repo, optionally filtered by review state and free-text search.
+ */
+export const VisualReviewReposRunsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    repo_id: zod.string(),
+})
+
+export const VisualReviewReposRunsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    review_state: zod.string().optional().describe('Filter by review state'),
+    search: zod.string().optional().describe('Free-text search over branch, commit SHA, run type, and PR number'),
+})
+
+/**
+ * Review state counts for runs in this repo.
+ */
+export const VisualReviewReposRunsCountsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    repo_id: zod.string(),
+})
+
+/**
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, branch, or free-text search.
+ */
+export const VisualReviewRunsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisualReviewRunsListQueryParams = () => zod.object({
     branch: zod.string().optional().describe('Filter by branch name'),
     commit_sha: zod.string().optional().describe('Filter by full commit SHA'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -60,7 +122,7 @@ export const VisualReviewRunsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Get run status and summary.
  */
-export const VisualReviewRunsRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -73,9 +135,11 @@ export const VisualReviewRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * Mark snapshots reviewed (DB only).
  *
  * Records the per-snapshot "Accept change" decision. Does not commit the baseline
- * or change the GitHub gate — call finalize to ship the run.
+ * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
+ * snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
+ * which gives a quarantined story a baseline entry without lifting the quarantine.
  */
-export const VisualReviewRunsApproveCreateParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsApproveCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -84,7 +148,7 @@ export const VisualReviewRunsApproveCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsApproveCreateBody = () => zod.object({
     snapshots: zod
         .array(
             zod.object({
@@ -106,10 +170,12 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
  *
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
  * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
- * any still-pending changed/new snapshot is approved first. With commit_to_github=false
- * the server returns the signed baseline YAML instead of committing it.
+ * any still-pending changed/new snapshot is approved first; quarantined snapshots are
+ * skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+ * With commit_to_github=false the server returns the signed baseline YAML instead of
+ * committing it.
  */
-export const VisualReviewRunsFinalizeCreateParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsFinalizeCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -122,7 +188,7 @@ export const visualReviewRunsFinalizeCreateBodyApproveAllDefault = false
 export const visualReviewRunsFinalizeCreateBodyCommitToGithubDefault = true
 export const visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault = false
 
-export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsFinalizeCreateBody = () => zod.object({
     approve_all: zod
         .boolean()
         .default(visualReviewRunsFinalizeCreateBodyApproveAllDefault)
@@ -146,7 +212,7 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Recent change history for a snapshot identifier across runs.
  */
-export const VisualReviewRunsSnapshotHistoryListParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -155,7 +221,7 @@ export const VisualReviewRunsSnapshotHistoryListParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const VisualReviewRunsSnapshotHistoryListQueryParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsSnapshotHistoryListQueryParams = () => zod.object({
     identifier: zod.string().describe('Snapshot identifier'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -164,7 +230,7 @@ export const VisualReviewRunsSnapshotHistoryListQueryParams = /* @__PURE__ */ zo
 /**
  * Get a run's snapshots with diff results, excluding quarantined ones by default.
  */
-export const VisualReviewRunsSnapshotsListParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsSnapshotsListParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -173,7 +239,7 @@ export const VisualReviewRunsSnapshotsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisualReviewRunsSnapshotsListQueryParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
     include_quarantined: zod
         .boolean()
         .optional()
@@ -187,7 +253,7 @@ export const VisualReviewRunsSnapshotsListQueryParams = /* @__PURE__ */ zod.obje
 /**
  * Mark a changed snapshot as a known tolerated alternate.
  */
-export const VisualReviewRunsTolerateCreateParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsTolerateCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -196,7 +262,7 @@ export const VisualReviewRunsTolerateCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsTolerateCreateBody = () => zod.object({
     snapshot_id: zod
         .string()
         .describe(
@@ -207,7 +273,7 @@ export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
 /**
  * List known tolerated hashes for a snapshot identifier.
  */
-export const VisualReviewRunsToleratedHashesListParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsToleratedHashesListParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -216,7 +282,7 @@ export const VisualReviewRunsToleratedHashesListParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const VisualReviewRunsToleratedHashesListQueryParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsToleratedHashesListQueryParams = () => zod.object({
     identifier: zod.string().describe('Snapshot identifier'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -225,7 +291,7 @@ export const VisualReviewRunsToleratedHashesListQueryParams = /* @__PURE__ */ zo
 /**
  * Review state counts for the runs list.
  */
-export const VisualReviewRunsCountsRetrieveParams = /* @__PURE__ */ zod.object({
+export const VisualReviewRunsCountsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

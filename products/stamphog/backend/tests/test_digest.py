@@ -7,7 +7,7 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, transaction
+from django.db import OperationalError
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -26,11 +26,15 @@ from products.stamphog.backend.logic.channel_resolution import (
     SlackChannel,
 )
 from products.stamphog.backend.logic.digest import (
+    _HEADLINE_MAX_RETRIES,
+    _HEADLINE_TIMEOUT_SECONDS,
+    GRAZE_CHANGED_FILES,
     MAX_DIGEST_PRS,
+    MAX_FALLBACK_PRS,
     DigestPRSummary,
     DigestSummary,
-    _capped_summary,
-    _parse_llm_response,
+    _build_summary,
+    _parse_selection,
     summarize_merged_prs,
 )
 from products.stamphog.backend.logic.digest_runs import (
@@ -52,11 +56,11 @@ AUDIENCE = "team-devex"
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
-    keeps nothing is its own path (the digest posts nothing and releases the claim).
+    keeps nothing is its own path (the digest posts nothing and consumes the claim).
 
-    Goes through _capped_summary rather than building a DigestSummary, so a task test sees the same
-    truncation a real run would."""
-    return _capped_summary(
+    Goes through _build_summary rather than building a DigestSummary, so a task test sees the same
+    rail a real run would."""
+    return _build_summary(
         len(prs),
         [
             DigestPRSummary(
@@ -163,33 +167,34 @@ def testreclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_lin
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
-    # Worker death between Slack accepting the message and the completion transaction: the reclaim
-    # sweeper finalizes from persisted state only, so the proof-of-post write must already carry
-    # pr_count/summary — or the finalized run keeps zeros while its PRs stay linked.
+    # Worker death between Slack accepting the message and the completion write: the reclaim sweeper
+    # finalizes from persisted state only, so the proof-of-post write must already carry
+    # pr_count/summary, or the finalized run keeps zeros while its PRs stay linked.
+    #
+    # The crash goes in at the thread post, which is the last call before the completion write.
+    # An earlier version raised on the second transaction.atomic call; the completion write is no
+    # longer wrapped in one, so that injection stopped firing and the test passed on the ordinary
+    # path without ever entering the window it names.
     with team_scope(team.id):
         _seed_prs(team.id, pr_count=2)
-
-    real_atomic = transaction.atomic
-    atomic_calls = {"n": 0}
-
-    def _dying_atomic(*args: Any, **kwargs: Any):
-        # Call 1 is the claim transaction; call 2 is the completion transaction — the crash window
-        # under test sits right after the proof-of-post write, before the completion commits.
-        atomic_calls["n"] += 1
-        if atomic_calls["n"] == 2:
-            raise RuntimeError("worker died before the completion transaction")
-        return real_atomic(*args, **kwargs)
 
     with (
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
         patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="1234.5"),
-        patch("products.stamphog.backend.logic.digest_runs.transaction.atomic", side_effect=_dying_atomic),
+        patch(
+            "products.stamphog.backend.logic.digest_runs.post_digest_details",
+            side_effect=RuntimeError("worker died before the completion write"),
+        ),
     ):
         # send_team_digests contains each audience's failure, so the crash is read off the run state
         # rather than raised out of the task.
         _run_digests(team.id)
 
     with team_scope(team.id):
+        stranded = DigestRun.objects.for_team(team.id).get()
+        # The window this test exists for: Slack has the message, the run does not say so yet.
+        assert stranded.status == DigestRunStatus.PENDING
+        assert stranded.slack_message_ts == "1234.5"
         DigestRun.objects.for_team(team.id).update(
             created_at=timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
         )
@@ -471,10 +476,11 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
-    # Claiming marks every PR in a run as handled, so a PR the cap truncates is consumed by a
-    # digest that never showed it and no later digest can reach it. The overflow has to go back to
-    # unclaimed, while the PRs the summarizer deliberately left out stay consumed.
+def test_prs_the_rail_left_out_stay_consumed(team) -> None:
+    # The rail is a Slack payload limit and never an editorial one, so what it removes is dropped
+    # rather than handed back. Releasing the overflow put the same merges in front of the same
+    # prompt every morning, which grew a team's claim instead of draining it and carried merges
+    # into a channel days after they landed.
     overflow = 2
     _seed_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
 
@@ -488,8 +494,32 @@ def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
     _team_id, _destination, posted = post.call_args.args
     assert len(posted.prs) == MAX_DIGEST_PRS
     with team_scope(team.id):
-        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == overflow
-        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS + overflow
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_summary_that_keeps_nothing_consumes_the_claim(team) -> None:
+    # Keeping nothing is a judgment, not a failure worth retrying. Releasing the claim sent the same
+    # merges back to the same prompt the next morning, where the same text produced the same answer,
+    # so the batch grew for a week and then aged out unseen.
+    _seed_prs(team.id, pr_count=3)
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
+        patch(
+            "products.stamphog.backend.logic.digest_runs.summarize_merged_prs",
+            return_value=_build_summary(3, []),
+        ),
+    ):
+        _run_digests(team.id)
+
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        run = DigestRun.objects.for_team(team.id).get()
+        assert run.status == DigestRunStatus.COMPLETED
+        assert run.pr_count == 3
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -621,9 +651,142 @@ def _pr_stub(repository: str, pr_number: int, title: str, url: str) -> PullReque
     )
 
 
-def _fake_llm_client(content: str) -> Any:
-    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
-    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
+def _recording_llm_client(answers: list[Any]) -> Any:
+    """Answers each call with the next entry, recording the prompts it was given on `.prompts`.
+
+    An entry that is an exception is raised instead, which is how the selection call and the
+    headline call are given different fates.
+    """
+    prompts: list[str] = []
+
+    def create(**kwargs: Any) -> Any:
+        prompts.append(kwargs["messages"][0]["content"])
+        answer = answers[len(prompts) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))])
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), prompts=prompts, options=[]
+    )
+    # The real client hands back a bounded copy. The fake records the bounds and answers as itself,
+    # so a test can assert what the optional headline call was limited to.
+    client.with_options = lambda **kwargs: (client.options.append(kwargs), client)[1]
+    return client
+
+
+def test_the_headline_call_never_sees_a_merge_the_thread_left_out() -> None:
+    # The single-call version asked the model not to name a change it had dropped, and shipped two
+    # headlines that named one anyway: both accurate, both with no line under them and no link. The
+    # split makes that unreachable rather than forbidden, so what is asserted is the prompt, not the
+    # answer. A merge dropped for citing no valid rule must be absent from the second call's input.
+    prs = [
+        _pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1"),
+        _pr_stub("o/r", 2, "Dropped and unmentionable", "https://github.com/o/r/pull/2"),
+    ]
+    # The kept PR's reviewed summary has to travel with it. It is where a condition like a flag
+    # lives, and a headline that drops one states a gated change as shipped.
+    prs[0].summary_line = "Playback blocking is behind a flag, off by default."
+    selection = json.dumps(
+        {
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "The kept one."},
+                {"index": 1, "rule": "vibes", "summary": "The dropped one."},
+            ]
+        }
+    )
+    client = _recording_llm_client([selection, json.dumps({"headline": "The kept one shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs(prs)
+
+    assert [p.pr_number for p in summary.prs] == [1]
+    assert summary.headline == "The kept one shipped."
+    selection_prompt, headline_prompt = client.prompts
+    assert "Dropped and unmentionable" in selection_prompt
+    assert "Dropped and unmentionable" not in headline_prompt
+    assert "The kept one." in headline_prompt
+    assert "Playback blocking is behind a flag, off by default." in headline_prompt
+
+
+def test_a_headline_failure_keeps_the_judged_digest() -> None:
+    # The selection call already succeeded, so its lines are the digest. Taking a second-call
+    # timeout to the deterministic fallback would replace judged lines with unreviewed titles and
+    # throw away the half of the work that worked.
+    prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
+    answers = [
+        json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]}),
+        RuntimeError("gateway down"),
+    ]
+
+    client = _recording_llm_client(answers)
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is True
+    assert [p.summary for p in summary.prs] == ["It ships."]
+    assert summary.headline == ""
+    # The same call also has to be bounded. It sits in front of a Slack post that is already ready,
+    # and a team's audiences post one at a time, so an unbounded stall on an optional call holds up
+    # this digest and every audience behind it. The client's own default is ten minutes with retries.
+    assert client.options == [{"timeout": _HEADLINE_TIMEOUT_SECONDS, "max_retries": _HEADLINE_MAX_RETRIES}]
+
+
+@pytest.mark.parametrize(
+    "owned_count,changed_files,dropped",
+    [
+        (1, GRAZE_CHANGED_FILES, True),
+        (1, GRAZE_CHANGED_FILES - 1, False),
+        (2, GRAZE_CHANGED_FILES, False),
+    ],
+)
+def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
+    owned_count: int, changed_files: int, dropped: bool
+) -> None:
+    # A repo-wide config change owned one line in ten products and reached every one of their
+    # channels. The prompt named the graze and asked the model to drop it, and the model kept it
+    # anyway: the prompt carries no diff, so nothing in it says what that one file does. Code
+    # decides now. The grazed merge goes first so a filter that forgot to renumber the index map
+    # would resolve the model's index 0 to the wrong PR.
+    grazed = _pr_stub("o/r", 1, "Swept in", "https://github.com/o/r/pull/1")
+    grazed.changed_files = changed_files
+    owned = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
+    audiences = [
+        PullRequestAudience(
+            audience_key=AUDIENCE,
+            reason=AudienceReason.OWNED,
+            owned_files=[f"a{i}.py" for i in range(count)],
+            owned_file_count=count,
+        )
+        for count in (owned_count, 1)
+    ]
+    selection = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "The first one."}]})
+    client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs([grazed, owned], audiences)
+
+    assert ("Swept in" in client.prompts[0]) is not dropped
+    assert [p.pr_number for p in summary.prs] == [2 if dropped else 1]
+    # The scope line still counts every merge the audience claimed. Counting only what survived
+    # would tell a swept team that nothing landed in its area at all.
+    assert summary.considered == 2
+
+
+def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
+    # The fallback keeps merge order and judges nothing, so it needs its own low rail: the bar that
+    # normally keeps a digest short never runs on this path. It also has to mark itself, because a
+    # run consumes every merge it claims either way and the post reads like an ordinary quiet day.
+    prs = [_pr_stub("o/r", n, f"Change {n}", f"https://github.com/o/r/pull/{n}") for n in range(MAX_FALLBACK_PRS + 3)]
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", side_effect=RuntimeError("gateway down")):
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is False
+    assert len(summary.prs) == MAX_FALLBACK_PRS
+    assert summary.considered == len(prs)
+    assert summary.headline == ""
 
 
 def test_same_pr_number_across_repos_both_survive_summarization() -> None:
@@ -635,9 +798,19 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps({"prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]})
+    selection = json.dumps(
+        {
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "repo a change"},
+                {"index": 1, "rule": "customer", "summary": "repo b change"},
+            ]
+        }
+    )
 
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
+    with patch(
+        "products.stamphog.backend.logic.digest.get_llm_client",
+        return_value=_recording_llm_client([selection, json.dumps({"headline": "Both repos changed."})]),
+    ):
         summary = summarize_merged_prs(prs)
 
     assert len(summary.prs) == 2
@@ -648,11 +821,57 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
     assert {p.summary for p in summary.prs} == {"repo a change", "repo b change"}
 
 
+@pytest.mark.parametrize(
+    "raw_summary,expected",
+    [
+        ("The widget opens on the first click.", "The widget opens on the first click."),
+        ("  padded  ", "padded"),
+        (None, "The reviewer's own sentence."),
+        ("", "The reviewer's own sentence."),
+        ({"text": "Shipped"}, "The reviewer's own sentence."),
+        (["Shipped"], "The reviewer's own sentence."),
+        (42, "The reviewer's own sentence."),
+    ],
+    ids=[
+        "a_string_is_the_line",
+        "surrounding_whitespace_goes",
+        "an_omitted_summary_falls_back_to_the_reviewed_sentence",
+        "an_empty_summary_falls_back_too",
+        "a_dict_never_reaches_the_post_as_its_repr",
+        "a_list_does_not_either",
+        "nor_a_number",
+    ],
+)
+def test_only_a_string_becomes_a_change_line(raw_summary: Any, expected: str) -> None:
+    # Coercing whatever arrived put `{'text': 'Shipped'}` in the thread as its Python repr, and the
+    # channel lead can now promote a change line, so the repr had a route to the one line a reader
+    # cannot skip. Falling back to the reviewed sentence keeps a malformed entry saying something
+    # true rather than dropping the change.
+    pr = _pr_stub("o/r", 1, "The author's own claim.", "https://github.com/o/r/pull/1")
+    pr.summary_line = "The reviewer's own sentence."
+    content = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": raw_summary}]})
+
+    picked = _parse_selection(content, {0: pr})
+
+    assert [p.summary for p in picked] == [expected]
+
+
 @parameterized.expand(
     [
         ("empty_list_is_intentional_filtering", '{"prs": []}', True),
         ("unrecognizable_entries_are_not", '{"prs": [{"index": 99}, "junk"]}', False),
         ("missing_key_is_not", '{"summary": "x"}', False),
+        # A kept PR must name the rule that admits it. Without that check the model keeps most of a
+        # routine batch and calls all of it a customer change, which is the drift the rules catch.
+        # A response naming real merges that cleared no rule was read, so it is a judged empty
+        # result. Sending it to the fallback would post ten unjudged titles for the one answer that
+        # broke the bar outright.
+        ("a_kept_pr_without_a_rule_is_a_judged_empty", '{"prs": [{"index": 0, "summary": "x"}]}', True),
+        ("an_invented_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": "vibes", "summary": "x"}]}', True),
+        ("an_index_naming_no_merge_is_still_unreadable", '{"prs": [{"index": 99, "rule": "contract"}]}', False),
+        # `in` against a frozenset raises on an unhashable value, and the raise escaped into the
+        # outage fallback, which posts unjudged titles for a response that named no valid rule.
+        ("an_unhashable_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": [], "summary": "x"}]}', True),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
@@ -661,10 +880,10 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
     # an empty post instead of falling back to the deterministic list.
     prs_by_index = {0: _pr_stub("PostHog/posthog", 1, "Title", "https://example.com/1")}
     if accepted:
-        assert _parse_llm_response(content, prs_by_index).prs == []
+        assert _parse_selection(content, prs_by_index) == []
     else:
         with pytest.raises(ValueError):
-            _parse_llm_response(content, prs_by_index)
+            _parse_selection(content, prs_by_index)
 
 
 @pytest.mark.parametrize(
@@ -691,11 +910,15 @@ def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headlin
     # to read as prose. A model that answers with bullets puts the list back in the channel, and one
     # that answers with a URL either shows a raw link mid-sentence or, once escaped, shows raw
     # markup. Neither is repairable in place, so a link drops the headline and the renderer leads
-    # with the scope line instead.
-    content = json.dumps({"headline": raw_headline, "prs": [{"index": 0, "summary": "Ship it."}]})
-    summary = _parse_llm_response(content, {0: _pr_stub("o/r", 1, "Ship it", "https://example.com/1")})
+    # with the change's own line instead.
+    contents = [
+        json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "Ship it."}]}),
+        json.dumps({"headline": raw_headline}),
+    ]
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_recording_llm_client(contents)):
+        summary = summarize_merged_prs([_pr_stub("o/r", 1, "Ship it", "https://example.com/1")])
     assert summary.headline == expected
-    # A rejected headline never costs the change line it was written over.
+    # A rejected headline never costs the change line the selection call already wrote.
     assert len(summary.prs) == 1
 
 

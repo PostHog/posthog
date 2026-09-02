@@ -25,6 +25,8 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from products.tasks.backend.temporal.slack_relay.object_tags import split_incomplete_tag_suffix
+
     from .activities.slack_agent_design import (
         AppendSlackAgentDesignStepsInput,
         StartSlackAgentDesignStreamInput,
@@ -71,6 +73,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._current_task_title: Optional[str] = None
         self._current_task_details: Optional[str] = None
         self._last_dispatched_at: float = 0.0
+        # Length of a narrative held back whole (an unfinished tag); a flush waits for it to grow.
+        self._held_length: int = 0
         self._turn_complete: bool = False
 
     @workflow.signal
@@ -180,10 +184,32 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
                 if not self._has_seen_tool_call:
                     # Phase 1: stream narrative as markdown_text.
-                    to_stream = self._current_narrative
-                    if not to_stream:
+                    if not self._current_narrative:
                         continue
-                    self._current_narrative = ""
+                    if workflow.patched("slack-agent-design-hold-split-tags-2026-08"):
+                        # An object tag or code fence cut by the flush boundary would post as
+                        # raw XML; keep its start for the next flush. Patched because a history
+                        # recorded before this branch cleared the narrative here and then waited.
+                        split = split_incomplete_tag_suffix(self._current_narrative)
+                        if not split.sendable:
+                            self._held_length = len(self._current_narrative)
+                            try:
+                                await workflow.wait_condition(
+                                    lambda: len(self._current_narrative) != self._held_length or self._turn_complete,
+                                    timeout=timedelta(minutes=TURN_IDLE_TIMEOUT_MINUTES),
+                                )
+                            except TimeoutError:
+                                workflow.logger.warning(
+                                    "slack_app_agent_design_relay_idle_timeout",
+                                    extra={"workflow_id": workflow.info().workflow_id},
+                                )
+                                return
+                            continue
+                        to_stream = split.sendable
+                        self._current_narrative = split.held
+                    else:
+                        to_stream = self._current_narrative
+                        self._current_narrative = ""
                     self._last_dispatched_at = workflow.now().timestamp()
 
                     if self._stream_ts is None:

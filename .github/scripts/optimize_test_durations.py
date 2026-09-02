@@ -21,6 +21,16 @@ and skewing pytest-split.
 This script merges the per-shard artifacts, floors any test recorded far
 above its JUnit call time (or sitting at a flat-default placeholder) back
 to that call time, and outputs clean durations for balanced distribution.
+There is no global minimum: a 1 ms test is written as 1 ms. A floor there
+gave tens of thousands of tiny parametrized tests ten times their real
+weight, so a contiguous shard of them planned at twice its real length
+while the fixture-heavy shard next to it ran past its budget.
+
+The map-versus-clock report at the end compares, per JUnit shard, the sum of
+the finished durations for the tests that shard ran against the sum of the
+shard's JUnit times. Both are per-test measurements of the same run, so a
+correct file lands near 1.0 on every shard; a ratio far from 1.0 means a
+processing step changed the shape of the data, not just its total.
 """
 
 import re
@@ -40,7 +50,20 @@ from defusedxml.ElementTree import ParseError
 
 logger = logging.getLogger(__name__)
 
-MIN_DURATION = 0.01
+# Lower bound for a duration the corrections below rewrite: a corrected value
+# must stay positive so pytest-split still counts the test. Not a floor for
+# measured values; those are written as recorded.
+MIN_DURATION = 0.001
+# A shard whose map/clock ratio leaves this band has the wrong shape, not just
+# the wrong total. Per-shard sums cover hundreds of tests, so run-to-run noise
+# stays well inside it.
+SHARD_DRIFT_TOLERANCE = 1.5
+# Share of a JUnit shard's time that must have a map entry before strict mode
+# trusts its ratio. The ratio only sees tests both sides hold, so a partial
+# timing artifact or an id that fails conversion would drop out of both sums
+# and leave the ratio at 1.0. A complete run covers 100%; the margin is for a
+# handful of unconvertible ids.
+SHARD_CLOCK_COVERAGE_MIN = 0.9
 # Tests with recorded duration above this threshold in a single shard
 # are candidates for migration carriers (real tests rarely exceed this)
 CARRIER_THRESHOLD_SECONDS = 200.0
@@ -105,6 +128,16 @@ class JUnitShard:
     call_times: dict[str, float]
     # An XML of this shard (any attempt) did not parse, so call_times is incomplete.
     unreadable: bool = False
+
+    @property
+    def recorded_nothing(self) -> bool:
+        """Every XML parsed and none held a testcase: this shard ran no tests.
+
+        A product with no tests still uploads a JUnit declaring `tests="0"`, so a shard
+        holding only such products reads zero. That is a clock reading of zero rather
+        than a missing clock, which is why it is not `unreadable`.
+        """
+        return not self.unreadable and not self.call_times
 
     @classmethod
     def load_all(cls, junit_dir: Path, segment: str | None = None) -> list["JUnitShard"]:
@@ -479,9 +512,39 @@ def _junit_to_pytest_id(classname: str, testname: str) -> str | None:
     return f"{module_path}::{testname}"
 
 
-def ensure_minimum_duration(durations: dict[str, float]) -> dict[str, float]:
-    """Ensure all durations have a minimum value for pytest-split."""
-    return {test: max(MIN_DURATION, dur) for test, dur in durations.items()}
+def shard_map_clock_ratios(durations: dict[str, float], junit_shards: list["JUnitShard"]) -> dict[str, float]:
+    """Per JUnit shard: sum of finished durations / sum of JUnit times, over the tests both hold.
+
+    The map is what pytest-split plans from; the clock is what the same run
+    measured. A shard far from 1.0 is one the plan will cut wrong.
+    """
+    ratios: dict[str, float] = {}
+    for shard in junit_shards:
+        clock = 0.0
+        mapped = 0.0
+        for test_id, seconds in shard.call_times.items():
+            if test_id not in durations:
+                continue
+            clock += seconds
+            mapped += durations[test_id]
+        if clock > 0:
+            ratios[shard.name] = mapped / clock
+    return ratios
+
+
+def shard_clock_coverage(durations: dict[str, float], junit_shards: list["JUnitShard"]) -> dict[str, float]:
+    """Per JUnit shard: share of its JUnit time whose test has a map entry."""
+    coverage: dict[str, float] = {}
+    for shard in junit_shards:
+        total = sum(shard.call_times.values())
+        covered = sum(seconds for test_id, seconds in shard.call_times.items() if test_id in durations)
+        if total > 0:
+            coverage[shard.name] = covered / total
+    return coverage
+
+
+def drifting_shards(ratios: dict[str, float], tolerance: float = SHARD_DRIFT_TOLERANCE) -> dict[str, float]:
+    return {name: ratio for name, ratio in ratios.items() if ratio > tolerance or ratio < 1 / tolerance}
 
 
 def shard_sets_match(timing_shards: list[ShardTimings], junit_shards: list[JUnitShard]) -> bool:
@@ -630,7 +693,7 @@ def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: 
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
     Fails loudly if no inputs survive — silently emitting an empty file would
-    let a botched timing-update workflow commit an empty .test_durations to
+    let a botched timing-update workflow publish an empty .test_durations to
     master, wiping the sharding signal everywhere downstream.
     """
     sources: list[dict[str, float]] = []
@@ -715,6 +778,15 @@ def main():
         "--filter-existing",
         action="store_true",
         help="Filter to only tests that exist in the codebase (runs pytest --collect-only)",
+    )
+    parser.add_argument(
+        "--fail-on-drift",
+        action="store_true",
+        help=(
+            "Exit non-zero when a JUnit shard's finished durations sum to more than "
+            f"{SHARD_DRIFT_TOLERANCE}x (or less than 1/{SHARD_DRIFT_TOLERANCE}x) of its JUnit times "
+            "(requires --junit-dir). Without it the drift is only logged."
+        ),
     )
     parser.add_argument(
         "--scope-to-junit",
@@ -881,12 +953,74 @@ def main():
         logger.info("  Filtered to %d tests (removed %d stale)", len(durations), before_count - len(durations))
 
     logger.info("  Total tests: %d", len(durations))
-    processed = ensure_minimum_duration(durations)
+
+    if args.fail_on_drift:
+        # The check is only as good as its clock. A missing, partial, or
+        # truncated JUnit set would pass vacuously and let an unchecked slice
+        # through, so a strict run needs one readable JUnit per timing shard.
+        # A shard that parsed and ran no tests counts as read: it reports zero
+        # rather than hiding a number, and refusing it discarded the slice for
+        # every product because one product had no tests yet.
+        unreadable = [shard.name for shard in junit_shards or [] if shard.unreadable]
+        if not junit_shards:
+            logger.error("--fail-on-drift needs JUnit artifacts and none loaded")
+            sys.exit(1)
+        if unreadable:
+            logger.error(
+                "--fail-on-drift needs a readable JUnit artifact for every timing shard; unreadable: %s", unreadable
+            )
+            sys.exit(1)
+        if not shard_sets_match(shards, junit_shards):
+            logger.error(
+                "--fail-on-drift needs the same shard set on both sides: %d timing shards, %d JUnit shards",
+                len(shards),
+                len(junit_shards),
+            )
+            sys.exit(1)
+
+    if junit_shards:
+        ratios = shard_map_clock_ratios(durations, junit_shards)
+        for name, ratio in sorted(ratios.items()):
+            logger.info("  map/clock %s: %.2f", name, ratio)
+        # A shard with no ratio shares no keys with the map, or only zero times.
+        # Neither is a pass: it means the clock and the map do not describe the
+        # same tests, which is exactly what strict mode is there to catch. A shard
+        # that ran no tests is the exception: there is nothing to compare, so its
+        # absence from the ratios says nothing about the map.
+        unrated = [shard.name for shard in junit_shards if shard.name not in ratios and not shard.recorded_nothing]
+        if unrated and args.fail_on_drift:
+            logger.error("Map/clock ratio missing for %d shards (no overlapping tests): %s", len(unrated), unrated)
+            sys.exit(1)
+        uncovered = {
+            name: share
+            for name, share in shard_clock_coverage(durations, junit_shards).items()
+            if share < SHARD_CLOCK_COVERAGE_MIN
+        }
+        if uncovered and args.fail_on_drift:
+            logger.error(
+                "Map covers less than %.0f%% of the JUnit time on %d shards: %s",
+                SHARD_CLOCK_COVERAGE_MIN * 100,
+                len(uncovered),
+                ", ".join(f"{name}={share:.2f}" for name, share in sorted(uncovered.items())),
+            )
+            sys.exit(1)
+        drift = drifting_shards(ratios)
+        if drift:
+            level = logger.error if args.fail_on_drift else logger.warning
+            level(
+                "Map/clock drift outside %.2fx on %d of %d shards: %s",
+                SHARD_DRIFT_TOLERANCE,
+                len(drift),
+                len(ratios),
+                ", ".join(f"{name}={ratio:.2f}" for name, ratio in sorted(drift.items())),
+            )
+            if args.fail_on_drift:
+                sys.exit(1)
 
     with open(args.output_file, "w") as f:
-        json.dump(processed, f, indent=4, sort_keys=True)
+        json.dump(durations, f, indent=4, sort_keys=True)
         f.write("\n")
-    logger.info("Saved %d tests to %s", len(processed), args.output_file)
+    logger.info("Saved %d tests to %s", len(durations), args.output_file)
 
 
 if __name__ == "__main__":

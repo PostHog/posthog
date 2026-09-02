@@ -12,6 +12,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -32,8 +33,6 @@ from products.signals.backend.slack_inbox_notifications import (
     dispatch_reviewer_added_notifications,
 )
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
-
-from ee.models.rbac.access_control import AccessControl
 
 
 @pytest.mark.parametrize(
@@ -768,6 +767,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
         ("error_tracking", "issue_spiking", "Error tracking · Volume spike"),
         ("session_replay", "session_problem", "Session replay · Session problem"),
         ("session_replay", "session_analysis_cluster", "Session replay · Session analysis cluster"),
+        ("replay_vision", "scanner_finding", "Replay Vision · Scanner finding"),
         ("llm_analytics", "evaluation", "AI observability · Evaluation"),
         ("llm_analytics", "evaluation_report", "AI observability · Evaluation report"),
         ("github", "issue", "GitHub · Issue"),

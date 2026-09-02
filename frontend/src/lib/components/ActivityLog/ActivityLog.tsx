@@ -283,6 +283,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
             {caption && <div className="page-caption">{caption}</div>}
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
+                featureDetail="activity-log"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
                 <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />

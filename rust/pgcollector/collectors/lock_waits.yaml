@@ -1,0 +1,27 @@
+name: lock_waits
+description: >
+  Blocking graph: one row per (waiter, blocker) pair, with the ungranted lock the
+  waiter is queued on. Empty unless something is blocked.
+interval: 10s
+scope: cluster
+kind: gauge
+query: |
+  SELECT w.pid            AS waiter_pid,
+         w.datname, w.usename, w.application_name,
+         extract(epoch FROM now() - w.query_start)::float8 AS waiting_s,
+         l.locktype, l.mode AS wanted_mode, l.relation::bigint AS relation_oid,
+         CASE WHEN l.relation IS NOT NULL AND w.datname = current_database() THEN l.relation::regclass::text END AS relation,
+         regexp_replace(left(w.query, 2000), $$'(?:[^']|'')*'$$, '''?''', 'g') AS waiter_query,
+         b.pid            AS blocker_pid,
+         b.usename        AS blocker_usename,
+         b.application_name AS blocker_application_name,
+         b.state          AS blocker_state,
+         b.wait_event_type AS blocker_wait_event_type,
+         extract(epoch FROM now() - b.xact_start)::float8 AS blocker_xact_age_s,
+         regexp_replace(left(b.query, 2000), $$'(?:[^']|'')*'$$, '''?''', 'g') AS blocker_query
+  -- pre-filter first so pg_blocking_pids() (which takes lock-manager locks)
+  -- runs only for backends actually waiting on a lock, never once per backend
+  FROM (SELECT * FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()) w
+  JOIN LATERAL unnest(pg_blocking_pids(w.pid)) AS bp(pid) ON true
+  JOIN pg_stat_activity b ON b.pid = bp.pid
+  LEFT JOIN pg_locks l ON l.pid = w.pid AND NOT l.granted

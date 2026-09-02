@@ -7,16 +7,12 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.replay_vision.backend.tests.test_vision_actions_api import _VisionActionAPITestCase
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class _AccessControlTestCase(_VisionAPITestCase):
@@ -228,7 +224,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
     def test_experiment_targeting_hidden_from_a_viewer_without_experiment_access(self) -> None:
         # A scanner is viewable at a coarser grain than its targeted experiment; a viewer who can't
         # access the experiment must not learn its id or variants from the scanner payload.
-        experiment = create_experiment(self.team, "hidden-flag")
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
         targeting = {"experiment_id": experiment.id, "variant": "test"}
         scanner = self._create_scanner(name="targeted", experiment_targeting=targeting)
         self._set_resource_default("replay_scanner", "viewer")
@@ -249,7 +245,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         # The API redacts experiment_targeting to null for such an editor, and the editor form
         # writes the whole object back on save. Without the write-side guard, renaming the scanner
         # would silently clear targeting the caller can't even see.
-        experiment = create_experiment(self.team, "hidden-flag")
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
         targeting = {"experiment_id": experiment.id, "variant": "test"}
         scanner = self._create_scanner(name="targeted", experiment_targeting=targeting)
         self._set_resource_default("replay_scanner", "editor")
@@ -296,7 +292,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         # Guards the ?experiment_id= disclosure: a scanner-viewer who can't access the experiment must
         # not confirm a scanner targets it via the filter's match count. Distinct code path from the
         # serializer redaction above — the scanner is hidden from the list entirely, not just nulled.
-        experiment = create_experiment(self.team, "hidden-flag")
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
         targeting = {"experiment_id": experiment.id, "variant": "test"}
         self._create_scanner(name="targeted", experiment_targeting=targeting)
         self._set_resource_default("replay_scanner", "viewer")

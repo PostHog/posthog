@@ -1,13 +1,9 @@
-import type {
-  RequestPermissionRequest,
-  PermissionOption as SdkPermissionOption,
-} from "@agentclientprotocol/sdk";
+import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
 import { BEDROCK_GATEWAY_VARIANTS } from "@posthog/shared";
 import { effortLevelSchema } from "@posthog/shared/domain-types";
 import { z } from "zod";
 import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "../os/schemas";
 
-export { effortLevelSchema };
 export type { EffortLevel } from "@posthog/shared/domain-types";
 
 // Session credentials schema
@@ -18,29 +14,7 @@ export const credentialsSchema = z.object({
 
 export type Credentials = z.infer<typeof credentialsSchema>;
 
-// Session config schema
-export const sessionConfigSchema = z.object({
-  taskId: z.string(),
-  taskRunId: z.string(),
-  repoPath: z.string(),
-  credentials: credentialsSchema,
-  logUrl: z.string().optional(),
-  /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
-  sessionId: z.string().optional(),
-  adapter: z.enum(["claude", "codex"]).optional(),
-  /** Additional directories Claude can access beyond cwd (for worktree support) */
-  additionalDirectories: z.array(z.string()).optional(),
-  /** Permission mode to use for the session (e.g. "default", "acceptEdits", "plan", "bypassPermissions") */
-  permissionMode: z.string().optional(),
-  /**
-   * Session ID of an imported Claude Code CLI transcript already present in
-   * CLAUDE_CONFIG_DIR. Starts the session via loadSession so the prior
-   * history is replayed to the client. Claude adapter only.
-   */
-  importedSessionId: z.string().optional(),
-});
-
-export type SessionConfig = z.infer<typeof sessionConfigSchema>;
+const modelAccessSchema = z.enum(["posthog-gateway", "own-subscription"]);
 
 // Sized for personalization synced from an AGENTS.md/CLAUDE.md file, which
 // can be far larger than the 2000-char hand-typed settings field. Kept equal
@@ -64,6 +38,8 @@ export const startSessionInput = z.object({
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  codexModelAccess: modelAccessSchema.optional(),
+  claudeModelAccess: modelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
   /**
@@ -112,7 +88,7 @@ export const startSessionInput = z.object({
 
 export type StartSessionInput = z.infer<typeof startSessionInput>;
 
-export const piModelCatalogEntrySchema = z.object({
+const piModelCatalogEntrySchema = z.object({
   provider: z.literal("posthog"),
   id: z.string(),
   name: z.string(),
@@ -122,8 +98,6 @@ export const piModelCatalogEntrySchema = z.object({
     z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
   ),
 });
-
-export type PiModelCatalogEntry = z.infer<typeof piModelCatalogEntrySchema>;
 
 const sessionConfigSelectOptionSchema = z.looseObject({
   value: z.string(),
@@ -162,12 +136,10 @@ const sessionConfigBooleanSchema = z.looseObject({
   _meta: z.record(z.string(), z.unknown()).nullish(),
 });
 
-export const sessionConfigOptionSchema = z.union([
+const sessionConfigOptionSchema = z.union([
   sessionConfigSelectSchema,
   sessionConfigBooleanSchema,
 ]);
-
-export type SessionConfigOption = z.infer<typeof sessionConfigOptionSchema>;
 
 export const sessionResponseSchema = z.object({
   sessionId: z.string(),
@@ -187,7 +159,7 @@ export const sessionResponseSchema = z.object({
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 
 // Prompt input/output
-export const contentBlockSchema = z.looseObject({
+const contentBlockSchema = z.looseObject({
   type: z.string(),
   text: z.string().optional(),
   _meta: z.record(z.string(), z.unknown()).nullish(),
@@ -198,8 +170,6 @@ export const promptInput = z.object({
   prompt: z.array(contentBlockSchema),
   steer: z.boolean().optional(),
 });
-
-export type PromptInput = z.infer<typeof promptInput>;
 
 export const promptOutput = z.object({
   stopReason: z.string(),
@@ -217,8 +187,6 @@ export const sideQuestionInput = z.object({
   sessionId: z.string(),
   question: z.string().min(1),
 });
-
-export type SideQuestionInput = z.infer<typeof sideQuestionInput>;
 
 export const sideQuestionOutput = z.object({
   answer: z.string(),
@@ -254,6 +222,8 @@ export const reconnectSessionInput = z.object({
   logUrl: z.string().optional(),
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  codexModelAccess: modelAccessSchema.optional(),
+  claudeModelAccess: modelAccessSchema.optional(),
   /** Additional directories Claude can access beyond cwd (for worktree support) */
   additionalDirectories: z.array(z.string()).optional(),
   permissionMode: z.string().optional(),
@@ -280,6 +250,39 @@ export const rtkStatusOutput = z.object({
 });
 
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
+
+export const codexSubscriptionStatusOutput = z.object({
+  loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+});
+
+export type CodexSubscriptionStatus = z.infer<
+  typeof codexSubscriptionStatusOutput
+>;
+
+export const claudeSubscriptionStatusOutput = z.object({
+  loginState: z.enum(["logged-in", "logged-out", "unknown"]),
+});
+
+export type ClaudeSubscriptionStatus = z.infer<
+  typeof claudeSubscriptionStatusOutput
+>;
+
+export const claudeAuthTerminalInput = z.object({
+  action: z.enum(["login", "logout"]),
+});
+
+export const claudeAuthTerminalOutput = z.object({
+  command: z.string(),
+  cwd: z.string(),
+  additionalEnv: z.record(z.string(), z.string()),
+  unsetEnv: z.array(z.string()),
+});
+
+export type ClaudeAuthTerminal = z.infer<typeof claudeAuthTerminalOutput>;
+
+export const codexSubscriptionLoginOutput = z.object({
+  authUrl: z.string(),
+});
 
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({
@@ -312,8 +315,6 @@ export interface AgentSessionEventPayload {
   taskRunId: string;
   payload: unknown;
 }
-
-export type PermissionOption = SdkPermissionOption;
 export type PermissionRequestPayload = Omit<
   RequestPermissionRequest,
   "sessionId"
@@ -351,28 +352,23 @@ export const respondToPermissionInput = z.object({
   answers: z.record(z.string(), z.string()).optional(),
 });
 
-export type RespondToPermissionInput = z.infer<typeof respondToPermissionInput>;
-
 // Permission cancellation input for tRPC
 export const cancelPermissionInput = z.object({
   taskRunId: z.string(),
   toolCallId: z.string(),
 });
 
-export type CancelPermissionInput = z.infer<typeof cancelPermissionInput>;
-
 export const listSessionsInput = z.object({
   taskId: z.string(),
 });
 
-export const detachedHeadContext = z.object({
+const detachedHeadContext = z.object({
   type: z.literal("detached_head"),
   branchName: z.string(),
   isDetached: z.boolean(),
 });
 
-export const sessionContextChangeSchema = detachedHeadContext;
-
+const sessionContextChangeSchema = detachedHeadContext;
 export type SessionContextChange = z.infer<typeof sessionContextChangeSchema>;
 
 export const notifySessionContextInput = z.object({
@@ -380,11 +376,7 @@ export const notifySessionContextInput = z.object({
   context: sessionContextChangeSchema,
 });
 
-export type NotifySessionContextInput = z.infer<
-  typeof notifySessionContextInput
->;
-
-export const sessionInfoSchema = z.object({
+const sessionInfoSchema = z.object({
   taskRunId: z.string(),
   repoPath: z.string(),
 });
@@ -401,6 +393,9 @@ export const getPiModelCatalogOutput = z.array(piModelCatalogEntrySchema);
 export const getPreviewConfigOptionsInput = z.object({
   apiHost: z.string(),
   adapter: z.enum(["claude", "codex"]),
+  // Opt-in: the model option also lists the other harness's models as a
+  // second group, so a picker can switch harness from a model pick.
+  allHarnessModels: z.boolean().optional(),
 });
 
 export const getPreviewConfigOptionsOutput = z.array(sessionConfigOptionSchema);

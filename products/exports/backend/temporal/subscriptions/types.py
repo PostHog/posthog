@@ -2,35 +2,53 @@ import uuid
 import typing
 import dataclasses
 
-from rest_framework.exceptions import APIException
-
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.slo.types import SloConfig
 
+# AI report query failures we never name in owner/recipient-facing copy. The recipient didn't
+# write the query, so the OOM advice is unactionable. Type still lands in diagnostics, logs, and
+# error tracking. Held as a name (not the class) so this module stays free of Django/DRF imports
+# for the Temporal sandbox; the test pins it to ClickHouseQueryMemoryLimitExceeded.__name__.
+UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
-def safe_query_error_details(exc: BaseException) -> dict[str, str] | None:
-    """Returns the same safe code and message exposed by query APIs."""
+
+def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
     seen: set[int] = set()
-    current: BaseException | None = exc
+    current: typing.Optional[BaseException] = exc
     while current is not None and id(current) not in seen:
-        if isinstance(current, APIException):
-            code = current.get_codes()
-            if isinstance(code, str) and isinstance(current.detail, str):
-                return {"code": code, "message": str(current.detail).replace("\x00", "")}
-        elif isinstance(current, ExposedHogQLError):
-            return {"code": current.code_name, "message": str(current).replace("\x00", "")}
-        elif isinstance(current, ResolutionError):
-            return {"code": "hogql_resolution_error", "message": str(current).replace("\x00", "")}
+        type_name = type(current).__name__
+        if type_name in UNDISCLOSED_QUERY_ERROR_TYPES:
+            return type_name
         seen.add(id(current))
         current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
     return None
 
 
 def safe_error_message(exc: BaseException) -> typing.Optional[str]:
-    """Returns a safe user-facing query error message when one is available."""
-    details = safe_query_error_details(exc)
-    return details["message"] if details else None
+    """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
+
+    HogQL/ClickHouse error text can echo team-scoped identifiers (query data, internal
+    names), so only the query-structure error classes (which describe the field/property the
+    query referenced) are safe to surface to the subscription owner — the same trust boundary
+    the HogQL repair loop uses when forwarding to the fixer. Everything else returns None so
+    the caller falls back to a generic message. Executors often wrap a resolution/exposed
+    error in a generic Exception, so walk the __cause__/__context__ chain for a wrapped safe
+    message.
+
+    The result is persisted to Postgres jsonb columns, so NUL bytes are stripped (Postgres
+    rejects them); callers of the sibling raw "message" field already expect this scrub. The
+    walk honours ``raise ... from None`` (``__suppress_context__``) — a deliberately severed
+    chain stays severed, so an internal error the author meant to hide is never surfaced.
+    """
+    seen: set[int] = set()
+    current: typing.Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, (ExposedHogQLError, ResolutionError)):
+            return str(current).replace("\x00", "")
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+    return None
 
 
 class DeliveryStatus:
@@ -87,6 +105,7 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
+AI_REPORT_CHARTS_KEY = "ai_report_charts"
 
 
 class SubscriptionTriggerType:
@@ -238,7 +257,7 @@ class GenerateAIReportInputs:
     delivery_id: uuid.UUID
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GenerateAIReportResult:
     """Outcome of the generation phase. `aborted` signals a terminal pre-delivery
     failure (consent revoked, prompt invalid) that already auto-disabled the
@@ -256,8 +275,9 @@ class GenerateAIReportResult:
     failed_step_count: int = 0
     total_step_count: int = 0
     query_error_types: list[str] = dataclasses.field(default_factory=list)
-    query_errors: list[dict[str, str]] = dataclasses.field(default_factory=list)
     target_type: str = ""
+    # Appended to preserve the positional shape of this Temporal activity result.
+    query_errors: list[dict[str, str]] = dataclasses.field(default_factory=list)
 
     @property
     def all_queries_failed(self) -> bool:
@@ -268,7 +288,8 @@ class GenerateAIReportResult:
         if self.query_errors:
             return {"type": "AIReportQueryFailure", **self.query_errors[0]}
 
-        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
+        disclosed_types = [t for t in self.query_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES]
+        detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""
         subject = (
             "The query the AI generated"
             if self.total_step_count == 1

@@ -152,6 +152,7 @@ const featureRequestStoryItem = {
             updated_at: '2024-01-13T10:00:00Z',
         },
     ],
+    evidence_count: 6,
     product_areas: [
         {
             id: '018f47de-7e12-7000-8000-000000000003',

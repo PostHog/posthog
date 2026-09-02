@@ -35,6 +35,7 @@ from pydantic import ValidationError
 
 from posthog.api.capture import capture_internal
 from posthog.event_usage import groups
+from posthog.git import extract_linked_repo
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -63,6 +64,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_report import (
+    INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     ScoutReportSignal,
@@ -74,6 +76,7 @@ from products.signals.backend.scout_report import (
     record_scout_run_task_artefact,
     set_report_charts,
     set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -502,8 +505,73 @@ def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidenc
     return "\n".join(lines)
 
 
+def _connected_repositories(team_id: int) -> list[str]:
+    """The repos the team's own GitHub installation can reach, or an empty list when it has none.
+
+    Reads the cache as-is and never starts the selection sandbox, which is what keeps the gate-skipped
+    path the cheap one."""
+    from products.tasks.backend.facade.repo_selection import (
+        list_team_connected_repositories,  # noqa: PLC0415 — break worker-boot import cycle
+    )
+
+    return list_team_connected_repositories(team_id)
+
+
+def _extract_linked_repository(
+    title: str, summary: str, evidence: list[ReportEvidence], connected_repos: list[str]
+) -> str | None:
+    """Find the single connected GitHub repository linked in the report content, or None.
+
+    Report content quotes ingested project data, so a link in it is untrusted: matching against the
+    team's connected repos is what stops a linked upstream or attacker-placed repo from becoming a
+    target. Ambiguity resolves to nothing too — a report linking two connected repos names no single
+    one, and guessing between them would seed a wrong target for a later Create PR run."""
+    return extract_linked_repo("\n".join([title, summary, *(e.description for e in evidence)]), connected_repos)
+
+
+def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: ArtefactAttribution) -> None:
+    """Re-derive an inferred `repo_selection` from a report's rewritten title and summary.
+
+    An inferred target is a reading of the report's text, so a rewrite that moves the report onto a
+    different repository leaves it pointing somewhere the report no longer describes. Only a selection
+    this same inference wrote is re-derived; one the scout named or the selection agent chose is a
+    decision, not a reading, and a content edit does not overturn it.
+
+    New content that links nothing keeps the existing target. A repository the reader can override at
+    Create PR time costs less than clearing it, since a cleared selection reads as the scout's
+    deliberate no-repo and suppresses the cascade that would otherwise still find a target.
+    """
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection,  # noqa: PLC0415 — keeps the sandbox stack off this module's import path
+    )
+
+    selection = persisted_repo_selection(report_id)
+    if selection is None or selection.autostart_eligible or selection.repository is None:
+        return
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).values("title", "summary").first()
+    if report is None:
+        return
+    linked = extract_linked_repo(
+        "\n".join([report["title"] or "", report["summary"] or ""]), _connected_repositories(team_id)
+    )
+    if linked is None or linked == selection.repository:
+        return
+    set_scout_report_inferred_repository(
+        team_id=team_id,
+        report_id=report_id,
+        repository=linked,
+        attribution=attribution,
+    )
+
+
 async def _resolve_report_repository(
-    *, team_id: int, repository: str | None, title: str, summary: str, evidence: list[ReportEvidence]
+    *,
+    team_id: int,
+    repository: str | None,
+    title: str,
+    summary: str,
+    evidence: list[ReportEvidence],
+    wants_full_selection: bool,
 ) -> RepoSelectionResult | None:
     """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
 
@@ -512,12 +580,30 @@ async def _resolve_report_repository(
     free-form path is the slow one — for a team with many repos it spawns a selection sandbox — so a
     scout that knows its repo should pass it explicitly (see the report contract). The cheap
     `NO_REPO` / `owner/repo` cases are validated by `_normalize_repository` up front (before the judge),
-    so by here an explicit repo is already well-formed; only the free-form path remains."""
+    so by here an explicit repo is already well-formed; only the free-form path remains.
+
+    `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`). When it is false the report
+    surfaced without the inputs the selection sandbox exists to serve, so the free-form branch scans
+    the report content for one linked connected repository instead — a cheap deterministic match that
+    seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
+    selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
+    one on its own."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
     if repository is not None:
         return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
+
+    if not wants_full_selection:
+        connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
+        linked = _extract_linked_repository(title, summary, evidence, connected_repos)
+        if linked is None:
+            return None
+        return RepoSelectionResult(
+            repository=linked,
+            reason=INFERRED_REPOSITORY_REASON,
+            autostart_eligible=False,
+        )
 
     # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
     # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).
@@ -1031,9 +1117,14 @@ async def emit_report(
     surfaced = _surfaced(judgement.status)
     repo_selection = (
         await _resolve_report_repository(
-            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+            team_id=team.id,
+            repository=repository,
+            title=title,
+            summary=summary,
+            evidence=evidence,
+            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
         )
-        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        if surfaced
         else None
     )
     persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
@@ -1155,9 +1246,14 @@ def emit_report_sync(
     surfaced = _surfaced(judgement.status)
     repo_selection = (
         async_to_sync(_resolve_report_repository)(
-            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+            team_id=team.id,
+            repository=repository,
+            title=title,
+            summary=summary,
+            evidence=evidence,
+            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
         )
-        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        if surfaced
         else None
     )
     persisted = create_scout_report(
@@ -1253,7 +1349,6 @@ def _do_edit_report(
                 title=title,
                 summary=summary,
                 attribution=attribution,
-                author=run.skill_name,
             )
         # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
         # fix — a report authored without a reviewer (so it routes to no one) can have one added after
@@ -1295,13 +1390,81 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+    charts_set = len(charts) if charts is not None and charts_changed else None
+    prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
+    changed = (
+        bool(updated_fields or note_appended or reviewers_set) or charts_set is not None or prompts_set is not None
+    )
+    # Enqueue the edited report's Slack delivery as the first post-commit step — before the slower
+    # side effects below (repository inference, autostart) and the tally writes further down. An
+    # earlier delivery of the same report may still be building its message, and it reads the report's
+    # latest-delivery marker to decide whether to yield to this edit. Claiming that marker here, right
+    # after the content commits, keeps the window in which the edit is visible but the marker is not as
+    # short as one status read. If the slow work ran first, that earlier delivery could read the freshly
+    # committed edit, still find no marker, and post the edited report — the same content this edit's
+    # own delivery then posts a second time.
+    if changed:
+        # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
+        # its content to a configured destination. The delivery worker re-checks status at send time
+        # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
+        # and skips queueing work that would no-op.
+        #
+        # The edit has already committed, so a transient failure on this read must not fail the call or
+        # skip the side effects below (repository inference, autostart, the tally) — same best-effort
+        # posture as the title read further down. Degrade to None, which the `is not None` guard treats
+        # as "don't enqueue"; the delivery is best-effort and `queue_configured_scout_slack_delivery`
+        # swallows its own failures anyway.
+        try:
+            report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
+        except Exception:
+            logger.warning(
+                "signals_scout.edit_report: failed to read report status for slack delivery",
+                extra={"team_id": team.id, "report_id": report_id},
+            )
+            report_status = None
+        # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
+        # touched only them has nothing to say in the channel — delivering it would post the report
+        # a second time byte for byte.
+        prompts_only = prompts_set is not None and not (
+            updated_fields or note_appended or reviewers_set or charts_set is not None
+        )
+        if report_status is not None and _surfaced(report_status) and not prompts_only:
+            # A note-only edit leaves the title, summary and charts the Slack report message shows
+            # unchanged, so re-posting it would duplicate the message already in the channel.
+            # Deliver the note itself instead; any edit that rewrote the content re-posts the
+            # report as before.
+            note_only = note_appended and not updated_fields and not charts_changed
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="report",
+                output_id=report_id,
+                edit_note=append_note if note_only else None,
+            )
+    # A rewrite can move the report onto a different repository, and an inferred target is only ever a
+    # reading of that text. Outside the transaction above for the same reason autostart is: it reads
+    # the team's GitHub repo cache, which has no business holding the content write open.
+    #
+    # Ordered before autostart, because one edit can both rewrite the content and add a qualifying
+    # reviewer. Autostart reads the selection as it stands and is idempotent, so running it first
+    # would open the task against the repository the rewrite just replaced, with no second chance.
+    #
+    # Best-effort like autostart below: the Slack delivery was already enqueued above, so a raise here
+    # must not fail the already-committed edit. A failure returned to the agent triggers a retry, and a
+    # retry carrying reviewers or a note enqueues a second full delivery — the duplicate this reorder
+    # exists to prevent. Swallow and log; a stale inferred repo is corrected by the next edit.
+    if updated_fields:
+        try:
+            _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
+        except Exception:
+            logger.exception(
+                "signals_scout.edit_report: inferred repository refresh failed",
+                extra={"team_id": team.id, "report_id": report_id},
+            )
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
     if reviewers_set:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
-    charts_set = len(charts) if charts is not None and charts_changed else None
-    prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     logger.info(
         "signals_scout.edit_report: edited",
         extra={
@@ -1339,34 +1502,14 @@ def _do_edit_report(
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value, or re-sending the charts already stored) must not claim the
-    # run touched the report, or notify its destination a second time about nothing.
-    if result.changed:
+    # run touched the report, or notify its destination a second time about nothing. The Slack
+    # delivery for this edit was already enqueued above, before the autostart side effect, so a prior
+    # in-flight delivery sees the supersede marker rather than posting the edit a second time.
+    if changed:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
-        # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
-        # its content to a configured destination. The delivery worker re-checks status at send time
-        # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
-        # and skips queueing work that would no-op.
-        report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
-        # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
-        # touched only them has nothing to say in the channel — delivering it would post the report
-        # a second time byte for byte.
-        prompts_only = prompts_set is not None and not (
-            updated_fields or note_appended or reviewers_set or charts_set is not None
-        )
-        if report_status is not None and _surfaced(report_status) and not prompts_only:
-            # A note-only edit leaves the title and summary the Slack report message shows
-            # unchanged, so re-posting it would duplicate the message already in the channel.
-            # Deliver the note itself instead; any edit that rewrote the content re-posts the
-            # report as before.
-            queue_configured_scout_slack_delivery(
-                run_id=run.id,
-                output_type="report",
-                output_id=report_id,
-                edit_note=append_note if note_appended and not updated_fields else None,
-            )
     return result
 
 

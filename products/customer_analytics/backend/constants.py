@@ -1,3 +1,5 @@
+from django.db import models
+
 DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}
 
 # Mirrors frontend `SLACK_ARCHIVES_ORIGIN` in accountLinksLogic.ts. PostHog-internal: hardcodes our
@@ -14,7 +16,6 @@ CUSTOMER_ANALYTICS_TRACK_RULES_FLAG = "customer-analytics-track-rules"
 # properties feature: creating person-target custom property sources (API + UI), staging rows during
 # syncs, and the post-sync upsert workflow.
 WAREHOUSE_PERSON_PROPERTIES_FLAG = "warehouse-person-properties"
-WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC_FLAG = "warehouse-account-properties-s3-sync"
 
 # Mirrors frontend `BILLING_INSIGHT_SHORT_IDS` in accountBillingLogic.ts. These saved insights read
 # warehouse-synced billing data to report an account's PostHog consumption (events ingested, rows
@@ -23,16 +24,20 @@ WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC_FLAG = "warehouse-account-properties-s3-syn
 BILLING_USAGE_INSIGHT_SHORT_IDS = ["fiJDsKLp"]
 BILLING_SPEND_INSIGHT_SHORT_IDS = ["o4I9sdFE", "Tjo4bsux"]
 
-CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = [
-    "text",
-    "number",
-    "currency",
-    "percent",
-    "date",
-    "datetime",
-    "boolean",
-    "select",
-]
+
+class CustomPropertyDisplayType(models.TextChoices):
+    TEXT = "text", "text"
+    LINK = "link", "link"
+    NUMBER = "number", "number"
+    CURRENCY = "currency", "currency"
+    PERCENT = "percent", "percent"
+    DATE = "date", "date"
+    DATETIME = "datetime", "datetime"
+    BOOLEAN = "boolean", "boolean"
+    SELECT = "select", "select"
+
+
+CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = list(CustomPropertyDisplayType.values)
 
 # Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
 CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]

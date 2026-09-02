@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -27,8 +28,6 @@ from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import referenced_subject_names
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.notifications.backend.facade.enums import TargetType
-
-from ee.models.rbac.access_control import AccessControl
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"
@@ -224,6 +223,19 @@ class TestDataQualityNotifications(BaseTest):
 
         assert self.user.id in resolved
         assert blocked.id not in resolved
+
+    def test_a_relationship_target_keeps_its_name_for_notification_filtering(self) -> None:
+        check = self._check(
+            check_type=CheckType.RELATIONSHIPS,
+            column_name="customer_id",
+            config={
+                "to_subject_type": SubjectType.VIEW,
+                "to_subject_uuid": str(self.view.id),
+                "to_column": "id",
+            },
+        )
+
+        assert referenced_subject_names(self.team.id, check.check_type, check.config) == ["orders"]
 
     def test_members_denied_a_referenced_subject_do_not_get_the_blocked_materialization_count(self) -> None:
         # The blocked-materialization body counts the checks that failed, and one of them reads a

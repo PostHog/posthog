@@ -12,6 +12,7 @@ from typing import Any
 
 from posthog.models import Team
 
+from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.diagnostics import decompose_bucket as _decompose_bucket
 from products.metrics.backend.facade.contracts import (
@@ -20,12 +21,14 @@ from products.metrics.backend.facade.contracts import (
     InvestigationResult,
     MetricAnomalyReport,
     MetricBucketDecomposition,
+    MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
     MetricPoint,
     MetricQueryClause,
     MetricQueryRequest,
     MetricSeries,
+    MetricsOverview,
 )
 from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
@@ -38,6 +41,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -45,6 +49,8 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.SUM: "sum",
     MetricAggregation.AVG: "avg",
     MetricAggregation.COUNT: "count",
+    MetricAggregation.MIN: "min",
+    MetricAggregation.MAX: "max",
     MetricAggregation.RATE: "rate",
     MetricAggregation.INCREASE: "increase",
 }
@@ -216,16 +222,30 @@ def list_metric_names(
     team: Team,
     search: str = "",
     limit: int = 100,
+    services: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
     Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
     most-recently-seen, with exact-name matches floated to the top.
-    Raises `ValueError` for an out-of-range limit.
+    Passing `services` narrows the list to names those services reported.
+    Raises `ValueError` for an out-of-range limit or too many services.
 
-    The unsearched list is cached per team for a minute; searches are not.
+    The unsearched list is cached per team and service scope for a minute;
+    searches are not.
     """
-    return cached_metric_names(team=team, search=search, limit=limit)
+    return cached_metric_names(team=team, search=search, limit=limit, services=services)
+
+
+def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
+    """Ingestion rollup for the overview page: freshness of the newest
+    datapoint plus window-scoped metric/series counts per service.
+
+    Raises `ValueError` for a non-positive lookback.
+    """
+    if lookback is None:
+        return MetricsOverviewQueryRunner(team=team).run()
+    return MetricsOverviewQueryRunner(team=team, lookback=lookback).run()
 
 
 def list_metric_attribute_keys(
@@ -275,28 +295,32 @@ def list_metric_attribute_values(
 def list_metric_event_samples(
     *,
     team: Team,
-    metric_name: str,
+    metric_name: str | None = None,
     date_from: dt.datetime,
     date_to: dt.datetime,
     trace_id: str | None = None,
+    span_id: str | None = None,
     filters: Sequence[MetricFilter] = (),
     metric_type: MetricType | None = None,
     limit: int = 100,
 ) -> list[MetricEventSample]:
-    """List individual metric emissions (the events model) for a metric,
-    newest first.
+    """List individual metric emissions (the events model), newest first.
 
     Each sample carries its value, attributes, and trace linkage, so the
     Samples view can render raw rows and pivot to the trace behind any one.
-    Pass `trace_id` for the reverse pivot — every emission on a given trace.
+    Pass `trace_id` for the reverse pivot — every emission on a given trace,
+    across all metric names when `metric_name` is omitted (the tracing
+    product's Metrics tab); `metric_name` or `trace_id` is required. Pass
+    `span_id` (with `trace_id`) to narrow to one span's emissions, so the
+    result stays exact even when the trace has more emissions than `limit`.
     `filters` and `metric_type` narrow the emissions to the same series a
     `run_metric_query` call with those arguments charts, so a filtered view
     and its chart agree. Both are matched against the emission's series, so
     an emission whose series row hasn't been ingested yet drops out once
-    either is set.
-    Raises `ValueError` for an empty metric name, an inverted window, an
-    invalid regex filter, or an out-of-range limit; the presentation layer
-    surfaces these as 400s.
+    either is set; both require `metric_name`.
+    Raises `ValueError` for a missing metric name and trace id, an inverted
+    window, an invalid regex filter, or an out-of-range limit; the
+    presentation layer surfaces these as 400s.
     """
     runner = MetricEventSamplesQueryRunner(
         team=team,
@@ -304,11 +328,41 @@ def list_metric_event_samples(
         date_from=date_from,
         date_to=date_to,
         trace_id=trace_id,
+        span_id=span_id,
         filters=filters,
         metric_type=metric_type,
         limit=limit,
     )
     return [MetricEventSample(**row) for row in runner.run()]
+
+
+# PoC cap: team-wide — Error Tracking spike events carry no service attribution,
+# so there is no correlation key to scope them to one metric's service yet.
+_ERROR_SPIKES_LIMIT = 200
+
+
+def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.datetime) -> list[MetricErrorSpike]:
+    """List Error Tracking issue spikes detected in a time window, for the
+    metrics chart's error-spike overlay.
+
+    Team-wide: Error Tracking issues carry no service attribution today, so
+    this cannot be scoped to the metric's own service yet.
+    """
+    events, _total = list_spike_events(
+        team_id=team.id,
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        limit=_ERROR_SPIKES_LIMIT,
+        include_total_count=False,
+    )
+    return [
+        MetricErrorSpike(
+            detected_at=event.detected_at.isoformat(),
+            issue_id=str(event.issue.id),
+            issue_name=event.issue.name,
+        )
+        for event in events
+    ]
 
 
 def characterize_metric_anomaly(

@@ -53,7 +53,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 import structlog
@@ -90,7 +90,7 @@ from products.conversations.backend.facade.api import (
     trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
-from products.customer_analytics.backend.events import emit_account_tags_added
+from products.customer_analytics.backend.events import emit_account_tags_added, emit_account_tags_removed
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
@@ -104,6 +104,7 @@ from products.customer_analytics.backend.logic import (
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.account_filters import InvalidAccountFilter, apply_account_filters
+from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -163,7 +164,11 @@ from products.notebooks.backend.facade import (
 # the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding, schema_binding
-from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
+from products.workflows.backend.services.template_input_usage import (
+    HogFlowReference,
+    filter_hog_flow_references_by_access_level,
+    get_hog_flows_referencing_template_input_keys,
+)
 
 from . import contracts
 
@@ -176,14 +181,15 @@ _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
 if TYPE_CHECKING:
     from posthog.models.user import User
-    from posthog.rbac.user_access_control import UserAccessControl
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.customer_analytics.backend.models import CustomPropertyValue
     from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
     return contracts.AccountProperties(
+        website_domain=properties.website_domain,
         stripe_customer_id=properties.stripe_customer_id,
         hubspot_deal_id=properties.hubspot_deal_id,
         billing_id=properties.billing_id,
@@ -611,7 +617,12 @@ def list_external_accounts(
 def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_id: str | None = None) -> None:
     normalized = list({tagify(t) for t in tags})
     if mode == "remove":
+        removed_tags = [
+            tagged_item.tag
+            for tagged_item in account.tagged_items.filter(tag__name__in=normalized).select_related("tag")
+        ]
         account.tagged_items.filter(tag__name__in=normalized).delete()
+        _schedule_account_tags_removed(account, removed_tags, actor=None, workflow_id=workflow_id)
     elif mode == "set":
         _set_tags(normalized, account, workflow_id=workflow_id)
     else:
@@ -898,24 +909,45 @@ def _set_tags(
         tagged_item_objects.append(tagged_item_instance)
         if created:
             added_tags.append(tag_instance)
-    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags):
+    removed_tags: list[Tag] = []
+    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
+        removed_tags.append(tagged_item.tag)
         tagged_item.delete()
     Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
     account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
     _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
+    _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
 
 
 def _schedule_account_tags_added(
     account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
 ) -> None:
-    """Single emission point for $account_tag_added: post-commit, newly created rows only —
-    so a workflow re-adding its own trigger tag fires nothing."""
+    """Emit $account_tag_added after commit for newly created rows only.
+
+    A workflow that adds its trigger tag again must not emit another event.
+    """
     if not tags:
         return
 
     def emit() -> None:
         try:
             emit_account_tags_added(account, tags, actor, workflow_id=workflow_id)
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
+
+
+def _schedule_account_tags_removed(
+    account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
+) -> None:
+    """Emit $account_tag_removed after commit for deleted rows only."""
+    if not tags:
+        return
+
+    def emit() -> None:
+        try:
+            emit_account_tags_removed(account, tags, actor, workflow_id=workflow_id)
         except Exception as e:
             capture_exception(e)
 
@@ -1099,6 +1131,7 @@ def delete_customer_profile_config(
 def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
     references: list[contracts.CustomPropertyReference] | None = None,
+    has_workflow_reference: bool = False,
     user_access_control: "UserAccessControl | None" = None,
     enrichment_by_source_id: "dict[Any, tuple[Any, CustomPropertySyncRun | None]] | None" = None,
 ) -> contracts.CustomPropertyDefinitionView:
@@ -1115,6 +1148,7 @@ def _to_custom_property_definition_view(
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
         references=references or [],
+        has_workflow_reference=has_workflow_reference,
         source=_definition_source_view(definition, user_access_control, enrichment_by_source_id),
         options=_to_custom_property_options(definition.options),
     )
@@ -1128,32 +1162,30 @@ def _to_custom_property_options(
     return [contracts.CustomPropertyOption(**option) for option in options]
 
 
-def _can_read_workflow_references(user_access_control: "UserAccessControl") -> bool:
-    """Whether the caller may see the workflows that reference a custom property.
-
-    ``references`` exposes HogFlow metadata (id, name, status), so it's gated on the caller
-    having at least viewer access to the ``hog_flow`` resource — the property-definition API is
-    authorized as ``account``, and a caller without workflow read access must not enumerate
-    workflows through it. Without RBAC restrictions this resolves to the default (allowed)."""
-    return user_access_control.check_access_level_for_resource("hog_flow", "viewer")
-
-
 def _custom_property_references_by_definition_id(
     team_id: int, definition_id: str | None = None
-) -> dict[str, list[contracts.CustomPropertyReference]]:
+) -> dict[str, list[HogFlowReference]]:
     """Map each referenced definition id to the workflows that set it via the "Update account
     property" action. One scan of the team's workflows, matched by definition id. Pass
     ``definition_id`` to scan for just that one definition (the single-definition lookup)."""
     usage = get_hog_flows_referencing_template_input_keys(
-        team_id, _ACCOUNT_PROPERTY_TEMPLATE_ID, _ACCOUNT_PROPERTY_INPUT_KEY, only_value_key=definition_id
+        team_id,
+        _ACCOUNT_PROPERTY_TEMPLATE_ID,
+        _ACCOUNT_PROPERTY_INPUT_KEY,
+        only_value_key=definition_id,
     )
-    return {
-        referenced_id: [
-            contracts.CustomPropertyReference(id=ref.id, name=ref.name, status=ref.status, type="workflow")
-            for ref in refs
-        ]
-        for referenced_id, refs in usage.items()
-    }
+    return usage
+
+
+def _to_custom_property_references(
+    workflow_references: list[HogFlowReference],
+) -> list[contracts.CustomPropertyReference]:
+    return [
+        contracts.CustomPropertyReference(
+            id=reference.id, name=reference.name, status=reference.status, type="workflow"
+        )
+        for reference in workflow_references
+    ]
 
 
 def _definition_source_view(
@@ -1187,19 +1219,16 @@ def list_custom_property_definitions(
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
-    ``references`` (the workflows referencing each definition) is included only when the caller can
-    read workflows — see ``_can_read_workflow_references``. ``exclude_group_targets`` hides group-target
-    definitions from callers without ``group`` read authorization."""
+    ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
+    metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
+    without ``group`` read authorization."""
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
-    references = (
-        _custom_property_references_by_definition_id(team_id)
-        if _can_read_workflow_references(user_access_control)
-        else {}
-    )
+    workflow_references = _custom_property_references_by_definition_id(team_id)
+    references = filter_hog_flow_references_by_access_level(team_id, workflow_references, user_access_control)
     sources: list[CustomPropertySource] = []
     for d in page:
         try:
@@ -1208,9 +1237,20 @@ def list_custom_property_definitions(
             pass
     enrichment = _batch_source_enrichment(team_id, sources, user_access_control)
     return [
-        _to_custom_property_definition_view(d, references.get(str(d.id), []), user_access_control, enrichment)
+        _to_custom_property_definition_view(
+            d,
+            _to_custom_property_references(references.get(str(d.id), [])),
+            has_workflow_reference=bool(workflow_references.get(str(d.id))),
+            user_access_control=user_access_control,
+            enrichment_by_source_id=enrichment,
+        )
         for d in page
     ], total_count
+
+
+def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    return definition.target_type if definition is not None else None
 
 
 def get_custom_property_definition(
@@ -1219,12 +1259,19 @@ def get_custom_property_definition(
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
     if definition is None:
         return None
-    references: list[contracts.CustomPropertyReference] = []
-    if _can_read_workflow_references(user_access_control):
-        references = _custom_property_references_by_definition_id(team_id, definition_id=str(definition.id)).get(
-            str(definition.id), []
-        )
-    return _to_custom_property_definition_view(definition, references, user_access_control)
+    workflow_references_by_definition_id = _custom_property_references_by_definition_id(
+        team_id, definition_id=str(definition.id)
+    )
+    workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
+    references = filter_hog_flow_references_by_access_level(
+        team_id, workflow_references_by_definition_id, user_access_control
+    ).get(str(definition.id), [])
+    return _to_custom_property_definition_view(
+        definition,
+        _to_custom_property_references(references),
+        has_workflow_reference=bool(workflow_references),
+        user_access_control=user_access_control,
+    )
 
 
 def list_custom_property_value_suggestions(team_id: int, definition_id: str, search: str | None) -> list[str]:
@@ -1342,7 +1389,23 @@ def update_custom_property_definition(
         was_impersonated=was_impersonated,
         previous=previous,
     )
-    return _to_custom_property_definition_view(definition, user_access_control=user_access_control)
+    workflow_references_by_definition_id = _custom_property_references_by_definition_id(
+        team_id, definition_id=str(definition.id)
+    )
+    workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
+    references = (
+        filter_hog_flow_references_by_access_level(
+            team_id, workflow_references_by_definition_id, user_access_control
+        ).get(str(definition.id), [])
+        if user_access_control is not None
+        else []
+    )
+    return _to_custom_property_definition_view(
+        definition,
+        _to_custom_property_references(references),
+        has_workflow_reference=bool(workflow_references),
+        user_access_control=user_access_control,
+    )
 
 
 def delete_custom_property_definition(
@@ -1379,9 +1442,28 @@ class CustomPropertySourceValidationError(Exception):
     already source-backed (→ 400)."""
 
 
-def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertySyncRunView:
+def _temporal_run_url(run: "CustomPropertySyncRun") -> str | None:
+    if not run.workflow_id or not run.workflow_run_id:
+        return None
+    base = settings.TEMPORAL_UI_HOST
+    namespace = settings.TEMPORAL_NAMESPACE
+    if not base or not namespace:
+        return None
+    return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{run.workflow_id}/{run.workflow_run_id}"
+
+
+def _to_sync_run_view(
+    run: "CustomPropertySyncRun", *, include_temporal_url: bool = False
+) -> contracts.CustomPropertySyncRunView:
     return contracts.CustomPropertySyncRunView(
         id=run.id,
+        job_id=run.job_id,
+        account_segment=run.segment,
+        sync_phase=run.phase,
+        attempt=run.attempt,
+        workflow_id=run.workflow_id if include_temporal_url else None,
+        workflow_run_id=run.workflow_run_id if include_temporal_url else None,
+        temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
         started_at=run.started_at,
@@ -1723,24 +1805,25 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
     return cleaned
 
 
-def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
-    """Dispatch the sync task by name. Enqueue failure must not fail the originating write, so it's swallowed."""
+def _send_initial_account_property_sync(team_id: int, saved_query_id: str) -> None:
     try:
         current_app.send_task(
             "customer_analytics.process_custom_property_sync",
             kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
         )
-    except Exception as e:
-        capture_exception(e)
+    except Exception as error:
+        capture_exception(error)
 
 
-def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
-    """Run an initial sync after the source is saved so its values populate immediately rather than
-    waiting for the next materialization. Skips disabled sources and ones whose view was deleted."""
-    if not source.is_enabled or source.saved_query_id is None:
+def _enqueue_initial_account_property_sync(source: CustomPropertySource) -> None:
+    if (
+        not source.is_enabled
+        or source.saved_query_id is None
+        or source.definition.target_type != TargetType.ACCOUNT.value
+    ):
         return
     team_id, saved_query_id = source.team_id, str(source.saved_query_id)
-    transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
+    transaction.on_commit(lambda: _send_initial_account_property_sync(team_id, saved_query_id))
 
 
 # Targets fed by the warehouse staging/sync pipeline (person + group), as opposed to the account
@@ -1750,22 +1833,26 @@ _WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
 _ONE_PROFILE_BINDING_ERROR = "A person/group property source needs exactly one of external_data_schema and saved_query."
 
 
-# A run row only reaches a terminal state when its activity records one, so a sync that died before
-# getting there — an import that failed ahead of the person-property step, a killed worker — would sit
-# "running" forever, misreporting the source and keeping its sync/backfill buttons disabled. Six hours
-# matches the sync activity's start_to_close timeout, so nothing live is behind an older row.
+# A run row only reaches a terminal state when its activity records one. Account segment workflows can
+# retry for a full day, while profile sync activities time out after six hours.
 STALE_RUNNING_RUN_AFTER = timedelta(hours=6)
-STALE_RUNNING_RUN_ERROR = "This run never reported a result. The sync may have failed before it ran."
+STALE_ACCOUNT_RUNNING_RUN_AFTER = timedelta(hours=25)
+STALE_RUNNING_RUN_ERROR = (
+    "This run stopped reporting progress. Run the warehouse source again. If it keeps failing, contact support."
+)
 
 
 def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncRun | None]") -> None:
     """Fail abandoned 'running' rows, both in the database and in the passed-in objects so the caller
     serializes what it just wrote. Runs on the read paths the UI polls, so a stuck row self-heals."""
-    cutoff = timezone.now() - STALE_RUNNING_RUN_AFTER
+    now = timezone.now()
     stale = [
         run
         for run in runs
-        if run is not None and run.status == SyncStatus.RUNNING.value and (run.started_at or run.created_at) < cutoff
+        if run is not None
+        and run.status == SyncStatus.RUNNING.value
+        and (run.started_at or run.created_at)
+        < now - (STALE_ACCOUNT_RUNNING_RUN_AFTER if run.segment is not None else STALE_RUNNING_RUN_AFTER)
     ]
     if not stale:
         return
@@ -2143,7 +2230,7 @@ def create_custom_property_source(
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
         raise CustomPropertySourceValidationError("This custom property already has a source.")
-    _enqueue_sync_if_enabled(source)
+    _enqueue_initial_account_property_sync(source)
     _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
@@ -2178,7 +2265,7 @@ def update_custom_property_source(
     source.save()
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
-        _enqueue_sync_if_enabled(source)
+        _enqueue_initial_account_property_sync(source)
         _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
@@ -2198,20 +2285,42 @@ def delete_custom_property_source(
 
 
 def list_custom_property_sync_runs(
-    team_id: int, source_id: str, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
+    team_id: int,
+    source_id: str,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl | None" = None,
+    include_temporal_urls: bool = False,
+    search: str | None = None,
 ) -> tuple[list[contracts.CustomPropertySyncRunView], int]:
-    """Person-property sync/backfill runs for a source, newest first. Returns ``(page, total_count)``.
-    Scoped by team and source, so a run of another team's/source's is never returned. The runs expose
-    the warehouse object's row counts and raw sync errors, so reading them requires the caller's viewer
-    access on it (→ 403 via ``ResourceForbiddenError``)."""
+    """Warehouse-backed custom property sync runs for a source, newest first. Returns ``(page, total_count)``.
+    Scoped by team and source, so another team's or source's runs are never returned. Profile-source
+    histories require viewer access to their warehouse object; account-source histories are visible to
+    the same callers who can view the source."""
     source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
     if source is not None:
         _assert_warehouse_viewer(team_id, _profile_binding(source), user_access_control)
-    queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
+    queryset: QuerySet[CustomPropertySyncRun] = CustomPropertySyncRun.objects.for_team(team_id).filter(
+        source_id=source_id
+    )
+    if search:
+        queryset = cast(
+            "QuerySet[CustomPropertySyncRun]",
+            queryset.annotate(workflow_run_id_text=Cast("workflow_run_id", output_field=CharField())).filter(
+                Q(job_id__icontains=search)
+                | Q(workflow_id__icontains=search)
+                | Q(workflow_run_id_text__icontains=search)
+                | Q(status__icontains=search)
+                | Q(segment__icontains=search)
+                | Q(trigger__icontains=search)
+                | Q(error__icontains=search)
+            ),
+        )
+    queryset = queryset.order_by("-created_at")
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     _expire_stale_running_runs(team_id, page)
-    return [_to_sync_run_view(run) for run in page], total_count
+    return [_to_sync_run_view(run, include_temporal_url=include_temporal_urls) for run in page], total_count
 
 
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
@@ -2641,6 +2750,9 @@ def _validate_account_table_definitions(
     sort: contracts.AccountTableSort | None,
 ) -> dict[UUID, DisplayType]:
     relationship_ids = set(selection.relationship_definition_ids)
+    relationship_ids.update(
+        filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableRelationshipFilter)
+    )
     if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
@@ -2903,6 +3015,14 @@ def query_accounts_metrics(
     return results
 
 
+def _resolve_account_logo_domain(account: Account) -> str | None:
+    properties = account.properties
+    return resolve_logo_domain(
+        website_domain=properties.website_domain,
+        email_domains=properties.email_domains,
+    )
+
+
 def query_accounts_table(
     *,
     team_id: int,
@@ -3030,6 +3150,7 @@ def query_accounts_table(
             id=account.id,
             name=account.name,
             external_id=account.external_id,
+            logo_domain=_resolve_account_logo_domain(account),
             account_fields=_account_table_field_values(account, selection.account_fields),
             tags=tags_by_account[account.id] if selection.include_tags else None,
             note_count=note_counts_by_account[account.id] if selection.include_note_count else None,
@@ -3480,6 +3601,14 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     return str(account.id) if account is not None else None
 
 
+def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
+    """The account_id when the caller can edit that account, else None."""
+    account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)
+    if account is None or not user_access_control.check_access_level_for_object(account, required_level="editor"):
+        return None
+    return str(account.id)
+
+
 def list_account_channel_summaries(
     team_id: int,
     account_id: str,
@@ -3836,13 +3965,26 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
+def trigger_calendar_sync(
+    team_id: int,
+    integration_id: int,
+    *,
+    user_id: int | None,
+    has_management_access: bool,
+) -> str | None:
     """Start the calendar-sync workflow for one connected calendar, outside the hourly
     schedule. Returns 'started', 'already_running' (a sync for this calendar is in
     flight; the workflow id is deterministic per integration), or None when the
     integration doesn't exist for this team (→ 404)."""
-    if not Integration.objects.filter(id=integration_id, team_id=team_id, kind="google-calendar").exists():
+    integration = (
+        Integration.objects.only("id", "kind", "created_by_id")
+        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
+        .first()
+    )
+    if integration is None:
         return None
+    if not has_management_access and not integration.can_be_managed_by_creator(user_id):
+        raise ResourceForbiddenError
 
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
 
@@ -3890,11 +4032,22 @@ def list_account_meetings(
             | Q(participants__display_name__icontains=search)
         ).distinct()
     count = queryset.count()
-    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    meetings = list(queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit])
+
+    from products.customer_analytics.backend.logic.gong import (  # noqa: PLC0415 — keeps HogQL off the facade import path
+        get_gong_urls_by_meeting_id,
+    )
+
+    team = user_access_control.team
+    if team is None or team.id != team_id:
+        team = Team.objects.get(id=team_id)
+    gong_urls_by_meeting_id = get_gong_urls_by_meeting_id(team=team, user=user_access_control.user, meetings=meetings)
+
     views = [
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
+            gong_url=gong_urls_by_meeting_id.get(meeting.id),
             start_time=meeting.start_time,
             end_time=meeting.end_time,
             organizer_email=meeting.organizer_email,
@@ -4319,6 +4472,25 @@ def end_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return None
     return _to_account_relationship(relationship)
+
+
+def delete_account_relationship(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    relationship_id: str | UUID,
+    actor: "User | None" = None,
+) -> bool:
+    try:
+        _relationships_logic.delete_relationship(
+            team_id=team_id,
+            account_id=account_id,
+            relationship_id=str(relationship_id),
+            actor=actor,
+        )
+    except _relationships_logic.AccountRelationshipNotFound:
+        return False
+    return True
 
 
 # --- EventStream ---

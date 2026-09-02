@@ -34,6 +34,7 @@ from pydantic import BaseModel, ValidationError
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
+from rest_framework.permissions import BasePermission
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -87,8 +88,6 @@ from posthog.rate_limit import (
     is_rate_limit_enabled,
     team_is_allowed_to_bypass_throttle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -111,6 +110,11 @@ from posthog.session_recordings.utils import (
     recordings_query_has_event_filters,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
+
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -290,6 +294,18 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
     expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
     recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
+    total_size = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Total stored size of the recording's snapshot data in bytes. "
+        "Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.",
+    )
+    event_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Number of captured rrweb events in the recording. "
+        "Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.",
+    )
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -363,6 +379,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "activity_score",
             "external_references",
             "matches_filters",
+            "total_size",
+            "event_count",
         ]
 
         read_only_fields = [
@@ -388,6 +406,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_library",
             "ongoing",
             "activity_score",
+            "total_size",
+            "event_count",
         ]
 
 
@@ -811,11 +831,26 @@ def clean_referer_url(current_url: str | None) -> str:
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
+class ExportRendererRecordingPermission(BasePermission):
+    def has_permission(self, request: Request, view: Any) -> bool:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, ExportRendererAuthentication):
+            return True
+
+        recording_id = authenticator.export_context.get("session_recording_id")
+        return (
+            isinstance(recording_id, str)
+            and view.action in {"retrieve", "snapshots"}
+            and str(view.kwargs.get("pk")) == recording_id
+        )
+
+
 @extend_schema(tags=["replay"])
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
     authentication_classes = [ExportRendererAuthentication]
+    permission_classes = [ExportRendererRecordingPermission]
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -1738,9 +1773,7 @@ class SessionRecordingViewSet(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
-            # need to type ignore before, this will be a WrappedParse
-            # but the type detection can't figure that out
-            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
+            posthog_distinct_id=self._distinct_id_from_request(request),
             posthog_properties={
                 "ai_product": "session_replay",
                 "ai_feature": "ai_regex",

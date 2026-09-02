@@ -1,9 +1,4 @@
-import type {
-  Adapter,
-  GitHandoffCheckpoint,
-  HandoffLocalGitState as GitHandoffLocalGitState,
-  PostHogAPIConfig,
-} from "@posthog/shared";
+import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
 export type {
@@ -14,6 +9,8 @@ export type {
   TaskRun,
   TaskRunArtifact,
   TaskRunEnvironment,
+  TaskRunState,
+  TaskRunStateField,
   TaskRunStatus,
 } from "@posthog/shared";
 
@@ -68,6 +65,8 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;
   reasoningEffort?: EffortLevel;
@@ -142,17 +141,6 @@ export type FileStatus = "A" | "M" | "D";
 export interface FileChange {
   path: string;
   status: FileStatus;
-}
-
-export type HandoffLocalGitState = GitHandoffLocalGitState;
-
-export interface GitCheckpoint extends GitHandoffCheckpoint {
-  artifactPath?: string;
-  indexArtifactPath?: string;
-}
-
-export interface GitCheckpointEvent extends GitCheckpoint {
-  device?: DeviceInfo;
 }
 
 /**

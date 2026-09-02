@@ -10,6 +10,34 @@
 import * as zod from 'zod'
 
 /**
+ * Mark a check as not applicable to this project.
+ */
+export const AiObservabilityInstrumentationChecklistDismissCreateBody = /* @__PURE__ */ zod.object({
+    check: zod
+        .enum(['sessions', 'tool_calls', 'user_identity', 'trace_structure'])
+        .describe(
+            '\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        )
+        .describe(
+            'Key of the check to dismiss or restore.\n\n\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        ),
+})
+
+/**
+ * Bring a dismissed check back into grading.
+ */
+export const AiObservabilityInstrumentationChecklistRestoreCreateBody = /* @__PURE__ */ zod.object({
+    check: zod
+        .enum(['sessions', 'tool_calls', 'user_identity', 'trace_structure'])
+        .describe(
+            '\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        )
+        .describe(
+            'Key of the check to dismiss or restore.\n\n\* `sessions` - sessions\n\* `tool_calls` - tool_calls\n\* `user_identity` - user_identity\n\* `trace_structure` - trace_structure'
+        ),
+})
+
+/**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
 export const datasetItemsCreateBodyClientItemIdMax = 255

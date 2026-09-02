@@ -16,9 +16,10 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 ReadinessState = Literal[
     "not_configured",
@@ -212,7 +213,7 @@ def _schema_table_statuses(
     source_filter: dict[str, object] = {
         "team_id": team_id,
         "deleted": False,
-        "access_method": ExternalDataSource.AccessMethod.WAREHOUSE,
+        "access_method": ExternalDataSourceAccessMethod.WAREHOUSE,
     }
     if source_id is not None:
         source_filter["id"] = source_id

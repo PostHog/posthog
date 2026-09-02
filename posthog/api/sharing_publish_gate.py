@@ -22,8 +22,8 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
@@ -121,23 +121,30 @@ def is_publicly_shared(artifact: "Dashboard | Notebook | Insight") -> bool:
     their own share; an insight also transitively - by a shared dashboard's tile or a shared
     notebook embedding it."""
     if isinstance(artifact, Insight):
-        live_tile = Q(dashboard__tiles__insight=artifact) & (
-            Q(dashboard__tiles__deleted__isnull=True) | Q(dashboard__tiles__deleted=False)
+        team_shares = SharingConfiguration.objects.filter(
+            SharingConfiguration.tokens_active_q(), team_id=artifact.team_id
         )
-        if SharingConfiguration.objects.filter(
-            SharingConfiguration.tokens_active_q(), Q(insight=artifact) | live_tile
+        # Each exposure route is a separate indexed EXISTS scoped to the team. Written as one
+        # unscoped OR over the tile join, Postgres left-joins every active share across all teams
+        # to every tile before it can apply the predicate.
+        if team_shares.filter(insight=artifact).exists():
+            return True
+        # Both tile conditions stay in one filter() call so they match the same joined row.
+        if team_shares.filter(
+            Q(dashboard__tiles__deleted__isnull=True) | Q(dashboard__tiles__deleted=False),
+            dashboard__tiles__insight=artifact,
         ).exists():
             return True
         # Notebooks reference insights inside their content JSON, so the few active notebook
         # shares per team are scanned rather than joined.
         return any(
             artifact.short_id in extract_referenced_insight_short_ids(content)
-            for content in SharingConfiguration.objects.filter(
-                SharingConfiguration.tokens_active_q(), team_id=artifact.team_id, notebook__isnull=False
-            ).values_list("notebook__content", flat=True)
+            for content in team_shares.filter(notebook__isnull=False).values_list("notebook__content", flat=True)
         )
     field = "dashboard" if isinstance(artifact, Dashboard) else "notebook"
-    return SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q(), **{field: artifact}).exists()
+    return SharingConfiguration.objects.filter(
+        SharingConfiguration.tokens_active_q(), team_id=artifact.team_id, **{field: artifact}
+    ).exists()
 
 
 def blocked_access_in_notebook_edit(user: User, notebook: Any, new_content: dict[str, Any] | None) -> list[str]:

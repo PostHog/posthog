@@ -5,12 +5,11 @@ import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from 
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
-
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
@@ -175,6 +174,38 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     return innerName || undefined
 }
 
+// Extracts the inner tool's JSON arguments from an exec `call` command, e.g.
+// `call skill-get {"skill_name":"x"}` → `{ skill_name: 'x' }`. Sibling of
+// parseExecCallInnerToolName, and deliberately mirrors how the `call` handler
+// below reads the same command — a body-less call is `{}` there, so it is `{}`
+// here. Returns undefined when no inner arguments exist to read: another verb,
+// or a body that is not a JSON object. Analytics uses this because in
+// single-exec mode the arguments never arrive as tool arguments, so a property
+// derived only from those would miss nearly every skill read.
+export function parseExecCallInnerArgs(command: string): Record<string, unknown> | undefined {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call' || !rest) {
+        return
+    }
+    const callArgs = parseCallFlags(rest).rest
+    if (!callArgs) {
+        return
+    }
+    const { rest: jsonBody } = parseCommand(callArgs)
+    if (!jsonBody) {
+        return {}
+    }
+    try {
+        const parsed: unknown = JSON.parse(jsonBody)
+        // Arrays and `null` are typeof 'object'; only a plain object holds arguments.
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : undefined
+    } catch {
+        return
+    }
+}
+
 /** Verbs the dispatcher grammar accepts. A verb outside this set is what the
  *  `unknown_command` rejection fires on, and is recorded as unrecognized. */
 const KNOWN_EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
@@ -282,10 +313,10 @@ export function createExecInnerToolCallResolver(
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
-        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
+        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for patterns.',
     'entity-search': (allTools) => {
         const base =
-            'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
+            'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
         const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
         return hasCatalog
             ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
@@ -298,7 +329,7 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'property-definitions': () =>
         'Tool "property-definitions" was removed. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
-        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
+        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for HogQL patterns.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))
@@ -892,7 +923,8 @@ export function createExecTool(
                     // one: formatter-toggle tools then skip the server-side formatter (clean raw
                     // JSON, no `__formatted_results_override` duplication), and tools where the
                     // field is a real backend param (dashboard-insights-run) keep full function.
-                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                    const toolSchema = tool.schema
+                    if (useJson && schemaHasOutputFormat(toolSchema)) {
                         input.output_format = 'json'
                     }
 
@@ -900,7 +932,7 @@ export function createExecTool(
                     // otherwise bad input reaches the HTTP layer and builds URLs like
                     // `.../actions/undefined/`, a misleading 404 that hides the offending
                     // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = tool.schema.safeParse(input, { reportInput: true })
+                    const validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
                         const message = formatInputValidationError(tool.name, validation.error)
                         trackInnerCall?.(tool.name, {
@@ -916,7 +948,7 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, tool.schema)
+                            describeValidationError(validation.error, input, toolSchema)
                         )
                     }
                     input = validation.data as Record<string, unknown>

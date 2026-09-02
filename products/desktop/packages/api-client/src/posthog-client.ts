@@ -16,9 +16,13 @@ import {
   type CloudTaskConfigOption,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
+  type GatewayModel,
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
   resolveCloudInitialPermissionMode,
 } from "@posthog/shared";
 import type {
@@ -79,19 +83,22 @@ import {
   decorateFlagPreview,
   decorateSurveyPreview,
   type EvidencePreview,
-  exposureFact,
+  type ExperimentMetricQueryResult,
+  experimentMetricQueries,
   formatDay,
   gridRows,
   hogqlEscape,
-  pivotDailyGroups,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
   shapeErrorIssuePreview,
   shapeEvaluationPreview,
   shapeEventDefinitionPreview,
+  shapeExperimentExposureChart,
   shapeExperimentPreview,
+  shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -125,6 +132,7 @@ import type {
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
+import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
@@ -165,6 +173,22 @@ export interface PostHogAPIClientOptions {
 
 export function getPosthogApiClientAppVersion(): string {
   return clientAppVersion;
+}
+
+/**
+ * A scout endpoint answered with a non-2xx. Carries the status so a caller can tell a
+ * refusal it has to live with — 403 for a member without `signal_scout:write`, 404 for a
+ * stale project id — from a real outage worth retrying or reporting.
+ */
+export class ScoutRequestError extends Error {
+  constructor(
+    readonly status: number,
+    subPath: string,
+    statusText: string,
+  ) {
+    super(`Scout request failed (${subPath}): ${statusText}`);
+    this.name = "ScoutRequestError";
+  }
 }
 
 export class SandboxCustomImagesDisabledError extends Error {
@@ -380,7 +404,7 @@ export interface LlmSkillCreatedBy {
   last_name?: string | null;
 }
 
-export interface LlmSkillFileManifest {
+interface LlmSkillFileManifest {
   path: string;
   content_type: string;
 }
@@ -643,7 +667,7 @@ export interface IntegrationAccount {
   secondary_text: string | null;
 }
 
-export interface SourceFieldSelectConfigOption {
+interface SourceFieldSelectConfigOption {
   label: string;
   value: string;
   fields?: SourceFieldConfig[];
@@ -759,6 +783,39 @@ export interface ChannelContextWikiPage {
   path: string;
 }
 
+export interface ContextWikiDreamRun {
+  sha: string;
+  date: string;
+  committed_at: string;
+  summary: string;
+  pages_added: number;
+  pages_modified: number;
+  pages_deleted: number;
+}
+
+export interface ContextWikiActiveDreamRun {
+  run_status: "not_started" | "queued" | "in_progress";
+  started_at: string;
+}
+
+export interface ContextWikiDreamList {
+  head_sha: string;
+  active_run: ContextWikiActiveDreamRun | null;
+  dreams: ContextWikiDreamRun[];
+}
+
+export interface ContextWikiDreamFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  patch: string;
+  truncated: boolean;
+}
+
+export interface ContextWikiDreamDetail {
+  run: ContextWikiDreamRun;
+  files: ContextWikiDreamFile[];
+}
+
 // Thrown when PUT /context_layer/pages/ rejects a write because the caller's
 // `base_head` is older than the wiki's current head. `currentHead` is the head
 // to re-read against before retrying.
@@ -826,7 +883,7 @@ export interface TaskArtifactUploadRequest {
   metadata?: TaskRunArtifactMetadata;
 }
 
-export interface DirectUploadPresignedPost {
+interface DirectUploadPresignedPost {
   url: string;
   fields: Record<string, string>;
 }
@@ -1082,9 +1139,13 @@ type AnyArtefact =
   | TaskRunArtefact
   | NoteArtefact;
 
-const DISMISSAL_REASONS = new Set<DismissalReasonOptionValue>(
-  DISMISSAL_REASON_OPTIONS.map((o) => o.value),
-);
+// Reasons valid on a dismissal artefact. Resolve reasons are included because the
+// backend stores resolve feedback on the same artefact type (a resolve writes a
+// `dismissal` artefact), so `fixed_outside_posthog` / `pr_merged` must normalize too.
+const DISMISSAL_REASONS = new Set<ReportStateReason>([
+  ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
+  ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
 
@@ -1240,8 +1301,8 @@ function normalizeDismissalArtefact(
 
   const rawReason = optionalString(contentValue.reason);
   const reason =
-    rawReason && DISMISSAL_REASONS.has(rawReason as DismissalReasonOptionValue)
-      ? (rawReason as DismissalReasonOptionValue)
+    rawReason && DISMISSAL_REASONS.has(rawReason as ReportStateReason)
+      ? (rawReason as ReportStateReason)
       : null;
 
   if (reason == null) {
@@ -1702,9 +1763,7 @@ export class PostHogAPIClient {
     return data;
   }
 
-  async getCloudTaskConfigOptions(
-    adapter: Adapter = "claude",
-  ): Promise<CloudTaskConfigOption[]> {
+  async getCloudTaskGatewayModels(): Promise<GatewayModel[]> {
     const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
@@ -1715,8 +1774,14 @@ export class PostHogAPIClient {
         header: buildPosthogProjectHeaderRecord(teamId),
       },
     });
+    return normalizeGatewayModelsResponse(await response.json());
+  }
+
+  async getCloudTaskConfigOptions(
+    adapter: Adapter = "claude",
+  ): Promise<CloudTaskConfigOption[]> {
     return buildCloudTaskConfigOptions(
-      normalizeGatewayModelsResponse(await response.json()),
+      await this.getCloudTaskGatewayModels(),
       adapter,
     );
   }
@@ -2135,8 +2200,10 @@ export class PostHogAPIClient {
       path: urlPath,
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2146,9 +2213,13 @@ export class PostHogAPIClient {
     projectId: number,
     subPath: string,
     body: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
     const urlPath = `/api/projects/${projectId}/signals/scout/${subPath}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    for (const [key, value] of Object.entries(query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
@@ -2158,8 +2229,10 @@ export class PostHogAPIClient {
       },
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2169,6 +2242,19 @@ export class PostHogAPIClient {
     const data = await this.scoutGet<
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/");
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * Materialize the project's scout fleet and return it: the backend seeds the
+   * canonical `signals-scout-*` skills, registers a config for every scout
+   * missing one, and retires the ones no longer shipped. Idempotent, and the
+   * only way a project the Temporal coordinator never reached gets any scouts.
+   */
+  async syncScoutConfigs(projectId: number): Promise<ScoutConfig[]> {
+    const data = await this.scoutPost<
+      { results: ScoutConfig[] } | ScoutConfig[]
+    >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
@@ -2524,9 +2610,11 @@ export class PostHogAPIClient {
 
   async getTasksWithStatus(
     options?: TaskListOptions,
-    pagination?: { maxPages?: number },
+    pagination?: { maxPages?: number; fetchAll?: boolean },
   ): Promise<{ tasks: Task[]; isComplete: boolean }> {
-    const maxPages = pagination?.maxPages ?? 1;
+    const maxPages = pagination?.fetchAll
+      ? Number.POSITIVE_INFINITY
+      : (pagination?.maxPages ?? 1);
     const pageSize = Math.min(options?.limit ?? 100, 100);
     const tasks: Task[] = [];
     let count = 0;
@@ -2930,6 +3018,51 @@ export class PostHogAPIClient {
     return data.task_id ?? null;
   }
 
+  async startOnboardingTestSession(input: {
+    company_domain: string;
+    joining_existing_organization: boolean;
+    has_events: boolean;
+    signal_reports_waiting: number;
+    other_members: string[];
+    sources_enabled: string[];
+    sources_watching: string[];
+    sources_newly_enabled: boolean;
+  }): Promise<{ task_id: string; channel_id: string }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(input) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to start test onboarding session: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { task_id: string; channel_id: string };
+  }
+
+  async createTeachingCanvasForTest(): Promise<{
+    canvas_id: string;
+    channel_id: string;
+  }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/teaching_canvas_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to create teaching canvas: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { canvas_id: string; channel_id: string };
+  }
+
   async updateTaskChannelRepositories(
     id: string,
     githubIntegration: number | null,
@@ -2954,6 +3087,34 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelAutoArchive(
+    id: string,
+    inactivityDays: number | null,
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ auto_archive_after_days: inactivityDays }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update automatic archiving: ${response.statusText}`,
+      );
+    }
+    const updatedChannel = (await response.json()) as TaskChannel;
+    if (updatedChannel.auto_archive_after_days !== inactivityDays) {
+      throw new Error(
+        "Automatic archiving isn't available on this server yet. Try again after it has been updated.",
+      );
+    }
+    return updatedChannel;
   }
 
   async deleteTaskChannel(id: string): Promise<void> {
@@ -3130,6 +3291,20 @@ export class PostHogAPIClient {
   ): Promise<ChannelContextWikiPage | null> {
     return this.getContextWikiResource<ChannelContextWikiPage>(
       `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+    );
+  }
+
+  async getContextWikiDreams(): Promise<ContextWikiDreamList | null> {
+    return this.getContextWikiResource<ContextWikiDreamList>(
+      `/api/organizations/@current/context_layer/dreams/`,
+    );
+  }
+
+  async getContextWikiDream(
+    sha: string,
+  ): Promise<ContextWikiDreamDetail | null> {
+    return this.getContextWikiResource<ContextWikiDreamDetail>(
+      `/api/organizations/@current/context_layer/dreams/${encodeURIComponent(sha)}/`,
     );
   }
 
@@ -4713,6 +4888,12 @@ export class PostHogAPIClient {
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
     }
+    if (params?.actionability) {
+      url.searchParams.set("actionability", params.actionability);
+    }
+    if (params?.count_only != null) {
+      url.searchParams.set("count_only", String(params.count_only));
+    }
     if (params?.has_implementation_pr != null) {
       url.searchParams.set(
         "has_implementation_pr",
@@ -4833,14 +5014,25 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * The list is newest-first and truncates to the server page size, which drops the oldest
+   * rows — including the scout `task_run` written when the report was created. Pass `limit`
+   * from callers that read the whole log. Callers that need only the newest row of a
+   * latest-wins type should omit it: artefacts carry diffs and code excerpts, and list rows
+   * fetch this once per card.
+   */
   async getSignalReportArtefacts(
     reportId: string,
+    options?: { limit?: number },
   ): Promise<SignalReportArtefactsResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
+    if (options?.limit !== undefined) {
+      url.searchParams.set("limit", String(options.limit));
+    }
 
     try {
       const response = await this.api.fetcher.fetch({
@@ -4928,6 +5120,9 @@ export class PostHogAPIClient {
           snooze_for?: number;
           reset_weight?: boolean;
           error?: string;
+          /** Feedback recorded when a reason drove the snooze (e.g. "Already fixed"); omitted for a plain snooze. */
+          dismissal_reason?: DismissalReasonOptionValue;
+          dismissal_note?: string;
         }
       | {
           state: "suppressed";
@@ -4936,6 +5131,11 @@ export class PostHogAPIClient {
           dismissal_note?: string;
           reset_weight?: boolean;
           error?: string;
+        }
+      | {
+          state: "resolved";
+          dismissal_reason: ResolveReasonOptionValue;
+          dismissal_note?: string;
         },
   ): Promise<SignalReport> {
     const teamId = await this.getTeamId();
@@ -4944,14 +5144,35 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/state/`;
 
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      if (input.state === "suppressed" && requestErrorStatus(error) === 409) {
+        const currentReport = await this.getSignalReport(reportId).catch(
+          () => null,
+        );
+        const requestedReason = input.dismissal_reason ?? null;
+        const requestedNote = input.dismissal_note?.trim() ?? "";
+        const feedbackMatches =
+          currentReport?.dismissal_reason === requestedReason &&
+          (currentReport?.dismissal_note?.trim() ?? "") === requestedNote;
+        if (
+          currentReport?.status === "suppressed" &&
+          ((!requestedReason && !requestedNote) || feedbackMatches)
+        ) {
+          return currentReport;
+        }
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -5013,6 +5234,34 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/${artefactId}/`;
 
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ content }),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to update suggested reviewers");
+    }
+
+    const parsed = normalizeSignalReportArtefact(await response.json());
+    if (!parsed || parsed.type !== "suggested_reviewers") {
+      throw new Error("Unexpected response updating suggested reviewers");
+    }
+    return parsed as SuggestedReviewersArtefact;
+  }
+
+  async setSignalReportReviewers(
+    reportId: string,
+    content: SuggestedReviewerWriteEntry[],
+  ): Promise<SuggestedReviewersArtefact> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
     const response = await this.api.fetcher.fetch({
       method: "put",
       url,
@@ -6273,6 +6522,60 @@ export class PostHogAPIClient {
   }
 
   /**
+   * The signed-in person's own spend limit, as the gateway holds it. A
+   * deployment without the gateway wired answers `available: false` rather than
+   * failing, so the settings page can say the limit informs only.
+   */
+  async getUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(await this.spendLimitRequest("get"));
+  }
+
+  /** Sets the limit; `windowSeconds` is the window it resets over. */
+  async setUserSpendLimit(
+    limitUsd: number,
+    windowSeconds: number,
+  ): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("post", "", {
+        limit_usd: String(limitUsd),
+        window_seconds: windowSeconds,
+      }),
+    );
+  }
+
+  /** Removes the limit, so nothing holds this person's spend. */
+  async clearUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("delete", "clear/"),
+    );
+  }
+
+  private async spendLimitRequest(
+    method: "get" | "post" | "delete",
+    suffix = "",
+    body?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any
+    // non-2xx, so unwrap that into the endpoint's clean message rather than
+    // surfacing the raw string in the settings toast.
+    try {
+      const response = await this.api.fetcher.fetch({
+        method,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+      });
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn't update your spend limit."),
+      );
+    }
+  }
+
+  /**
    * Lists the team's LLM skills (latest versions, no bodies).
    * Returns null when the feature is unavailable for this org (the
    * llm-analytics-skills flag gates the endpoint server-side with a 403).
@@ -6429,25 +6732,20 @@ export class PostHogAPIClient {
     return { results: data.results ?? [], columns: data.columns ?? [] };
   }
 
-  /**
-   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
-   * the team's project and returns the raw response. `refresh: "blocking"`
-   * serves a fresh-enough cached result and computes synchronously otherwise —
-   * the same mode PostHog insights use. Backs inbox report charts, whose query
-   * nodes are scout-authored and arrive unparsed.
-   */
   async runQuery(
     query: Record<string, unknown>,
+    options?: { refresh?: "blocking" | false },
   ): Promise<Record<string, unknown>> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/query/`;
     const url = new URL(`${this.api.baseUrl}${path}`);
+    const refresh = options?.refresh === false ? null : "blocking";
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
       path,
       overrides: {
-        body: JSON.stringify({ query, refresh: "blocking" }),
+        body: JSON.stringify({ query, ...(refresh ? { refresh } : {}) }),
       },
     });
     const data = (await response.json()) as Record<string, unknown>;
@@ -6552,54 +6850,74 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id: numericId } },
         );
         const preview = shapeExperimentPreview(experiment);
-        // Depth: unique persons exposed per variant, showing the experiment
-        // is collecting and roughly balanced.
-        if (!experiment.start_date || !experiment.feature_flag_key) {
-          return preview;
-        }
-        const until = experiment.end_date
-          ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
-          : "";
-        const scope = `event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until}`;
-        const [exposures, dailyExposures] = await Promise.all([
-          this.runQuery({
-            kind: "HogQLQuery",
-            query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY variant ORDER BY variant`,
-          }).catch(() => ({})),
-          this.runQuery({
-            kind: "HogQLQuery",
-            query: `SELECT toDate(timestamp) AS day, toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY day, variant ORDER BY day`,
-          }).catch(() => ({})),
-        ]);
-        const fact = exposureFact(gridRows(exposures));
-        // "false" rows are flag evaluations outside the experiment, not a variant.
-        const pivot = pivotDailyGroups(
-          gridRows(dailyExposures).filter((row) => String(row[1]) !== "false"),
+        const primaryQueries = experimentMetricQueries(experiment, "primary");
+        const secondaryQueries = experimentMetricQueries(
+          experiment,
+          "secondary",
         );
-        const variantStats = gridRows(exposures)
-          .filter((row) => typeof row[0] === "string" && row[0] !== "false")
-          .slice(0, 4)
-          .map((row) => ({
-            label: `${row[0]} exposed`,
-            value: compactCount(Number(row[1]) || 0),
-          }));
+        if (!experiment.start_date) {
+          return {
+            ...preview,
+            experimentResults: shapeExperimentResults(experiment, null, [], []),
+          };
+        }
+
+        const runMetricQuery = async (
+          metric: unknown,
+        ): Promise<ExperimentMetricQueryResult> => {
+          if (!metric || typeof metric !== "object") {
+            return { response: null };
+          }
+          try {
+            const response = await this.runQuery(
+              {
+                kind: "ExperimentQuery",
+                metric,
+                experiment_id: numericId,
+              },
+              { refresh: false },
+            );
+            return {
+              response: response as Schemas.ExperimentQueryResponse,
+            };
+          } catch {
+            return { response: null };
+          }
+        };
+
+        const exposureQuery = experiment.feature_flag
+          ? this.runQuery(
+              {
+                kind: "ExperimentExposureQuery",
+                experiment_id: numericId,
+                experiment_name: experiment.name,
+                exposure_criteria: experiment.exposure_criteria,
+                feature_flag: experiment.feature_flag,
+                start_date: experiment.start_date,
+                end_date: experiment.end_date,
+                holdout: experiment.holdout,
+              },
+              { refresh: false },
+            ).catch(() => null)
+          : Promise.resolve(null);
+        const [exposureResponse, primaryResults, secondaryResults] =
+          await Promise.all([
+            exposureQuery,
+            Promise.all(primaryQueries.map(runMetricQuery)),
+            Promise.all(secondaryQueries.map(runMetricQuery)),
+          ]);
+
+        const experimentExposureResponse =
+          exposureResponse as Schemas.ExperimentExposureQueryResponse | null;
         return {
           ...preview,
-          facts: fact ? [...(preview.facts ?? []), fact] : preview.facts,
-          stats: [...(preview.stats ?? []), ...variantStats],
-          chart: pivot
-            ? {
-                title:
-                  pivot.omittedGroups > 0
-                    ? `Daily exposed users by variant (top ${pivot.series.length} of ${
-                        pivot.series.length + pivot.omittedGroups
-                      })`
-                    : "Daily exposed users by variant",
-                labels: pivot.labels,
-                series: pivot.series,
-                render: "line" as const,
-              }
-            : undefined,
+          experimentResults: shapeExperimentResults(
+            experiment,
+            experimentExposureResponse,
+            primaryResults,
+            secondaryResults,
+          ),
+          chart: shapeExperimentExposureChart(experimentExposureResponse),
         };
       }
       case "error": {
@@ -6699,6 +7017,10 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id } },
         );
         return shapeTicketPreview(ticket);
+      }
+      case "report": {
+        const report = await this.getSignalReport(id);
+        return report ? shapeInboxReportPreview(report) : null;
       }
       case "person": {
         if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {

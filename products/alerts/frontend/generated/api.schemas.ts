@@ -179,12 +179,19 @@ export interface AlertDeliveryApi {
     display_label: string
 }
 
+/**
+ * @nullable
+ */
+export type AlertCheckApiError = { [key: string]: string } | null
+
 export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
     /** @nullable */
     readonly calculated_value: number | null
     readonly state: AlertCheckStateEnumApi
+    /** @nullable */
+    readonly error: AlertCheckApiError
     readonly targets_notified: boolean
     readonly anomaly_scores: unknown
     readonly triggered_points: unknown
@@ -812,10 +819,10 @@ export interface AlertTestDeliveryResponseApi {
 }
 
 export interface AlertSimulateApi {
-    /** Insight ID to simulate the detector on. */
-    insight: number
-    /** Detector configuration to simulate. */
-    detector_config: DetectorConfigApi
+    /** Numeric insight ID or saved insight short ID to simulate the detector on. */
+    insight: number | string
+    /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
+    detector_config?: DetectorConfigApi
     /** Zero-based index of the series to analyze (trends insights only). */
     series_index?: number
     /**

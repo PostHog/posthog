@@ -90,6 +90,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { generationEvaluationRunsLogic } from './generationEvaluationRunsLogic'
 import { useAIData } from './hooks/useAIData'
+import { TraceStructureNote } from './instrumentationChecklist/TraceStructureNote'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
@@ -122,6 +123,7 @@ import {
     isLLMEvent,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
+    selectAiValue,
 } from './utils'
 
 interface TraceQueueContext {
@@ -1214,7 +1216,7 @@ function TraceSidebar({
                         topLevelTrace={trace}
                         node={{
                             event: trace,
-                            displayTotalCost: trace.totalCost || 0,
+                            displayTotalCost: trace.totalCost ?? null,
                             displayLatency: trace.totalLatency || 0,
                             displayUsage: formatLLMUsage(trace),
                         }}
@@ -1230,6 +1232,7 @@ function TraceSidebar({
                         showBillingInfo={showBillingInfo}
                     />
                 </ul>
+                <TraceStructureNote events={trace.events} />
             </div>
         </aside>
     )
@@ -1272,7 +1275,7 @@ const TreeNode = React.memo(function TraceNode({
     topLevelTrace: LLMTrace
     node:
         | EnrichedTraceTreeNode
-        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
+        | { event: LLMTrace; displayTotalCost: number | null; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
     showBillingInfo?: boolean
@@ -1631,7 +1634,7 @@ const EventContent = React.memo(
                                 <div className="flex flex-col gap-1">
                                     {aggregation && (
                                         <div className="flex flex-row flex-wrap items-center gap-2">
-                                            {aggregation.totalCost > 0 && (
+                                            {aggregation.totalCost !== null && aggregation.totalCost > 0 && (
                                                 <LemonTag type="muted" size="small">
                                                     Total Cost: {formatLLMCost(aggregation.totalCost)}
                                                 </LemonTag>
@@ -1775,14 +1778,20 @@ const EventContent = React.memo(
                                                                 traceId={trace.id}
                                                                 timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_choices ??
+                                                                rawOutput={selectAiValue(
+                                                                    event.properties.$ai_output_choices,
                                                                     event.properties.$ai_output
-                                                                }
+                                                                )}
                                                                 tools={event.properties.$ai_tools}
                                                                 errorData={event.properties.$ai_error}
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                outputTokens={event.properties.$ai_output_tokens}
+                                                                reasoningTokens={event.properties.$ai_reasoning_tokens}
+                                                                textOutputTokens={
+                                                                    event.properties.$ai_text_output_tokens
+                                                                }
+                                                                stopReason={event.properties.$ai_stop_reason}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
                                                                 highlightMessageIndex={highlightMessageIndex}

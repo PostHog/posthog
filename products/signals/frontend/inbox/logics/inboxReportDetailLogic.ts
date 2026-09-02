@@ -57,6 +57,7 @@ import {
     CurrentReviewerUser,
 } from '../components/detail/reviewerDisplay'
 import {
+    captureInboxReportAction,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
     InboxReportFeedbackSentiment,
@@ -85,6 +86,9 @@ const IMPLEMENTATION_SLOT_RELEASING_STATUSES: TaskRunStatus[] = [TaskRunStatus.F
 // (the first task runs, repo selection) stay visible on reports with many findings — matching the
 // limit the kickoff flow already uses to find the repo-selection artefact.
 const ARTEFACT_FETCH_LIMIT = 1000
+
+/** The report column's tabs on a PR-bearing report: the summary, or the branch diff. */
+export type ReportDetailTab = 'summary' | 'files'
 
 export interface InboxReportDetailLogicProps {
     reportId: string
@@ -238,6 +242,7 @@ export interface inboxReportDetailLogicValues {
     chartPlacements: ChartPlacements
     chartsById: Map<string, ReportChartApi>
     currentUserGithubLogin: string | null
+    detailTab: ReportDetailTab
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
     draftThread: DraftThread | null
@@ -464,6 +469,9 @@ export interface inboxReportDetailLogicActions {
     searchAvailableReviewers: (query: string) => {
         query: string
     }
+    setDetailTab: (tab: ReportDetailTab) => {
+        tab: ReportDetailTab
+    }
     setEditingCommentId: (commentId: string | null) => {
         commentId: string | null
     }
@@ -606,6 +614,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         searchAvailableReviewers: (query: string) => ({ query }),
         // Which linked task's run log the detail view shows; null falls back to `primaryTask`.
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
+        // Summary or Files changed in the report column (PR-bearing reports only).
+        setDetailTab: (tab: ReportDetailTab) => ({ tab }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
         // Thumbs feedback at the end of the report body. Recorded server-side as a report action
@@ -706,8 +716,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // Org members with a linked GitHub identity who can be added as reviewers.
                 // Filtered server-side via `query` (the backend ranks + caps at 100) so the picker
                 // isn't limited to the alphabetical first page. Empty query loads the default page.
-                loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
-                    return await api.signalReports.availableReviewers(query)
+                loadAvailableReviewers: async ({ query }: { query?: string } = {}, breakpoint) => {
+                    const reviewers = await api.signalReports.availableReviewers(query)
+                    // Discard this result if a newer search superseded it while the request was in
+                    // flight, so a slower earlier response cannot overwrite the newer rows.
+                    breakpoint()
+                    return reviewers
                 },
             },
         ],
@@ -792,6 +806,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 toggleExpandedTask: (state, { taskId }) =>
                     state.includes(taskId) ? state.filter((id) => id !== taskId) : [...state, taskId],
                 setReport: () => [],
+            },
+        ],
+        // Which tab the report column shows. The logic is keyed by report id, so each report keeps its
+        // own tab while open and a freshly opened report starts on the summary.
+        detailTab: [
+            'summary' as ReportDetailTab,
+            {
+                setDetailTab: (_, { tab }) => tab,
             },
         ],
         // The thumbs rating this reader gave the open report, so the row can read the choice back.
@@ -1168,6 +1190,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        setDetailTab: ({ tab }) => {
+            // Reviewing the diff is the deepest engagement a report gets short of acting on it.
+            if (tab === 'files' && values.report) {
+                captureInboxReportAction({ report: values.report, actionType: 'view_diff', surface: 'detail_pane' })
+            }
+        },
         rateReport: ({ sentiment }) => {
             if (!values.report) {
                 return

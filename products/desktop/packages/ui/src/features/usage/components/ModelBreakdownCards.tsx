@@ -18,7 +18,7 @@ import { UsageCard } from "./UsageCard";
 
 export type ModelBreakdownSort = "cost" | "tokens";
 
-export function sortModelBreakdownRows(
+function sortModelBreakdownRows(
   rows: SpendAnalysisModelRow[],
   sortBy: ModelBreakdownSort,
 ): SpendAnalysisModelRow[] {
