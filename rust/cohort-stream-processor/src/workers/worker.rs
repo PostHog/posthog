@@ -49,7 +49,7 @@ use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::reconcile::{handle_reconcile_drain, ReconcileQueue};
 use crate::workers::seed_batch::{
-    group_seeds, handle_seed_groups, Admitted, SeedApplyDeps, SeedOffset,
+    group_seeds, handle_seed_groups, seed_fanout, Admitted, SeedApplyDeps, SeedOffset,
 };
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
@@ -352,6 +352,12 @@ async fn run_worker(
                     {
                         break;
                     }
+                    // Weighed against one snapshot, dropped before the await: the apply loads
+                    // its own.
+                    let groups = {
+                        let snapshot = catalog.load();
+                        group_seeds(seeds, merge.seed_batch, |work| seed_fanout(&snapshot, work))
+                    };
                     handle_seed_groups(
                         SeedApplyDeps {
                             partition_id,
@@ -363,7 +369,7 @@ async fn run_worker(
                         &mut queue,
                         &mut reconcile_queue,
                         &mut last_updated_clock,
-                        group_seeds(seeds, merge.seed_apply_batch_max),
+                        groups,
                     )
                     .await;
                 }
@@ -1247,7 +1253,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
-            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+            seed_batch: crate::workers::SeedBatchLimits::default(),
         })
     }
 
@@ -1370,7 +1376,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
-            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+            seed_batch: crate::workers::SeedBatchLimits::default(),
         })
     }
 
@@ -1398,7 +1404,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
-            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+            seed_batch: crate::workers::SeedBatchLimits::default(),
         })
     }
 

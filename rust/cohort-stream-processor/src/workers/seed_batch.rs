@@ -25,11 +25,13 @@ use uuid::Uuid;
 use crate::cascade::CascadeMessage;
 use crate::consumers::seeds::{SeedSkipReason, SeedWork};
 use crate::filters::manager::CatalogHandle;
+use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterCatalog, TeamId};
 use crate::observability::metrics::{
     PERSON_SEED_REKEYED_TOTAL, PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
-    SEED_APPLY_BATCHES_HELD_TOTAL, SEED_APPLY_BATCH_DURATION_SECONDS, SEED_APPLY_BATCH_SIZE,
-    SEED_REKEYED_TOTAL, SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_TILES_SKIPPED_TOTAL,
+    SEED_APPLY_BATCHES_CLOSED_TOTAL, SEED_APPLY_BATCHES_HELD_TOTAL,
+    SEED_APPLY_BATCH_DURATION_SECONDS, SEED_APPLY_BATCH_SIZE, SEED_REKEYED_TOTAL,
+    SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_TILES_SKIPPED_TOTAL,
 };
 use crate::producer::{CohortMembershipChange, LastUpdatedClock, MembershipSink};
 use crate::stage1::key::LeafStateKey;
@@ -118,39 +120,125 @@ pub(crate) enum SeedGroup {
     Skip(Admitted<SeedSkipReason>),
 }
 
-/// Split `seeds` into same-kind runs in offset order, capping each run at `max`.
+/// The two ceilings on one apply run. Both bound the unit of work a hold replays: `max_seeds` the
+/// messages, `max_fanout` the leaf reads and recomputes they expand to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeedBatchLimits {
+    /// Seeds per run. `1` restores the per-seed apply, which is the hatch if batching misbehaves.
+    pub max_seeds: NonZeroUsize,
+    /// Fan-out units per run, as [`seed_fanout`] weighs them. A run closes before the seed that
+    /// would exceed it; a seed heavier than the whole budget still runs alone.
+    pub max_fanout: NonZeroUsize,
+}
+
+impl Default for SeedBatchLimits {
+    /// Mirrors the `COHORT_SEED_APPLY_BATCH_MAX*` defaults, for deps built without explicit config.
+    fn default() -> Self {
+        Self {
+            max_seeds: NonZeroUsize::new(256).expect("256 > 0"),
+            max_fanout: NonZeroUsize::new(4096).expect("4096 > 0"),
+        }
+    }
+}
+
+/// How much work one seed expands to: one unit per leaf its condition reaches, plus one per cohort
+/// each leaf backs (a single-leaf register write or a stage-2 recompute).
+///
+/// Pure. A seed the catalog cannot place weighs one, so a run of them is still bounded by the count
+/// cap rather than by nothing. Control and skip seeds weigh nothing: they are always their own
+/// group.
+pub(crate) fn seed_fanout(catalog: &FilterCatalog, work: &SeedWork) -> usize {
+    let reached = match work {
+        SeedWork::Tile(tile) => catalog.team(tile.team_id()).map_or(0, |filters| {
+            condition_fanout(filters, &tile.condition_hash().as_bytes())
+        }),
+        SeedWork::Person(seed) => catalog.team(seed.team_id()).map_or(0, |filters| {
+            seed.evaluated()
+                .iter()
+                .map(|hash| hash.as_bytes())
+                .filter(|hash| filters.person_property_conditions.contains(hash))
+                .map(|hash| condition_fanout(filters, &hash))
+                .sum()
+        }),
+        SeedWork::Reconcile(_) | SeedWork::Skip(_) => return 0,
+    };
+    reached.max(1)
+}
+
+fn condition_fanout(filters: &TeamFilters, condition_hash: &[u8; 16]) -> usize {
+    let cohorts_backed = |lsk: &LeafStateKey| {
+        filters
+            .by_lsk_to_single_leaf_cohorts
+            .get(lsk)
+            .map_or(0, Vec::len)
+            + filters
+                .by_lsk_to_composable_cohorts
+                .get(lsk)
+                .map_or(0, Vec::len)
+    };
+    filters
+        .by_condition_to_lsk
+        .get(condition_hash)
+        .map_or(0, |lsks| {
+            lsks.iter().map(|lsk| 1 + cohorts_backed(lsk)).sum()
+        })
+}
+
+/// Why a run closed. `count` should dominate; a `fanout` rate says the catalog fans seeds out far
+/// wider than the defaults assume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloseCause {
+    Count,
+    Fanout,
+    /// The next seed is of another kind, or a control seed.
+    KindChange,
+    /// The channel batch ran out.
+    End,
+}
+
+impl CloseCause {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Count => "count",
+            Self::Fanout => "fanout",
+            Self::KindChange => "kind_change",
+            Self::End => "end",
+        }
+    }
+}
+
+/// Split `seeds` into same-kind runs in offset order, each within `limits` under `weigh`.
 ///
 /// Pure and total: every input seed lands in exactly one group, and the groups' offsets stay in the
 /// order they arrived, which is what keeps a reconcile tile behind its run's data tiles.
-pub(crate) fn group_seeds(seeds: Vec<Admitted<SeedWork>>, max: NonZeroUsize) -> Vec<SeedGroup> {
+pub(crate) fn group_seeds(
+    seeds: Vec<Admitted<SeedWork>>,
+    limits: SeedBatchLimits,
+    weigh: impl Fn(&SeedWork) -> usize,
+) -> Vec<SeedGroup> {
     let mut groups = Vec::new();
-    let mut tiles: Vec<Admitted<SeedTile>> = Vec::new();
-    let mut persons: Vec<Admitted<PersonSeed>> = Vec::new();
+    let mut tiles = OpenRun::new(SeedKind::Tile, SeedGroup::Tiles);
+    let mut persons = OpenRun::new(SeedKind::Person, SeedGroup::Persons);
 
     for Admitted { work, offset } in seeds {
+        let weight = weigh(&work);
         match work {
             SeedWork::Tile(tile) => {
-                flush(&mut persons, SeedGroup::Persons, &mut groups);
-                tiles.push(Admitted { work: tile, offset });
-                if tiles.len() >= max.get() {
-                    flush(&mut tiles, SeedGroup::Tiles, &mut groups);
-                }
+                persons.close(CloseCause::KindChange, &mut groups);
+                tiles.admit(Admitted { work: tile, offset }, weight, limits, &mut groups);
             }
             SeedWork::Person(seed) => {
-                flush(&mut tiles, SeedGroup::Tiles, &mut groups);
-                persons.push(Admitted { work: seed, offset });
-                if persons.len() >= max.get() {
-                    flush(&mut persons, SeedGroup::Persons, &mut groups);
-                }
+                tiles.close(CloseCause::KindChange, &mut groups);
+                persons.admit(Admitted { work: seed, offset }, weight, limits, &mut groups);
             }
             SeedWork::Reconcile(tile) => {
-                flush(&mut tiles, SeedGroup::Tiles, &mut groups);
-                flush(&mut persons, SeedGroup::Persons, &mut groups);
+                tiles.close(CloseCause::KindChange, &mut groups);
+                persons.close(CloseCause::KindChange, &mut groups);
                 groups.push(SeedGroup::Reconcile(Admitted { work: tile, offset }));
             }
             SeedWork::Skip(reason) => {
-                flush(&mut tiles, SeedGroup::Tiles, &mut groups);
-                flush(&mut persons, SeedGroup::Persons, &mut groups);
+                tiles.close(CloseCause::KindChange, &mut groups);
+                persons.close(CloseCause::KindChange, &mut groups);
                 groups.push(SeedGroup::Skip(Admitted {
                     work: reason,
                     offset,
@@ -159,19 +247,65 @@ pub(crate) fn group_seeds(seeds: Vec<Admitted<SeedWork>>, max: NonZeroUsize) -> 
         }
     }
 
-    flush(&mut tiles, SeedGroup::Tiles, &mut groups);
-    flush(&mut persons, SeedGroup::Persons, &mut groups);
+    tiles.close(CloseCause::End, &mut groups);
+    persons.close(CloseCause::End, &mut groups);
     groups
 }
 
-/// Close the run accumulated in `items`, if any, as one group.
-fn flush<T>(
-    items: &mut Vec<Admitted<T>>,
+/// A run of one kind still accepting seeds, with the fan-out it has admitted so far.
+struct OpenRun<T> {
+    kind: SeedKind,
     into: fn(SeedRun<T>) -> SeedGroup,
-    groups: &mut Vec<SeedGroup>,
-) {
-    if let Some(run) = SeedRun::new(std::mem::take(items)) {
-        groups.push(into(run));
+    items: Vec<Admitted<T>>,
+    fanout: usize,
+}
+
+impl<T> OpenRun<T> {
+    fn new(kind: SeedKind, into: fn(SeedRun<T>) -> SeedGroup) -> Self {
+        Self {
+            kind,
+            into,
+            items: Vec::new(),
+            fanout: 0,
+        }
+    }
+
+    /// Admit one seed, closing the run around it as the limits demand: before, when its weight
+    /// would overflow the fan-out budget; after, when it fills the count.
+    ///
+    /// An empty run always admits, so a seed heavier than the whole budget still applies alone
+    /// instead of never being marked or held.
+    fn admit(
+        &mut self,
+        item: Admitted<T>,
+        weight: usize,
+        limits: SeedBatchLimits,
+        groups: &mut Vec<SeedGroup>,
+    ) {
+        let overflows = self.fanout.saturating_add(weight) > limits.max_fanout.get();
+        if overflows && !self.items.is_empty() {
+            self.close(CloseCause::Fanout, groups);
+        }
+        self.items.push(item);
+        self.fanout = self.fanout.saturating_add(weight);
+        if self.items.len() >= limits.max_seeds.get() {
+            self.close(CloseCause::Count, groups);
+        }
+    }
+
+    /// Close the run, if non-empty, as one group.
+    fn close(&mut self, cause: CloseCause, groups: &mut Vec<SeedGroup>) {
+        let Some(run) = SeedRun::new(std::mem::take(&mut self.items)) else {
+            return;
+        };
+        self.fanout = 0;
+        counter!(
+            SEED_APPLY_BATCHES_CLOSED_TOTAL,
+            "kind" => self.kind.as_str(),
+            "cause" => cause.as_str(),
+        )
+        .increment(1);
+        groups.push((self.into)(run));
     }
 }
 
@@ -640,7 +774,9 @@ mod tests {
     };
     use uuid::Uuid;
 
-    use crate::filters::{CohortId, TeamId};
+    use serde_json::{json, Value};
+
+    use crate::filters::{CohortId, TeamFiltersBuilder, TeamId};
 
     use super::*;
 
@@ -705,15 +841,29 @@ mod tests {
             .collect()
     }
 
-    fn max(n: usize) -> NonZeroUsize {
-        NonZeroUsize::new(n).unwrap()
+    fn limits(max_seeds: usize, max_fanout: usize) -> SeedBatchLimits {
+        SeedBatchLimits {
+            max_seeds: NonZeroUsize::new(max_seeds).unwrap(),
+            max_fanout: NonZeroUsize::new(max_fanout).unwrap(),
+        }
+    }
+
+    /// Group under the count cap alone: every seed weighs one and the fan-out budget is unbounded.
+    fn group_by_count(seeds: Vec<Admitted<SeedWork>>, max_seeds: usize) -> Vec<SeedGroup> {
+        group_seeds(seeds, limits(max_seeds, usize::MAX), |_| 1)
+    }
+
+    fn tiles(offsets: std::ops::Range<i64>) -> Vec<Admitted<SeedWork>> {
+        offsets
+            .map(|offset| admitted(SeedWork::Tile(tile()), offset))
+            .collect()
     }
 
     /// A run that leaked across a kind boundary would hand tiles to the person fold, or hand a
     /// reconcile tile's offset to a batch that marks past it.
     #[test]
     fn runs_break_at_every_kind_change_and_control_seeds_stay_single() {
-        let groups = group_seeds(
+        let groups = group_by_count(
             vec![
                 admitted(SeedWork::Tile(tile()), 0),
                 admitted(SeedWork::Tile(tile()), 1),
@@ -723,7 +873,7 @@ mod tests {
                 admitted(SeedWork::Skip(SeedSkipReason::UnknownKind), 5),
                 admitted(SeedWork::Tile(tile()), 6),
             ],
-            max(256),
+            256,
         );
 
         assert!(matches!(groups[0], SeedGroup::Tiles(ref run) if run.len() == 2));
@@ -741,11 +891,7 @@ mod tests {
 
     #[test]
     fn a_run_longer_than_the_cap_splits_into_capped_groups() {
-        let seeds: Vec<_> = (0..7)
-            .map(|offset| admitted(SeedWork::Tile(tile()), offset))
-            .collect();
-
-        let groups = group_seeds(seeds, max(3));
+        let groups = group_by_count(tiles(0..7), 3);
 
         assert_eq!(groups.len(), 3);
         assert_eq!(spans(&groups), vec![(0, 2), (3, 5), (6, 6)]);
@@ -754,18 +900,137 @@ mod tests {
     /// The zero-cost hatch: `COHORT_SEED_APPLY_BATCH_MAX=1` must reproduce the per-seed apply.
     #[test]
     fn a_cap_of_one_yields_one_group_per_seed() {
-        let seeds: Vec<_> = (0..3)
-            .map(|offset| admitted(SeedWork::Tile(tile()), offset))
-            .collect();
-
-        let groups = group_seeds(seeds, max(1));
+        let groups = group_by_count(tiles(0..3), 1);
 
         assert_eq!(spans(&groups), vec![(0, 0), (1, 1), (2, 2)]);
     }
 
     #[test]
     fn an_empty_batch_yields_no_groups() {
-        assert!(group_seeds(Vec::new(), max(256)).is_empty());
+        assert!(group_by_count(Vec::new(), 256).is_empty());
+    }
+
+    /// The budget bounds what a run expands to, so it has to be checked before a seed is admitted:
+    /// applied after, every run would overshoot by one seed's whole fan-out.
+    #[test]
+    fn a_run_closes_before_the_next_seed_would_exceed_the_fanout_budget() {
+        let groups = group_seeds(tiles(0..5), limits(256, 10), |_| 4);
+
+        assert_eq!(spans(&groups), vec![(0, 1), (2, 3), (4, 4)]);
+    }
+
+    /// A seed heavier than the whole budget can never fit, so an empty run must still admit it:
+    /// refusing would leave the seed neither marked nor held, and the partition wedged behind it.
+    #[test]
+    fn a_seed_heavier_than_the_whole_budget_still_forms_a_run_of_one() {
+        let groups = group_seeds(tiles(0..3), limits(256, 10), |_| 1000);
+
+        assert_eq!(spans(&groups), vec![(0, 0), (1, 1), (2, 2)]);
+    }
+
+    /// The weight is the work a seed expands to: the leaves its condition reaches and the cohorts
+    /// each leaf backs. Counting leaves alone would let a hash shared by many cohorts weigh one.
+    #[test]
+    fn seed_fanout_counts_the_cohorts_a_condition_reaches_not_its_leaves() {
+        const SHARED: &str = "0123456789abcdef";
+        const PAIRED: &str = "fedcba9876543210";
+        const PERSON: &str = "person0000000001";
+        let behavioral = |condition_hash: &str| {
+            json!({
+                "type": "behavioral", "value": "performed_event", "key": "$pageview",
+                "time_value": 7, "time_interval": "day",
+                "conditionHash": condition_hash,
+                "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+            })
+        };
+        let person_property = json!({
+            "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+            "conditionHash": PERSON,
+            "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+        });
+        let cohort =
+            |leaves: Vec<Value>| json!({ "properties": { "type": "AND", "values": leaves } });
+        let mut builder = TeamFiltersBuilder::default();
+        // Three single-leaf cohorts and two composable ones share the leaf behind SHARED.
+        for id in 1..=3 {
+            builder
+                .add_cohort(CohortId(id), TEAM, &cohort(vec![behavioral(SHARED)]))
+                .unwrap();
+        }
+        for id in 4..=5 {
+            builder
+                .add_cohort(
+                    CohortId(id),
+                    TEAM,
+                    &cohort(vec![behavioral(SHARED), behavioral(PAIRED)]),
+                )
+                .unwrap();
+        }
+        builder
+            .add_cohort(CohortId(6), TEAM, &cohort(vec![person_property]))
+            .unwrap();
+        let catalog = FilterCatalog::from_teams([(TEAM, builder.freeze(chrono_tz::UTC))]);
+        let tile_with = |team: TeamId, condition_hash: &str| {
+            SeedWork::Tile(SeedTile::new(
+                team,
+                Uuid::from_u128(1),
+                ConditionHash::parse(condition_hash).unwrap(),
+                NonZeroU32::new(1).unwrap(),
+                20_614,
+                SChunkMs(1),
+                RunId(Uuid::nil()),
+                ClaimEpoch(1),
+            ))
+        };
+
+        assert_eq!(
+            seed_fanout(&catalog, &tile_with(TEAM, SHARED)),
+            6,
+            "one leaf, plus three single-leaf and two composable cohorts",
+        );
+        assert_eq!(
+            seed_fanout(&catalog, &tile_with(TEAM, PAIRED)),
+            3,
+            "one leaf, plus the two composable cohorts alone",
+        );
+        assert_eq!(
+            seed_fanout(&catalog, &tile_with(TEAM, "no_such_cond0000")),
+            1,
+            "a hash the catalog no longer resolves still weighs one",
+        );
+        assert_eq!(
+            seed_fanout(&catalog, &tile_with(TeamId(99), SHARED)),
+            1,
+            "an unknown team still weighs one",
+        );
+
+        let person_seed = SeedWork::Person(
+            PersonSeed::new(
+                TEAM,
+                Uuid::from_u128(2),
+                // SHARED is behavioral, so the person path drops it before it can weigh anything.
+                vec![
+                    ConditionHash::parse(SHARED).unwrap(),
+                    ConditionHash::parse(PERSON).unwrap(),
+                ],
+                vec![],
+                ScannedAtMs(1),
+                RunId(Uuid::nil()),
+                ClaimEpoch(1),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            seed_fanout(&catalog, &person_seed),
+            2,
+            "the person leaf plus its one single-leaf cohort; the behavioral hash weighs nothing",
+        );
+
+        assert_eq!(seed_fanout(&catalog, &SeedWork::Reconcile(reconcile())), 0);
+        assert_eq!(
+            seed_fanout(&catalog, &SeedWork::Skip(SeedSkipReason::UnknownKind)),
+            0
+        );
     }
 
     #[test]

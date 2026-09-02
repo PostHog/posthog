@@ -468,7 +468,7 @@ async fn spawn_instance(
         register_transfer_enabled: false,
         reconcile: cohort_stream_processor::workers::ReconcileDeps::default(),
         person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
-        seed_apply_batch_max: cohort_stream_processor::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+        seed_batch: cohort_stream_processor::workers::SeedBatchLimits::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

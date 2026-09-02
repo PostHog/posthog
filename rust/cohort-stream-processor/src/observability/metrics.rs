@@ -527,6 +527,10 @@ pub const SEED_APPLY_BATCH_DURATION_SECONDS: &str = "cohort_seed_apply_batch_dur
 /// Batches that held their first offset instead of marking, labelled by `kind` and the `stage` that
 /// failed (counter). Pairs with [`SEED_HELD_OFFSET_GAUGE`], which shows the pinned floor.
 pub const SEED_APPLY_BATCHES_HELD_TOTAL: &str = "cohort_seed_apply_batches_held_total";
+/// Runs closed while grouping, labelled by `kind` and `cause` (`count`|`fanout`|`kind_change`|
+/// `end`) (counter). `count` should dominate; a `fanout` rate means the catalog fans seeds out far
+/// wider than `COHORT_SEED_APPLY_BATCH_MAX_FANOUT` assumes.
+pub const SEED_APPLY_BATCHES_CLOSED_TOTAL: &str = "cohort_seed_apply_batches_closed_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
@@ -899,6 +903,10 @@ mod tests {
         assert_eq!(
             SEED_APPLY_BATCHES_HELD_TOTAL,
             "cohort_seed_apply_batches_held_total",
+        );
+        assert_eq!(
+            SEED_APPLY_BATCHES_CLOSED_TOTAL,
+            "cohort_seed_apply_batches_closed_total",
         );
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
         assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");

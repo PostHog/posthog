@@ -1072,7 +1072,7 @@ mod tests {
         CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
     };
     use crate::workers::event_path::{process_event_gated, EventNameGating};
-    use crate::workers::seed_batch::{group_seeds, handle_seed_groups};
+    use crate::workers::seed_batch::{group_seeds, handle_seed_groups, seed_fanout};
 
     use super::*;
 
@@ -1964,7 +1964,7 @@ mod tests {
                     ..crate::workers::ReconcileDeps::default()
                 },
                 person_seed: crate::workers::PersonSeedDeps::default(),
-                seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+                seed_batch: crate::workers::SeedBatchLimits::default(),
             };
             let reconcile_queue =
                 ReconcileQueue::new(0, deps.reconcile.backlog.clone(), handle.clone());
@@ -2008,6 +2008,12 @@ mod tests {
                     offset: SeedOffset(offset),
                 })
                 .collect();
+            let groups = {
+                let snapshot = self.catalog.load();
+                group_seeds(admitted, self.deps.seed_batch, |work| {
+                    seed_fanout(&snapshot, work)
+                })
+            };
             handle_seed_groups(
                 SeedApplyDeps {
                     partition_id,
@@ -2019,7 +2025,7 @@ mod tests {
                 &mut self.queue,
                 &mut self.reconcile_queue,
                 &mut self.clock,
-                group_seeds(admitted, self.deps.seed_apply_batch_max),
+                groups,
             )
             .await;
         }
@@ -2895,7 +2901,7 @@ mod tests {
         );
         assert_eq!(
             shell.sink.produce_calls(),
-            TILES.div_ceil(shell.deps.seed_apply_batch_max.get()),
+            TILES.div_ceil(shell.deps.seed_batch.max_seeds.get()),
             "one membership produce per capped group, not one per tile",
         );
         assert_eq!(shell.committable(0), Some(TILES as i64));

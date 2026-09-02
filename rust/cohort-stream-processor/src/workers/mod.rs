@@ -19,10 +19,10 @@ pub use event_path::{
 pub use merge_gc::{handle_merge_gc, MergeGcCursor};
 pub use merge_path::{
     CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
-    DEFAULT_SEED_APPLY_BATCH_MAX,
 };
 pub use person_seed_path::PersonSeedDeps;
 pub use reconcile::{ReconcileBacklog, ReconcileDeps, DEFAULT_RECONCILE_SCAN_PAGE};
+pub use seed_batch::SeedBatchLimits;
 pub use stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 pub use stage2_path::compose_stage2;
 pub use worker::Stage1Worker;

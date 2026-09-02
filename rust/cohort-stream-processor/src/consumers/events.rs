@@ -1903,7 +1903,7 @@ mod tests {
             register_transfer_enabled: true,
             reconcile,
             person_seed: crate::workers::PersonSeedDeps::default(),
-            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+            seed_batch: crate::workers::SeedBatchLimits::default(),
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2614,7 +2614,7 @@ mod tests {
             register_transfer_enabled: false,
             reconcile,
             person_seed: crate::workers::PersonSeedDeps::default(),
-            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+            seed_batch: crate::workers::SeedBatchLimits::default(),
         });
         let dispatcher = Arc::new(EventDispatcher::new(
             PartitionRouter::new(64),

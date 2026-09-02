@@ -770,7 +770,7 @@ mod tests {
                     enabled: true,
                     live_margin_ms: MARGIN_MS,
                 },
-                seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
+                seed_batch: crate::workers::SeedBatchLimits::default(),
             };
             Self {
                 _dir: dir,

@@ -5,7 +5,6 @@
 //! [`handle_apply`] applies a `MergeStateTransfer` on P_new's worker. Both produce their own
 //! membership output and mark their own [`OffsetTracker`].
 
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,6 +38,7 @@ use crate::stage1::transition::LeafTransition;
 use crate::store::{BehavioralKey, PendingTransferKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::person_seed_path::PersonSeedDeps;
+use crate::workers::seed_batch::SeedBatchLimits;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
     affected_leaves, first_cascades, produce_cascades, produce_membership, transition_metric_label,
@@ -83,10 +83,6 @@ impl TransferRetryPolicy {
 /// Default merge-CF GC per-tick, per-CF scan cap when the deps are built without explicit config
 /// (tests). Mirrors `Config::merge_gc_scan_limit`'s default.
 pub const DEFAULT_MERGE_GC_SCAN_LIMIT: usize = 10_000;
-
-/// Default seed apply batch ceiling when the deps are built without explicit config (tests).
-/// Mirrors `Config::cohort_seed_apply_batch_max`'s default.
-pub const DEFAULT_SEED_APPLY_BATCH_MAX: NonZeroUsize = NonZeroUsize::new(256).expect("256 > 0");
 
 /// Cascade depth/fan-out caps and the master gate. With `enabled` false the cascade transport is
 /// inert (the producer builds nothing, the consumer drains without re-evaluating).
@@ -144,9 +140,8 @@ pub struct MergeWorkerDeps {
     pub reconcile: ReconcileDeps,
     /// Person-property seed admission and its live-priority margin.
     pub person_seed: PersonSeedDeps,
-    /// Ceiling on the seeds one apply batch folds before it commits and produces. `1` restores the
-    /// per-seed apply, which is the hatch if batching ever misbehaves.
-    pub seed_apply_batch_max: NonZeroUsize,
+    /// Ceilings on what one apply batch folds before it commits and produces.
+    pub seed_batch: SeedBatchLimits,
 }
 
 impl MergeWorkerDeps {
@@ -169,7 +164,7 @@ impl MergeWorkerDeps {
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
             person_seed: PersonSeedDeps::default(),
-            seed_apply_batch_max: DEFAULT_SEED_APPLY_BATCH_MAX,
+            seed_batch: SeedBatchLimits::default(),
         })
     }
 }
@@ -923,7 +918,7 @@ mod tests {
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
             person_seed: PersonSeedDeps::default(),
-            seed_apply_batch_max: DEFAULT_SEED_APPLY_BATCH_MAX,
+            seed_batch: SeedBatchLimits::default(),
         }
     }
 

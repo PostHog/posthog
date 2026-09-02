@@ -263,7 +263,7 @@ async fn async_main(config: Config) -> Result<()> {
             enabled: config.cohort_seed_person_apply_enabled,
             live_margin_ms: config.cohort_seed_person_live_margin_ms,
         },
-        seed_apply_batch_max: config.seed_apply_batch_max()?,
+        seed_batch: config.seed_batch_limits()?,
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
@@ -848,6 +848,7 @@ fn log_startup(config: &Config) {
         cohort_seed_reconcile_scan_page = config.cohort_seed_reconcile_scan_page,
         cohort_seed_reconcile_tick_interval_ms = config.cohort_seed_reconcile_tick_interval_ms,
         cohort_seed_apply_batch_max = config.cohort_seed_apply_batch_max,
+        cohort_seed_apply_batch_max_fanout = config.cohort_seed_apply_batch_max_fanout,
         "starting cohort-stream-processor",
     );
 }
