@@ -178,12 +178,19 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
     uri = _write_parent_table(tmp_path)
     v0_table = deltalake.DeltaTable(uri)
     v0 = v0_table.version()
-    v0_timestamp = datetime.fromtimestamp(v0_table.history()[0]["timestamp"] / 1000, tz=UTC)
+    v0_timestamp_ms = int(v0_table.history()[0]["timestamp"])
+
+    # Delta resolves time travel at millisecond precision, so the pin must fall
+    # strictly between commits or two fast writes can resolve to the later version.
+    snapshot_timestamp_ms = v0_timestamp_ms + 1
+    while int(datetime.now(UTC).timestamp() * 1000) <= snapshot_timestamp_ms:
+        pass
+    snapshot_timestamp = datetime.fromtimestamp(snapshot_timestamp_ms / 1000, tz=UTC)
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
 
-    pinned = _patched_resolve(uri, snapshot_timestamp=v0_timestamp)
+    pinned = _patched_resolve(uri, snapshot_timestamp=snapshot_timestamp)
 
     assert pinned.version == v0
 
