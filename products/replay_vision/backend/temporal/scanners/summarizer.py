@@ -27,7 +27,13 @@ _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
 class SummarizerSummaryResponse(BaseModel, frozen=True):
     """First turn: the title + body summary. Field order is load-bearing — `confidence` last, after the content."""
 
-    title: str = Field(max_length=120, description="Short title for the session (~80 chars). Plain text, no quotes.")
+    title: str = Field(
+        max_length=120,
+        description=(
+            "Short title for the session (~80 chars). Plain text, no quotes. If the team's context specifies "
+            "a naming convention or format for observations, the title must follow it exactly."
+        ),
+    )
     summary: str = Field(description="Body text whose length follows the scanner's configured length.")
     confidence: float = confidence_field()
 
@@ -65,8 +71,9 @@ class SummarizerFacetsResponse(BaseModel, frozen=True):
     @field_validator("keywords", "friction_points", mode="after")
     @classmethod
     def _lowercase(cls, value: list[str]) -> list[str]:
-        # Lowercase so embedding similarity isn't fragmented by mixed casing.
-        return [v.lower() for v in value]
+        # Lowercase so embedding similarity isn't fragmented by mixed casing. Dedupe so a phrase the
+        # model repeats is stored once (the UI keys facet tags by term).
+        return list(dict.fromkeys(v.lower() for v in value))
 
 
 class SummarizerOutput(BaseScannerOutput, frozen=True):

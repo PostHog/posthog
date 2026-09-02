@@ -63,6 +63,9 @@ class KernelExecutor:
             # on the data plane still reports where its time went (the backend turns these
             # into the kernel-phase metrics).
             timings: dict[str, float] = {}
+            # Declared out here so the transport is still reported when the run dies after
+            # some inputs were already fetched, which is exactly when it explains the failure.
+            deliveries: set[str] = set()
             try:
                 boot_started = time.monotonic()
                 try:
@@ -72,7 +75,7 @@ class KernelExecutor:
                     # failure — shows up as its own phase instead of unattributed time.
                     timings["kernel_boot_s"] = round(time.monotonic() - boot_started, 3)
                 fetch_notes: list[str] = []
-                inputs = self._materialize_inputs(payload, cancel_event, fetch_notes, timings)
+                inputs = self._materialize_inputs(payload, cancel_event, fetch_notes, timings, deliveries)
                 exec_started = time.monotonic()
                 result = self._invoke_run_node(payload, inputs)
                 timings["exec_s"] = round(time.monotonic() - exec_started, 3)
@@ -88,6 +91,12 @@ class KernelExecutor:
                 result = envelope.from_python_execution(status="error", error=f"Kernel run failed: {exc}")
             if timings:
                 result["timings"] = {**timings, **(result.get("timings") or {})}
+            if deliveries:
+                # A run reading several ClickHouse-backed frames normally gets one transport
+                # for all of them, since the same gates decide every fetch. Reporting the
+                # disagreement rather than picking a winner keeps the metric label honest
+                # when a fallback fires partway through.
+                result["delivery"] = deliveries.pop() if len(deliveries) == 1 else "mixed"
             return result
 
     def interrupt(self) -> None:
@@ -141,6 +150,7 @@ class KernelExecutor:
         cancel_event: threading.Event | None = None,
         fetch_notes: list[str] | None = None,
         timings: dict[str, float] | None = None,
+        deliveries: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch each HogQL input to a local Arrow file; return the kernel-facing input specs (paths only).
 
@@ -167,7 +177,7 @@ class KernelExecutor:
                 self._evict_superseded_frames(node_token, keep=frame_path)
                 wait_started = time.monotonic()
                 try:
-                    _row_count, fetched_from, download_s = data_plane.materialize_query_to_file(
+                    materialized = data_plane.materialize_query_to_file(
                         payload["data_plane_url"],
                         payload["data_plane_token"],
                         spec["query"],
@@ -175,6 +185,17 @@ class KernelExecutor:
                         limit=_MATERIALIZE_ROW_CAP,
                         cancel_event=cancel_event,
                     )
+                    fetched_from = materialized.source
+                    download_s = materialized.download_s
+                    if deliveries is not None and materialized.delivery:
+                        deliveries.add(materialized.delivery)
+                except data_plane.DataPlaneError as exc:
+                    # Same reason the wait is accumulated below: a failed fetch is exactly the
+                    # one whose transport has to stay attributable, or the per-transport
+                    # failure ratio only ever counts successes.
+                    if deliveries is not None and exc.delivery:
+                        deliveries.add(exc.delivery)
+                    raise
                 finally:
                     # Accumulated even when the fetch raises — a run that died waiting on the
                     # data plane is exactly the one whose wait must stay visible.

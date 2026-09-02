@@ -11,6 +11,17 @@ from rest_framework.views import APIView
 _MT = TypeVar("_MT", bound=models.Model)
 
 
+class PhraseSearchFilter(filters.SearchFilter):
+    """Matches `?search=` as one literal substring instead of splitting it into independent terms.
+
+    DRF's SearchFilter ANDs the whitespace-separated parts, so `NON PROD` also matches `Non-prod`.
+    """
+
+    def get_search_terms(self, request: Request) -> list[str]:
+        term = request.query_params.get(self.search_param, "").replace("\x00", "").strip()
+        return [term] if term else []
+
+
 class TermSearchFilterBackend(filters.BaseFilterBackend):
     """
     Allows fuzzy searching based on the pg_trgm extension.

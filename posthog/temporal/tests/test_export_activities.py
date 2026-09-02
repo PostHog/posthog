@@ -13,9 +13,10 @@ from asgiref.sync import sync_to_async
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ActivityError, ApplicationError
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.models import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
@@ -145,3 +146,41 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_refresh_failure_preserves_export_error(
+    mock_exporter: MagicMock, activity_environment: ActivityEnvironment, team: Team
+) -> None:
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+
+    def fake_export(_exported_asset: ExportedAsset, **_kwargs: object) -> None:
+        raise ValueError("render failed")
+
+    mock_exporter.export_asset_direct = fake_export
+
+    # A failing refresh inside the except handler must not replace the export error
+    # or drop its classification metadata.
+    with patch.object(ExportedAsset, "refresh_from_db", side_effect=RuntimeError("db gone")):
+        with pytest.raises(ApplicationError) as exc_info:
+            await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    assert exc_info.value.type == "ValueError"
+    metadata = [
+        detail
+        for detail in exc_info.value.details
+        if isinstance(detail, dict) and detail.get("kind") == "export_activity_failure"
+    ]
+    assert metadata == [
+        {
+            "kind": "export_activity_failure",
+            "slo_failure_details": {
+                "failure_category": "application",
+                "failure_component": "exporter",
+                "failure_retryable": False,
+            },
+        }
+    ]

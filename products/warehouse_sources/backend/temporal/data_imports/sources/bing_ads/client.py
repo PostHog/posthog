@@ -29,6 +29,10 @@ logger = structlog.get_logger(__name__)
 BING_ADS_API_VERSION = 13
 # Microsoft's documented maximum page size for GetCustomersInfo.
 GET_CUSTOMERS_INFO_MAX_RESULTS = 1000
+# GetCampaignsByAccountId defaults CampaignType to Search only when omitted, so Performance Max /
+# Audience / Dynamic Search Ads / Shopping / App / Hotel campaigns never sync. Request every documented
+# type (space-delimited flags for SOAP).
+ALL_CAMPAIGN_TYPES = "App Audience DynamicSearchAds Hotel PerformanceMax Search Shopping"
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -190,7 +194,7 @@ class BingAdsClient:
                 environment=ENVIRONMENT,
             )
 
-            campaigns = service_client.GetCampaignsByAccountId(AccountId=account_id)
+            campaigns = service_client.GetCampaignsByAccountId(AccountId=account_id, CampaignType=ALL_CAMPAIGN_TYPES)
         except Exception as e:
             raise _wrap_with_fault_detail(e, "Failed to fetch campaigns") from e
 
@@ -252,7 +256,6 @@ class BingAdsClient:
                     end_date=end_date,
                 )
 
-                # Download and extract CSV from ZIP
                 csv_data = download_and_extract_report_csv(
                     reporting_service_manager=reporting_service_manager,
                     report_request=report_request,

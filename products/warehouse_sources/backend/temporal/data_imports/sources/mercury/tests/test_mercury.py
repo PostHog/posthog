@@ -30,9 +30,10 @@ class TestFormatIncrementalValue:
         ("value", "expected"),
         [
             (None, None),
-            (datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02T03:04:05+00:00"),
+            (datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02"),
+            (datetime(2026, 1, 2, 3, 4, 5), "2026-01-02"),
             (date(2026, 1, 2), "2026-01-02"),
-            ("2026-01-02T03:04:05Z", "2026-01-02T03:04:05Z"),
+            ("2026-01-02T03:04:05Z", "2026-01-02"),
         ],
     )
     def test_formats_watermark_for_the_api(self, value: Any, expected: str | None) -> None:
@@ -194,7 +195,7 @@ class TestMercurySourceResumeBehavior:
 
         manager.save_state.assert_not_called()
 
-    def test_incremental_sync_sends_iso_start_watermark(self) -> None:
+    def test_incremental_sync_sends_date_only_start_watermark(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
@@ -209,7 +210,7 @@ class TestMercurySourceResumeBehavior:
             db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
         )
 
-        assert sent_params[0]["start"] == "2026-01-02T03:04:05+00:00"
+        assert sent_params[0]["start"] == "2026-01-02"
         assert sent_params[0]["order"] == "asc"
 
     def test_first_incremental_sync_without_watermark_omits_start(self) -> None:

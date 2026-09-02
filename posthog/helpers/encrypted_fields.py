@@ -14,6 +14,14 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+FERNET_TOKEN_PREFIX = "gAAAAA"
+
+# How many nested encryption layers `decrypt_all_layers` will peel. One extra layer is what a
+# single read-then-save of an undecryptable value produces; the cap just stops a pathological
+# row from looping.
+MAX_ENCRYPTION_LAYERS = 4
+
 
 class EncryptedFieldMixin:
     # Useful if migrating to an encrypted field from a non encrypted field
@@ -64,6 +72,26 @@ class EncryptedFieldMixin:
             if self.ignore_decrypt_errors:
                 return value
             raise
+
+    def decrypt_all_layers(self, value: str) -> str | None:
+        """Decrypt a value that may carry more than one layer of encryption.
+
+        A field with `ignore_decrypt_errors` hands back raw ciphertext when a value can't be
+        decrypted, so any code that reads such a row and saves it writes the ciphertext back
+        *encrypted again*. Reading that row then peels one layer and still yields ciphertext.
+        Peel until the result no longer looks like a Fernet token.
+
+        Returns None when a layer can't be opened by any configured key — the value was written
+        under a key we no longer hold, so no amount of peeling recovers it.
+        """
+        for _ in range(MAX_ENCRYPTION_LAYERS):
+            try:
+                value = self.f.decrypt(bytes(value, "utf-8")).decode("utf-8")
+            except (InvalidToken, UnicodeDecodeError):
+                return None
+            if not value.startswith(FERNET_TOKEN_PREFIX):
+                return value
+        return None
 
     def encrypt(self, value: str) -> str:
         return self.f.encrypt(bytes(value, "utf-8")).decode("utf-8")

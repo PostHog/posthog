@@ -8,6 +8,7 @@ use crate::{
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_models::MembershipStampPolicy,
     cohorts::membership::{
         CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
     },
@@ -23,8 +24,12 @@ use crate::{
         flag_service::FlagService,
     },
     handler::{
-        apply_minimal_flag_called_events, decoding, evaluation::evaluate_feature_flags,
-        flags::fetch_and_filter, properties, FeatureFlagEvaluationContext,
+        apply_minimal_flag_called_events,
+        canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
+        decoding,
+        evaluation::evaluate_feature_flags,
+        flags::fetch_and_filter,
+        properties, FeatureFlagEvaluationContext,
     },
     mock,
     properties::property_models::PropertyType,
@@ -137,6 +142,13 @@ enum GeoipExpected {
     IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
     GeoipExpected::None
 )]
+// GeoIP on, loopback IP, with person props → supplied props survive an unresolvable IP
+#[case(
+    false,
+    true,
+    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+    GeoipExpected::NameOnly
+)]
 fn test_geoip_person_property_overrides(
     #[case] geoip_disabled: bool,
     #[case] with_name: bool,
@@ -174,6 +186,101 @@ fn test_geoip_person_property_overrides(
         }
         GeoipExpected::None => assert!(result.is_none()),
     }
+}
+
+#[test]
+// A supplied null survives only when the IP resolves nothing: the fill loop at
+// properties.rs only visits keys MaxMind returns. That leftover null reads as
+// "supplied" to `requires_db_property`, so it suppresses the person fetch; treat
+// this as a presence test for the residual null, not a verdict that the DB
+// suppression is correct.
+fn test_supplied_geoip_null_survives_unresolvable_ip() {
+    let geoip_service = create_test_geoip_service();
+    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    let name = Value::String("John".to_string());
+
+    let person_properties = HashMap::from([
+        ("name".to_string(), name.clone()),
+        ("$geoip_country_code".to_string(), Value::Null),
+    ]);
+
+    let result = properties::get_person_property_overrides(
+        false,
+        Some(person_properties),
+        &ip,
+        &geoip_service,
+    );
+
+    let result = result.expect("expected property overrides");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result.get("name"), Some(&name));
+    assert_eq!(result.get("$geoip_country_code"), Some(&Value::Null));
+}
+
+/// `supplied` is the value the request sends for `$geoip_country_code`, or `None` for a request
+/// that sends person properties without that key at all (the `unrelated_key_only` case).
+#[rstest]
+#[case::differs(false, Some(Value::String("DE".to_string())), true, "DE")]
+#[case::matches_lookup(false, Some(Value::String("US".to_string())), false, "US")]
+#[case::null_counts_as_absent(false, Some(Value::Null), false, "US")]
+#[case::unrelated_key_only(false, None, false, "US")]
+#[case::geoip_disabled(true, Some(Value::String("DE".to_string())), false, "DE")]
+#[tokio::test]
+async fn test_canonical_log_records_geoip_divergence(
+    #[case] geoip_disabled: bool,
+    #[case] supplied: Option<Value>,
+    #[case] expected_divergence: bool,
+    #[case] expected_country: &str,
+) {
+    let geoip_service = create_test_geoip_service();
+    let ip = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+
+    // The `matches_lookup` case is only meaningful if the lookup really resolves this value.
+    assert_eq!(
+        geoip_service
+            .get_geoip_properties(&ip.to_string())
+            .unwrap_or_default()
+            .get("$geoip_country_code")
+            .map(String::as_str),
+        Some("US")
+    );
+
+    let person_properties = supplied
+        .map(|value| HashMap::from([("$geoip_country_code".to_string(), value)]))
+        .or_else(|| {
+            Some(HashMap::from([(
+                "name".to_string(),
+                Value::String("John".to_string()),
+            )]))
+        });
+
+    let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), ip.to_string());
+    let (result, final_log) = run_with_canonical_log(log, async {
+        properties::get_person_property_overrides(
+            geoip_disabled,
+            person_properties,
+            &ip,
+            &geoip_service,
+        )
+    })
+    .await;
+
+    assert_eq!(
+        final_log.geoip_properties_differ_from_lookup,
+        expected_divergence
+    );
+
+    // Supplied values win; the lookup only fills keys the request left absent or null.
+    let result = result.expect("expected property overrides");
+    assert_eq!(
+        result.get("$geoip_country_code"),
+        Some(&Value::String(expected_country.to_string()))
+    );
+    assert_eq!(
+        result.contains_key("$geoip_country_name"),
+        !geoip_disabled,
+        "the lookup should fill the geoip keys the request didn't send, unless disabled"
+    );
 }
 
 #[tokio::test]
@@ -222,6 +329,7 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -307,6 +415,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -699,6 +808,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -782,6 +892,7 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -938,6 +1049,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1020,6 +1132,7 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1627,6 +1740,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1658,6 +1772,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1750,6 +1865,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1787,6 +1903,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };

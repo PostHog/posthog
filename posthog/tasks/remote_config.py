@@ -67,7 +67,7 @@ def refresh_expiring_remote_config_cache_entries() -> None:
     logger.info("Starting remote config cache refresh")
 
     try:
-        successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_caches(ttl_threshold_hours=24)
 
         # Scan after refresh to push coverage/TTL metrics to Pushgateway.
         stats_after = get_cache_stats()
@@ -76,8 +76,8 @@ def refresh_expiring_remote_config_cache_entries() -> None:
 
         logger.info(
             "Completed remote config cache refresh",
-            successful_refreshes=successful,
-            failed_refreshes=failed,
+            successful_refreshes=counts.successful,
+            failed_refreshes=counts.failed,
             total_cached=stats_after.get("total_cached", 0),
             total_teams=stats_after.get("total_teams", 0),
             cache_coverage=stats_after.get("cache_coverage", "unknown"),

@@ -45,7 +45,7 @@ If the user asks "what are users trying to DO in [ET / replay / SQL / flags / su
 | (Pattern B) `agent_mode` property is present on recent `$ai_generation` events                           | `posthog:execute-sql` group-by `properties.agent_mode` on recent `ai_product='posthog_ai'` events. Null bucket is normal (batch jobs + tool-internal calls) — you want non-null coverage across the modes you care about. |
 | `$session_id` is attached to the `$ai_generation` events (links trace to trigger session)                | `posthog:execute-sql` for `countIf($session_id IS NOT NULL) / count()`                                                                                                                                                    |
 | `$session_id` is also attached to the `$ai_evaluation` events (lets the Slack alert link to the session) | Same query but on `$ai_evaluation` events after the eval has run once                                                                                                                                                     |
-| User has organisation-level AI data processing approval                                                  | Required for `llm_judge` evaluations and the eval summary tool                                                                                                                                                            |
+| User has organisation-level AI data processing approval                                                  | Required for `llm_judge` evaluations                                                                                                                                                                                      |
 
 If `$session_id` is missing on either event type, file a backend fix before continuing — there is no UI workaround. The session-summary feature has a worked example of the threading pattern in PR #54952. For Pattern B, the agent-mode threading pattern is in PR #55160.
 
@@ -59,7 +59,7 @@ If `$session_id` is missing on either event type, file a backend fix before cont
 | `posthog:llma-evaluation-create`                   | (**often unexposed** — UI fallback: AI observability → Evaluations → New) Create the LLM-judge eval (disabled at first)                                                                                                                                           |
 | `posthog:llma-evaluation-run`                      | (**often unexposed** — UI fallback: the eval's detail page has a "Run on event" button) Dry-run the eval against specific generations during prompt iteration                                                                                                     |
 | `posthog:llma-evaluation-update`                   | (**often unexposed** — UI fallback: edit the eval in AI observability → Evaluations) Tweak the prompt / enable when ready                                                                                                                                         |
-| `posthog:llma-evaluation-summary-create`           | (**often unexposed** — UI fallback: the eval detail page has a "Summarize results" button) After the feed is running, get an AI summary of pass/N/A patterns to validate signal quality                                                                           |
+| `posthog:llma-evaluation-report-create`            | (**often unexposed** — UI fallback: the eval detail page has a "Reports" tab) After the feed is running, schedule an AI report on the eval to keep watching signal quality                                                                                        |
 | `posthog:workflows-list` / `posthog:workflows-get` | (**often unexposed** — UI: Data pipeline → Workflows) Browse existing workflow configs — useful for cloning an existing feed's structure when setting up a new one. Read-only; no create/update tool is exposed yet, so step 6's Slack workflow setup is UI-only. |
 
 Before starting, **check which of the `posthog:llma-evaluation-*` tools are actually exposed in your agent's MCP tool set.** If they aren't loaded, treat steps 4-5 as UI walkthroughs rather than tool calls.
@@ -405,19 +405,23 @@ Key observation from setup: the `agent_mode` tag reflects the mode at turn-time,
 
 Once the feed has been running for a day or two, sanity-check the eval output at scale.
 
-**If `posthog:llma-evaluation-summary-create` is exposed:**
+**If `posthog:llma-evaluation-report-create` is exposed:** schedule an AI report on the eval so the pass/fail picture keeps arriving without you asking for it.
 
 ```json
-posthog:llma-evaluation-summary-create
+posthog:llma-evaluation-report-create
 {
-  "evaluation_id": "<uuid>",
-  "filter": "fail"
+  "evaluation": "<uuid>",
+  "frequency": "scheduled",
+  "rrule": "FREQ=WEEKLY;BYDAY=MO",
+  "delivery_targets": [{ "type": "email", "value": "you@example.com" }]
 }
 ```
 
-**UI fallback:** open the eval in AI observability → Evaluations → "Summarize results" button, filter = fail.
+`posthog:llma-evaluation-report-generate` runs a configured report right away, and `posthog:llma-evaluation-report-run-list` returns the content of past runs.
 
-If the FAIL bucket is large, the classification step is too strict — relax it. If the PASS bucket has lots of generic reasonings, iterate on the prompt to enforce concreteness. The summary tool gives a quick read on this without you having to scroll through individual events.
+**UI fallback:** open the eval in AI observability → Evaluations, then the "Reports" tab.
+
+If the FAIL bucket is large, the classification step is too strict — relax it. If the PASS bucket has lots of generic reasonings, iterate on the prompt to enforce concreteness. The report gives a quick read on this without you having to scroll through individual events.
 
 Spot-check raw events when needed (note: the stored result value is `'True'`, not `'PASS'` — see step 6):
 
@@ -442,4 +446,4 @@ LIMIT 25
 - Keep the eval scoped tightly via the `conditions` property filters on `$ai_trace_id` prefix. Otherwise it fans out to every `$ai_generation` event in the project and burns LLM cost.
 - For high-volume features (>10k traces/week), consider sampling — set the eval to run on a percentage of matching events rather than all of them. Slack flooding is a real failure mode.
 - The "View Trigger Session" button is the highest-value link in the alert. Without it, the feed is just text — you can't watch what the user was actually doing. Verify it works in step 7 before considering the feed shipped.
-- Once the feed is live, periodically re-run the eval summary tool with `filter: "pass"` to surface the dominant use case clusters. That's how you turn the feed into actual product insights instead of just a notification stream.
+- Once the feed is live, keep reading the passing runs' reasoning (a scheduled report, or the SQL above with `$ai_evaluation_result = 'True'`) to surface the dominant use case clusters. That's how you turn the feed into actual product insights instead of just a notification stream.

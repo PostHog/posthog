@@ -1,15 +1,16 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { COSTED_AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { promotePosthogCustomMetadata } from './custom-metadata'
+import { usableStopReason } from './stop-reason'
 import { OtelLibraryMiddleware } from './types'
 
-// Vercel AI SDK attributes to strip after processing. Includes both
-// Vercel-specific ai.* attributes and standard GenAI semantic convention
-// attributes that have already been mapped to $ai_* properties.
+// Provider-specific and standard attributes to strip after processing.
 const STRIP_KEYS = [
-    // Vercel AI SDK specific
+    // Vercel AI SDK and Eve-specific
     'ai.operationId',
     'ai.telemetry.functionId',
     'ai.model.id',
@@ -22,6 +23,7 @@ const STRIP_KEYS = [
     'ai.usage.tokens',
     'ai.usage.inputTokenDetails.noCacheTokens',
     'ai.usage.outputTokenDetails.textTokens',
+    'ai.usage.outputTokenDetails.reasoningTokens',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',
@@ -44,14 +46,19 @@ const STRIP_KEYS = [
     'ai.schema.description',
     'operation.name',
     'resource.name',
+    'eve.session.id',
     // Standard GenAI semantic convention attributes not mapped to $ai_* properties
     'gen_ai.request.max_tokens',
     'gen_ai.response.id',
 ]
 
-// Metadata properties to promote to event properties
-const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
+const STRING_AI_CONTEXT_KEYS = ['$ai_session_id', '$ai_prompt_name']
 const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
+const AI_TELEMETRY_METADATA_PREFIX = 'ai.telemetry.metadata.'
+const AI_RUNTIME_CONTEXT_PREFIX = 'ai.settings.context.'
+const AI_CONTEXT_PREFIXES = [AI_TELEMETRY_METADATA_PREFIX, AI_RUNTIME_CONTEXT_PREFIX]
+const EVE_MARKER_KEYS = ['eve.version', 'eve.session.id']
+const EVE_TURN_SPAN_NAME = 'ai.eve.turn'
 
 function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0
@@ -59,6 +66,57 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPromptVersion(value: unknown): value is string | number {
     return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
+}
+
+function getAiContextValue(props: Record<string, unknown>, key: string): unknown {
+    for (const prefix of AI_CONTEXT_PREFIXES) {
+        const value = props[`${prefix}${key}`]
+        if (value !== undefined) {
+            return value
+        }
+    }
+    return undefined
+}
+
+function normalizeEveRuntimeContext(props: Record<string, unknown>): void {
+    const eveRuntimeContextPrefix = `${AI_RUNTIME_CONTEXT_PREFIX}eve.`
+    for (const key of Object.keys(props)) {
+        if (!key.startsWith(eveRuntimeContextPrefix)) {
+            continue
+        }
+        const eveKey = key.slice(AI_RUNTIME_CONTEXT_PREFIX.length)
+        props[eveKey] ??= props[key]
+        delete props[key]
+    }
+}
+
+function promotePosthogContext(props: Record<string, unknown>): void {
+    for (const prefix of AI_CONTEXT_PREFIXES) {
+        promotePosthogCustomMetadata(props, prefix)
+    }
+}
+
+function stripProcessedContext(props: Record<string, unknown>): void {
+    for (const key of Object.keys(props)) {
+        if (
+            key.startsWith(AI_TELEMETRY_METADATA_PREFIX) ||
+            key.startsWith(AI_RUNTIME_CONTEXT_PREFIX) ||
+            key.startsWith('ai.request.headers.')
+        ) {
+            delete props[key]
+        }
+    }
+}
+
+function isEveSpan(props: Record<string, unknown>): boolean {
+    return EVE_MARKER_KEYS.some((key) => props[key] !== undefined)
+}
+
+function isEveTurnSpan(props: Record<string, unknown>): boolean {
+    return (
+        isEveSpan(props) &&
+        (props['$otel_span_name'] === EVE_TURN_SPAN_NAME || props['$ai_span_name'] === EVE_TURN_SPAN_NAME)
+    )
 }
 
 // Vercel AI SDK top-level spans (ai.generateText/ai.streamText/ai.*Object) record
@@ -89,6 +147,29 @@ function promptToMessages(prompt: unknown): unknown[] | null {
     return null
 }
 
+// Vercel AI Gateway reports the real charged cost at
+// providerMetadata.gateway.cost, which the token-based estimate cannot match
+// under BYOK rates, discounts, or per-request fallback. The OTel attribute
+// arrives as a JSON string, but accept a parsed object too.
+function extractGatewayCost(providerMetadata: unknown): number | undefined {
+    let parsed = providerMetadata
+    if (typeof parsed === 'string') {
+        try {
+            parsed = parseJSON(parsed)
+        } catch {
+            return undefined
+        }
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+        return undefined
+    }
+    const gateway = (parsed as Record<string, unknown>).gateway
+    if (gateway === null || typeof gateway !== 'object') {
+        return undefined
+    }
+    return finiteNumberOrUndefined((gateway as Record<string, unknown>).cost)
+}
+
 function numericValue(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return value
@@ -105,6 +186,13 @@ function process(event: PluginEvent, next: () => void): void {
         return next()
     }
     const props = event.properties
+    normalizeEveRuntimeContext(props)
+    const eveSpan = isEveSpan(props)
+
+    // Eve's Workflow parent is filtered before ingestion, so the turn must become the logical trace root.
+    if (isEveTurnSpan(props)) {
+        delete props['$ai_parent_id']
+    }
 
     // Capture opId before next() since STRIP_KEYS deletes it afterward
     const opId = props['ai.operationId']
@@ -152,10 +240,28 @@ function process(event: PluginEvent, next: () => void): void {
     }
     delete props['ai.response.text']
 
-    // Promote a groups map supplied via telemetry metadata before next(), so the
-    // generic mapper's normalizeGroups() can parse the JSON string and attach it.
-    // Skip if a $groups span attribute was already set directly.
-    const groupsMetadata = props['ai.telemetry.metadata.$groups']
+    // Legacy AI SDK telemetry sends the tool catalog as ai.prompt.tools, an
+    // array of individually stringified tool definitions. Parse each entry so
+    // $ai_tools ends up carrying objects, like the current
+    // gen_ai.tool.definitions attribute does.
+    if (props['ai.prompt.tools'] !== undefined && props['gen_ai.tool.definitions'] === undefined) {
+        const tools = props['ai.prompt.tools']
+        if (Array.isArray(tools)) {
+            props['gen_ai.tool.definitions'] = tools.map((tool) => {
+                if (typeof tool !== 'string') {
+                    return tool
+                }
+                try {
+                    return parseJSON(tool)
+                } catch {
+                    return tool
+                }
+            })
+        }
+    }
+
+    // Promote groups before the generic mapper runs so it can parse the JSON value.
+    const groupsMetadata = getAiContextValue(props, '$groups')
     if (props['$groups'] === undefined && isNonEmptyString(groupsMetadata)) {
         props['$groups'] = groupsMetadata
     }
@@ -232,7 +338,7 @@ function process(event: PluginEvent, next: () => void): void {
         props['$ai_span_name'] = functionId
     }
 
-    const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
+    const posthogDistinctId = getAiContextValue(props, 'posthog_distinct_id')
     if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
         if (props['posthog_distinct_id'] === undefined) {
             props['posthog_distinct_id'] = posthogDistinctId
@@ -240,52 +346,65 @@ function process(event: PluginEvent, next: () => void): void {
         event.distinct_id = posthogDistinctId
     }
 
-    for (const aiKey of STRING_AI_METADATA_KEYS) {
-        const value = props[`ai.telemetry.metadata.${aiKey}`]
+    for (const aiKey of STRING_AI_CONTEXT_KEYS) {
+        const value = getAiContextValue(props, aiKey)
         if (props[aiKey] === undefined && isNonEmptyString(value)) {
             props[aiKey] = value
         }
     }
 
-    const promptVersion = props[`ai.telemetry.metadata.${AI_PROMPT_VERSION_KEY}`]
+    const promptVersion = getAiContextValue(props, AI_PROMPT_VERSION_KEY)
     if (props[AI_PROMPT_VERSION_KEY] === undefined && isPromptVersion(promptVersion)) {
         props[AI_PROMPT_VERSION_KEY] = promptVersion
     }
 
-    // Vercel repeats telemetry metadata across provider spans, so only use the
-    // custom call name for the top-level event.
-    const spanNameOverride = props['ai.telemetry.metadata.$ai_span_name']
+    // Vercel repeats context across provider spans, so only rename the top-level event.
+    const spanNameOverride = getAiContextValue(props, '$ai_span_name')
     if (isTopLevel && isNonEmptyString(spanNameOverride)) {
         props['$ai_span_name'] = spanNameOverride
     }
 
-    promotePosthogCustomMetadata(props, 'ai.telemetry.metadata.')
+    promotePosthogContext(props)
 
-    // Strip Vercel-specific telemetry metadata and request headers after preserving
-    // the PostHog identifiers we rely on for event linkage and session grouping.
-    for (const key of Object.keys(props)) {
-        if (key.startsWith('ai.telemetry.metadata.')) {
-            delete props[key]
-        } else if (key.startsWith('ai.request.headers.')) {
-            delete props[key]
-        }
-    }
+    stripProcessedContext(props)
 
-    // Map finish reason to $ai_stop_reason before stripping
+    // Map finish reason to $ai_stop_reason before stripping. An unusable value falls through to
+    // the next source instead of winning by position.
     if (props['$ai_stop_reason'] === undefined) {
-        const vercelReason = props['ai.response.finishReason']
+        const vercelReason = usableStopReason(props['ai.response.finishReason'])
         const genAiReasons = props['gen_ai.response.finish_reasons']
+        // One reason per choice. The first choice is the one the trace view renders first.
+        const firstGenAiReason = Array.isArray(genAiReasons) ? usableStopReason(genAiReasons[0]) : undefined
         if (vercelReason !== undefined) {
             props['$ai_stop_reason'] = vercelReason
-        } else if (Array.isArray(genAiReasons) && genAiReasons.length > 0) {
-            props['$ai_stop_reason'] = genAiReasons[0]
+        } else if (firstGenAiReason !== undefined) {
+            props['$ai_stop_reason'] = firstGenAiReason
         }
     }
     delete props['ai.response.finishReason']
     delete props['gen_ai.response.finish_reasons']
 
+    // The gateway reports only a total with no input/output split, so flag
+    // passthrough to stop the pipeline estimating one. The AI SDK records the same
+    // providerMetadata on the parent ai.generateText and ai.streamText spans, which
+    // are not costed events, so the gate keeps the cost on the generation.
+    if (COSTED_AI_EVENT_TYPES.has(event.event) && props['$ai_total_cost_usd'] === undefined) {
+        const gatewayCost = extractGatewayCost(props['ai.response.providerMetadata'])
+        if (gatewayCost !== undefined) {
+            props['$ai_total_cost_usd'] = gatewayCost
+            props['$ai_cost_passthrough'] = true
+        }
+    }
+
+    if (eveSpan) {
+        const eveSessionId = props['eve.session.id']
+        if (props['$ai_session_id'] === undefined && isNonEmptyString(eveSessionId)) {
+            props['$ai_session_id'] = eveSessionId
+        }
+    }
+
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
-    props['$ai_framework'] ??= 'vercel'
+    props['$ai_framework'] ??= eveSpan ? 'eve' : 'vercel'
 
     if (props['$ai_reasoning_tokens'] === undefined && aiSdkV7ReasoningTokens !== undefined) {
         props['$ai_reasoning_tokens'] = aiSdkV7ReasoningTokens
@@ -311,10 +430,18 @@ function process(event: PluginEvent, next: () => void): void {
     }
 }
 
-const MARKER_KEYS = ['ai.operationId', 'ai.telemetry.functionId']
+// Match any Vercel AI SDK or Eve span by attribute namespace. AI SDK 7's
+// gen_ai-native integration drops ai.operationId but still emits ai.*
+// supplemental attributes (ai.usage.*, ai.telemetry.metadata.*), so an exact
+// key list would miss those spans and skip attribution and usage normalization.
+// The other middlewares (pydantic-ai, traceloop) run first and own their own
+// namespaces, so a prefix match here cannot steal their spans.
+const MARKER_PREFIXES = ['ai.', 'eve.']
 
 export const vercelAi: OtelLibraryMiddleware = {
     name: 'vercel-ai',
-    matches: (event) => MARKER_KEYS.some((key) => event.properties?.[key] !== undefined),
+    matches: (event) =>
+        event.properties !== undefined &&
+        Object.keys(event.properties).some((key) => MARKER_PREFIXES.some((prefix) => key.startsWith(prefix))),
     process,
 }

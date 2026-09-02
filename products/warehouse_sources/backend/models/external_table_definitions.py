@@ -12,7 +12,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.visitor import TraversingVisitor
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 
 external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {

@@ -36,9 +36,14 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/_liveness')" || exit 1
 
+# --graceful-timeout bounds the drain on SIGTERM: gunicorn SIGKILLs the worker once it
+# expires, cutting any stream still in flight. The 30s default is far shorter than a long
+# streaming turn, so deploys and scale-downs sever live responses. 600s fits inside the pod's
+# 660s terminationGracePeriodSeconds after the 15s preStop sleep (charts/llm-gateway).
 CMD ["gunicorn", "llm_gateway.main:app", \
      "--bind", "0.0.0.0:8080", \
      "--workers", "1", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--graceful-timeout", "600", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

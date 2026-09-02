@@ -144,6 +144,18 @@ describe('ui-apps', () => {
             expect(result.contents[0]._meta['openai/widgetCSP'].resource_domains).toContain('https://mcp.posthog.com')
         })
 
+        it('advertises the CSP on the registration so resources/list carries it', async () => {
+            const { registerUiAppResources } = await import('@/resources/ui-apps')
+            const server = createMockServer()
+            const context = createMockContext({ MCP_APPS_BASE_URL: 'https://mcp.posthog.com' })
+
+            await registerUiAppResources(server as any, context as any)
+
+            const registration = server.registerResource.mock.calls[0]![2]
+            expect(registration._meta.ui.csp.resourceDomains).toContain('https://mcp.posthog.com')
+            expect(registration._meta['openai/widgetCSP'].resource_domains).toContain('https://mcp.posthog.com')
+        })
+
         it('includes analytics URL in CSP when set', async () => {
             const { registerUiAppResources } = await import('@/resources/ui-apps')
             const server = createMockServer()

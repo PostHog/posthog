@@ -1,5 +1,8 @@
 import { Message } from 'node-rdkafka'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
@@ -19,11 +22,9 @@ import {
     IngesterLike,
     createKafkaMessages,
     createTestWithTeamIngester,
+    ensureIngestionE2EInfraReady,
     fetchIngestionWarnings,
-    waitForClickHouseKafkaConsumer,
 } from '~/tests/helpers/ingestion-e2e'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { resetTestDatabase } from '~/tests/helpers/sql'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
 
@@ -55,6 +56,17 @@ jest.mock('~/common/utils/logger')
 function constComponent<T extends object>(value: T): Component<T> {
     return { start: () => Promise.resolve({ value, stop: () => Promise.resolve() }) }
 }
+
+// Envelope pin shared with rust/capture/tests/ingestion_warnings_integration.rs,
+// which asserts real capture output against it. Replaying the same artifact here
+// tests the consumer against what capture actually produces, instead of a literal
+// on this side that can drift from the producer without either test noticing.
+const CAPTURE_ENVELOPE_FIXTURE = parseJSON(
+    readFileSync(
+        path.resolve(__dirname, '../../../../../rust/common/ingestion_warnings/capture_envelope.fixture.json'),
+        'utf8'
+    )
+) as { event: string; properties: Record<string, unknown> }
 
 class ClientWarningsTestIngester implements IngesterLike {
     private stopScope?: () => Promise<void>
@@ -115,15 +127,10 @@ describe('ClientWarnings consumer E2E', () => {
 
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
-        await waitForClickHouseKafkaConsumer(clickhouse)
+        await ensureIngestionE2EInfraReady()
     })
 
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
+    afterAll(() => {
         clickhouse.close()
     })
 
@@ -143,4 +150,36 @@ describe('ClientWarnings consumer E2E', () => {
             expect(warnings[0].details.message).toBe('test message')
         }, 30_000)
     })
+
+    testWithTeamIngester(
+        'resolves a capture envelope to a structured warning',
+        {},
+        async ({ ingester, team, token }) => {
+            const event = new EventBuilder(team)
+                .withEvent(CAPTURE_ENVELOPE_FIXTURE.event)
+                .withProperties(CAPTURE_ENVELOPE_FIXTURE.properties)
+                .build()
+
+            const { backgroundTask } = await ingester.handleKafkaBatch(createKafkaMessages([event], token))
+            await backgroundTask
+
+            await waitForExpect(async () => {
+                const warnings = await fetchIngestionWarnings(clickhouse, team.id)
+                expect(warnings.length).toBe(1)
+                // The structured type survives the trust allowlist rather than
+                // being downgraded to `client_ingestion_warning`, and `source`
+                // reaches the row so warnings stay attributable to capture.
+                expect(warnings[0].type).toBe('missing_event_name')
+                expect(warnings[0].source).toBe('capture')
+                expect(warnings[0].details).toMatchObject({
+                    // v2 materializes its pipeline_step column from this key.
+                    pipelineStep: 'capture_validation',
+                    count: 2,
+                    // Stamped from this side's registry, never from the envelope.
+                    category: 'event',
+                    severity: 'error',
+                })
+            }, 30_000)
+        }
+    )
 })

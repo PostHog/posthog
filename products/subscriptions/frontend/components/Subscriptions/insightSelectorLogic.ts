@@ -2,8 +2,8 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors } from 'k
 
 import { DashboardTile, InsightModel } from '~/types'
 
-// Keep in sync with DEFAULT_MAX_ASSET_COUNT in ee/tasks/subscriptions/subscription_utils.py
-export const MAX_INSIGHTS = 6
+// Keep in sync with MAX_INSIGHTS in ee/tasks/subscriptions/subscription_utils.py
+export const MAX_INSIGHTS = 10
 
 export interface InsightSelectorLogicProps {
     tiles: DashboardTile[]

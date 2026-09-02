@@ -35,7 +35,7 @@ function EditSurveyResultsWidgetModalStory({
 }
 
 const meta: Meta<typeof EditSurveyResultsWidgetModalStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Surveys/Survey results/Widget settings',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Surveys/Survey results/Widget settings',
     component: EditSurveyResultsWidgetModalStory,
     parameters: {
         layout: 'fullscreen',

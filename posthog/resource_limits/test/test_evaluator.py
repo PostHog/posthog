@@ -16,10 +16,10 @@ class TestGetLimit(BaseTest):
 class TestCheckCountLimit(BaseTest):
     @parameterized.expand(
         [
-            ("below_threshold", 10, False, None),
-            ("one_below_threshold", 4999, True, True),
-            ("at_threshold", 5000, True, False),
-            ("far_above_threshold", 10_000, True, False),
+            ("below_threshold", 10, False, None, None),
+            ("one_below_threshold", 4999, True, True, {"dashboard_id": 42, "dashboard_name": "Dashboard"}),
+            ("at_threshold", 5000, True, False, None),
+            ("far_above_threshold", 10_000, True, False, None),
         ]
     )
     def test_emit_at_boundary(
@@ -28,6 +28,7 @@ class TestCheckCountLimit(BaseTest):
         current_count: int,
         expect_emit: bool,
         expect_crossing: bool | None,
+        resource_properties: dict[str, str | int] | None,
     ) -> None:
         with patch("posthog.resource_limits.evaluator.report_user_action") as report:
             check_count_limit(
@@ -35,6 +36,7 @@ class TestCheckCountLimit(BaseTest):
                 key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
                 current_count=current_count,
                 user=self.user,
+                resource_properties=resource_properties,
             )
         if not expect_emit:
             report.assert_not_called()
@@ -50,6 +52,8 @@ class TestCheckCountLimit(BaseTest):
         assert properties["crossing_threshold"] is expect_crossing
         assert properties["team_id"] == self.team.id
         assert properties["organization_id"] == str(self.team.organization_id)
+        if resource_properties:
+            assert {key: properties[key] for key in resource_properties} == resource_properties
 
     def test_no_user_no_emit(self) -> None:
         with patch("posthog.resource_limits.evaluator.report_user_action") as report:

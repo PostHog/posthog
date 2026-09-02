@@ -56,3 +56,28 @@ PARTITION_FIELDS: dict[str, str] = {
     "customers": "date_created_gmt",
     "product_reviews": "date_created_gmt",
 }
+
+# Schema name -> the WooCommerce webhook resource that carries it. WooCommerce only ships core
+# webhook topics for these four resources, and for each one the delivered payload is built by
+# calling `/wc/v3/<resource>s/<id>` — the same controller the list endpoint we poll uses — so the
+# field names match the polled table and rows merge on `id`. The other six tables (categories,
+# tags, reviews, attributes, tax rates, shipping zones) have no webhook topic at all.
+SCHEMA_TO_WEBHOOK_RESOURCE: dict[str, str] = {
+    "products": "product",
+    "orders": "order",
+    "coupons": "coupon",
+    "customers": "customer",
+}
+
+WEBHOOK_SCHEMA_NAMES = tuple(SCHEMA_TO_WEBHOOK_RESOURCE)
+
+# `.deleted` is deliberately excluded: WooCommerce sends only `{"id": ...}` for it, so merging one
+# would blank every other column on the row it matched. `.restored` exists for orders, coupons and
+# products but fires on untrashing, which `.updated` already covers on the next edit.
+WEBHOOK_EVENTS = ("created", "updated")
+
+# One WooCommerce webhook subscribes to exactly one topic, so a full setup registers the cross
+# product of resource and event.
+WEBHOOK_TOPICS = tuple(
+    f"{resource}.{event}" for resource in SCHEMA_TO_WEBHOOK_RESOURCE.values() for event in WEBHOOK_EVENTS
+)

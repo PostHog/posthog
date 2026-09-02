@@ -56,7 +56,8 @@ export interface SignedStateCodecOptions {
 
 export class SignedStateCodec {
     private readonly key: Uint8Array
-    private readonly ttlSeconds: number
+    /** TTL stamped on tokens at encode time. Public so callers can surface the window in user-facing copy. */
+    readonly ttlSeconds: number
     private readonly now: () => number
     private readonly randomNonce: () => string
 

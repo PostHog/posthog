@@ -1,0 +1,20 @@
+# Minimal dbt project skeleton for modeling PostHog + business data.
+# Copy into a new dbt project and adjust `profile` to match your ~/.dbt/profiles.yml
+# (the profile is where warehouse credentials live — Snowflake/BigQuery/Postgres/DuckDB).
+name: posthog_models
+version: '1.0.0'
+config-version: 2
+
+profile: posthog_models
+
+model-paths: ['models']
+seed-paths: ['seeds'] # put static lookups here, e.g. currency rates: seeds/currency_rates.csv
+
+models:
+    posthog_models:
+        staging:
+            +materialized: view # staging stays cheap and always-fresh
+            +schema: staging
+        marts:
+            +materialized: table # marts are computed once per run; switch to incremental for large facts
+            +schema: marts

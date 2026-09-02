@@ -9,15 +9,15 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
     DEFAULT_PAGE_LIMIT,
     VAPI_BASE_URL,
-    VAPI_ENDPOINTS,
     VapiEndpointConfig,
+    resolve_endpoint,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -214,6 +214,7 @@ def _drain(
 def get_rows(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[VapiResumeConfig],
     should_use_incremental_field: bool = False,
@@ -221,7 +222,7 @@ def get_rows(
     db_incremental_field_earliest_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> Iterator[pa.Table]:
-    config = VAPI_ENDPOINTS[endpoint]
+    config = resolve_endpoint(endpoint, api_version)
     session = _make_session(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
@@ -293,6 +294,7 @@ def get_rows(
 def vapi_source(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[VapiResumeConfig],
     should_use_incremental_field: bool = False,
@@ -300,13 +302,14 @@ def vapi_source(
     db_incremental_field_earliest_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
-    config = VAPI_ENDPOINTS[endpoint]
+    config = resolve_endpoint(endpoint, api_version)
 
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
             api_key=api_key,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

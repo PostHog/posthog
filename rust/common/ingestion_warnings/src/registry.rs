@@ -25,9 +25,40 @@
 include!(concat!(env!("OUT_DIR"), "/warning_types.rs"));
 
 impl WarningType {
+    /// Types capture emits directly, with no error tag behind them.
+    ///
+    /// The tag route only reaches conditions capture already models as an
+    /// `Error` or a per-event drop detail. Two kinds of warning sit outside it:
+    ///
+    /// * Ones that aren't failures at all. A rate-limited event is ingested
+    ///   (degraded, not dropped), so there is no tag to map and inventing one
+    ///   would mean inventing an error that never gets returned.
+    /// * Ones from a pipeline that has no tag vocabulary. The AI endpoints
+    ///   reject via their own typed conditions, not `v1::Error`, so their tags
+    ///   would be strings no `Error` ever produces. The replay endpoint is the
+    ///   same case from the other direction: its conditions are `CaptureError`
+    ///   variants v1 analytics never returns, so no `Error::tag()` names them.
+    ///
+    /// Emit sites for these name the variant directly.
+    ///
+    /// This list exists so the trust-allowlist invariant below can still be
+    /// airtight: `captureProduced` must equal "reachable by one of capture's two
+    /// emit routes", and without this the direct route would be invisible to it.
+    pub const DIRECT_EMIT: [Self; 8] = [
+        Self::HighVolumeDistinctId,
+        Self::DistinctIdTruncated,
+        Self::InvalidAiEvent,
+        Self::InvalidAiPayload,
+        Self::NoAiSpansIngested,
+        Self::MissingSessionId,
+        Self::InvalidSessionId,
+        Self::MissingSnapshotData,
+    ];
+
     /// Map a capture error tag (`v1::Error::tag()` / per-event drop detail) to a
     /// registered warning type. Returns `None` for anything not on the allowlist —
-    /// callers emit nothing in that case.
+    /// callers emit nothing in that case. Direct-emit types are deliberately
+    /// absent: see [`WarningType::DIRECT_EMIT`].
     pub fn from_tag(tag: &str) -> Option<Self> {
         match tag {
             "missing_event_name" => Some(Self::MissingEventName),
@@ -42,6 +73,7 @@ impl WarningType {
             "missing_event_uuid" => Some(Self::MissingEventUuid),
             "invalid_event_uuid" => Some(Self::InvalidEventUuid),
             "duplicate_event_uuid" => Some(Self::DuplicateEventUuid),
+            "message_size_too_large" => Some(Self::MessageSizeTooLarge),
             _ => None,
         }
     }
@@ -53,21 +85,35 @@ mod tests {
     use rstest::rstest;
 
     #[test]
-    fn from_tag_domain_equals_the_capture_trust_allowlist() {
-        // Two hand-maintained copies of "the types capture emits" must stay
-        // equal: the `from_tag` arms here (the emit allowlist) and the
-        // registry's `captureProduced` flags (the Node consumer's trust
-        // allowlist, carried through the artifact). Skew fails silently in
-        // production in either direction — a flagged type without an arm is
-        // never emitted; an arm without the flag is emitted and then
-        // rejected at the consumer's trust check. Comparing the variant
-        // itself (not just presence) also pins each arm to the right type,
-        // so a mis-mapped tag can't hide behind an unrelated `Some`.
+    fn capture_emit_routes_equal_the_capture_trust_allowlist() {
+        // Two hand-maintained answers to "which types does capture emit?" must
+        // stay equal: capture's emit routes here (`from_tag` plus
+        // `DIRECT_EMIT`) and the registry's `captureProduced` flags (the Node
+        // consumer's trust allowlist, carried through the artifact). Skew fails
+        // silently in production in either direction — a flagged type on
+        // neither route is never emitted; a type on a route without the flag is
+        // emitted and then rejected at the consumer's trust check.
+        //
+        // Comparing the variant itself (not just presence) pins each `from_tag`
+        // arm to the right type, so a mis-mapped tag can't hide behind an
+        // unrelated `Some`.
         for warning in WarningType::ALL {
+            let tag_derived = WarningType::from_tag(warning.as_str()) == Some(warning);
+            let direct = WarningType::DIRECT_EMIT.contains(&warning);
+
             assert_eq!(
-                WarningType::from_tag(warning.as_str()),
-                warning.capture_produced().then_some(warning),
-                "{}: from_tag arm and captureProduced flag disagree — add the missing side",
+                tag_derived || direct,
+                warning.capture_produced(),
+                "{}: emit routes and captureProduced flag disagree — add the missing side",
+                warning.as_str()
+            );
+
+            // One route per type. Both would mean a warning capture can produce
+            // two ways, with the tag route silently winning wherever a tag is
+            // available, so its details would differ by call path.
+            assert!(
+                !(tag_derived && direct),
+                "{}: on both emit routes — pick one",
                 warning.as_str()
             );
         }
@@ -91,6 +137,9 @@ mod tests {
     #[case::sink("rejected")]
     #[case::unknown("some_future_tag")]
     #[case::empty("")]
+    // Direct-emit types must stay off the tag route even though their name reads
+    // like a tag, or they'd be reachable both ways.
+    #[case::direct_emit("high_volume_distinct_id")]
     fn from_tag_rejects_unregistered_tags(#[case] tag: &str) {
         assert_eq!(
             WarningType::from_tag(tag),

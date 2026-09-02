@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the canvas whose builds to read.",
+            "type": "string"
+        },
+        "version_id": {
+            "description": "Include the retained ready build for this historical source version.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

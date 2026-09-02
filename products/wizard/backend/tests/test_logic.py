@@ -5,11 +5,15 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.event_definitions.backend.models import EventDefinition
 from products.wizard.backend.facade import api as wizard_facade
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardSessionInput,
+    WizardSessionOwnershipError,
+    WizardTaskDTO,
+)
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.metrics import WIZARD_SESSIONS_FINISHED_TOTAL
 from products.wizard.backend.tasks.tasks import sync_wizard_event_definitions
@@ -28,6 +32,7 @@ def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
         "tasks": (WizardTaskDTO(id="1", title="Install SDK", status=TaskStatus.IN_PROGRESS),),
         "event_plan": None,
         "error": None,
+        "pending_input": None,
     }
     params.update(overrides)
     return UpsertWizardSessionInput(**params)
@@ -43,6 +48,37 @@ def test_upsert_creates_new_session(team):
     assert dto.run_phase == RunPhase.RUNNING
     assert len(dto.tasks) == 1
     assert dto.tasks[0].status == TaskStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_upsert_round_trips_pending_input(team):
+    pending_input = {
+        "id": "ask-1",
+        "asked_at": "2026-05-19T10:05:00Z",
+        "question_count": 1,
+        "sensitive": False,
+        "prompts": ["Which region is your project in?"],
+    }
+    with_question, _ = wizard_facade.upsert(_input(team.id, pending_input=pending_input))
+    assert with_question.pending_input == pending_input
+
+    # The wire is a full-state upsert: the next push without the field is the dismissal.
+    cleared, _ = wizard_facade.upsert(_input(team.id))
+    assert cleared.pending_input is None
+
+
+@pytest.mark.django_db
+def test_upsert_handoff_text_survives_pushes_without_it(team):
+    with_doc, _ = wizard_facade.upsert(_input(team.id, handoff_text="# Setup report"))
+    assert with_doc.handoff_text == "# Setup report"
+
+    # Unlike pending_input, the doc is monotonic: later full-state pushes without it keep it.
+    for omitted in (None, ""):
+        preserved, _ = wizard_facade.upsert(_input(team.id, handoff_text=omitted))
+        assert preserved.handoff_text == "# Setup report"
+
+    rewritten, _ = wizard_facade.upsert(_input(team.id, handoff_text="# Setup report, revised"))
+    assert rewritten.handoff_text == "# Setup report, revised"
 
 
 @pytest.mark.django_db
@@ -230,6 +266,44 @@ def test_upsert_with_different_session_id_creates_new_row(team):
     wizard_facade.upsert(_input(team.id, session_id="run-2"))
 
     assert len(wizard_facade.list_for_team(team.id, limit=100)) == 2
+
+
+@pytest.mark.django_db
+def test_created_by_is_set_on_create_and_preserved_on_owner_update(team, user):
+    created, _ = wizard_facade.upsert(_input(team.id, created_by_id=user.id))
+    assert created.created_by is not None
+    assert created.created_by.id == user.id
+
+    updated, was_created = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=user.id))
+    assert was_created is False
+    assert updated.created_by is not None
+    assert updated.created_by.id == user.id
+
+
+@pytest.mark.django_db
+def test_upsert_by_a_different_user_is_rejected(team, user):
+    other_user = User.objects.create(email="second-runner@posthog.com", first_name="Second")
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.RUNNING, created_by_id=user.id))
+
+    with pytest.raises(WizardSessionOwnershipError):
+        wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=other_user.id))
+
+    # The owner's run data is left untouched.
+    current = wizard_facade.get(team.id, _input(team.id).session_id)
+    assert current is not None
+    assert current.run_phase == RunPhase.RUNNING
+    assert current.created_by is not None
+    assert current.created_by.id == user.id
+
+
+@pytest.mark.django_db
+def test_upsert_allows_update_of_legacy_unattributed_session(team, user):
+    # Rows created before attribution existed carry a null created_by and stay updatable by anyone.
+    wizard_facade.upsert(_input(team.id, created_by_id=None))
+
+    updated, was_created = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=user.id))
+    assert was_created is False
+    assert updated.run_phase == RunPhase.COMPLETED
 
 
 @pytest.mark.django_db

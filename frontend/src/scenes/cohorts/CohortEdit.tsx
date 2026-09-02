@@ -9,6 +9,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -117,6 +118,24 @@ function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Elem
     )
 }
 
+function UnmatchedImportBanner({ cohort }: { cohort: CohortType }): JSX.Element | null {
+    const unmatched = cohort.last_import_unmatched_count
+    const total = cohort.last_import_total_count
+    if (!unmatched || !total) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <h4 className="font-semibold mb-1">Some IDs in the last import didn't match a person</h4>
+            <p className="mb-0">
+                {unmatched.toLocaleString()} of {total.toLocaleString()} IDs weren't added to this cohort because they
+                don't match a person in this project. Check that the IDs are correct and come from this project.
+            </p>
+        </LemonBanner>
+    )
+}
+
 export interface CohortEditProps {
     id?: CohortType['id']
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
@@ -141,6 +160,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         deleteCohort,
         restoreCohort,
         setOuterGroupsType,
+        setFilterTestAccounts,
         setQuery,
         duplicateCohort,
         setCohortValue,
@@ -524,6 +544,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     </div>
                                 </div>
                             </SceneSection>
+                            {!isNewCohort && (
+                                <div aria-live="polite">
+                                    <UnmatchedImportBanner cohort={cohort} />
+                                </div>
+                            )}
                             {!isNewCohort && usedIn && <UsedInBanner usedIn={usedIn} />}
                             {cohort.is_static && staticCohortMode === 'criteria' ? (
                                 <>
@@ -698,14 +723,25 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         className={cn('flex items-start justify-between')}
                                         hideTitleAndDescription
                                     >
-                                        <AndOrFilterSelect
-                                            value={cohort.filters.properties.type}
-                                            onChange={(value) => {
-                                                setOuterGroupsType(value)
-                                            }}
-                                            topLevelFilter={true}
-                                            suffix={['criterion', 'criteria']}
-                                        />
+                                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                                            <AndOrFilterSelect
+                                                value={cohort.filters.properties.type}
+                                                onChange={(value) => {
+                                                    setOuterGroupsType(value)
+                                                }}
+                                                topLevelFilter={true}
+                                                suffix={['criterion', 'criteria']}
+                                            />
+                                            <Tooltip title="Only person property filters from your internal and test account settings apply to cohorts. Event-based filters do not apply to person-level criteria.">
+                                                <div>
+                                                    <TestAccountFilterSwitch
+                                                        checked={!!cohort.filters.filterTestAccounts}
+                                                        onChange={setFilterTestAccounts}
+                                                        applicableFilterTypes={['person']}
+                                                    />
+                                                </div>
+                                            </Tooltip>
+                                        </div>
                                         <div className={cn('w-full [&>div]:my-0 [&>div]:w-full')}>
                                             <CohortCriteriaGroups id={logicProps.id} />
                                         </div>

@@ -14,9 +14,16 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
-import { INSIGHTS_PER_PAGE, InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
+import {
+    INSIGHTS_PER_PAGE,
+    InsightsResult,
+    SavedInsightFilters,
+    cleanFilters,
+    hasNarrowingFilters,
+    savedInsightsLogic,
+} from './savedInsightsLogic'
 
 jest.spyOn(api, 'create')
 
@@ -248,6 +255,30 @@ describe('savedInsightsLogic', () => {
         )
     })
 
+    it('flags a failed load so the list can show an error instead of an empty state', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [500, { detail: 'boom' }],
+            },
+        })
+
+        logic.actions.loadInsights(false)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsFailure'])
+            .toMatchValues({ insightsLoadFailed: true })
+
+        // A later successful load clears the flag so a recovered list drops the error state
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [200, createSavedInsights('recovered', 0)],
+            },
+        })
+        logic.actions.loadInsights(false)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({ insightsLoadFailed: false })
+    })
+
     it('discards stale API responses when a newer request is in flight', async () => {
         const pendingRequests: Array<{
             resolve: (value: [number, any]) => void
@@ -355,6 +386,43 @@ describe('savedInsightsLogic', () => {
             logic.actions.loadDraftQuery()
             await expectLogic(logic).toMatchValues({ draftQuery: null, draftInsightRow: null })
             expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it('hides the draft row while narrowing filters are active', async () => {
+            localStorage.setItem(draftKey, JSON.stringify(draft))
+            logic.actions.loadDraftQuery()
+            logic.actions.setSavedInsightsFilters({ search: 'revenue' })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: null })
+            logic.actions.setSavedInsightsFilters({ search: '' })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: partial({ id: -1 }) })
+            // Clearing the tag filter sends an empty array, which must read as "no filter"
+            logic.actions.setSavedInsightsFilters({ tags: ['marketing'] })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: null })
+            logic.actions.setSavedInsightsFilters({ tags: [] })
+            await expectLogic(logic).toMatchValues({ draftInsightRow: partial({ id: -1 }) })
+        })
+
+        it.each<[string, Partial<SavedInsightFilters>]>([
+            ['the tab', { tab: SavedInsightsTabs.Yours }],
+            ['the page', { page: 2 }],
+            ['the sort order', { order: 'name' }],
+            ['a cleared tag filter', { tags: [] }],
+            ['a cleared created-by filter', { createdBy: [] }],
+        ])('does not count %s as a narrowing filter', (_label, overrides) => {
+            expect(hasNarrowingFilters(cleanFilters(overrides))).toBe(false)
+        })
+
+        it.each<[string, Partial<SavedInsightFilters>]>([
+            ['a search', { search: 'revenue' }],
+            ['an insight type', { insightType: 'TRENDS' }],
+            ['tags', { tags: ['marketing'] }],
+            ['created by', { createdBy: [1] }],
+            ['favorites', { favorited: true }],
+            ['a date range', { dateFrom: '-7d' }],
+            ['the feature flag insights toggle', { hideFeatureFlagInsights: true }],
+            ['a dashboard', { dashboardId: 5 }],
+        ])('counts %s as a narrowing filter', (_label, overrides) => {
+            expect(hasNarrowingFilters(cleanFilters(overrides))).toBe(true)
         })
 
         it('discarding a draft clears localStorage so it does not come back', async () => {

@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -12,14 +11,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.settings import FACTORIAL_ENDPOINTS
 
-# Factorial uses a single global host (no per-account subdomains) and dated, version-pinned paths.
-# `2025-04-01` is a stable release within the currently supported version range; pinning avoids
-# silently picking up breaking changes (resources occasionally move between groups across versions).
+# Factorial uses a single global host (no per-account subdomains) and dated API versions carried as a
+# path segment. Each label is a stable release; newer versions add or drop response fields (which the
+# auto-inferred schema turns into columns) but keep the `/resources/<group>/<resource>` paths and the
+# `{"meta": ..., "data": [...]}` envelope our reads depend on. Ordered oldest → newest.
+#
+# `2026-07-01` serializes every resource id as an opaque string instead of an integer (ids outgrew the
+# safe 64-bit range). Our reads tolerate that: the primary key stays the `id` column (type-agnostic,
+# auto-inferred) and pagination already forwards the opaque `meta.end_cursor`, never the raw record id.
 FACTORIAL_HOST = "https://api.factorialhr.com"
-API_VERSION = "2025-04-01"
-BASE_URL = f"{FACTORIAL_HOST}/api/{API_VERSION}"
+API_VERSION_2025_04_01 = "2025-04-01"
+API_VERSION_2026_04_01 = "2026-04-01"
+API_VERSION_2026_07_01 = "2026-07-01"
+
+
+def base_url(api_version: str) -> str:
+    return f"{FACTORIAL_HOST}/api/{api_version}"
+
 
 # Factorial caps `limit` at 100 records per page across list endpoints (the default is also 100).
 PAGE_SIZE = 100
@@ -109,12 +120,13 @@ def factorial_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[FactorialResumeConfig],
+    api_version: str,
 ) -> SourceResponse:
     endpoint_config = FACTORIAL_ENDPOINTS[endpoint]
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": BASE_URL,
+            "base_url": base_url(api_version),
             # Factorial authenticates with the account-wide `x-api-key` header. Going through
             # APIKeyAuth (rather than raw headers) registers the key for value-based log redaction.
             "auth": {
@@ -170,11 +182,11 @@ def factorial_source(
     )
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
     # Probe the core Employees resource: every HRIS account has it, and an API key with no access
     # would 401/403 here. Factorial API keys carry total account access, so there is no per-scope
     # nuance to accept at source-create time the way OAuth-scoped sources need.
-    url = f"{BASE_URL}/resources/employees/employees"
+    url = f"{base_url(api_version)}/resources/employees/employees"
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(
             url,

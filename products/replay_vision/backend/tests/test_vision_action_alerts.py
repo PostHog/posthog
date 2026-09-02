@@ -33,7 +33,7 @@ class TestVisionActionAlerts(BaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "watch"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _observation(
@@ -105,6 +105,32 @@ class TestVisionActionAlerts(BaseTest):
         # Every match is already listed, so there's no "see all" overflow link to add noise.
         self.assertNotIn("See all", run.synthesized_markdown)
 
+    @parameterized.expand(
+        [
+            # Default (flag absent): the example line carries only the outcome descriptor, never the
+            # recording-derived reasoning prose.
+            ("default_omits", {}, False),
+            ("explicit_false_omits", {"include_reasoning": False}, False),
+            # Opt-in: the scanner's full reasoning rides alongside the descriptor, for a reader piping
+            # the message elsewhere who wants more than "verdict=yes".
+            ("opt_in_includes", {"include_reasoning": True}, True),
+        ]
+    )
+    def test_include_reasoning_controls_whether_reasoning_appears(
+        self, _label: str, extra_config: dict, expect_reasoning: bool
+    ) -> None:
+        scanner = self._scanner()
+        self._observation(scanner, {"verdict": "yes", "reasoning": "the checkout button did nothing"})
+        action = self._alert(scanner, {"metric": "count", "threshold": 1, **extra_config})
+
+        result, run = self._evaluate(action)
+
+        self.assertEqual(result.status, AlertStatus.FIRED)
+        run.refresh_from_db()
+        # The outcome descriptor is present either way; only the reasoning prose is gated by the flag.
+        self.assertIn("verdict=yes", run.synthesized_markdown)
+        self.assertEqual("the checkout button did nothing" in run.synthesized_markdown, expect_reasoning)
+
     def test_many_matches_list_only_examples_and_link_to_the_run(self) -> None:
         scanner = self._scanner()
         for i in range(7):
@@ -166,6 +192,10 @@ class TestVisionActionAlerts(BaseTest):
         self.assertIn("below the threshold of 1", recovery_run.synthesized_markdown)
         self.assertIn("had been firing since", recovery_run.synthesized_markdown)
         self.assertTrue(recovery_run.output["recovered"])
+        # A lost attempt after the recovery message committed re-enters the idempotency guard. Reporting
+        # FIRED there would deliver the alert notification that recovering exists to suppress.
+        replayed = _evaluate(EvaluateAlertInputs(run_id=recovery_run.id, team_id=self.team.id))
+        self.assertEqual(replayed.status, AlertStatus.RECOVERED)
         self._record(recovery_run, VisionActionRunStatus.COMPLETED)
 
         # A fresh match after recovery is a new incident — it must fire, not report still_breached.

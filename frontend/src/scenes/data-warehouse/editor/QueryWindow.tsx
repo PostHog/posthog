@@ -14,6 +14,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
@@ -28,6 +29,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
+import { BIEditor } from './bi/BIEditor'
+import { biEditorLogic } from './bi/biEditorLogic'
+import { BIEditorView } from './bi/biEditorTypes'
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -55,6 +59,9 @@ interface QueryWindowProps {
     /** With onRunQuery: flips the button to Cancel while runQueryLoading, mirroring the native cancel. */
     onCancelQuery?: () => void
     cancelQueryLoading?: boolean
+    /** Drop the toolbar's run button, for hosts that offer the run affordance themselves
+     * (a notebook code cell runs from the cell's top row). Cmd+Enter still runs. */
+    hideRunButton?: boolean
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
@@ -74,11 +81,13 @@ export function QueryWindow({
     runQueryTooltip,
     onCancelQuery,
     cancelQueryLoading,
+    hideRunButton,
     onShareTab,
     autoFocusQueryPane,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
+    const biLogic = biEditorLogic({ tabId })
 
     const {
         queryInput,
@@ -92,6 +101,7 @@ export function QueryWindow({
         sendRawQueryEnabled,
         selectedConnectionSupportsHogQL,
     } = useValues(logic)
+    const { config: biConfig, editorView } = useValues(biLogic)
 
     const {
         setQueryInput,
@@ -104,14 +114,17 @@ export function QueryWindow({
         openMaterializationModal,
         setSourceQuery,
     } = useActions(logic)
+    const { setEditorView } = useActions(biLogic)
 
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
+    const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
+    const showBIEditor = biModeFeatureEnabled && mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -254,21 +267,41 @@ export function QueryWindow({
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
                         />
-                        <RunButton
-                            onRunQuery={onRunQuery}
-                            runQueryLoading={runQueryLoading}
-                            runQueryDisabledReason={runQueryDisabledReason}
-                            runQueryTooltip={runQueryTooltip}
-                            onCancelQuery={onCancelQuery}
-                            cancelQueryLoading={cancelQueryLoading}
-                        />
+                        {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
+                            <LemonSegmentedButton
+                                value={editorView}
+                                onChange={setEditorView}
+                                options={[
+                                    { value: BIEditorView.SQL, label: 'SQL' },
+                                    { value: BIEditorView.BI, label: 'BI' },
+                                ]}
+                                size="small"
+                            />
+                        ) : null}
+                        {hideRunButton ? null : (
+                            <RunButton
+                                onRunQuery={onRunQuery}
+                                runQueryLoading={runQueryLoading}
+                                runQueryDisabledReason={
+                                    runQueryDisabledReason ??
+                                    (showBIEditor && !biConfig.source
+                                        ? 'Drag a field into the BI editor before running'
+                                        : undefined)
+                                }
+                                runQueryTooltip={runQueryTooltip}
+                                onCancelQuery={onCancelQuery}
+                                cancelQueryLoading={cancelQueryLoading}
+                            />
+                        )}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
-                        <LemonDivider vertical />
-                        <QueryVariablesMenu
-                            disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
-                        />
-                        <QueryFiltersMenu />
-                        {editingView ? (
+                        {!showBIEditor ? <LemonDivider vertical /> : null}
+                        {!showBIEditor ? (
+                            <QueryVariablesMenu
+                                disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                            />
+                        ) : null}
+                        {!showBIEditor ? <QueryFiltersMenu /> : null}
+                        {editingView && !showBIEditor ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -309,7 +342,9 @@ export function QueryWindow({
                 </div>
             ) : null}
 
-            {showQueryPanel ? (
+            {showQueryPanel && showBIEditor ? <BIEditor tabId={tabId} /> : null}
+
+            {showQueryPanel && !showBIEditor ? (
                 <QueryPane
                     originalValue={originalQueryInput ?? ''}
                     queryInput={(suggestedQueryInput || queryInput) ?? ''}
@@ -328,6 +363,10 @@ export function QueryWindow({
                         keepCurrentModel: true,
                         metadataQuery: activeQueryText ?? undefined,
                         metadataQueryOffset: activeQueryOffset,
+                        // Set here rather than only where the tab's Monaco model is created: an editor
+                        // that mounts against an existing model never runs that path, and would then
+                        // ask for metadata without the index report.
+                        indexUsage: true,
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
@@ -367,7 +406,9 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
+            {showOutputPanel ? (
+                <InternalQueryWindow tabId={tabId} biMode={showBIEditor} onShareTab={onShareTab} />
+            ) : null}
         </div>
     )
 }
@@ -423,7 +464,6 @@ function RunButton({
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
-    const isUsingIndices = metadata?.isUsingIndices === 'yes'
     const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
     // The external-run path shows a cancel affordance only when a canceller is provided.
     const showCancel = isRunning && (!onRunQuery || !!onCancelQuery)
@@ -440,25 +480,11 @@ function RunButton({
             return ['var(--primary)', 'No changes to run']
         }
 
-        if (!metadata || isUsingIndices || queryInput?.trim().length === 0) {
-            return ['var(--success)', 'New changes to run']
-        }
-
-        const tooltip = !isUsingIndices
-            ? 'This query is not using indices optimally, which may result in slower performance.'
-            : undefined
-
-        return ['var(--warning)', tooltip]
-    }, [
-        metadata,
-        isUsingIndices,
-        queryInput,
-        isSourceQueryLastRun,
-        onRunQuery,
-        runQueryTooltip,
-        isRunning,
-        onCancelQuery,
-    ])
+        // No index verdict colors this button. The per-filter report counts filters, and a count does
+        // not track what a query costs: one selective filter bounds the read however many others scan,
+        // and nothing here yet looks at the time range, which is what really decides how much is read.
+        return ['var(--success)', 'New changes to run']
+    }, [metadata, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip, isRunning, onCancelQuery])
 
     const sideAction = useMemo(
         () =>
@@ -532,9 +558,11 @@ function RunButton({
 
 const InternalQueryWindow = memo(function InternalQueryWindow({
     tabId,
+    biMode,
     onShareTab,
 }: {
     tabId: string
+    biMode: boolean
     onShareTab?: () => void
 }): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
@@ -543,7 +571,7 @@ const InternalQueryWindow = memo(function InternalQueryWindow({
         return null
     }
 
-    return <OutputPane tabId={tabId} onShareTab={onShareTab} />
+    return <OutputPane tabId={tabId} biMode={biMode} onShareTab={onShareTab} />
 })
 
 function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQLEditorMode }): JSX.Element | null {

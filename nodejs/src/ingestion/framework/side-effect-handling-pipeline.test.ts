@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
-import { createBatch, createContext, createNewChunkPipeline, createOkContext } from './helpers'
+import { createBatch, createContext, createKafkaDebugContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { sideEffectResultCounter } from './metrics'
 import { dlq, drop, ok } from './results'
 import {
@@ -74,7 +74,17 @@ describe('SideEffectHandlingPipeline', () => {
 
             const result = await pipeline.next()
 
-            expect(result).toEqual([{ result: ok({ message }), context: { message, sideEffects: [], warnings: [] } }])
+            expect(result).toEqual([
+                {
+                    result: ok({ message }),
+                    context: {
+                        message,
+                        debugContext: createKafkaDebugContext(message),
+                        sideEffects: [],
+                        warnings: [],
+                    },
+                },
+            ])
             expect(mockPromiseScheduler.schedule).not.toHaveBeenCalled()
         })
 

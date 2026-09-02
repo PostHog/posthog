@@ -1,11 +1,34 @@
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 # Above this many assigned signals, an already-researched (READY/RESOLVED) report stops
 # re-researching on new signals; signals are still assigned. See assign_and_emit_signal_activity.
 RERESEARCH_MAX_SIGNALS = int(os.getenv("SIGNAL_RERESEARCH_MAX_SIGNALS", "10"))
+
+# How long a research run waits before starting, so signals arriving in a burst are researched
+# together instead of once each. A report re-promotes on *every* new signal, and ~46% of signals join
+# a report within 5 minutes of the previous one, so most research today re-reads the same report for
+# one extra signal. The waiting workflow already owns the report's workflow ID, so signals landing
+# during the wait collapse into it (see the WorkflowAlreadyStartedError handler in grouping) and the
+# run then covers the whole burst. Applies to a report's first research too, so sibling signals join
+# that run rather than forcing an immediate re-research. 0 disables the wait.
+RESEARCH_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_RESEARCH_DEBOUNCE_SECONDS", "0"))
+
+# How long a report waits after research settles (READY, no pending signals) before its
+# implementation task starts. A report re-promotes on every new signal, so a signal landing just
+# after research finishes would otherwise ship a PR for a summary that's about to be rewritten by
+# the re-research. The wait lets that late signal fold into a re-research run instead. The waiting
+# run still owns the report's workflow ID, so a signal arriving during the wait collapses into it
+# (see the WorkflowAlreadyStartedError handler in grouping) and re-promotes the report to CANDIDATE;
+# the run then loops to re-research rather than implement. 0 disables the wait.
+IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_SECONDS", "900"))
+
+# Orgs new to self-driving skip the implementation buffer: a team whose signals config was created
+# within this window implements without the extra wait, so the product feels responsive while
+# they're still evaluating it. Measured against SignalTeamConfig.created_at.
+NEW_SELF_DRIVING_GRACE = timedelta(hours=24)
 
 
 @dataclass
@@ -138,6 +161,9 @@ class SignalReportSummaryWorkflowInputs:
 
     team_id: int
     report_id: str
+    # Seconds to wait before the first cycle, so a burst of signals is researched in one run rather
+    # than one run each. Defaults to 0 so histories written before this field replay unchanged.
+    debounce_seconds: int = 0
 
 
 @dataclass
@@ -177,7 +203,10 @@ class SignalTypeExample:
 
 @dataclass
 class SignalData:
-    """Data about a signal fetched from ClickHouse."""
+    """Normalized signal data used by report workflows.
+
+    ClickHouse-backed instances include `inserted_at`; synthetic or adapted instances may omit it.
+    """
 
     signal_id: str
     content: str
@@ -186,6 +215,7 @@ class SignalData:
     source_id: str
     weight: float
     timestamp: datetime
+    inserted_at: Optional[datetime] = None
     extra: dict = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     # Optional fix guidance (separate from `extra`); see EmitSignalInputs.remediation.

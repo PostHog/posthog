@@ -9,12 +9,16 @@ goes through the write-scoped config `create` endpoint.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import structlog
+from croniter import CroniterError, croniter
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
+    canonical_config_tags_for,
     canonical_skill_names,
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
@@ -29,6 +33,40 @@ logger = structlog.get_logger(__name__)
 # persisted (a large enough int would otherwise raise a DB error and abort the coordinator tick).
 MIN_RUN_INTERVAL_MINUTES = 30
 MAX_RUN_INTERVAL_MINUTES = 43200
+
+# Matches the `run_interval_minutes` floor: one scout may not occupy the coordinator more
+# than once per 30 minutes, however the schedule is expressed.
+CRON_MIN_GAP_SECONDS = MIN_RUN_INTERVAL_MINUTES * 60
+# The column and the config API field cap; every writer applies it so a stored schedule fits.
+CRON_SCHEDULE_MAX_LENGTH = 100
+# Occurrences sampled by the min-gap check. Enough to expose sub-30-minute patterns
+# (a `*/15` fires 96×/day) while staying trivially cheap for sparse schedules.
+_CRON_SAMPLE_OCCURRENCES = 100
+
+
+def cron_schedule_error(value: str) -> str | None:
+    """Why `value` is not an acceptable scout cron schedule, or None when it is.
+
+    The one rule every writer applies (the config API serializers and the suggestion producer), so a
+    schedule stored anywhere can be run everywhere: croniter also accepts 6/7-field (seconds/years)
+    forms and @-aliases, so the shape is restricted to plain five fields, and occurrences must keep
+    the same 30-minute floor as `run_interval_minutes`.
+    """
+    expr = value.strip()
+    if len(expr) > CRON_SCHEDULE_MAX_LENGTH:
+        return f"Cron expressions must be at most {CRON_SCHEDULE_MAX_LENGTH} characters."
+    if len(expr.split()) != 5 or not croniter.is_valid(expr):
+        return "Not a valid five-field cron expression, e.g. '30 9 * * *' or '0 9 * * 1-5'."
+    iterator = croniter(expr, datetime(2026, 1, 1, tzinfo=UTC))
+    try:
+        occurrences = [iterator.get_next(datetime) for _ in range(_CRON_SAMPLE_OCCURRENCES)]
+    except CroniterError:
+        # `is_valid` accepts syntactically valid calendars that never occur, like '0 0 31 2 *'.
+        return "This schedule never matches a real date. Check the day and month fields."
+    min_gap = min((later - earlier).total_seconds() for earlier, later in zip(occurrences, occurrences[1:]))
+    if min_gap < CRON_MIN_GAP_SECONDS:
+        return "Scheduled runs must be at least 30 minutes apart (the same floor as run_interval_minutes)."
+    return None
 
 
 def ensure_scout_category(team_id: int, skill_name: str | None = None) -> None:
@@ -152,6 +190,9 @@ def register_missing_configs(
     scout isn't silently muted. With no allowlist, every scout enables at the model-default
     schedule. Either way, a scout disabled at seed stays visible and tunable but adds no spend.
 
+    A canonical scout's `scout-tags` frontmatter is stamped on the row it creates, so a scout
+    ships already labelled for the product surface it watches.
+
     Posture only shapes rows at creation (forward-only) — existing configs are never re-stamped,
     so flipping the flag later doesn't disturb teams already seeded, and a user enabling a scout
     won't be reverted on the next tick.
@@ -209,6 +250,12 @@ def register_missing_configs(
         seed_enabled = in_allowlist and not at_cap
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
+        # A canonical scout can claim a product surface's tag in its SKILL.md frontmatter
+        # (`scout-tags`) — that's what lands it in that product's own scout list. Seeded at
+        # creation like the rest of the posture, so a person who later removes the tag keeps it
+        # removed. Only canonical names read from disk: a team's scout sharing the name is its own.
+        if name in canonical_names and (canonical_tags := canonical_config_tags_for(name)):
+            defaults["tags"] = list(canonical_tags)
         # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
         # enabled now or stays disabled for the user to switch on later — so a specialist a user
         # toggles on runs at the flag's launch cadence rather than the model default (daily).

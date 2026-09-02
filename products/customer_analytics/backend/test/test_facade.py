@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -5,6 +6,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import models
+from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -12,8 +16,8 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
@@ -28,11 +32,11 @@ from products.customer_analytics.backend.models import (
     CustomPropertySource,
     CustomPropertyValue,
 )
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestCustomerAnalyticsFacade(BaseTest):
@@ -45,7 +49,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
             name="Acme Corp",
             external_id="acme-123",
             _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
                 stripe_customer_id="cus_1",
             ).model_dump(mode="json"),
         )
@@ -57,7 +60,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.team_id == self.team.id
         assert result.external_id == "acme-123"
         assert result.name == "Acme Corp"
-        assert result.properties.csm == contracts.AccountAssignment(id=self.user.id, email=self.user.email)
         assert result.properties.stripe_customer_id == "cus_1"
 
     def test_get_account_by_external_id_and_missing(self):
@@ -89,7 +91,8 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert facade.get_account_ref_by_slack_channel_id(self.team.id, "C123") is None
 
     def test_get_account_context_data_bundles_tags_and_notes(self):
-        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
+        ignored_at = timezone.now()
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123", ignored_at=ignored_at)
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
         TaggedItem.objects.create(tag=tag, account=account)
         notebook = Notebook.objects.create(
@@ -106,6 +109,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         assert isinstance(data, contracts.AccountContextData)
         assert data.name == "Acme Corp"
+        assert data.ignored_at == ignored_at
         assert data.tags == ["enterprise"]
         assert data.notes == [contracts.AccountNote(title="Q3 recap", short_id=notebook.short_id)]
 
@@ -134,16 +138,70 @@ class TestCustomerAnalyticsFacade(BaseTest):
             facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
         )
 
-    def test_search_accounts_matches_name_and_external_id(self):
-        create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
+    @parameterized.expand(
+        [
+            ("name", "acme", ["Acme Corp"]),
+            ("external id", "globex-9", ["Globex"]),
+            ("known email", "AP@Billing-Provider.example", ["Acme Corp"]),
+            ("email domain of an address", "someone@acme.example", ["Acme Corp"]),
+            ("bare email domain", "acme.example", ["Acme Corp"]),
+            ("address nobody owns", "someone@elsewhere.example", []),
+        ]
+    )
+    def test_search_accounts_matches(self, _name: str, query: str, expected_names: list[str]):
+        create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-123",
+            properties={"email_domains": ["acme.example"], "known_emails": ["ap@billing-provider.example"]},
+        )
         create_account(team_id=self.team.id, name="Globex", external_id="globex-9")
 
-        rows, count = facade.search_accounts(self.team.id, "acme", self._uac(), limit=10)
+        rows, count = facade.search_accounts(self.team.id, query, self._uac(), limit=10)
+
+        assert count == len(expected_names)
+        assert [r.name for r in rows] == expected_names
+        assert all(isinstance(row, contracts.AccountRef) and isinstance(row.id, str) for row in rows)
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    @patch("products.customer_analytics.backend.logic.account_member_search.execute_hogql_query")
+    def test_search_accounts_matches_eu_organization_member_email(
+        self, mock_execute_hogql_query: MagicMock, _mock_feature_enabled: MagicMock
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        eu_organization_id = str(uuid4())
+        account = create_account(
+            team_id=self.team.id,
+            name="EU member account",
+            external_id=eu_organization_id,
+        )
+        mock_execute_hogql_query.return_value = MagicMock(results=[[eu_organization_id]])
+
+        rows, count = facade.search_accounts(
+            self.team.id,
+            "member@eu.example",
+            self._uac(),
+            limit=10,
+        )
 
         assert count == 1
-        assert [r.name for r in rows] == ["Acme Corp"]
-        assert isinstance(rows[0], contracts.AccountRef)
-        assert isinstance(rows[0].id, str)
+        assert [row.id for row in rows] == [str(account.id)]
+
+    def test_search_accounts_excludes_ignored_by_default(self):
+        create_account(team_id=self.team.id, name="Acme Tracked")
+        create_account(team_id=self.team.id, name="Acme Ignored", ignored_at=timezone.now())
+
+        default_rows, default_count = facade.search_accounts(self.team.id, "acme", self._uac(), limit=10)
+        all_rows, all_count = facade.search_accounts(self.team.id, "acme", self._uac(), limit=10, include_ignored=True)
+
+        assert [row.name for row in default_rows] == ["Acme Tracked"]
+        assert default_count == 1
+        assert {row.name for row in all_rows} == {"Acme Tracked", "Acme Ignored"}
+        assert all_count == 2
 
     def test_list_accounts_newest_first_with_count(self):
         create_account(team_id=self.team.id, name="First")
@@ -154,6 +212,22 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert count == 2
         assert {r.name for r in rows} == {"First", "Second"}
 
+    def test_list_accounts_excludes_ignored_by_default(self):
+        create_account(team_id=self.team.id, name="Tracked")
+        create_account(team_id=self.team.id, name="Ignored", ignored_at=timezone.now())
+
+        default_rows, default_count = facade.list_accounts(
+            self.team.id, offset=0, limit=10, user_access_control=self._uac()
+        )
+        all_rows, all_count = facade.list_accounts(
+            self.team.id, offset=0, limit=10, user_access_control=self._uac(), include_ignored=True
+        )
+
+        assert [row.name for row in default_rows] == ["Tracked"]
+        assert default_count == 1
+        assert {row.name for row in all_rows} == {"Tracked", "Ignored"}
+        assert all_count == 2
+
     # -- External account API (CDP worker) --------------------------------
 
     def test_get_external_account_returns_verbatim_shape(self):
@@ -162,7 +236,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
             name="Acme Corp",
             external_id="acme-1",
             _properties=AccountProperties(
-                csm=AccountAssignment(id=self.user.id, email=self.user.email),
+                stripe_customer_id="cus_1",
             ).model_dump(mode="json"),
         )
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
@@ -174,9 +248,10 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.id == str(account.id)
         assert result.external_id == "acme-1"
         assert result.name == "Acme Corp"
+        assert result.ignored_at is None
         assert result.tags == ["enterprise"]
         assert result.properties == account.properties.model_dump(mode="json")
-        assert result.properties["csm"] == {"id": self.user.id, "email": self.user.email}
+        assert result.properties["stripe_customer_id"] == "cus_1"
 
     def test_get_external_account_missing_and_other_team(self):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
@@ -249,7 +324,6 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         account.refresh_from_db()
         assert account.properties.stripe_customer_id == "cus_123"
-        assert account.properties.csm is None
 
     def test_update_external_account_rejects_non_member(self):
         definition = self._create_csm_definition()
@@ -341,10 +415,8 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
 
     def _create(self, **kwargs) -> contracts.AccountView:
         return facade.create_account_for_view(
-            team_id=self.team.id,
             team=self.team,
             input=self._create_account_input(**kwargs),
-            organization_id=self.organization.id,
             user=self.user,
             was_impersonated=False,
         )
@@ -440,11 +512,12 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
                 required_level="viewer",
             )
 
-    def test_list_accounts_for_view_filters_by_search(self):
-        self._create(name="Acme Corp", external_id="acme-1")
+    @parameterized.expand([("name", "acme"), ("email domain", "someone@acme.example")])
+    def test_list_accounts_for_view_filters_by_search(self, _name: str, search: str):
+        self._create(name="Acme Corp", external_id="acme-1", properties={"email_domains": ["acme.example"]})
         self._create(name="Globex", external_id="glx-9")
         page, count = facade.list_accounts_for_view(
-            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search="acme"
+            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search=search
         )
         assert count == 1
         assert [a.name for a in page] == ["Acme Corp"]
@@ -732,7 +805,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         assert not CustomPropertySource.objects.for_team(self.team.id).filter(id=source.id).exists()
 
     @parameterized.expand([("enabled", True, True), ("disabled", False, False)])
-    def test_create_enqueues_initial_sync_only_when_enabled(self, _name, is_enabled, expect_enqueued):
+    def test_create_enqueues_initial_account_property_sync(self, _name, is_enabled, expect_enqueued):
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
             self._create(is_enabled=is_enabled)
 
@@ -744,7 +817,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         else:
             mock_app.send_task.assert_not_called()
 
-    def test_reenabling_a_source_enqueues_a_sync(self):
+    def test_reenabling_a_source_enqueues_an_initial_account_property_sync(self):
         source = self._create(is_enabled=False)
 
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
@@ -762,7 +835,7 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
             ("column_change", {"source_column": "org_id"}, True),
         ]
     )
-    def test_update_enqueues_only_on_meaningful_change(self, _name, fields, expect_enqueued):
+    def test_update_enqueues_initial_sync_only_after_a_meaningful_change(self, _name, fields, expect_enqueued):
         source = self._create()
 
         with patch.object(facade, "current_app") as mock_app, self.captureOnCommitCallbacks(execute=True):
@@ -803,3 +876,72 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
 
         with pytest.raises(facade.CustomPropertyValueSourceManaged):
             facade.set_custom_property_value(self.team.id, account.id, self.definition.id, 42)
+
+
+class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            email="mgr@example.com", password=None, first_name="Mgr", is_email_verified=True
+        )
+
+    def test_update_account_replaces_properties_wholesale(self):
+        account = create_account(
+            team_id=self.team.pk,
+            created_by=self.user,
+            name="Acme",
+            _properties={"sfdc_id": "001xx"},
+        )
+        facade.update_account(account, properties={"stripe_customer_id": "cus_123"})
+        account.refresh_from_db()
+        assert account.properties.sfdc_id is None
+        assert account.properties.stripe_customer_id == "cus_123"
+
+    def test_update_account_leaves_properties_untouched_when_not_passed(self):
+        account = create_account(
+            team_id=self.team.pk,
+            created_by=self.user,
+            name="Acme",
+            _properties={"stripe_customer_id": "cus_123"},
+        )
+
+        facade.update_account(account, name="Renamed")
+
+        account.refresh_from_db()
+        assert account.name == "Renamed"
+        assert account.properties.stripe_customer_id == "cus_123"
+
+    def test_update_account_updates_name_and_external_id(self):
+        account = create_account(team_id=self.team.pk, created_by=self.user, name="Old")
+        facade.update_account(account, name="New", external_id="acme-1")
+        account.refresh_from_db()
+        assert account.name == "New"
+        assert account.external_id == "acme-1"
+
+    @patch.object(facade.current_app, "send_task")
+    def test_update_account_enqueues_meeting_rematch_when_matching_changes(self, mock_send_task: MagicMock) -> None:
+        account = create_account(team_id=self.team.pk, created_by=self.user, name="Acme")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            facade.update_account(
+                account,
+                properties={"known_emails": ["jane@acme.com"]},
+                allow_matching_updates=True,
+            )
+
+        mock_send_task.assert_any_call(
+            "customer_analytics.rematch_account_meetings",
+            kwargs={"team_id": self.team.pk, "account_id": str(account.id)},
+        )
+
+
+class AccountCapToFieldLengthTest(SimpleTestCase):
+    @parameterized.expand([("name",), ("external_id",)])
+    def test_caps_value_to_field_max_length(self, field_name):
+        max_length = cast(models.CharField, Account._meta.get_field(field_name)).max_length
+        assert max_length is not None
+        result = facade._cap_to_field_length(field_name, "x" * (max_length + 50))
+        assert result == "x" * max_length
+
+    def test_leaves_value_within_limit_unchanged(self):
+        assert facade._cap_to_field_length("name", "Acme") == "Acme"

@@ -10,6 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -122,7 +123,15 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
-        return ClickHouseQueryMemoryLimitExceeded()
+        # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
+        # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
+        # "(for user)", or a future rewording - counts as transient cluster pressure, which gets
+        # its own class so the CH_TRANSIENT_ERRORS retry paths cover it.
+        if "(for query)" in err.message or "Query memory limit exceeded" in err.message:
+            memory_error = ClickHouseQueryMemoryLimitExceeded()
+            memory_error.is_per_query_limit = True
+            return memory_error
+        return ClickHouseClusterMemoryLimitExceeded()
     elif (
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
@@ -152,6 +161,11 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
+    elif name == "QUERY_WAS_CANCELLED":
+        # Not retryable by default: a deploy cancelling in-flight queries and a deliberate
+        # KILL QUERY are indistinguishable here, so this stays out of CH_TRANSIENT_ERRORS and
+        # callers that want the deploy case retried opt in themselves.
+        return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -205,7 +219,9 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
-    if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
+    # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
+    # so it classifies with the other rate-limited capacity errors. Checked before its parent below.
+    if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, ClickHouseClusterMemoryLimitExceeded)):
         return QueryErrorCategory.RATE_LIMITED
 
     if isinstance(
@@ -238,6 +254,10 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
     pass
 
 
@@ -347,9 +367,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),
-    6: ErrorCodeMeta(
-        "CANNOT_PARSE_TEXT", category=QueryErrorCategory.USER_ERROR
-    ),  # failed to parse value from text representation
+    # Stays internal: the CH message embeds the failing data value, which would leak stored
+    # data to anonymous viewers of public shared insights. Only user_safe once sanitized.
+    6: ErrorCodeMeta("CANNOT_PARSE_TEXT", category=QueryErrorCategory.USER_ERROR),
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
@@ -380,13 +400,13 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH", user_safe=True),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta(
-        "ILLEGAL_COLUMN", category=QueryErrorCategory.USER_ERROR
+        "ILLEGAL_COLUMN", user_safe=True
     ),  # column has wrong type for the operation (e.g. non-constant where constant required)
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
     47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),  # TODO: Unset user_safe once HogQL is accurate in Data WH
     48: ErrorCodeMeta("NOT_IMPLEMENTED"),
     49: ErrorCodeMeta("LOGICAL_ERROR"),
-    50: ErrorCodeMeta("UNKNOWN_TYPE", category=QueryErrorCategory.USER_ERROR),  # referenced data type does not exist
+    50: ErrorCodeMeta("UNKNOWN_TYPE", user_safe=True),  # referenced data type does not exist
     51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
     52: ErrorCodeMeta("COLUMN_QUERIED_MORE_THAN_ONCE"),
     53: ErrorCodeMeta("TYPE_MISMATCH", user_safe=True),
@@ -395,15 +415,24 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     57: ErrorCodeMeta("TABLE_ALREADY_EXISTS"),
     58: ErrorCodeMeta("TABLE_METADATA_ALREADY_EXISTS"),
     59: ErrorCodeMeta(
-        "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", category=QueryErrorCategory.USER_ERROR
+        "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", user_safe=True
     ),  # WHERE/HAVING column is not boolean-convertible
     60: ErrorCodeMeta("UNKNOWN_TABLE", user_safe=True),
+    # Stays internal: HogQL validates syntax before ClickHouse, so a raw CH syntax error means
+    # PostHog generated invalid SQL — a bug we want in error tracking, not hidden as user-safe.
     62: ErrorCodeMeta("SYNTAX_ERROR", category=QueryErrorCategory.USER_ERROR),
     63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
-    69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", category=QueryErrorCategory.USER_ERROR),
-    70: ErrorCodeMeta("CANNOT_CONVERT_TYPE", category=QueryErrorCategory.USER_ERROR),
+    # Fixed message: the raw CH text formats a per-row value (e.g. geoToH3 resolution) into the error.
+    69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", user_safe="An argument is out of bounds."),
+    # Fixed message: the raw CH text embeds the failing data value (see code 6 note), so a fixed
+    # string keeps that value out of the response while still returning a 400 for the bad query.
+    70: ErrorCodeMeta(
+        "CANNOT_CONVERT_TYPE",
+        user_safe="Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
+    ),
     71: ErrorCodeMeta("CANNOT_WRITE_AFTER_END_OF_BUFFER"),
+    # 72 stays internal: the CH message embeds the failing data value (see code 6 note).
     72: ErrorCodeMeta("CANNOT_PARSE_NUMBER", category=QueryErrorCategory.USER_ERROR),
     73: ErrorCodeMeta("UNKNOWN_FORMAT"),
     74: ErrorCodeMeta("CANNOT_READ_FROM_FILE_DESCRIPTOR"),
@@ -412,9 +441,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     77: ErrorCodeMeta("CANNOT_CLOSE_FILE"),
     78: ErrorCodeMeta("UNKNOWN_TYPE_OF_QUERY"),
     79: ErrorCodeMeta("INCORRECT_FILE_NAME"),
-    80: ErrorCodeMeta(
-        "INCORRECT_QUERY", category=QueryErrorCategory.USER_ERROR
-    ),  # query parses but is semantically invalid
+    80: ErrorCodeMeta("INCORRECT_QUERY", user_safe=True),  # query parses but is semantically invalid
     81: ErrorCodeMeta("UNKNOWN_DATABASE"),
     82: ErrorCodeMeta("DATABASE_ALREADY_EXISTS"),
     83: ErrorCodeMeta("DIRECTORY_DOESNT_EXIST"),
@@ -450,9 +477,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     119: ErrorCodeMeta("ENGINE_REQUIRED"),
     120: ErrorCodeMeta("CANNOT_INSERT_VALUE_OF_DIFFERENT_SIZE_INTO_TUPLE"),
     121: ErrorCodeMeta("UNSUPPORTED_JOIN_KEYS"),
-    122: ErrorCodeMeta(
-        "INCOMPATIBLE_COLUMNS", category=QueryErrorCategory.USER_ERROR
-    ),  # column types don't match expected schema
+    122: ErrorCodeMeta("INCOMPATIBLE_COLUMNS", user_safe=True),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
     124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
     125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
@@ -491,7 +516,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     170: ErrorCodeMeta("BAD_GET"),
     172: ErrorCodeMeta("CANNOT_CREATE_DIRECTORY"),
     173: ErrorCodeMeta("CANNOT_ALLOCATE_MEMORY", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
-    174: ErrorCodeMeta("CYCLIC_ALIASES", category=QueryErrorCategory.USER_ERROR),
+    174: ErrorCodeMeta("CYCLIC_ALIASES", user_safe=True),
     179: ErrorCodeMeta("MULTIPLE_EXPRESSIONS_FOR_ALIAS"),
     180: ErrorCodeMeta("THERE_IS_NO_PROFILE"),
     181: ErrorCodeMeta("ILLEGAL_FINAL"),
@@ -514,13 +539,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     203: ErrorCodeMeta("NO_FREE_CONNECTION", category=QueryErrorCategory.RATE_LIMITED),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
-    207: ErrorCodeMeta(
-        "AMBIGUOUS_IDENTIFIER", category=QueryErrorCategory.USER_ERROR
-    ),  # identifier resolves to multiple columns or aliases
+    207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER", user_safe=True),  # identifier resolves to multiple columns or aliases
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
     209: ErrorCodeMeta("SOCKET_TIMEOUT"),
     210: ErrorCodeMeta("NETWORK_ERROR"),
-    211: ErrorCodeMeta("EMPTY_QUERY", category=QueryErrorCategory.USER_ERROR),
+    211: ErrorCodeMeta("EMPTY_QUERY", user_safe=True),
     212: ErrorCodeMeta("UNKNOWN_LOAD_BALANCING"),
     213: ErrorCodeMeta("UNKNOWN_TOTALS_MODE"),
     214: ErrorCodeMeta("CANNOT_STATVFS"),
@@ -576,7 +599,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     262: ErrorCodeMeta("BAD_COLLATION"),
     263: ErrorCodeMeta("CANNOT_COMPILE_CODE"),
     264: ErrorCodeMeta(
-        "INCOMPATIBLE_TYPE_OF_JOIN", category=QueryErrorCategory.USER_ERROR
+        "INCOMPATIBLE_TYPE_OF_JOIN", user_safe=True
     ),  # join type not supported for this engine or context
     265: ErrorCodeMeta("NO_AVAILABLE_REPLICA"),
     266: ErrorCodeMeta("MISMATCH_REPLICAS_DATA_SOURCES"),
@@ -632,7 +655,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
     349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN", user_safe=True),
-    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", category=QueryErrorCategory.USER_ERROR),
+    352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME", user_safe=True),
     353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
     355: ErrorCodeMeta("ZLIB_DEFLATE_FAILED"),
@@ -652,7 +675,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     374: ErrorCodeMeta("INVALID_SESSION_TIMEOUT"),
     375: ErrorCodeMeta("CANNOT_DLOPEN"),
     376: ErrorCodeMeta("CANNOT_PARSE_UUID", user_safe=True),
-    377: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_DATA_TYPE", category=QueryErrorCategory.USER_ERROR),
+    377: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_DATA_TYPE", user_safe=True),
     378: ErrorCodeMeta("DATA_TYPE_CANNOT_HAVE_ARGUMENTS"),
     380: ErrorCodeMeta("CANNOT_KILL"),
     381: ErrorCodeMeta("HTTP_LENGTH_REQUIRED"),
@@ -682,7 +705,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     403: ErrorCodeMeta("INVALID_JOIN_ON_EXPRESSION", category=QueryErrorCategory.USER_ERROR),
     404: ErrorCodeMeta("BAD_ODBC_CONNECTION_STRING"),
     406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER"),
-    407: ErrorCodeMeta("DECIMAL_OVERFLOW", category=QueryErrorCategory.USER_ERROR),
+    # Fixed message: the raw CH text can format a converted decimal value into the overflow error.
+    407: ErrorCodeMeta("DECIMAL_OVERFLOW", user_safe="Decimal overflow while executing query."),
     408: ErrorCodeMeta("BAD_REQUEST_PARAMETER"),
     410: ErrorCodeMeta("EXTERNAL_SERVER_IS_NOT_RESPONDING"),
     411: ErrorCodeMeta("PTHREAD_ERROR"),
@@ -926,15 +950,15 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     672: ErrorCodeMeta("INVALID_SCHEDULER_NODE"),
     673: ErrorCodeMeta("RESOURCE_ACCESS_DENIED"),
     674: ErrorCodeMeta("RESOURCE_NOT_FOUND"),
+    # IP parse errors stay internal: their CH messages embed the failing data value (see code 6 note).
     675: ErrorCodeMeta("CANNOT_PARSE_IPV4", category=QueryErrorCategory.USER_ERROR),
     676: ErrorCodeMeta("CANNOT_PARSE_IPV6", category=QueryErrorCategory.USER_ERROR),
     677: ErrorCodeMeta("THREAD_WAS_CANCELED"),
     678: ErrorCodeMeta("IO_URING_INIT_FAILED"),
     679: ErrorCodeMeta("IO_URING_SUBMIT_ERROR"),
     690: ErrorCodeMeta("MIXED_ACCESS_PARAMETER_TYPES"),
-    691: ErrorCodeMeta(
-        "UNKNOWN_ELEMENT_OF_ENUM", category=QueryErrorCategory.USER_ERROR
-    ),  # value not found in enum definition
+    # Stays internal: the CH message embeds the offending enum value (see code 6 note).
+    691: ErrorCodeMeta("UNKNOWN_ELEMENT_OF_ENUM", category=QueryErrorCategory.USER_ERROR),
     692: ErrorCodeMeta("TOO_MANY_MUTATIONS"),
     693: ErrorCodeMeta("AWS_ERROR"),
     694: ErrorCodeMeta("ASYNC_LOAD_CYCLE"),
@@ -946,9 +970,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     700: ErrorCodeMeta("USER_SESSION_LIMIT_EXCEEDED"),
     701: ErrorCodeMeta("CLUSTER_DOESNT_EXIST"),
     702: ErrorCodeMeta("CLIENT_INFO_DOES_NOT_MATCH"),
-    703: ErrorCodeMeta(
-        "INVALID_IDENTIFIER", category=QueryErrorCategory.USER_ERROR
-    ),  # identifier contains invalid characters
+    703: ErrorCodeMeta("INVALID_IDENTIFIER", user_safe=True),  # identifier contains invalid characters
     704: ErrorCodeMeta("QUERY_CACHE_USED_WITH_NONDETERMINISTIC_FUNCTIONS"),
     705: ErrorCodeMeta("TABLE_NOT_EMPTY"),
     706: ErrorCodeMeta("LIBSSH_ERROR"),
@@ -1020,9 +1042,13 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
+# CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
+# and an operator or user deliberately killing one are indistinguishable at this layer, so callers
+# that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
 )

@@ -12,10 +12,28 @@ import type {
     NotebookApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookKernelConfigApi,
+    NotebookKernelConfigResponseApi,
+    NotebookKernelStatusResponseApi,
     NotebookMarkdownSaveApi,
+    NotebookSQLV2InterruptResponseApi,
+    NotebookSQLV2RunRequestApi,
+    NotebookSQLV2RunResponseApi,
+    NotebookSQLV2RunStatusResponseApi,
+    NotebookSQLV2StateResponseApi,
     NotebooksListParams,
+    NotebooksWidgetFrameParams,
+    NotebooksWidgetSourceParams,
+    NotebooksWidgetVersionsParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
+    WidgetCancelRequestApi,
+    WidgetFrameApi,
+    WidgetGenerateRequestApi,
+    WidgetRevertRequestApi,
+    WidgetSourceApi,
+    WidgetStatusApi,
+    WidgetVersionPageApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -284,19 +302,19 @@ export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: st
 }
 
 /**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
  */
 export const notebooksKernelConfigCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi?: NonReadonly<NotebookApi>,
+    notebookKernelConfigApi?: NotebookKernelConfigApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksKernelConfigCreateUrl(projectId, shortId), {
+): Promise<NotebookKernelConfigResponseApi> => {
+    return apiMutator<NotebookKernelConfigResponseApi>(getNotebooksKernelConfigCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(notebookApi),
+        body: JSON.stringify(notebookKernelConfigApi),
     })
 }
 
@@ -407,14 +425,14 @@ export const getNotebooksKernelStatusRetrieveUrl = (projectId: string, shortId: 
 }
 
 /**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ * Live-checked kernel runtime state for this notebook, its compute configuration, and the catalog of dataframes/tables a cell can currently reference (with column schemas).
  */
 export const notebooksKernelStatusRetrieve = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksKernelStatusRetrieveUrl(projectId, shortId), {
+): Promise<NotebookKernelStatusResponseApi> => {
+    return apiMutator<NotebookKernelStatusResponseApi>(getNotebooksKernelStatusRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })
@@ -438,6 +456,284 @@ export const notebooksKernelStopCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
+    })
+}
+
+export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/run/`
+}
+
+/**
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2RunCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookSQLV2RunRequestApi: NotebookSQLV2RunRequestApi,
+    options?: RequestInit
+): Promise<NotebookSQLV2RunResponseApi> => {
+    return apiMutator<NotebookSQLV2RunResponseApi>(getNotebooksSqlV2RunCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookSQLV2RunRequestApi),
+    })
+}
+
+export const getNotebooksSqlV2RunsRetrieveUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/`
+}
+
+/**
+ * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2RunsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2RunStatusResponseApi> => {
+    return apiMutator<NotebookSQLV2RunStatusResponseApi>(getNotebooksSqlV2RunsRetrieveUrl(projectId, shortId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksSqlV2RunsInterruptCreateUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/interrupt/`
+}
+
+/**
+ * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2RunsInterruptCreate = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2InterruptResponseApi> => {
+    return apiMutator<NotebookSQLV2InterruptResponseApi>(
+        getNotebooksSqlV2RunsInterruptCreateUrl(projectId, shortId, runId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getNotebooksSqlV2StateRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/state/`
+}
+
+/**
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksSqlV2StateRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<NotebookSQLV2StateResponseApi> => {
+    return apiMutator<NotebookSQLV2StateResponseApi>(getNotebooksSqlV2StateRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetCancelUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/cancel/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetCancel = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    widgetCancelRequestApi: WidgetCancelRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksWidgetCancelUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetCancelRequestApi),
+    })
+}
+
+export const getNotebooksWidgetFrameUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    frameName: string,
+    params?: NotebooksWidgetFrameParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/frames/${frameName}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/frames/${frameName}/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetFrame = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    frameName: string,
+    params?: NotebooksWidgetFrameParams,
+    options?: RequestInit
+): Promise<WidgetFrameApi> => {
+    return apiMutator<WidgetFrameApi>(getNotebooksWidgetFrameUrl(projectId, shortId, nodeId, frameName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetGenerateUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/generate/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetGenerate = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    widgetGenerateRequestApi: WidgetGenerateRequestApi,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getNotebooksWidgetGenerateUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetGenerateRequestApi),
+    })
+}
+
+export const getNotebooksWidgetRevertUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/revert/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetRevert = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    widgetRevertRequestApi: WidgetRevertRequestApi,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getNotebooksWidgetRevertUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetRevertRequestApi),
+    })
+}
+
+export const getNotebooksWidgetSourceUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksWidgetSourceParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSource = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksWidgetSourceParams,
+    options?: RequestInit
+): Promise<WidgetSourceApi> => {
+    return apiMutator<WidgetSourceApi>(getNotebooksWidgetSourceUrl(projectId, shortId, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetStatusUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/status/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetStatus = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    options?: RequestInit
+): Promise<WidgetStatusApi> => {
+    return apiMutator<WidgetStatusApi>(getNotebooksWidgetStatusUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetVersionsUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksWidgetVersionsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/versions/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetVersions = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksWidgetVersionsParams,
+    options?: RequestInit
+): Promise<WidgetVersionPageApi> => {
+    return apiMutator<WidgetVersionPageApi>(getNotebooksWidgetVersionsUrl(projectId, shortId, nodeId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

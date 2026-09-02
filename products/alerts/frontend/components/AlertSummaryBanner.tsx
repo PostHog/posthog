@@ -9,11 +9,13 @@ export function AlertSummaryBanner({
     header,
     footer,
     activeSection,
+    showCadence = true,
 }: {
     summary: AlertSummaryParts
     header?: ReactNode
     footer?: ReactNode
     activeSection?: AlertSummarySection
+    showCadence?: boolean
 }): JSX.Element {
     const fires = summary.fires || 'a threshold'
     const cadence = summary.cadence || 'unscheduled'
@@ -29,13 +31,24 @@ export function AlertSummaryBanner({
                     label="Fires when"
                     value={fires}
                 />
-                <SummarySection
-                    active={activeSection === 'schedule'}
-                    dataAttr="alert-summary-schedule"
-                    label="runs"
-                    value={cadence}
-                    separated
-                />
+                {showCadence ? (
+                    <SummarySection
+                        active={activeSection === 'schedule'}
+                        dataAttr="alert-summary-schedule"
+                        label="runs"
+                        value={cadence}
+                        separated
+                    />
+                ) : null}
+                {summary.filters ? (
+                    <SummarySection
+                        active={activeSection === 'monitor'}
+                        dataAttr="alert-summary-filters"
+                        label="matching"
+                        value={summary.filters}
+                        separated
+                    />
+                ) : null}
                 <SummarySection
                     active={activeSection === 'notify'}
                     dataAttr="alert-summary-notify"

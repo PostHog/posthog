@@ -68,6 +68,27 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
     to_string_representation(value).parse::<f64>().ok()
 }
 
+/// Parses the property value being matched as f64, for the numeric comparison operators
+/// (Gt/Gte/Lt/Lte, Between/NotBetween). A missing or non-numeric value is a validation
+/// error here, distinct from `match_value.is_none()` short-circuiting to `Ok(false)`
+/// earlier in each operator's match arm.
+fn parse_numeric_match_value(
+    match_value: Option<&Value>,
+    key: &str,
+    operator: OperatorType,
+) -> Result<f64, FlagMatchingError> {
+    let match_value = match_value.unwrap_or(&Value::Null);
+    to_f64_representation(match_value).ok_or_else(|| {
+        tracing::debug!(
+            "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
+            match_value,
+            key,
+            operator
+        );
+        FlagMatchingError::ValidationError("value is not a number".to_string())
+    })
+}
+
 /// Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
 fn normalize_version_string(version: &str) -> &str {
     version.strip_prefix('v').unwrap_or(version).trim()
@@ -149,7 +170,10 @@ pub fn match_property(
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
     if partial_props && !matching_property_values.contains_key(key) {
-        tracing::warn!("Missing property for matching: {}", property.key);
+        // debug, not warn: this fires per filter per flag while person properties are
+        // degraded, and the request-level miss is already recorded at error level with
+        // a counter in get_person_properties_from_evaluation_state.
+        tracing::debug!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
             property.key
@@ -244,6 +268,44 @@ pub fn match_property(
                 Ok(operator == OperatorType::NotIcontains)
             }
         }
+        OperatorType::StartsWith | OperatorType::NotStartsWith => {
+            if let Some(match_value) = match_value {
+                // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
+                let is_prefix = to_string_representation(match_value)
+                    .to_ascii_lowercase()
+                    .starts_with(&to_string_representation(value).to_ascii_lowercase());
+
+                if operator == OperatorType::StartsWith {
+                    Ok(is_prefix)
+                } else {
+                    Ok(!is_prefix)
+                }
+            } else {
+                // When value doesn't exist:
+                // - for StartsWith: it's not a match (false)
+                // - for NotStartsWith: it is a match (true)
+                Ok(operator == OperatorType::NotStartsWith)
+            }
+        }
+        OperatorType::EndsWith | OperatorType::NotEndsWith => {
+            if let Some(match_value) = match_value {
+                // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
+                let is_suffix = to_string_representation(match_value)
+                    .to_ascii_lowercase()
+                    .ends_with(&to_string_representation(value).to_ascii_lowercase());
+
+                if operator == OperatorType::EndsWith {
+                    Ok(is_suffix)
+                } else {
+                    Ok(!is_suffix)
+                }
+            } else {
+                // When value doesn't exist:
+                // - for EndsWith: it's not a match (false)
+                // - for NotEndsWith: it is a match (true)
+                Ok(operator == OperatorType::NotEndsWith)
+            }
+        }
         OperatorType::IcontainsMulti | OperatorType::NotIcontainsMulti => {
             if let Some(match_value) = match_value {
                 let match_string = to_string_representation(match_value).to_ascii_lowercase();
@@ -329,22 +391,7 @@ pub fn match_property(
                 }
             };
 
-            let parsed_value = match to_f64_representation(
-                match_value.unwrap_or(&serde_json::Value::Null),
-            ) {
-                Some(parsed_value) => parsed_value,
-                None => {
-                    tracing::debug!(
-                        "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
-                        match_value.unwrap_or(&serde_json::Value::Null),
-                        key,
-                        operator
-                    );
-                    return Err(FlagMatchingError::ValidationError(
-                        "value is not a number".to_string(),
-                    ));
-                }
-            };
+            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
 
             if let Some(filter_value) = to_f64_representation(value) {
                 Ok(compare(parsed_value, filter_value, operator))
@@ -358,6 +405,67 @@ pub fn match_property(
                 Err(FlagMatchingError::ValidationError(
                     "filter value is not a number".to_string(),
                 ))
+            }
+        }
+        OperatorType::Between | OperatorType::NotBetween => {
+            if match_value.is_none() {
+                // When value doesn't exist:
+                // - for Between/NotBetween: it's not a match (false)
+                return Ok(false);
+            }
+
+            // Mirrors HogQL semantics (posthog/hogql/property.py): between is inclusive
+            // on both ends, not_between is its complement, and the filter value must be
+            // a two-element numeric array with min <= max.
+            let bounds = match value.as_array() {
+                Some(bounds) if bounds.len() == 2 => bounds,
+                _ => {
+                    tracing::debug!(
+                        "Invalid filter value '{}' for key '{}' for operator {:?}",
+                        value,
+                        key,
+                        operator
+                    );
+                    return Err(FlagMatchingError::ValidationError(
+                        "between/not_between operator requires a two-element array [min, max]"
+                            .to_string(),
+                    ));
+                }
+            };
+
+            let (low, high) = match (
+                to_f64_representation(&bounds[0]),
+                to_f64_representation(&bounds[1]),
+            ) {
+                (Some(low), Some(high)) if !low.is_nan() && !high.is_nan() => (low, high),
+                _ => {
+                    return Err(FlagMatchingError::ValidationError(
+                        "between/not_between operator requires numeric values".to_string(),
+                    ));
+                }
+            };
+            if low > high {
+                return Err(FlagMatchingError::ValidationError(
+                    "between/not_between operator requires min value to be less than or equal to max value"
+                        .to_string(),
+                ));
+            }
+
+            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
+            if parsed_value.is_nan() {
+                // "NaN" parses successfully as f64::NAN rather than failing, but a NaN
+                // property value is malformed input, not a real number: it must be a
+                // non-match for both operators, not just the ones where NaN comparisons
+                // happen to fall out as false (Between would; NotBetween would flip it
+                // to true via `!in_range`).
+                return Ok(false);
+            }
+
+            let in_range = parsed_value >= low && parsed_value <= high;
+            if operator == OperatorType::Between {
+                Ok(in_range)
+            } else {
+                Ok(!in_range)
             }
         }
         OperatorType::SemverGt
@@ -1137,6 +1245,214 @@ mod test_match_properties {
     }
 
     #[test]
+    fn test_match_properties_starts_with() {
+        let property_starts_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Val")),
+            operator: Some(OperatorType::StartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // case-insensitive match at the start
+        assert!(match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("VALUE"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // non-match: substring present but not at the start
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("prevalue"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // numeric property value is stringified before matching
+        let property_starts_with_numeric = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("3")),
+            operator: Some(OperatorType::StartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(match_property(
+            &property_starts_with_numeric,
+            &HashMap::from([("key".to_string(), json!(323))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_starts_with_numeric,
+            &HashMap::from([("key".to_string(), json!(123))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // negation
+        let property_not_starts_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Val")),
+            operator: Some(OperatorType::NotStartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(!match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // missing property: negative operator matches (true), positive operator does not (false)
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+        assert!(match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+    }
+
+    #[test]
+    fn test_match_properties_ends_with() {
+        let property_ends_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Lue")),
+            operator: Some(OperatorType::EndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // case-insensitive match at the end
+        assert!(match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("VALUE"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // non-match: substring present but not at the end
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("valueish"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // numeric property value is stringified before matching
+        let property_ends_with_numeric = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("3")),
+            operator: Some(OperatorType::EndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(match_property(
+            &property_ends_with_numeric,
+            &HashMap::from([("key".to_string(), json!(323))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_ends_with_numeric,
+            &HashMap::from([("key".to_string(), json!(321))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // negation
+        let property_not_ends_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Lue")),
+            operator: Some(OperatorType::NotEndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(!match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // missing property: negative operator matches (true), positive operator does not (false)
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+        assert!(match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+    }
+
+    #[test]
     fn test_match_properties_regex() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
@@ -1541,6 +1857,126 @@ mod test_match_properties {
         //     .expect("expected match to exist"),
         //     true
         // );
+    }
+
+    #[test_case(json!(70000), true; "at lower bound is inclusive")]
+    #[test_case(json!(80000), true; "at upper bound is inclusive")]
+    #[test_case(json!(75000), true; "inside range")]
+    #[test_case(json!("75000"), true; "string number property value coerces")]
+    #[test_case(json!(69999), false; "below range")]
+    #[test_case(json!(80001), false; "above range")]
+    fn test_match_properties_between_operator(property_value: Value, expected: bool) {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!([70000, 80000])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        let props = HashMap::from([("key".to_string(), property_value)]);
+
+        assert_eq!(
+            match_property(&between, &props, true).expect("expected match to exist"),
+            expected
+        );
+        // not_between is the exact complement
+        assert_eq!(
+            match_property(&not_between, &props, true).expect("expected match to exist"),
+            !expected
+        );
+    }
+
+    #[test]
+    fn test_match_properties_between_operator_edge_cases() {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            // String bounds coerce to numbers like the Gt/Lt operators do
+            value: Some(json!(["70000", "80000"])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert!(match_property(
+            &between,
+            &HashMap::from([("key".to_string(), json!(75000))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Missing person property is not a match, for both between and not_between
+        assert!(!match_property(&between, &HashMap::new(), false).expect("expected match to exist"));
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        assert!(
+            !match_property(&not_between, &HashMap::new(), false).expect("expected match to exist")
+        );
+
+        // Non-numeric person property value is a validation error (like Gt/Lt), which
+        // cohort evaluation resolves to a non-match
+        assert!(matches!(
+            match_property(
+                &between,
+                &HashMap::from([("key".to_string(), json!("abc"))]),
+                true
+            ),
+            Err(FlagMatchingError::ValidationError(_))
+        ));
+
+        // A filter with no value is not a match
+        let no_value = PropertyFilter {
+            value: None,
+            ..between.clone()
+        };
+        assert!(!match_property(
+            &no_value,
+            &HashMap::from([("key".to_string(), json!(75000))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test_case(json!(75000); "not an array")]
+    #[test_case(json!([70000]); "one element")]
+    #[test_case(json!([70000, 75000, 80000]); "three elements")]
+    #[test_case(json!(["a", "b"]); "non-numeric bounds")]
+    #[test_case(json!([80000, 70000]); "min greater than max")]
+    #[test_case(json!(["NaN", 80000]); "NaN lower bound")]
+    #[test_case(json!([70000, "NaN"]); "NaN upper bound")]
+    fn test_match_properties_between_operator_malformed_filter_value(filter_value: Value) {
+        for operator in [OperatorType::Between, OperatorType::NotBetween] {
+            let property = PropertyFilter {
+                key: "key".to_string(),
+                value: Some(filter_value.clone()),
+                operator: Some(operator),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            };
+
+            assert!(matches!(
+                match_property(
+                    &property,
+                    &HashMap::from([("key".to_string(), json!(75000))]),
+                    true
+                ),
+                Err(FlagMatchingError::ValidationError(_))
+            ));
+        }
     }
 
     #[test]

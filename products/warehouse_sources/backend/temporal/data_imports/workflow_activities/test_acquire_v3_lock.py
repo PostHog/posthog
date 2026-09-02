@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
+    HolderWorkflowDescription,
     ReleaseV3LockActivityInputs,
     acquire_v3_pipeline_lock_activity,
     check_pipeline_version_activity,
@@ -65,6 +66,66 @@ class TestCheckPipelineVersionActivity:
 
         assert result.is_v3 is expected_is_v3
         mock_v3_check.assert_called_once_with(TEAM_ID, "Stripe")
+
+    @pytest.mark.parametrize(
+        "ingest_mode, expected_is_v3",
+        [
+            ("buffered", True),
+            ("legacy", False),
+        ],
+        ids=["flipped_forces_v3", "unflipped_follows_flag"],
+    )
+    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=False)
+    @patch(f"{MODULE}.ExternalDataSchema")
+    @patch(f"{MODULE}.ExternalDataSource")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_buffered_cdc_consumption_overrides_the_flag(
+        self,
+        _bind: MagicMock,
+        _close: MagicMock,
+        mock_source_model: MagicMock,
+        mock_schema_model: MagicMock,
+        _mock_v3_check: MagicMock,
+        ingest_mode: str,
+        expected_is_v3: bool,
+    ) -> None:
+        schema = MagicMock()
+        schema.is_cdc = True
+        schema.cdc_mode = "streaming"
+        schema.cdc_table_mode = "consolidated"
+        schema.initial_sync_complete = True
+        schema.source.job_inputs = {"cdc_ingest_mode": ingest_mode}
+        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = schema
+        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
+
+        result = check_pipeline_version_activity(
+            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
+        )
+
+        assert result.is_v3 is expected_is_v3
+
+    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataSchema")
+    @patch(f"{MODULE}.ExternalDataSource")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_a_missing_schema_row_falls_back_to_the_flag(
+        self,
+        _bind: MagicMock,
+        _close: MagicMock,
+        mock_source_model: MagicMock,
+        mock_schema_model: MagicMock,
+        _mock_v3_check: MagicMock,
+    ) -> None:
+        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = None
+        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
+
+        result = check_pipeline_version_activity(
+            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
+        )
+
+        assert result.is_v3 is True
 
     @patch(f"{MODULE}.ExternalDataSource")
     @patch(f"{MODULE}.close_old_connections")
@@ -177,7 +238,12 @@ class TestTakeOverStaleLock:
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
 
     @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.RUNNING, None, False))
+    @patch(
+        f"{MODULE}._describe_holder_workflow",
+        return_value=HolderWorkflowDescription(
+            status=WorkflowExecutionStatus.RUNNING, job=None, status_is_assumed=False
+        ),
+    )
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_holder_workflow_running(
@@ -186,7 +252,10 @@ class TestTakeOverStaleLock:
         assert self._run() is False
 
     @patch(f"{MODULE}.get_v3_pipeline_lock_meta", return_value=None)
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None, False))
+    @patch(
+        f"{MODULE}._describe_holder_workflow",
+        return_value=HolderWorkflowDescription(status=None, job=None, status_is_assumed=False),
+    )
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_describe_fails(
@@ -311,7 +380,9 @@ class TestTakeOverStaleLock:
         holder_job.status = holder_status
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, False),
+            return_value=HolderWorkflowDescription(
+                status=WorkflowExecutionStatus.COMPLETED, job=holder_job, status_is_assumed=False
+            ),
         ):
             assert self._run() is True
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
@@ -331,7 +402,9 @@ class TestTakeOverStaleLock:
         holder_job.status = "Running"
         with patch(
             f"{MODULE}._describe_holder_workflow",
-            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job, False),
+            return_value=HolderWorkflowDescription(
+                status=WorkflowExecutionStatus.COMPLETED, job=holder_job, status_is_assumed=False
+            ),
         ):
             assert self._run() is False
         mock_stale.assert_called_once()

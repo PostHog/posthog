@@ -14,7 +14,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.dags.common import JobOwners
 
-from products.ai_observability.backend.models import Dataset, DatasetItem
+from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision, latest_dataset_revision
+from products.ai_observability.backend.models import Dataset
 from products.posthog_ai.dags.snapshot_team_data import (
     ClickhouseTeamDataSnapshot,
     PostgresTeamDataSnapshot,
@@ -43,11 +44,13 @@ def get_object_storage_endpoint() -> str:
 class PrepareDatasetConfig(dagster.Config):
     dataset_id: str
     """Dataset ID to run the evaluation for."""
+    revision: int | None = Field(default=None, ge=1)
 
 
 class PreparedDataset(BaseModel):
     dataset_id: UUID
     dataset_name: str
+    dataset_revision: int | None
     dataset_inputs: list[DatasetInput]
 
 
@@ -55,12 +58,45 @@ def _get_team_id() -> int:
     return 2 if not settings.DEBUG else 1
 
 
+def _evaluation_asset_key(prepared_dataset: PreparedDataset) -> dagster.AssetKey:
+    revision_key = (
+        f"revision-{prepared_dataset.dataset_revision}"
+        if prepared_dataset.dataset_revision is not None
+        else "revision-empty"
+    )
+    return dagster.AssetKey(["evaluation_dataset", str(prepared_dataset.dataset_id), revision_key])
+
+
 @dagster.op(
     description="Pulls the dataset and dataset items and validates inputs, outputs, metadata, and team_id presence in metadata."
 )
 def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetConfig) -> PreparedDataset:
-    dataset = Dataset.objects.exclude(deleted=True).get(id=config.dataset_id, team_id=_get_team_id())
-    dataset_items = DatasetItem.objects.exclude(deleted=True).filter(dataset=dataset).iterator(500)
+    team_id = _get_team_id()
+    dataset = (
+        Dataset.objects.for_team(team_id, canonical=True)
+        .select_related("current_revision")
+        .get(id=config.dataset_id, archived=False)
+    )
+    current_revision = dataset.current_revision or latest_dataset_revision(team_id=team_id, dataset_id=dataset.id)
+    current_revision_number = current_revision.revision if current_revision is not None else None
+    if config.revision is not None:
+        if current_revision_number is None:
+            raise ValueError("This dataset has no revisions. Add an item before running the evaluation.")
+        if config.revision > current_revision_number:
+            raise ValueError(
+                f"Dataset revision {config.revision} does not exist. Choose a revision from 1 to {current_revision_number}."
+            )
+    selected_revision_number = config.revision if config.revision is not None else current_revision_number
+    dataset_items = (
+        []
+        if selected_revision_number is None
+        else dataset_item_versions_at_revision(
+            team_id=dataset.team_id,
+            dataset_id=dataset.id,
+            revision=selected_revision_number,
+            archived=False,
+        ).iterator(500)
+    )
 
     dataset_inputs: list[DatasetInput] = []
     for dataset_item in dataset_items:
@@ -69,16 +105,22 @@ def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetC
             dataset_inputs.append(
                 DatasetInput(
                     input=dataset_item.input,
-                    expected=dataset_item.output,
+                    expected=dataset_item.expected_output,
                     metadata=metadata,
                     team_id=metadata.get("team_id"),
+                    trace_id=dataset_item.source_trace_id,
                 )
             )
         except ValidationError:
             context.log.exception(f"Validation error for dataset item {dataset_item.id}")
             raise
 
-    return PreparedDataset(dataset_id=dataset.id, dataset_name=dataset.name, dataset_inputs=dataset_inputs)
+    return PreparedDataset(
+        dataset_id=dataset.id,
+        dataset_name=dataset.name,
+        dataset_revision=selected_revision_number,
+        dataset_inputs=dataset_inputs,
+    )
 
 
 @dagster.op(out=dagster.DynamicOut(int))
@@ -160,7 +202,8 @@ def spawn_evaluation_container(
     if not config.evaluation_module.startswith("ee/hogai/eval/"):
         raise ValueError(f"Evaluation module {config.evaluation_module} must start with 'ee/hogai/eval/'")
 
-    asset_key = dagster.AssetKey(["evaluation_dataset", str(prepared_dataset.dataset_id)])
+    asset_key = _evaluation_asset_key(prepared_dataset)
+    revision_label = prepared_dataset.dataset_revision if prepared_dataset.dataset_revision is not None else "empty"
     evaluation_config = EvalsDockerImageConfig(
         aws_endpoint_url=get_object_storage_endpoint(),
         aws_bucket_name=settings.OBJECT_STORAGE_BUCKET,
@@ -169,9 +212,10 @@ def spawn_evaluation_container(
             for team_id, postgres, clickhouse in zip(team_ids, postgres_snapshots, clickhouse_snapshots)
         ],
         experiment_id=context.run_id,
-        experiment_name=f"dataset-{prepared_dataset.dataset_id}",
+        experiment_name=f"dataset-{prepared_dataset.dataset_id}-revision-{revision_label}",
         dataset_id=str(prepared_dataset.dataset_id),
         dataset_name=prepared_dataset.dataset_name,
+        dataset_revision=prepared_dataset.dataset_revision,
         dataset_inputs=prepared_dataset.dataset_inputs,
     )
 

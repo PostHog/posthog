@@ -1,3 +1,4 @@
+import socket
 from dataclasses import dataclass
 
 import pytest
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     _is_host_safe,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
+    resolve_safe_host,
 )
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
@@ -127,6 +129,24 @@ class TestIsHostSafe(SimpleTestCase):
             assert valid
 
     @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_dual_stack_host_pins_an_address_the_worker_can_route_to(self):
+        # A dual-stack name resolves IPv6-first, and the pinned address is the only one anything
+        # connects to — so on an IPv4-only worker, pinning the resolver's choice can never connect.
+        with (
+            patch(
+                f"{_MIXINS_MODULE}.socket.getaddrinfo",
+                return_value=[
+                    (None, None, None, None, ("2600:1f16:1c4:661c:d148:b481:5246:e29d", 0)),
+                    (None, None, None, None, ("52.1.2.3", 0)),
+                ],
+            ),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=False),
+        ):
+            resolution = resolve_safe_host("dual-stack.example.com", team_id=999)
+
+        assert resolution.connect_host == "52.1.2.3"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_unresolvable_host_blocked(self):
         import socket
 
@@ -139,6 +159,15 @@ class TestIsHostSafe(SimpleTestCase):
             assert error is not None
             assert "nonexistent.invalid" in error
             assert "resolve" in error
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_malformed_host_label_blocked(self):
+        # A single DNS label over 63 bytes makes getaddrinfo's IDNA encoding raise UnicodeError,
+        # not gaierror — this must be handled gracefully instead of crashing.
+        valid, error = _is_host_safe("a" * 92, team_id=999)
+        assert not valid
+        assert error is not None
+        assert "resolve" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocked_host_logs_warning(self):
@@ -306,6 +335,67 @@ class TestConnectionOpenLogging(SimpleTestCase):
         assert all(call.args[0] == "data_imports.connection_open" for call in mock_logger.info.call_args_list)
         # The closure must carry team_id into every reopen — this is the sync-path attribution.
         assert all(call.kwargs["team_id"] == 42 for call in mock_logger.info.call_args_list)
+
+
+class TestTunnelYieldsLoopbackOnly(SimpleTestCase):
+    # ClickHouse bypasses the egress proxy for tunneled connections on the strength of the
+    # tunnel branch only ever yielding its own loopback bind. A tunnel bound anywhere else
+    # must be refused, not silently handed to a proxy-bypassing client.
+    @parameterized.expand([("open_ssh_tunnel", None), ("factory", None)])
+    def test_non_loopback_bind_is_refused(self, entrypoint: str, _unused: None):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="0.tcp.ngrok.example"))
+        with patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh, patch(f"{_MIXINS_MODULE}.logger"):
+            tunnel = mock_ssh.from_config.return_value.get_tunnel.return_value.__enter__.return_value
+            tunnel.local_bind_host, tunnel.local_bind_port = "10.0.0.5", 55555
+            cm = open_ssh_tunnel(config) if entrypoint == "open_ssh_tunnel" else make_ssh_tunnel_factory(config)()
+            with pytest.raises(Exception, match="non-loopback"):
+                with cm:
+                    pass
+
+
+class TestSSHTunnelHostIsCheckedAtConnect(SimpleTestCase):
+    # The SSH hop is a raw socket that no egress proxy sees, and the sync path reaches these
+    # entry points without ever running `ssh_tunnel_is_valid`, so what they do here is the only
+    # control on where the tunnel's first connection goes.
+    @staticmethod
+    def _resolves_to(ip: str) -> list:
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
+
+    @staticmethod
+    def _tunnel_cm(entrypoint: str, config, team_id: int):
+        if entrypoint == "open_ssh_tunnel":
+            return open_ssh_tunnel(config, team_id)
+        return make_ssh_tunnel_factory(config, team_id)()
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_connects_to_the_resolved_ip_rather_than_the_hostname(self, entrypoint: str):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="bastion.example.com"))
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("93.184.216.34")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            tunnel = mock_ssh.from_config.return_value.get_tunnel.return_value.__enter__.return_value
+            tunnel.local_bind_host, tunnel.local_bind_port = "127.0.0.1", 55555
+            with self._tunnel_cm(entrypoint, config, 999):
+                pass
+            get_tunnel = mock_ssh.from_config.return_value.get_tunnel
+            assert get_tunnel.call_args.kwargs["ssh_host"] == "93.184.216.34"
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_host_resolving_to_an_internal_ip_is_refused_before_any_connection(self, entrypoint: str):
+        config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=True, host="bastion.example.com"))
+        with (
+            patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("10.0.0.1")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(Exception, match="SSH tunnel host not allowed"):
+                with self._tunnel_cm(entrypoint, config, 999):
+                    pass
+            mock_ssh.from_config.return_value.get_tunnel.assert_not_called()
 
 
 class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):

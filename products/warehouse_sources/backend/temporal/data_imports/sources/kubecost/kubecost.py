@@ -8,9 +8,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import (
     DEFAULT_BACKFILL_DAYS,
     INCREMENTAL_LOOKBACK_DAYS,
@@ -93,10 +94,10 @@ def _to_date(value: Any) -> Optional[date]:
     return None
 
 
-def _day_window(day: date) -> tuple[str, str]:
+def _day_window(day: date) -> SyncWindow[str]:
     start = f"{day.isoformat()}T00:00:00Z"
     end = f"{(day + timedelta(days=1)).isoformat()}T00:00:00Z"
-    return start, end
+    return SyncWindow(start=start, end=end)
 
 
 def validate_credentials(host: str, api_key: Optional[str]) -> tuple[bool, str | None]:
@@ -131,13 +132,12 @@ def validate_credentials(host: str, api_key: Optional[str]) -> tuple[bool, str |
     return True, None
 
 
-def _flatten_result_sets(data: Any, requested_window: tuple[str, str]) -> list[dict[str, Any]]:
+def _flatten_result_sets(data: Any, requested_window: SyncWindow[str]) -> list[dict[str, Any]]:
     """Flatten Allocation/Assets result sets (dicts keyed by allocation/asset name) into rows.
 
     Windows with no data (e.g. beyond ETL retention) come back as ``data: [null]``,
     so null/non-dict sets are skipped rather than treated as errors.
     """
-    requested_start, requested_end = requested_window
     rows: list[dict[str, Any]] = []
     if not isinstance(data, list):
         return rows
@@ -154,8 +154,8 @@ def _flatten_result_sets(data: Any, requested_window: tuple[str, str]) -> list[d
                 {
                     **item,
                     "key": key,
-                    "window_start": window.get("start") or requested_start,
-                    "window_end": window.get("end") or requested_end,
+                    "window_start": window.get("start") or requested_window.start,
+                    "window_end": window.get("end") or requested_window.end,
                 }
             )
     return rows
@@ -223,9 +223,9 @@ def get_rows(
 
     day = start
     while day <= today:
-        window_start, window_end = _day_window(day)
-        data = call(f"{window_start},{window_end}")
-        rows = _flatten_result_sets(data, (window_start, window_end))
+        window = _day_window(day)
+        data = call(f"{window.start},{window.end}")
+        rows = _flatten_result_sets(data, window)
         if rows:
             yield rows
 

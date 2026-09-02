@@ -3,6 +3,6 @@
 Additional context from the team operating the product being recorded:
 {{ user_prompt }}{% endif %}
 
-`title` is a short, plain-text headline, up to 120 characters (citations go in `summary`, not the title). `summary` should be {{ length_guidance }}.
+`title` is a short, plain-text headline, up to 120 characters (citations go in `summary`, not the title).{% if user_prompt %} If the context above specifies a naming convention or format for observations, `title` must follow it exactly (an observation's name is its title).{% endif %} `summary` should be {{ length_guidance }}.
 
 {{ cite_in('summary') }}

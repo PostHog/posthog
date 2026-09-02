@@ -1,7 +1,7 @@
 """Shared GitHub auth for hogli commands: a token from the env or gh CLI, plus API headers.
 
-Centralizes the one decision (how to source a github.com token and what REST headers to
-send) so callers like db:restore-test-db and pr:upload-image don't each reimplement it.
+Centralizes the one decision (how to source a github.com token and what headers to send)
+so callers like db:restore-test-db and pr:upload-image don't each reimplement it.
 """
 
 from __future__ import annotations
@@ -38,7 +38,10 @@ def github_token() -> str | None:
 
 
 def github_headers(token: str | None) -> dict[str, str]:
-    """Standard GitHub REST API headers, with Bearer auth when a token is available."""
+    """Standard GitHub API headers, with Bearer auth when a token is available.
+
+    The REST version pin is inert on GraphQL requests, which ignore unknown headers.
+    """
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",

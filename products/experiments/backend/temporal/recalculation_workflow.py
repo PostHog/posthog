@@ -11,6 +11,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
+        RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS,
         RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
         RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
         RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
@@ -44,6 +45,14 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExperimentMetricsRecalculationWorkflowInputs) -> dict:
+        try:
+            return await self._run_recalculation(inputs)
+        except Exception:
+            if temporalio.workflow.patched("recalc-terminal-fail-on-error-2026-07"):
+                await self._best_effort_mark_terminal(inputs.recalculation_id, status="failed")
+            raise
+
+    async def _run_recalculation(self, inputs: ExperimentMetricsRecalculationWorkflowInputs) -> dict:
         recalculation_id = inputs.recalculation_id
 
         metrics = await temporalio.workflow.execute_activity(
@@ -65,19 +74,30 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     metric_uuids=[],
                     mark_started=True,
                 ),
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            await temporalio.workflow.execute_activity(
-                update_recalculation_progress,
-                RecalculationProgressUpdate(
-                    recalculation_id=recalculation_id,
-                    status="completed",
-                    mark_completed=True,
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            try:
+                await temporalio.workflow.execute_activity(
+                    update_recalculation_progress,
+                    RecalculationProgressUpdate(
+                        recalculation_id=recalculation_id,
+                        status="completed",
+                        mark_completed=True,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                # A zero-metric run genuinely completed; record that via the backstop rather than letting run()'s
+                # except mislabel it failed. If the backstop also fails (or the patch is off), re-raise so the
+                # workflow fails instead of reporting success on a non-terminal row.
+                recorded = temporalio.workflow.patched("recalc-terminal-fail-on-error-2026-07") and (
+                    await self._best_effort_mark_terminal(recalculation_id, status="completed", succeeded=0, failed=0)
+                )
+                if not recorded:
+                    raise
+
             temporalio.workflow.logger.info(f"recalc {recalculation_id} had no metrics; completing immediately")
             increment_workflow_finished("completed")
             return {"total": 0, "succeeded": 0, "failed": 0}
@@ -93,7 +113,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 metric_uuids=[m.metric_uuid for m in metrics],
                 mark_started=True,
             ),
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         # The activity returns Optional[str] in general, but with mark_started=True it always returns the ISO
@@ -134,30 +154,65 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             ],
             return_exceptions=True,
         )
-        # An exception here means retries were exhausted; the activity already persisted the FAILED row on its
-        # final attempt. A returned result carries success=False for permanent failures recorded without retry.
+
         succeeded = sum(1 for result in results if not isinstance(result, BaseException) and result.success)
         failed = len(results) - succeeded
-
-        # Any failure marks the run as "failed"; the succeeded/failed counts carry the partial-vs-total nuance
-        # for consumers that need it (the UI shows "N succeeded, M failed" alongside the status). A status-only
-        # check then can't mistake a 9-of-10-failed run for a healthy one.
         final_status = "failed" if failed > 0 else "completed"
-        await temporalio.workflow.execute_activity(
-            update_recalculation_progress,
-            RecalculationProgressUpdate(
-                recalculation_id=recalculation_id,
-                status=final_status,
-                mark_completed=True,
-                succeeded_metrics=succeeded,
-                failed_metrics=failed,
-            ),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+
+        try:
+            await temporalio.workflow.execute_activity(
+                update_recalculation_progress,
+                RecalculationProgressUpdate(
+                    recalculation_id=recalculation_id,
+                    status=final_status,
+                    mark_completed=True,
+                    succeeded_metrics=succeeded,
+                    failed_metrics=failed,
+                ),
+                start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:
+            # The finalize write exhausted its retries. Record the real status/counts via the backstop so the
+            # row still goes terminal. If the backstop also fails (or the patch is disabled for a replaying
+            # older execution), re-raise: the workflow must fail rather than report success on a non-terminal
+            # row, and the interceptor + staleness TTL take over as before.
+            recorded = temporalio.workflow.patched("recalc-terminal-fail-on-error-2026-07") and (
+                await self._best_effort_mark_terminal(
+                    recalculation_id, status=final_status, succeeded=succeeded, failed=failed
+                )
+            )
+            if not recorded:
+                raise
 
         temporalio.workflow.logger.info(
             f"recalc {recalculation_id} finished: {succeeded} succeeded, {failed} failed (status={final_status})"
         )
         increment_workflow_finished(final_status)
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}
+
+    async def _best_effort_mark_terminal(
+        self, recalculation_id: str, *, status: str, succeeded: int | None = None, failed: int | None = None
+    ) -> bool:
+        # Returns True if the terminal write landed, False if it too exhausted its retries. Callers that need
+        # the row to be terminal (the finalize-failure path) re-raise on False so the run still fails and the
+        # staleness TTL reaps it; the pre-finalize caller re-raises the original exception regardless.
+        try:
+            await temporalio.workflow.execute_activity(
+                update_recalculation_progress,
+                RecalculationProgressUpdate(
+                    recalculation_id=recalculation_id,
+                    status=status,
+                    mark_completed=True,
+                    succeeded_metrics=succeeded,
+                    failed_metrics=failed,
+                ),
+                start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            return True
+        except Exception:
+            temporalio.workflow.logger.exception(
+                f"recalc {recalculation_id} failed to record terminal status; staleness TTL will reap it"
+            )
+            return False

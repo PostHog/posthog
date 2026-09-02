@@ -96,6 +96,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "start_time": self.base_time,
             "snapshot_source": "web",
             "snapshot_library": None,
+            "ongoing": True,
+            "total_size": 0,
+            "event_count": 0,
         }
 
     def test_get_metadata_with_block(self) -> None:
@@ -121,6 +124,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "mouse_activity_count": 300,
             "snapshot_source": "web",
             "snapshot_library": None,
+            "ongoing": True,
+            "total_size": 0,
+            "event_count": 0,
         }
 
     def test_get_metadata_with_multiple_blocks(self) -> None:
@@ -152,6 +158,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 364,
             "snapshot_source": "web",
             "snapshot_library": None,
+            "ongoing": True,
+            "total_size": 0,
+            "event_count": 0,
         }
 
     def test_get_nonexistent_metadata(self) -> None:
@@ -198,6 +207,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "start_time": self.base_time,
             "snapshot_source": "web",
             "snapshot_library": None,
+            "ongoing": True,
+            "total_size": 0,
+            "event_count": 0,
         }
         assert metadata_dict["2"] == {
             "active_seconds": 1.234,
@@ -220,6 +232,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 89,
             "snapshot_source": "web",
             "snapshot_library": None,
+            "ongoing": True,
+            "total_size": 0,
+            "event_count": 0,
         }
 
     def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:

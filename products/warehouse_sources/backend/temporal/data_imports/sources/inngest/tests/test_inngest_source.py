@@ -4,18 +4,15 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
     InngestSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.inngest import InngestResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.source import InngestSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -40,21 +37,6 @@ def _source_inputs(
 class TestInngestSource:
     def setup_method(self) -> None:
         self.source = InngestSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INNGEST
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        assert [f.name for f in config.fields] == ["signing_key", "environment"]
-        signing_key, environment = config.fields
-        assert isinstance(signing_key, SourceFieldInputConfig)
-        assert signing_key.type == SourceFieldInputConfigType.PASSWORD
-        assert signing_key.required is True
-        assert signing_key.secret is True
-        assert isinstance(environment, SourceFieldInputConfig)
-        assert environment.required is False
-        assert environment.secret is False
 
     def test_source_config_is_alpha_and_unreleased(self) -> None:
         # The source ships hidden (unreleasedSource) and labelled alpha; a regression that flipped
@@ -122,11 +104,6 @@ class TestInngestSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("events"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is InngestResumeConfig
-
     def test_source_for_pipeline_plumbs_credentials_and_endpoint(self) -> None:
         config = InngestSourceConfig(signing_key="signkey-prod-test", environment="branch-env")
         inputs = _source_inputs("events", last_value="2026-07-01T00:00:00Z", use_incremental=True)
@@ -138,6 +115,32 @@ class TestInngestSource:
         assert kwargs["endpoint"] == "events"
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-07-01T00:00:00Z"
+
+    def test_defaults_new_sources_to_v2(self) -> None:
+        # New sources are stamped with default_version; this locks the bump to v2 (the generic
+        # registry invariant only checks default == supported_versions[-1], so a revert to v1
+        # would pass it).
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
+    @parameterized.expand(
+        [
+            ("no_pin_resolves_to_default", None, "v2"),
+            ("v1_pin_honored", "v1", "v1"),
+            ("v2_pin_honored", "v2", "v2"),
+        ]
+    )
+    def test_source_for_pipeline_threads_the_resolved_api_version(
+        self, _name: str, pin: Optional[str], expected: str
+    ) -> None:
+        # A pinned source must sync under its own version, not the default — dropping the resolve
+        # would silently read version-mobile tables (webhooks) from the wrong API version.
+        config = InngestSourceConfig(signing_key="signkey-prod-test")
+        inputs = _source_inputs("webhooks")
+        inputs.api_version = pin
+        with patch.object(source_module, "inngest_source") as mock_source:
+            self.source.source_for_pipeline(config, MagicMock(), inputs)
+        assert mock_source.call_args.kwargs["api_version"] == expected
 
     def test_source_for_pipeline_normalizes_blank_environment_to_none(self) -> None:
         # An empty-string environment must not be sent as an X-Inngest-Env header — the API would

@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
     MixpanelSourceConfig,
 )
@@ -173,6 +170,12 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
             "403 Client Error: Forbidden": (
                 "The Mixpanel service account does not have access to this project or resource. Grant it "
                 "access to the project and reconnect."
+            ),
+            # Mixpanel returns 402 when the project's plan does not include the data export API or the
+            # account is in a payment-overdue state. Retrying cannot resolve a billing issue.
+            "402 Client Error: Payment Required": (
+                "Mixpanel requires a paid plan that includes the data export API. Check your Mixpanel "
+                "plan and billing status, then try again."
             ),
         }
 

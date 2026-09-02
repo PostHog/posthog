@@ -4,10 +4,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from django.db import transaction
+from django.utils import timezone
 
 from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
@@ -42,6 +44,9 @@ def create_custom_agent_ready_report(
             summary=final_report.description,
             signal_count=0,
             total_weight=0.0,
+            # Born directly READY without passing through transition_to (which stamps this for
+            # pipeline reports), so the daily report limit counts it from creation.
+            first_visible_at=timezone.now(),
         )
 
         # Written through the model helpers (the single artefact write path). Auto-start is
@@ -99,5 +104,23 @@ def create_custom_agent_ready_report(
                 type=type,
                 task_id=task_id,
             )
+
+    # After the transaction so a telemetry failure can't roll back the report. Telemetry mirrors
+    # the live reviewer set: suggested_reviewers appends are latest-wins and registered artefacts
+    # are written after the assignees append, so a registered SuggestedReviewers overrides it —
+    # including an empty one, which is a persisted "no reviewers" state and must still emit.
+    reviewer_logins = [assignee.github_login for assignee in final_report.assignees]
+    reviewers_written = bool(final_report.assignees)
+    for artefact_content in registered_artefacts:
+        if isinstance(artefact_content, SuggestedReviewers):
+            reviewers_written = True
+            reviewer_logins = [entry.github_login for entry in artefact_content.root]
+    if reviewers_written:
+        capture_suggested_reviewers_resolved(
+            team_id=team_id,
+            report_id=str(report.id),
+            github_logins=reviewer_logins,
+            source="custom_agent",
+        )
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)

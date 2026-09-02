@@ -15,6 +15,8 @@ from typing import TypeVar
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Column, Table
@@ -169,13 +171,19 @@ def project_arrow_columns(
     return Table(name=table.name, columns=projected, parents=table.parents, alias=table.alias, type=table.type)
 
 
+@frozen
+class PrunedColumns:
+    kept: list[str] | None
+    removed: list[str]
+
+
 def prune_enabled_columns(
     enabled_columns: list[str] | None,
     available_column_names: set[str],
-) -> tuple[list[str] | None, list[str]]:
-    """Drop `enabled_columns` entries missing from the source. Returns `(kept, removed)`."""
+) -> PrunedColumns:
+    """Drop `enabled_columns` entries missing from the source."""
     if enabled_columns is None:
-        return None, []
+        return PrunedColumns(kept=None, removed=[])
     kept: list[str] = []
     removed: list[str] = []
     for column in enabled_columns:
@@ -183,4 +191,4 @@ def prune_enabled_columns(
             kept.append(column)
         else:
             removed.append(column)
-    return kept, removed
+    return PrunedColumns(kept=kept, removed=removed)

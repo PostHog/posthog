@@ -85,7 +85,7 @@ class TestAuditFlagFilters(BaseTest):
         junk = self._create_flag("junk", {"groups": [], "junk": 1})
         prop_level = self._create_flag(
             "prop-level",
-            {"groups": [{"properties": [{"key": "k", "type": "person", "value": "x", "cohort_name": "c"}]}]},
+            {"groups": [{"properties": [{"key": "k", "type": "person", "value": "x", "junk_p": "c"}]}]},
         )
 
         report = self._run()
@@ -96,17 +96,17 @@ class TestAuditFlagFilters(BaseTest):
         assert unknown_by_key[("filters", "holdout_groups")]["sample_flag_ids"] == [legacy.id]
         assert unknown_by_key[("filters", "junk")]["legacy"] is False
         assert unknown_by_key[("filters", "junk")]["sample_flag_ids"] == [junk.id]
-        assert unknown_by_key[("property", "cohort_name")]["sample_flag_ids"] == [prop_level.id]
+        assert unknown_by_key[("property", "junk_p")]["sample_flag_ids"] == [prop_level.id]
 
     def test_unknown_key_counted_once_per_flag(self) -> None:
         self._create_flag(
             "two-groups",
-            {"groups": [{"properties": [], "sort_key": "a"}, {"properties": [], "sort_key": "b"}]},
+            {"groups": [{"properties": [], "junk_g": "a"}, {"properties": [], "junk_g": "b"}]},
         )
 
         report = self._run()
 
-        entry = next(e for e in report["unknown_keys"] if e["key"] == "sort_key")
+        entry = next(e for e in report["unknown_keys"] if e["key"] == "junk_g")
         assert entry["flags_affected"] == 1
 
     @patch("products.feature_flags.backend.api.filters_schema.logger")

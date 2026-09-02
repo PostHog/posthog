@@ -2,25 +2,33 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
 
-import { DataSourceLogicProps, createDataSourceLogic } from '../DataSourceTable'
+import { createDataSourceLogic } from '../DataSourceTable'
 
 export interface EventsSourceProps {
     queryKey: string
     query: EventsQuery
 }
 
-function rowToRecord(row: any): ErrorEventType {
+type EventsQueryPerson = ErrorEventType['person'] & { distinct_id: string }
+
+type EventsQueryRow = [
+    event: Pick<ErrorEventType, 'uuid' | 'properties'>,
+    timestamp: ErrorEventType['timestamp'],
+    person: EventsQueryPerson,
+]
+
+function rowToRecord([event, timestamp, person]: EventsQueryRow): ErrorEventType {
     return {
         event: '$exception',
-        uuid: row[0].uuid,
-        timestamp: row[1],
-        person: row[2],
-        distinct_id: row[0].properties.distinct_id || row[2].distinct_id,
-        properties: row[0].properties,
+        uuid: event.uuid,
+        timestamp,
+        person,
+        distinct_id: event.properties.distinct_id || person.distinct_id,
+        properties: event.properties,
     }
 }
 
-export const eventsSourceLogic = createDataSourceLogic<DataSourceLogicProps<EventsQuery>, ErrorEventType>(
+export const eventsSourceLogic = createDataSourceLogic<EventsSourceProps, ErrorEventType, EventsQueryRow>(
     () => ['products', 'error_tracking', 'components', 'EventsTable', 'eventsSourceLogic'],
     rowToRecord
 )

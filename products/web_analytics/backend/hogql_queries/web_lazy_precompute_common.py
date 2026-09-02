@@ -15,21 +15,24 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import SessionsV2JoinMode
+from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
 from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value, tag_queries
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
@@ -222,10 +225,31 @@ def is_background_warming_request() -> bool:
     return shared_is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
 
 
+# Execution modes that mean "the user explicitly asked to recompute, disregard any
+# cache". The frontend's forced reload (`reloadAll`) maps a web-analytics tile to
+# `force_blocking` — web tiles are non-insight nodes, so they never take the async
+# path — but both force_* modes are treated as forced so an async-dispatched force
+# refresh is covered too.
+FORCED_REFRESH_EXECUTION_MODES = frozenset(
+    {ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, ExecutionMode.CALCULATE_ASYNC_ALWAYS.value}
+)
+
+
+def is_forced_refresh_request() -> bool:
+    """True when this is an explicit user-initiated force refresh.
+
+    Read off the `execution_mode` query tag the query runner stamps before
+    `_calculate`. A forced refresh must bypass the serve-stale grace so it
+    recomputes fresh instead of being handed the very stale row it is clearing.
+    """
+    return get_query_tag_value("execution_mode") in FORCED_REFRESH_EXECUTION_MODES
+
+
 # One revalidation per (team, family, query shape) per window: a dashboard burst — or a
-# user hammering forced refresh on a stale tile — fires many stale serves for the same
-# shape and they must collapse to a single background rebuild. Keyed per shape (not per
-# request) so two different stale families in one request each still get their refresh.
+# user hammering forced refresh, whose reads now fall through to the live query and enqueue
+# a background warm each — fires many enqueues for the same shape and they must collapse to
+# a single background rebuild. Keyed per shape (not per request) so two different stale
+# families in one request each still get their refresh.
 REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 
 # The shape debounce alone does not bound DISTINCT shapes: filters and date ranges are
@@ -331,10 +355,22 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     runner = kwargs.pop("runner", None)
     family = kwargs.pop("family", None)
     background = is_background_warming_request()
+    forced = is_forced_refresh_request()
     if "stale_while_revalidate_seconds" not in kwargs:
-        kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
-            STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
-        )
+        if forced:
+            # An explicit user-initiated force refresh must never be handed a
+            # complete-but-stale row — that is exactly the state the user is trying
+            # to clear (the reported bug: repeated Reload clicks kept serving the
+            # same stale overview tile). Disabling the grace makes the ensure report
+            # a miss for an expired window, so the read falls through to the live
+            # query and recomputes fresh. Applies to every web family (overview +
+            # stats) so a forced refresh can't leave the tile and tables drifting on
+            # different freshness clocks.
+            kwargs["stale_while_revalidate_seconds"] = None
+        else:
+            kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
+                STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
+            )
     # User-facing requests never compute inline: they are served from covering
     # READY jobs (fresh or within the stale grace) or told "miss" immediately so
     # the caller falls back to the live query. Construction happens only on
@@ -369,6 +405,30 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = parse_ttl_schedule(existing, team.timezone, settling_period_seconds=SESSION_SETTLING_SECONDS)
         if pinned:
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
+        if forced and not background:
+            # A within-TTL current-day bucket can still be hours behind (the
+            # today band is 4h), which on an hourly graph reads as missing
+            # recent data. Disabling the grace above cannot help there because
+            # the bucket is not stale, just coarse. Treat the windows covering
+            # the current team-local day as expired for this read only: the
+            # ensure reports a miss, the read falls through to the live query,
+            # and the SWR enqueue rebuilds the bucket in the background.
+            # Jobs split on UTC day boundaries, so the cutoff is the UTC-day
+            # floor of team-local midnight; a cutoff at local midnight itself
+            # sits after the window start for teams behind UTC and would never
+            # match today's window. Background builds are excluded because the
+            # same schedule sets the insert TTL, and the revalidation task runs
+            # under the forced execution mode, so it would persist the rebuilt
+            # bucket with a 1-second expiry that every ambient read then
+            # misses. `rules` are first-match by descending cutoff, so
+            # prepending wins over the normal today band.
+            today_start_local = (
+                django_timezone.now()
+                .astimezone(ZoneInfo(team.timezone))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+            )
+            forced_cutoff = floor_utc_day(today_start_local.astimezone(UTC))
+            schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if not result.ready and not background and runner is not None and family is not None:
@@ -657,14 +717,41 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
     """Emit the same `*_rejected` / `*_eligible` info log shape used by every
     lazy path so a single Loki query can attribute all fall-throughs."""
     if error is not None:
+        reason = type(error).__name__
+        set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_rejected",
             team_id=team_id,
-            reason=type(error).__name__,
+            reason=reason,
             detail=str(error) or None,
         )
     else:
+        set_lazy_precompute_ineligible_reason(None)
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
+
+
+def set_lazy_precompute_ineligible_reason(reason: Optional[str]) -> None:
+    """Record why a gate refused this read, or clear the tag when a gate admits the query.
+
+    A stats-table read consults several gates in turn, so a rejection from an earlier gate must not
+    survive onto a query that a later gate admits.
+    """
+    if reason is None:
+        clear_tag("web_analytics_precompute_ineligible_reason")
+    else:
+        tag_queries(web_analytics_precompute_ineligible_reason=reason)
+
+
+def lazy_precompute_ineligible_reason(strategy: WebAnalyticsPreComputeStrategy) -> Optional[str]:
+    """Give the reason a gate refused this read, but only for a response the live path served.
+
+    The gates run before the runner selects a strategy. A read the lazy gate rejects can still be
+    served from the pre-aggregated tables, so the tag must not ride out next to a strategy that is
+    not `LIVE`.
+    """
+    if strategy != WebAnalyticsPreComputeStrategy.LIVE:
+        return None
+    return get_query_tag_value("web_analytics_precompute_ineligible_reason")
 
 
 def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
@@ -694,7 +781,7 @@ def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
 # distinct namespaces rather than per-request shapes. Otherwise a user could
 # exhaust the ceiling by replaying one filter with different ISO timestamps until
 # new legitimate shapes are forced onto the live path (veria review).
-_SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS | frozenset(
+SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS | frozenset(
     {"dateRange", "compareFilter"}
 )
 
@@ -707,7 +794,7 @@ def compute_shape_cap_key(query: Any, team_timezone: str, test_account_filters: 
     in stops an admin from minting fresh namespaces onto one cap slot by editing the
     test-account filters (veria review)."""
     dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
-    for key in _SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS:
+    for key in SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS:
         dumped.pop(key, None)
     tafs = [
         f.model_dump(mode="json", exclude_none=True) if hasattr(f, "model_dump") else f

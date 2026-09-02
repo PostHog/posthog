@@ -5,15 +5,13 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import VercelResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -40,19 +38,10 @@ class TestVercelSource:
         self.source = VercelSource()
         self.config = VercelSourceConfig(access_token="token", team_id=None)
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VERCEL
-
     def test_connection_host_fields_includes_team_id(self) -> None:
         # team_id retargets the stored token at a different Vercel team, so editing it must force
         # the token to be re-entered.
         assert self.source.connection_host_fields == ["team_id"]
-
-    def test_source_config_metadata(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Vercel"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
@@ -65,13 +54,30 @@ class TestVercelSource:
 
     def test_get_schemas_sync_capabilities_per_endpoint(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {"deployments", "projects", "teams", "domains", "aliases", "billing_charges"}
+        assert set(schemas) == {
+            "deployments",
+            "events",
+            "projects",
+            "teams",
+            "domains",
+            "aliases",
+            "check_runs",
+            "billing_charges",
+        }
 
         deployments = schemas["deployments"]
         assert deployments.supports_incremental is True
         assert deployments.supports_append is True
         assert [f["field"] for f in deployments.incremental_fields] == ["created"]
         assert deployments.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
+
+        # The activity stream cursors on the event's own creation time, which never changes, and
+        # supports append because events are immutable once emitted.
+        events = schemas["events"]
+        assert events.supports_incremental is True
+        assert events.supports_append is True
+        assert [f["field"] for f in events.incremental_fields] == ["createdAt"]
+        assert events.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
 
         # Billing supports incremental merge but not append (append would duplicate restated charges),
         # cursors on the charge period, and carries a lookback so restatements get re-read and merged.
@@ -82,7 +88,9 @@ class TestVercelSource:
         assert billing.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
         assert billing.default_incremental_lookback_seconds == 60 * 60 * 24 * 35
 
-        for full_refresh in ("projects", "teams", "domains", "aliases"):
+        # check_runs is a full-refresh fan-out over deployments: Vercel documents no server-side time
+        # filter on the check-runs endpoint, so it re-fans every sync with no incremental cursor.
+        for full_refresh in ("projects", "teams", "domains", "aliases", "check_runs"):
             assert schemas[full_refresh].supports_incremental is False
             assert schemas[full_refresh].supports_append is False
             assert schemas[full_refresh].incremental_fields == []
@@ -90,13 +98,6 @@ class TestVercelSource:
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["deployments"])
         assert [s.name for s in schemas] == ["deployments"]
-
-    @parameterized.expand(
-        [("valid", (True, None)), ("invalid", (False, "Invalid or unauthorized Vercel access token"))]
-    )
-    def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
-        with mock.patch.object(vercel_source_module, "validate_vercel_credentials", lambda token: result):
-            assert self.source.validate_credentials(self.config, team_id=1) == result
 
     @parameterized.expand(
         [
@@ -138,10 +139,25 @@ class TestVercelSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
 
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("deployments"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is VercelResumeConfig
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Max retries exceeded with url: "
+                '/v1/billing/charges?teamId=team_abc (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.vercel.com', port=443): Read timed out. (read timeout=120)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out. (read timeout=120)",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process; once exhausted, this
+        # keeps the benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         config = VercelSourceConfig(access_token="token", team_id="team_42")

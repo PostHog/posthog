@@ -8,8 +8,8 @@ from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
-from django.core.cache import cache
 from django.db import connection
+from django.db.models import F
 from django.test.utils import CaptureQueriesContext
 
 from dateutil import parser
@@ -17,7 +17,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -25,9 +26,15 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -38,9 +45,10 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -601,6 +609,66 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_legacy"])
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
+            ("before_cutoff", True, -7, "$feature_flag_called"),
+            ("after_cutoff", True, 7, "$experiment_exposure"),
+            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+        ]
+    )
+    def test_detail_reports_resolved_exposure_event(
+        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+    ) -> None:
+        # The frontend names the exposure event from this field, so it has to agree with what the
+        # results queries actually read (resolve_default_exposure_event). Resolution compares
+        # start_date against a fixed constant, so these cases need no clock control.
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="resolved-exposure-event",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"resolved-exposure-{_name}", created_by=self.user
+            ),
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+        )
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["resolved_exposure_event"], expected_event)
+
+    @parameterized.expand(
+        [("after_cutoff", 30, "$experiment_exposure"), ("before_cutoff", -30, "$feature_flag_called")]
+    )
+    def test_draft_resolves_exposure_event_against_now(
+        self, _name: str, now_offset_days: int, expected_event: str
+    ) -> None:
+        # A draft has no start_date, so the field reports what launching now would resolve to —
+        # otherwise the setup UI names the old event for an experiment about to use the new one.
+        # Serialized directly rather than over HTTP: the frozen clock would expire the session.
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="draft-resolved-exposure-event",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"draft-resolved-exposure-{_name}", created_by=self.user
+            ),
+            start_date=None,
+        )
+
+        with (
+            freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days)),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            serialized = ExperimentSerializer(
+                experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
+            ).data
+
+        self.assertEqual(serialized["resolved_exposure_event"], expected_event)
 
     def test_retrieving_experiment_refreshes_action_names(self) -> None:
         # Action-name refresh lives on the detail response — the list endpoint no longer
@@ -1459,24 +1527,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
             created_by=self.user,
         )
-        funnel_query = {
-            "kind": "ExperimentFunnelsQuery",
-            "funnels_query": {
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"kind": "EventsNode", "name": "[jan-16-running] seen", "event": "[jan-16-running] seen"},
-                    {"kind": "EventsNode", "name": "[jan-16-running] payment", "event": "[jan-16-running] payment"},
-                ],
-                "dateRange": {"date_to": "2025-02-13T23:59", "date_from": "2025-01-30T12:16", "explicitDate": True},
-                "funnelsFilter": {
-                    "layout": "horizontal",
-                    "funnelVizType": "steps",
-                    "funnelWindowInterval": 14,
-                    "funnelWindowIntervalUnit": "day",
-                },
-                "filterTestAccounts": True,
-            },
-        }
         trends_query = {
             "kind": "ExperimentTrendsQuery",
             "count_query": {
@@ -1502,54 +1552,39 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             team=self.team,
             created_by=self.user,
         )
-        saved_funnel_metric = ExperimentSavedMetric.objects.create(
-            name="Test saved metric",
-            description="Test description",
-            query=funnel_query,
-            team=self.team,
-            created_by=self.user,
-        )
         experiment = Experiment.objects.create(
             name="Test Experiment with stale dates",
             team=self.team,
             feature_flag=test_feature_flag,
             start_date=datetime(2025, 2, 1),
             end_date=None,
-            metrics=[funnel_query],
+            metrics=[trends_query],
             metrics_secondary=[trends_query],
         )
 
-        for saved_metric_data in [saved_funnel_metric, saved_trends_metric]:
-            saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                data={
-                    "experiment": experiment.id,
-                    "saved_metric": saved_metric_data.id,
-                    "metadata": {"type": "secondary"},
-                },
-            )
-            saved_metric_serializer.is_valid(raise_exception=True)
-            saved_metric_serializer.save()
+        saved_metric_serializer = ExperimentToSavedMetricSerializer(
+            data={
+                "experiment": experiment.id,
+                "saved_metric": saved_trends_metric.id,
+                "metadata": {"type": "secondary"},
+            },
+        )
+        saved_metric_serializer.is_valid(raise_exception=True)
+        saved_metric_serializer.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
-        )
-        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z")
+        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_to"], "")
         self.assertEqual(
             response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
         )
         self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
         self.assertEqual(
-            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"],
+            response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_from"],
             "2025-02-01T00:00:00Z",
         )
-        self.assertEqual(response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"], "")
-        self.assertEqual(
-            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"],
-            "2025-02-01T00:00:00Z",
-        )
-        self.assertEqual(response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_to"], "")
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
@@ -2303,6 +2338,28 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         list_parameters = next(e["parameters"] for e in results if e["id"] == experiment_id)
         self.assertEqual(list_parameters["feature_flag_variants"], expected_variants)
         self.assertEqual(list_parameters["aggregation_group_type_index"], 1)
+
+    @parameterized.expand([("string", "{}"), ("list", ["control"])])
+    def test_non_dict_parameters_column_does_not_break_reads(self, _name, stored_parameters):
+        ff_key = f"ff-bad-parameters-{_name}"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Legacy blob", "feature_flag_key": ff_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Legacy rows can hold a non-dict here; .update() bypasses the serializer, as those writes did.
+        Experiment.objects.filter(id=experiment_id).update(parameters=stored_parameters)
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual([v["key"] for v in detail.json()["parameters"]["feature_flag_variants"]], ["control", "test"])
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        parameters = next(e["parameters"] for e in listed.json()["results"] if e["id"] == experiment_id)
+        self.assertEqual([v["key"] for v in parameters["feature_flag_variants"]], ["control", "test"])
 
     def test_feature_flag_config_is_not_persisted_into_parameters(self):
         """Create and update consume feature-flag config to build/sync the flag, but never store it
@@ -3269,147 +3326,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [("flag_0", []), (ff_key, [created_experiment])],
             )
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
-        cache.clear()
-
-        initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        self.assertIsNone(initial_cached_flags)
-
-        ff_key = "a-b-test"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "feature_flag_variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant",
-                            "rollout_percentage": 34,
-                        },
-                    ]
-                },
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        # save was called, but no flags saved because experiment is in draft mode, so flag is not active
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        assert cached_flags is not None
-        self.assertEqual(0, len(cached_flags))
-
-        id = response.json()["id"]
-
-        # launch experiment
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "start_date": "2021-12-01T10:23",
-            },
-        )
-
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        assert cached_flags is not None
-        self.assertEqual(1, len(cached_flags))
-        self.assertEqual(cached_flags[0].key, ff_key)
-        self.assertEqual(
-            cached_flags[0].filters,
-            {
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                        "aggregation_group_type_index": None,
-                    }
-                ],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant",
-                            "rollout_percentage": 34,
-                        },
-                    ]
-                },
-                "holdout": None,
-                "aggregation_group_type_index": None,
-            },
-        )
-
-        # On a running experiment, a flag-config change without the opt-in is rejected and must not
-        # touch the cached flag.
-        unchanged_filters: dict[str, Any] = {
-            "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                    {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                    {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
-                ]
-            },
-            "holdout": None,
-            "aggregation_group_type_index": None,
-        }
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "description": "Bazinga",
-                "feature_flag": {
-                    "filters": {
-                        "multivariate": {
-                            "variants": [
-                                {"key": "control", "name": "X", "rollout_percentage": 50},
-                                {"key": "test", "name": "Y", "rollout_percentage": 50},
-                            ]
-                        }
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("update_feature_flag_params", str(response.json()))
-
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        assert cached_flags is not None
-        self.assertEqual(1, len(cached_flags))
-        self.assertEqual(cached_flags[0].key, ff_key)
-        self.assertEqual(cached_flags[0].filters, unchanged_filters)
-
     def test_create_draft_experiment_with_filters(self) -> None:
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -3768,7 +3684,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ],
         )
 
-        # Test removing aggregation_group_type_index
+        # Test removing aggregation_group_type_index. PATCH filters merge with the stored
+        # state per top-level key (#50084), so clearing requires an explicit null rather
+        # than omitting the key.
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
             {
@@ -3778,6 +3696,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                         {"properties": [], "rollout_percentage": 1},
                     ],
                     "payloads": {},
+                    "aggregation_group_type_index": None,
                     "multivariate": {
                         "variants": [
                             {"key": "control", "rollout_percentage": 10},
@@ -3866,8 +3785,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
-    def test_update_experiment_repository_validates_and_normalizes(self, _mock_access):
+    def test_update_experiment_repository_validates_and_normalizes(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-field-flag", filters={})
         experiment = Experiment.objects.create(team=self.team, name="Repo field", feature_flag=feature_flag)
 
@@ -3884,8 +3802,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["repository"], "acme/web")
 
-    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
-    def test_create_experiment_with_repository(self, _mock_access):
+    def test_create_experiment_with_repository(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -3896,27 +3813,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertEqual(response.json()["repository"], "acme/web")
-
-    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=False)
-    def test_setting_repository_requires_code_access(self, _mock_access):
-        feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-access-flag", filters={})
-        experiment = Experiment.objects.create(team=self.team, name="Repo access", feature_flag=feature_flag)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
-            {"repository": "acme/web"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        experiment.refresh_from_db()
-        self.assertIsNone(experiment.repository)
-
-        # Resubmitting the unchanged value (e.g. a full-object PUT) stays allowed.
-        Experiment.objects.filter(id=experiment.id).update(repository="acme/web")
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
-            {"repository": "acme/web"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     def test_update_experiment_exposure_config_with_action(self):
         # Create an action
@@ -4899,9 +4795,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "start_date": "2024-01-01T10:00:00Z",
                 "stats_config": {"method": "frequentist"},
                 "exposure_criteria": {
-                    "kind": "ExperimentEventExposureConfig",
-                    "event": "$feature_flag_called",
-                    "properties": [],
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    },
                 },
             },
         )
@@ -4909,9 +4807,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         updated_metrics = response.json()["metrics"]
 
         expected_updated_fingerprints = {
-            "mean": "d6a393e5456b71c16961c45e07eb17cb86e4f7972549033f9883c99430248c02",
-            "funnel": "9f7888cb2f7f9c3dac2b6482a964eef6911f97e376ed53305ed6653f7f70ce9b",
-            "ratio": "1b83a833a62ff9c2f01ba86be1f3e578b97749d3264e08ff9e76d863865e3ff3",
+            "mean": "24bf7ca8d497f33ace065e9e5facd961a4a2cb68938263b4008266fb22055f98",
+            "funnel": "c1325e7c9c494859e14901f144e99532745d6c22a8cb1536ef1cd9574cfa5672",
+            "ratio": "9d74f7f895166c1ac12708a4bc2aa8c61c963bb98a9ad15fecf747b79e706631",
         }
 
         for metric in updated_metrics:
@@ -5118,6 +5016,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(launch_response.json()["status"], "running")
+
+    def test_launch_experiment_endpoint_with_list_body(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "List Body Endpoint",
+                "feature_flag_key": "list-body-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # The endpoint declares no request body, so a JSON array must not reach the flag serializer
+        # as a non-dict `request.data`.
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+            [],
+            format="json",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(launch_response.json()["status"], "running")
+
+        flag = FeatureFlag.objects.get(key="list-body-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
 
     def test_archive_experiment_endpoint(self):
         response = self.client.post(
@@ -5665,9 +5588,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag, _mock_access):
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
         exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
         exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
         exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
@@ -5709,52 +5631,26 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_cleanup_pr_requires_code_access_for_session_users(self, _mock_flag):
-        exp_end = self._create_running_experiment(name="Cleanup Session End", flag_key="cleanup-session-end-flag")["id"]
+    def test_cleanup_pr_allowed_for_session_users(self, _mock_flag):
         exp_ship = self._create_running_experiment(name="Cleanup Session Ship", flag_key="cleanup-session-ship-flag")[
             "id"
         ]
 
-        # Scopes don't apply to session auth — without Desktop access, opting in must be rejected
-        # on both actions that can open a cleanup PR.
-        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False):
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
-                {"conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        # Session auth carries no scopes, and opening a cleanup PR is no longer gated on the
+        # Desktop waitlist, so both actions succeed ("end first, ship later" flow).
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
+            {"conclusion": "won", "open_cleanup_pr": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
-                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
-
-            # Not opting in still ends the experiment without Desktop access.
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
-                {"conclusion": "won", "open_cleanup_pr": False},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-
-        # With Desktop access, opting in succeeds on both actions ("end first, ship later" flow).
-        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True):
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
-                {"conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-
-            resp = self.client.post(
-                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
-                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
+            {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
     def test_flag_cleanup_task_endpoint(self):
         exp_id = self._create_running_experiment(name="Cleanup Status", flag_key="cleanup-status-flag")["id"]
@@ -5843,6 +5739,178 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json()["run_status"], "queued")
         self.assertFalse(resp.json()["is_terminal"])
+
+    @parameterized.expand(
+        [
+            # (name, stored_repository, team_default, cached_repos, expected_body)
+            (
+                "no_integration",
+                None,
+                None,
+                None,
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+            (
+                "single_repo",
+                None,
+                None,
+                [{"full_name": "acme/web"}],
+                {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
+            ),
+            (
+                "ambiguous",
+                None,
+                None,
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "explicit",
+                "acme/api",
+                None,
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "stale_explicit_needs_a_new_choice",
+                "gone/repo",
+                None,
+                [{"full_name": "acme/web"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
+            ),
+            (
+                "stale_explicit_with_empty_cache",
+                "gone/repo",
+                None,
+                [],
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+            (
+                "team_default",
+                None,
+                "acme/api",
+                [{"full_name": "acme/web"}, {"full_name": "Acme/API"}],
+                {"repository": "Acme/API", "source": "team_default", "candidates": ["Acme/API", "acme/web"]},
+            ),
+            (
+                "stale_team_default_falls_through",
+                None,
+                "gone/repo",
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_flag_cleanup_target_endpoint(
+        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_resolve_github
+    ):
+        exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
+        if stored_repository:
+            Experiment.objects.filter(id=exp_id).update(repository=stored_repository)
+        if team_default:
+            config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+            config.flag_cleanup_repository = team_default
+            config.save()
+        if cached_repos is None:
+            mock_resolve_github.return_value = None
+        else:
+            mock_resolve_github.return_value = SimpleNamespace(
+                list_all_cached_repositories=lambda max_repos: cached_repos
+            )
+
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json(), expected_body)
+
+    @parameterized.expand(
+        [
+            # (name, open_cleanup_pr, repository, expected_status)
+            # Nothing persists in any of these: the value only sticks when a cleanup PR
+            # actually opens against it (team flag on + repo in the installation).
+            ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
+            ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
+            ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
+    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status, _mock_flag):
+        exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
+
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+            {"conclusion": "won", "open_cleanup_pr": open_cleanup_pr, "repository": repository},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, expected_status, resp.content)
+        self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True, "repository": "ACME/Web"},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
+        self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_set_repository_as_team_default_requires_project_admin(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_member = self._create_running_experiment(name="Default Deny", flag_key="team-default-deny-flag")["id"]
+        exp_admin = self._create_running_experiment(name="Default Allow", flag_key="team-default-allow-flag")["id"]
+        body = {
+            "conclusion": "won",
+            "open_cleanup_pr": True,
+            "repository": "acme/web",
+            "set_repository_as_team_default": True,
+        }
+
+        # A team-wide default is environment configuration, admin-gated like experiments_config.
+        # Without an access-control row every member is effectively admin, so pin the project's
+        # default access to member to exercise the deny path.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=self.team.id, access_level="member"
+        )
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        resp = self.client.post(f"/api/projects/{self.team.id}/experiments/{exp_member}/end/", body, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+        self.assertIsNone(get_or_create_team_extension(self.team, TeamExperimentsConfig).flag_cleanup_repository)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(f"/api/projects/{self.team.id}/experiments/{exp_admin}/end/", body, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(
+            get_or_create_team_extension(self.team, TeamExperimentsConfig).flag_cleanup_repository, "acme/web"
+        )
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
@@ -7031,6 +7099,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         experiment_id = create_response.json()["id"]
+        flag_id = create_response.json()["feature_flag"]["id"]
         self.client.patch(f"/api/projects/{self.team.id}/experiments/{experiment_id}/", {"description": "Updated"})
         self.client.patch(
             f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}/", {"name": "Renamed holdout"}
@@ -7038,15 +7107,21 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.client.patch(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/", {"name": "Renamed metric"}
         )
+        flag_patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/", {"active": False}
+        )
+        self.assertEqual(flag_patch_response.status_code, status.HTTP_200_OK)
 
         other_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {"name": "Unrelated experiment", "feature_flag_key": "activity-endpoint-two"},
         )
         other_experiment_id = other_response.json()["id"]
+        other_flag_id = other_response.json()["feature_flag"]["id"]
         self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{other_experiment_id}/", {"description": "Unrelated update"}
         )
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{other_flag_id}/", {"active": False})
         # An unrelated shared metric whose pk collides with the experiment's id
         ActivityLog.objects.create(
             team_id=self.team.pk,
@@ -7056,6 +7131,16 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             activity="updated",
             detail={"type": "shared_metric", "name": "Colliding metric"},
         )
+        # Same ids under an unrelated scope: leaks if any clause drops its scope match
+        for colliding_item_id in (str(experiment_id), str(flag_id)):
+            ActivityLog.objects.create(
+                team_id=self.team.pk,
+                organization_id=self.organization.id,
+                scope="Insight",
+                item_id=colliding_item_id,
+                activity="updated",
+                detail={"name": "Colliding insight"},
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/activity?limit=50")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -7063,7 +7148,11 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         item_ids = {entry["item_id"] for entry in results}
         self.assertNotIn(str(other_experiment_id), item_ids)
-        self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id)})
+        self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id), str(flag_id)})
+        flag_entries = [entry for entry in results if entry["scope"] == "FeatureFlag"]
+        self.assertEqual({entry["item_id"] for entry in flag_entries}, {str(flag_id)})
+        self.assertIn("updated", [entry["activity"] for entry in flag_entries])
+        self.assertNotIn("Colliding insight", {(entry["detail"] or {}).get("name") for entry in results})
         own_activities = [entry["activity"] for entry in results if entry["item_id"] == str(experiment_id)]
         self.assertIn("created", own_activities)
         self.assertIn("updated", own_activities)
@@ -7076,6 +7165,37 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 for entry in results
             )
         )
+
+    def test_activity_endpoint_omits_flag_entries_without_flag_access(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Restricted flag", "feature_flag_key": "activity-restricted-flag"},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+        flag_id = create_response.json()["feature_flag"]["id"]
+        flag_patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/", {"active": False}
+        )
+        self.assertEqual(flag_patch_response.status_code, status.HTTP_200_OK)
+
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag_id), access_level="none"
+        )
+        # The flag's creator keeps access regardless of access controls, so query as a plain member
+        other_user = User.objects.create_and_join(self.organization, "no-flag-access@posthog.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/activity?limit=50")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertTrue(results)
+        self.assertEqual({entry["scope"] for entry in results}, {"Experiment"})
 
     def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
         feature_flag = FeatureFlag.objects.create(
@@ -8799,3 +8919,612 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )
+
+
+class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
+    """Optimistic concurrency on experiment updates: stale writes carrying `version` +
+    `original_experiment` merge concurrent metric changes per uuid and 409 on everything else.
+    Guards the incident class where a stale tab's full-array PATCH silently deleted metrics
+    other users had added since the tab loaded."""
+
+    def _metric(self, event: str) -> dict:
+        return {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}}
+
+    def _create_experiment(self, key: str, metrics: list | None = None, metrics_secondary: list | None = None) -> dict:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": f"Concurrency {key}",
+                "feature_flag_key": key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+                "metrics": metrics or [],
+                "metrics_secondary": metrics_secondary or [],
+                "allow_unknown_events": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def _patch(self, experiment_id: int, payload: dict) -> Any:
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"allow_unknown_events": True, **payload},
+        )
+
+    def _original(self, snapshot: dict) -> dict:
+        """The base snapshot the frontend sends: the metric collections as this client last saw them."""
+        return {
+            "metrics": snapshot.get("metrics") or [],
+            "metrics_secondary": snapshot.get("metrics_secondary") or [],
+            "saved_metrics_ids": [
+                {"id": link["saved_metric"], "metadata": link["metadata"]}
+                for link in snapshot.get("saved_metrics") or []
+            ],
+        }
+
+    def _original_with_scalars(self, snapshot: dict) -> dict:
+        """The extended base the frontend sends: metric collections plus the scalar fields the
+        experiment surfaces PATCH, so the server can three-way merge scalars per field too."""
+        return {
+            **self._original(snapshot),
+            **{
+                field: snapshot.get(field)
+                for field in (
+                    "name",
+                    "description",
+                    "start_date",
+                    "end_date",
+                    "exposure_criteria",
+                    "stats_config",
+                    "running_time_calculation",
+                    "holdout_id",
+                    "conclusion",
+                    "conclusion_comment",
+                    "parameters",
+                    "excluded_variants",
+                    "only_count_matured_users",
+                )
+            },
+        }
+
+    def _events(self, metrics: list) -> set[str]:
+        return {metric["source"]["event"] for metric in metrics}
+
+    def test_stale_delete_merges_with_concurrent_additions(self) -> None:
+        # Incident replay: a stale tab deletes 1 of the 3 metrics it saw while teammates
+        # added 4 more; the stale write must not remove the 4 unseen metrics.
+        snapshot = self._create_experiment(
+            "incident-replay", metrics_secondary=[self._metric(f"e{i}") for i in (1, 2, 3)]
+        )
+        teammate_write = self._patch(
+            snapshot["id"],
+            {"metrics_secondary": [*snapshot["metrics_secondary"], *(self._metric(f"e{i}") for i in (4, 5, 6, 7))]},
+        )
+        self.assertEqual(teammate_write.status_code, status.HTTP_200_OK)
+
+        stale_delete = self._patch(
+            snapshot["id"],
+            {
+                "metrics_secondary": snapshot["metrics_secondary"][1:],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_delete.status_code, status.HTTP_200_OK, stale_delete.json())
+        result = stale_delete.json()
+        self.assertEqual(self._events(result["metrics_secondary"]), {"e2", "e3", "e4", "e5", "e6", "e7"})
+        self.assertEqual(
+            set(result["secondary_metrics_ordered_uuids"]),
+            {metric["uuid"] for metric in result["metrics_secondary"]},
+        )
+
+    def test_concurrent_additions_of_different_metrics_both_survive(self) -> None:
+        snapshot = self._create_experiment("both-add", metrics=[self._metric("base")])
+        self.assertEqual(
+            self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]}).status_code,
+            status.HTTP_200_OK,
+        )
+
+        stale_add = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [*snapshot["metrics"], self._metric("mine")],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_add.status_code, status.HTTP_200_OK, stale_add.json())
+        self.assertEqual(self._events(stale_add.json()["metrics"]), {"base", "theirs", "mine"})
+
+    def test_same_metric_edited_by_both_conflicts(self) -> None:
+        snapshot = self._create_experiment("double-edit", metrics=[self._metric("original_event")])
+        their_metric = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "their_event"}}
+        self.assertEqual(self._patch(snapshot["id"], {"metrics": [their_metric]}).status_code, status.HTTP_200_OK)
+
+        my_metric = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "my_event"}}
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [my_metric],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_409_CONFLICT)
+        body = stale_edit.json()
+        self.assertIn("detail", body)
+        self.assertEqual(body["current_version"], 1)
+        self.assertEqual(body["conflicting_metric_uuids"], [snapshot["metrics"][0]["uuid"]])
+        experiment = Experiment.objects.get(id=snapshot["id"])
+        self.assertEqual((experiment.metrics or [])[0]["source"]["event"], "their_event")
+
+    @parameterized.expand(
+        [
+            ("stale_delete_vs_concurrent_edit", "delete_mine"),
+            ("stale_edit_vs_concurrent_delete", "delete_theirs"),
+        ]
+    )
+    def test_edit_vs_delete_of_same_metric_conflicts(self, _name: str, mode: str) -> None:
+        snapshot = self._create_experiment(f"edit-vs-delete-{mode}", metrics=[self._metric("contested")])
+        edited = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "edited"}}
+        theirs = [] if mode == "delete_theirs" else [edited]
+        self.assertEqual(self._patch(snapshot["id"], {"metrics": theirs}).status_code, status.HTTP_200_OK)
+
+        mine = [edited] if mode == "delete_theirs" else []
+        stale_write = self._patch(
+            snapshot["id"],
+            {
+                "metrics": mine,
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_write.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale_write.json()["conflicting_metric_uuids"], [snapshot["metrics"][0]["uuid"]])
+
+    @parameterized.expand(
+        [
+            ("their_description_edit", {"description": "theirs"}, "description"),
+            ("their_stats_config_edit", {"stats_config": {"method": "frequentist"}}, "stats_config"),
+        ]
+    )
+    def test_concurrent_scalar_edit_does_not_block_stale_metrics_write(
+        self, _name: str, their_payload: dict, edited_field: str
+    ) -> None:
+        # A metric-only PATCH omits scalar fields, so it can't clobber them: the other
+        # side's scalar edit and this stale metric addition must both survive.
+        snapshot = self._create_experiment(f"scalar-{edited_field}", metrics=[self._metric("base")])
+        self.assertEqual(self._patch(snapshot["id"], their_payload).status_code, status.HTTP_200_OK)
+
+        stale_metrics_write = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [*snapshot["metrics"], self._metric("mine")],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_metrics_write.status_code, status.HTTP_200_OK, stale_metrics_write.json())
+        self.assertEqual(self._events(stale_metrics_write.json()["metrics"]), {"base", "mine"})
+        their_value = their_payload[edited_field]
+        current_value = stale_metrics_write.json()[edited_field]
+        if isinstance(their_value, dict):
+            self.assertEqual({key: current_value.get(key) for key in their_value}, their_value)
+        else:
+            self.assertEqual(current_value, their_value)
+
+    def test_stale_scalar_write_without_base_value_conflicts_with_any_concurrent_change(self) -> None:
+        snapshot = self._create_experiment("stale-scalar", metrics=[self._metric("base")])
+        concurrent = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]})
+        self.assertEqual(concurrent.status_code, status.HTTP_200_OK)
+
+        stale_description_write = self._patch(
+            snapshot["id"],
+            {
+                "description": "mine",
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_description_write.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("description", stale_description_write.json()["conflicting_fields"])
+
+    def test_stale_start_date_change_merges_over_concurrent_calculator_autosave(self) -> None:
+        # Incident replay: the running-time calculator auto-saves its estimate on results load,
+        # silently bumping the version; the user's start-date change from the same (now stale)
+        # tab must apply instead of 409ing. Also exercises the datetime base: the client echoes
+        # the ISO string it read while the row holds a datetime.
+        created = self._create_experiment("autosave-race", metrics=[self._metric("base")])
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{created['id']}/launch/")
+        self.assertEqual(launch.status_code, status.HTTP_200_OK, launch.json())
+        snapshot = launch.json()
+
+        autosave = self._patch(
+            snapshot["id"],
+            {"running_time_calculation": {"recommended_running_time": 12, "recommended_sample_size": 3400}},
+        )
+        self.assertEqual(autosave.status_code, status.HTTP_200_OK)
+
+        new_start = "2026-07-27T16:10:00Z"
+        stale_start_date_write = self._patch(
+            snapshot["id"],
+            {
+                "start_date": new_start,
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_start_date_write.status_code, status.HTTP_200_OK, stale_start_date_write.json())
+        result = stale_start_date_write.json()
+        self.assertEqual(parser.parse(result["start_date"]), parser.parse(new_start))
+        self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 12)
+
+    @parameterized.expand(
+        [
+            ("with_scalar_base", True),
+            ("without_scalar_base", False),
+        ]
+    )
+    def test_stale_write_resending_unchanged_scalar_is_not_a_conflict(self, _name: str, with_base: bool) -> None:
+        # The distribution modal resends holdout_id even when the user only changed the variant
+        # split; an unchanged value must not conflict just because the write is stale.
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name=f"Concurrency holdout {_name}",
+            filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout-x"}],
+            created_by=self.user,
+        )
+        created = self._create_experiment(f"noop-holdout-{with_base}", metrics=[self._metric("base")])
+        linked = self._patch(created["id"], {"holdout_id": holdout.id})
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        snapshot = linked.json()
+
+        concurrent = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]})
+        self.assertEqual(concurrent.status_code, status.HTTP_200_OK)
+
+        stale_echo = self._patch(
+            snapshot["id"],
+            {
+                "holdout_id": holdout.id,
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot) if with_base else self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_echo.status_code, status.HTTP_200_OK, stale_echo.json())
+        self.assertEqual(stale_echo.json()["holdout_id"], holdout.id)
+        self.assertEqual(self._events(stale_echo.json()["metrics"]), {"base", "theirs"})
+
+    def test_stale_write_echoing_base_scalar_does_not_revert_concurrent_edit(self) -> None:
+        # A form save resends fields the user didn't touch; echoing the base value must not
+        # revert what a teammate changed meanwhile, while the user's own edit still applies.
+        snapshot = self._create_experiment("echo-base", metrics=[self._metric("base")])
+        their_edit = self._patch(snapshot["id"], {"description": "rewritten by a teammate"})
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_form_save = self._patch(
+            snapshot["id"],
+            {
+                "description": snapshot["description"],
+                "name": "New name from the stale tab",
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_form_save.status_code, status.HTTP_200_OK, stale_form_save.json())
+        self.assertEqual(stale_form_save.json()["description"], "rewritten by a teammate")
+        self.assertEqual(stale_form_save.json()["name"], "New name from the stale tab")
+
+    def test_stale_same_scalar_field_double_edit_still_conflicts(self) -> None:
+        # All three values must differ: an edit that matches the base is not "my change"
+        # (the echo rule), and one that matches the current value is a no-op.
+        snapshot = self._create_experiment("double-scalar", metrics=[self._metric("base")])
+        their_edit = self._patch(snapshot["id"], {"description": "their rewrite"})
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_conflicting_edit = self._patch(
+            snapshot["id"],
+            {
+                "description": "my rewrite",
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_conflicting_edit.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale_conflicting_edit.json()["conflicting_fields"], ["description"])
+        experiment = Experiment.objects.get(id=snapshot["id"])
+        self.assertEqual(experiment.description, "their rewrite")
+
+    def test_stale_variant_notes_write_merges_on_flag_linked_experiment(self) -> None:
+        # Incident replay for the variant notes/images path: reads project the linked flag's
+        # config into `parameters` while writes strip it before storage, so the client's base
+        # never matches the stored column byte-for-byte — the merge must compare `parameters`
+        # in stored shape instead of treating the projection as a concurrent edit.
+        snapshot = self._create_experiment("notes-over-autosave", metrics=[self._metric("base")])
+        self.assertIn("feature_flag_variants", snapshot["parameters"])
+
+        autosave = self._patch(
+            snapshot["id"],
+            {"running_time_calculation": {"recommended_running_time": 9, "recommended_sample_size": 1200}},
+        )
+        self.assertEqual(autosave.status_code, status.HTTP_200_OK)
+
+        stale_notes_write = self._patch(
+            snapshot["id"],
+            {
+                "parameters": {**snapshot["parameters"], "variant_notes": {"control": "baseline notes"}},
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_notes_write.status_code, status.HTTP_200_OK, stale_notes_write.json())
+        result = stale_notes_write.json()
+        self.assertEqual(result["parameters"]["variant_notes"], {"control": "baseline notes"})
+        self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 9)
+
+    def test_stale_reorder_keeps_relative_order_and_appends_concurrent_addition(self) -> None:
+        snapshot = self._create_experiment("reorder", metrics=[self._metric("m1"), self._metric("m2")])
+        added = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("m3")]})
+        self.assertEqual(added.status_code, status.HTTP_200_OK)
+        added_uuid = next(m["uuid"] for m in added.json()["metrics"] if m["source"]["event"] == "m3")
+
+        uuid_1, uuid_2 = (metric["uuid"] for metric in snapshot["metrics"])
+        stale_reorder = self._patch(
+            snapshot["id"],
+            {
+                "metrics": snapshot["metrics"],
+                "primary_metrics_ordered_uuids": [uuid_2, uuid_1],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_reorder.status_code, status.HTTP_200_OK, stale_reorder.json())
+        self.assertEqual(stale_reorder.json()["primary_metrics_ordered_uuids"], [uuid_2, uuid_1, added_uuid])
+
+    def test_stale_shared_metric_removal_keeps_concurrently_linked_metric(self) -> None:
+        saved_1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Shared one",
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "s1"}},
+        )
+        saved_2 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Shared two",
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "s2"}},
+        )
+        created = self._create_experiment("shared-removal")
+        linked = self._patch(
+            created["id"], {"saved_metrics_ids": [{"id": saved_1.id, "metadata": {"type": "secondary"}}]}
+        )
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        snapshot = linked.json()
+
+        concurrent_link = self._patch(
+            snapshot["id"],
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_1.id, "metadata": {"type": "secondary"}},
+                    {"id": saved_2.id, "metadata": {"type": "secondary"}},
+                ]
+            },
+        )
+        self.assertEqual(concurrent_link.status_code, status.HTTP_200_OK)
+
+        stale_removal = self._patch(
+            snapshot["id"],
+            {
+                "saved_metrics_ids": [],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_removal.status_code, status.HTTP_200_OK, stale_removal.json())
+        remaining = [link["saved_metric"] for link in stale_removal.json()["saved_metrics"]]
+        self.assertEqual(remaining, [saved_2.id])
+
+    def test_shared_metric_metadata_double_edit_conflicts(self) -> None:
+        saved = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Contested shared",
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "s1"}},
+        )
+        created = self._create_experiment("shared-metadata")
+        linked = self._patch(created["id"], {"saved_metrics_ids": [{"id": saved.id, "metadata": {"type": "primary"}}]})
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        snapshot = linked.json()
+
+        their_edit = self._patch(
+            snapshot["id"], {"saved_metrics_ids": [{"id": saved.id, "metadata": {"type": "secondary"}}]}
+        )
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "saved_metrics_ids": [{"id": saved.id, "metadata": {"type": "primary", "breakdowns": []}}],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale_edit.json()["conflicting_metric_uuids"], [f"saved_metric:{saved.id}"])
+
+    def test_update_without_version_keeps_last_write_wins_behavior(self) -> None:
+        snapshot = self._create_experiment("no-version", metrics=[self._metric("base")])
+        self.assertEqual(
+            self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]}).status_code,
+            status.HTTP_200_OK,
+        )
+
+        unversioned_write = self._patch(snapshot["id"], {"metrics": snapshot["metrics"]})
+
+        self.assertEqual(unversioned_write.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._events(unversioned_write.json()["metrics"]), {"base"})
+
+    def test_null_stored_version_is_treated_as_zero(self) -> None:
+        snapshot = self._create_experiment("null-version", metrics=[self._metric("base")])
+        Experiment.objects.filter(id=snapshot["id"]).update(version=None)
+
+        versioned_write = self._patch(snapshot["id"], {"description": "updated", "version": 0})
+
+        self.assertEqual(versioned_write.status_code, status.HTTP_200_OK)
+        self.assertEqual(versioned_write.json()["version"], 1)
+
+    def test_sequential_writes_with_refreshed_version_increment_monotonically(self) -> None:
+        snapshot = self._create_experiment("sequential", metrics=[self._metric("base")])
+        first = self._patch(snapshot["id"], {"description": "first", "version": snapshot["version"]})
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.json()["version"], snapshot["version"] + 1)
+
+        second = self._patch(snapshot["id"], {"description": "second", "version": first.json()["version"]})
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["version"], snapshot["version"] + 2)
+
+    def test_launch_fingerprint_churn_is_not_a_phantom_metric_conflict(self) -> None:
+        snapshot = self._create_experiment("launch-churn", metrics=[self._metric("base")])
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{snapshot['id']}/launch/")
+        self.assertEqual(launch.status_code, status.HTTP_200_OK, launch.json())
+
+        # The launch rewrote every metric fingerprint; that server-side churn must not read
+        # as a concurrent edit of the metric this stale write edits.
+        my_metric = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "edited"}}
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [my_metric],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_200_OK, stale_edit.json())
+        self.assertEqual(self._events(stale_edit.json()["metrics"]), {"edited"})
+        self.assertIsNotNone(stale_edit.json()["start_date"])
+
+    def test_stale_metric_addition_merges_after_concurrent_launch(self) -> None:
+        # A concurrent launch changes start_date, but a metric-only PATCH omits it,
+        # so the stale addition merges and the launch survives.
+        snapshot = self._create_experiment("launch-merge", metrics=[self._metric("base")])
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{snapshot['id']}/launch/")
+        self.assertEqual(launch.status_code, status.HTTP_200_OK)
+
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [*snapshot["metrics"], self._metric("mine")],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_200_OK, stale_edit.json())
+        self.assertEqual(self._events(stale_edit.json()["metrics"]), {"base", "mine"})
+        self.assertIsNotNone(stale_edit.json()["start_date"])
+
+    def test_version_without_original_is_plain_compare_and_swap(self) -> None:
+        snapshot = self._create_experiment("plain-cas", metrics=[self._metric("base")])
+        self.assertEqual(
+            self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]}).status_code,
+            status.HTTP_200_OK,
+        )
+
+        stale_write = self._patch(
+            snapshot["id"],
+            {"metrics": snapshot["metrics"], "version": snapshot["version"]},
+        )
+
+        self.assertEqual(stale_write.status_code, status.HTTP_409_CONFLICT)
+        body = stale_write.json()
+        self.assertEqual(body["current_version"], snapshot["version"] + 1)
+        self.assertNotIn("conflicting_fields", body)
+
+    def test_duplicate_patch_racing_the_lock_window_succeeds_as_noop(self) -> None:
+        # The UI sometimes dispatches one save as two parallel PATCHes: the loser reaches the
+        # row-locked version re-check only after the winner committed the identical change.
+        # It must succeed with the current state instead of 409ing on a change that saved.
+        snapshot = self._create_experiment("lock-window-twin", metrics=[self._metric("base")])
+        real_sync = ExperimentService._sync_feature_flag_on_update
+
+        def twin_write_then_sync(service: ExperimentService, *args: Any, **kwargs: Any) -> None:
+            Experiment.objects.filter(pk=snapshot["id"]).update(description="the same edit", version=F("version") + 1)
+            return real_sync(service, *args, **kwargs)
+
+        with patch.object(
+            ExperimentService, "_sync_feature_flag_on_update", autospec=True, side_effect=twin_write_then_sync
+        ):
+            duplicate = self._patch(
+                snapshot["id"],
+                {
+                    "description": "the same edit",
+                    "version": snapshot["version"],
+                    "original_experiment": self._original_with_scalars(snapshot),
+                },
+            )
+
+        self.assertEqual(duplicate.status_code, status.HTTP_200_OK, duplicate.json())
+        self.assertEqual(duplicate.json()["description"], "the same edit")
+        self.assertEqual(duplicate.json()["version"], snapshot["version"] + 1)
+
+    def test_stale_running_time_config_edit_merges_over_estimate_churn(self) -> None:
+        # The calculator auto-save rewrites recommended_* on every results load, so a tab is
+        # routinely several versions behind holding a stale estimate echo. Editing the MDE from
+        # that tab must not read as a double-edit of running_time_calculation.
+        created = self._create_experiment("rtc-churn", metrics=[self._metric("base")])
+        seeded = self._patch(
+            created["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                }
+            },
+        )
+        self.assertEqual(seeded.status_code, status.HTTP_200_OK)
+        snapshot = seeded.json()
+
+        churn = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 30,
+                    "recommended_sample_size": 4000,
+                }
+            },
+        )
+        self.assertEqual(churn.status_code, status.HTTP_200_OK)
+
+        stale_config_edit = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                },
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_config_edit.status_code, status.HTTP_200_OK, stale_config_edit.json())
+        self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)

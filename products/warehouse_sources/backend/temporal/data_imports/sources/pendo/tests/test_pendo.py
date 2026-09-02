@@ -163,7 +163,9 @@ class TestGetRowsListEndpoint:
 class TestGetRowsAggregation:
     @mock.patch(f"{PENDO_PATH}.AGGREGATION_PAGE_SIZE", 2)
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_paginates_via_skip_and_limit(self, mock_session):
+    def test_paginates_via_filter_cursor_and_limit(self, mock_session):
+        # Pendo's aggregation pipeline has no skip/offset stage (a "skip" step is rejected with
+        # a 400 "unknown step type" error), so paging must use a `>` filter cursor on the sort field.
         page1 = {"results": [{"visitorId": "1"}, {"visitorId": "2"}]}
         page2 = {"results": [{"visitorId": "3"}]}
         mock_session.return_value.request.side_effect = [_resp(page1), _resp(page2)]
@@ -181,14 +183,14 @@ class TestGetRowsAggregation:
         first_pipeline = calls[0].kwargs["json"]["request"]["pipeline"]
         assert {"source": {"visitors": None}} in first_pipeline
         assert {"sort": ["visitorId"]} in first_pipeline
-        assert {"skip": 0} in first_pipeline
         assert {"limit": 2} in first_pipeline
+        assert not any("filter" in step for step in first_pipeline)
 
         second_pipeline = calls[1].kwargs["json"]["request"]["pipeline"]
-        assert {"skip": 2} in second_pipeline
+        assert {"filter": 'visitorId>"2"'} in second_pipeline
 
-        offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
-        assert offsets == [2, 3]
+        last_ids = [call.args[0].last_id for call in manager.save_state.call_args_list]
+        assert last_ids == ["2", "3"]
 
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
     def test_accounts_source_sorts_on_account_id(self, mock_session):
@@ -212,14 +214,26 @@ class TestGetRowsAggregation:
         manager.save_state.assert_not_called()
 
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
-    def test_resumes_aggregation_from_saved_offset(self, mock_session):
+    def test_resumes_aggregation_from_saved_last_id(self, mock_session):
         mock_session.return_value.request.return_value = _resp({"results": []})
-        manager = _make_manager(PendoResumeConfig(offset=10))
+        manager = _make_manager(PendoResumeConfig(last_id="9"))
 
         list(get_rows("key", "us", "visitors", mock.MagicMock(), manager))
 
         pipeline = mock_session.return_value.request.call_args.kwargs["json"]["request"]["pipeline"]
-        assert {"skip": 10} in pipeline
+        assert {"filter": 'visitorId>"9"'} in pipeline
+
+    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
+    def test_escapes_quotes_in_the_filter_cursor(self, mock_session):
+        # visitorId is set by the customer's own tracking code, so a value containing a `"`
+        # must not be able to break out of the filter string literal and alter the expression.
+        mock_session.return_value.request.return_value = _resp({"results": []})
+        manager = _make_manager(PendoResumeConfig(last_id='ab"cd'))
+
+        list(get_rows("key", "us", "visitors", mock.MagicMock(), manager))
+
+        pipeline = mock_session.return_value.request.call_args.kwargs["json"]["request"]["pipeline"]
+        assert {"filter": 'visitorId>"ab\\"cd"'} in pipeline
 
 
 class TestPendoSourceResponse:

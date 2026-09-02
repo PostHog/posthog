@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.flexmail import FlexmailResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source import FlexmailSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
     FlexmailSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFlexmailSource:
@@ -20,28 +15,6 @@ class TestFlexmailSource:
         self.source = FlexmailSource()
         self.team_id = 123
         self.config = FlexmailSourceConfig(account_id="12345", personal_access_token="flexmail-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FLEXMAIL
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Flexmail"
-        assert config.label == "Flexmail"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/flexmail"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["account_id", "personal_access_token"]
-
-    def test_personal_access_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "personal_access_token"
-        )
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The base URL is hardcoded and the account ID only selects the Flexmail account the token
@@ -110,11 +83,6 @@ class TestFlexmailSource:
         mock_validate.assert_called_once_with("12345", "flexmail-token")
         assert result == (False, "Invalid Flexmail account ID or personal access token")
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FlexmailResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.source.flexmail_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
@@ -135,7 +103,3 @@ class TestFlexmailSource:
         inputs.schema_name = "not_a_table"
         with pytest.raises(ValueError, match="Unknown Flexmail schema 'not_a_table'"):
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-    def test_canonical_descriptions_cover_known_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)

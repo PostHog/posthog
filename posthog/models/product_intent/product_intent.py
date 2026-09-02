@@ -24,7 +24,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -228,6 +228,27 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         contexts = intent.contexts or {}
         return contexts.get("mcp_analytics_viewed", 0) >= 1
 
+    def has_activated_metrics(self) -> bool:
+        # The user has charted or queried metrics. Charting/querying is only possible
+        # once metrics have reached the team (a metric name has to exist to pick), so an
+        # engagement signal is itself proof of ingestion — and ingestion on its own is a
+        # connected pipeline, not an activated product.
+        #
+        # We deliberately do NOT gate on `metrics_first_ingested`: that context fires only
+        # when the frontend observes a no-metrics -> has-metrics flip in-session, so a team
+        # that already had metrics before its first check never records it and could never
+        # activate on later query intents.
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="metrics",
+        ).first()
+
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+        return contexts.get("metrics_viewer_query_run", 0) >= 1 or contexts.get("metrics_sql_query_run", 0) >= 1
+
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)
         return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
@@ -340,6 +361,7 @@ ACTIVATION_CHECKS: dict[str, Callable[[ProductIntent], bool]] = {
     "surveys": ProductIntent.has_activated_surveys,
     "llm_analytics": ProductIntent.has_activated_llm_analytics,
     "mcp_analytics": ProductIntent.has_activated_mcp_analytics,
+    "metrics": ProductIntent.has_activated_metrics,
     "workflows": ProductIntent.has_activated_workflows,
 }
 

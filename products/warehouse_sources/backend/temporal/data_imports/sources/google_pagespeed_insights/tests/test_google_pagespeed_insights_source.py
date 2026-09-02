@@ -1,11 +1,5 @@
 import pytest
-from unittest import mock
 
-import structlog
-
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
     GooglePageSpeedInsightsSourceConfig,
 )
@@ -15,24 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pag
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.source import (
     GooglePageSpeedInsightsSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-def _make_inputs(schema_name: str = "pagespeed_desktop") -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="schema-id",
-        source_id="source-id",
-        team_id=123,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job-id",
-        logger=structlog.get_logger(),
-        reset_pipeline=False,
-    )
 
 
 class TestGooglePageSpeedInsightsSource:
@@ -40,33 +16,6 @@ class TestGooglePageSpeedInsightsSource:
         self.source = GooglePageSpeedInsightsSource()
         self.team_id = 123
         self.config = GooglePageSpeedInsightsSourceConfig(api_key="test-key", urls="https://posthog.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GOOGLEPAGESPEEDINSIGHTS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "GooglePageSpeedInsights"
-        assert config.label == "Google PageSpeed Insights"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/google-pagespeed-insights"
-
-    def test_get_source_config_fields(self):
-        fields = self.source.get_source_config.fields
-
-        by_name = {field.name: field for field in fields if isinstance(field, SourceFieldInputConfig)}
-        assert set(by_name) == {"api_key", "urls"}
-
-        api_key_field = by_name["api_key"]
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        urls_field = by_name["urls"]
-        assert urls_field.type == SourceFieldInputConfigType.TEXTAREA
-        assert urls_field.required is True
-        assert urls_field.secret is False
 
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O — must opt in so public docs render the table list.
@@ -95,53 +44,36 @@ class TestGooglePageSpeedInsightsSource:
     def test_get_schemas_filtered_unknown_name_returns_empty(self):
         assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
-    @pytest.mark.parametrize("status", ["400 Client Error: Bad Request", "403 Client Error: Forbidden"])
-    def test_non_retryable_errors_cover_auth_failures(self, status):
-        errors = self.source.get_non_retryable_errors()
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "PageSpeed Insights API error (retryable): status=429",
+            "PageSpeed Insights API error (retryable): status=500",
+        ],
+    )
+    def test_retryable_errors_match_exhausted_backoff(self, error_message):
+        # `_fetch` already retries 429/5xx internally with backoff; once those attempts are
+        # exhausted, this must stay classified as retryable so it doesn't get tracked as noise.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(pattern in error_message for pattern in retryable_errors)
 
-        assert any(status in key and "pagespeedonline.googleapis.com" in key for key in errors)
+    def test_transport_timeout_is_retryable_not_terminal(self):
+        # A read timeout / connection reset to the API host exhausts `_fetch`'s internal retries and
+        # re-raises as a urllib3 `HTTPSConnectionPool(...)` message (key already redacted). It is
+        # transient and self-recovering, so it must classify as retryable and never match the
+        # auth-failure patterns that would permanently stop the sync.
+        error_message = (
+            "HTTPSConnectionPool(host='pagespeedonline.googleapis.com', port=443): Max retries exceeded "
+            "with url: /pagespeedonline/v5/runPagespeed?url=https%3A%2F%2Fexample.com&strategy=DESKTOP&key=REDACTED "
+            "(Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='pagespeedonline.googleapis.com', port=443): "
+            'Read timed out. (read timeout=120)"))'
+        )
+
+        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
+        assert not any(pattern in error_message for pattern in self.source.get_non_retryable_errors())
 
     def test_documented_tables_render_without_credentials(self):
         # Exercises the public-docs path: a credential-free placeholder config must list every table.
         tables = self.source.get_documented_tables()
 
         assert {table["name"] for table in tables} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert set(descriptions) == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
-        [
-            ((True, None), True, None),
-            ((False, "Invalid API key"), False, "Invalid API key"),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.source.validate_google_pagespeed_insights_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id, "pagespeed_desktop")
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_key, self.config.urls)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.source.google_pagespeed_insights_source"
-    )
-    def test_source_for_pipeline_plumbs_args(self, mock_source):
-        inputs = _make_inputs(schema_name="pagespeed_mobile")
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_source.assert_called_once_with(
-            api_key="test-key",
-            endpoint="pagespeed_mobile",
-            urls_raw="https://posthog.com",
-            logger=inputs.logger,
-        )

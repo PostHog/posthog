@@ -33,13 +33,29 @@ export const STATUS_SEVERITY: Record<ManagedWarehouseReadinessStateEnumApi, numb
     needs_attention: 0,
     backfilling: 1,
     waiting: 2,
-    sync_paused: 3,
-    up_to_date: 4,
+    up_to_date: 3,
+    sync_paused: 4,
     not_configured: 5,
 }
 
 export function StatusTag({ readinessState }: { readinessState: ManagedWarehouseReadinessStateEnumApi }): JSX.Element {
     return <LemonTag type={STATUS_TAG_TYPES[readinessState]}>{STATUS_LABELS[readinessState]}</LemonTag>
+}
+
+type SourceWorkflowType = NonNullable<ManagedWarehouseSourceTableStatusApi['workflow_type']>
+type SourceWorkflowStatus = NonNullable<ManagedWarehouseSourceTableStatusApi['workflow_status']>
+
+const WORKFLOW_LABELS: Record<SourceWorkflowType, string> = {
+    copy: 'Copy',
+    register: 'Register',
+}
+
+const WORKFLOW_STATUS_LABELS: Record<SourceWorkflowStatus, string> = {
+    running: 'Running',
+    completed: 'Completed',
+    failed: 'Failed',
+    skipped: 'Skipped',
+    stale: 'Stale',
 }
 
 // Per-schema detail columns: used by the drill-down modal, scoped to one source's schemas.
@@ -62,10 +78,25 @@ export const sourceSchemaColumns: LemonTableColumns<ManagedWarehouseSourceTableS
         sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
     },
     {
-        title: 'Backfill',
-        key: 'backfill',
-        render: (_, table) =>
-            table.total_chunks ? `${table.completed_chunks} / ${table.total_chunks} chunks` : 'No active backfill',
+        title: 'Workflow',
+        key: 'workflow',
+        render: (_, table) => {
+            if (!table.workflow_type || !table.workflow_status) {
+                return 'Not run yet'
+            }
+            return (
+                <div className="space-y-1">
+                    <div>
+                        {WORKFLOW_LABELS[table.workflow_type]}: {WORKFLOW_STATUS_LABELS[table.workflow_status]}
+                    </div>
+                    {table.workflow_started_at && (
+                        <div className="text-xs text-muted">
+                            Started {humanFriendlyDetailedTime(table.workflow_started_at)}
+                        </div>
+                    )}
+                </div>
+            )
+        },
     },
     {
         title: 'Last source import',

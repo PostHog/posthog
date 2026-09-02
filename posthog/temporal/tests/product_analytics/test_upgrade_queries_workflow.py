@@ -25,7 +25,7 @@ from posthog.temporal.product_analytics.upgrade_queries_workflow import (
     UpgradeQueriesWorkflowInputs,
 )
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class InsightVizMigration1(SchemaMigration):

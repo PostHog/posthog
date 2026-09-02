@@ -68,6 +68,7 @@ async def _run_activity(
     extra_fields: dict[str, t.Any] | None = None,
     min_ingested_timestamp: dt.datetime | None = None,
     integration_id: int | None = None,
+    batch_export_id: str | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
     config = dict(snowflake_config)
@@ -84,7 +85,7 @@ async def _run_activity(
         exclude_events=exclude_events,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
-        batch_export_id=str(uuid.uuid4()),
+        batch_export_id=batch_export_id or str(uuid.uuid4()),
         integration_id=integration_id,
         **config,
     )
@@ -431,7 +432,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     model = BatchExportModel(name="events", schema=None)
     table_name = f"test_insert_activity_table_remove_{ateam.pk}"
     min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
-
+    batch_export_id = str(uuid.uuid4())
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -444,6 +445,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         batch_export_model=model,
         sort_key="event",
         min_ingested_timestamp=min_ingested_timestamp,
+        batch_export_id=batch_export_id,
     )
 
     snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
@@ -451,7 +453,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
 
     put_query = f"""
-    PUT file://{garbage_jsonl_file} '@%"{table_name}"/{data_interval_end_str}'
+    PUT file://{garbage_jsonl_file} '@%"{table_name}"/{batch_export_id}/{data_interval_end_str}'
     """
     snowflake_cursor.execute(put_query)
 
@@ -463,7 +465,9 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     columns = {index: metadata.name for index, metadata in enumerate(snowflake_cursor.description)}
     stage_files = [{columns[index]: row[index] for index in columns.keys()} for row in rows]
     assert len(stage_files) == 1
-    assert stage_files[0]["name"] == f"{data_interval_end_str}/{os.path.basename(garbage_jsonl_file)}.gz"
+    assert (
+        stage_files[0]["name"] == f"{batch_export_id}/{data_interval_end_str}/{os.path.basename(garbage_jsonl_file)}.gz"
+    )
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -477,6 +481,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         batch_export_model=model,
         sort_key="event",
         min_ingested_timestamp=min_ingested_timestamp,
+        batch_export_id=batch_export_id,
     )
 
     snowflake_cursor.execute(list_query)

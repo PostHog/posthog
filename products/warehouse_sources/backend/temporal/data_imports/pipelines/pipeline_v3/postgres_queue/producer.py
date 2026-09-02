@@ -9,24 +9,41 @@ inserts are durable on commit — no async delivery pipeline to drain.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Optional
 
 import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    PartitionFormat,
-    PartitionMode,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    PartitionFormat,
+    PartitionMode,
+)
 
 logger = structlog.get_logger(__name__)
+
+# PgBouncer occasionally closes a just-opened connection under load or failover ("server
+# closed the connection unexpectedly"). A short local retry clears it without failing the
+# whole Temporal activity attempt, which would re-run the entire pipeline setup for what is
+# usually a one-off blip.
+_CONNECT_MAX_ATTEMPTS = 3
+_CONNECT_RETRY_BACKOFF_SECONDS = 0.5
+
+
+def _connect_with_retry(database_url: str) -> psycopg.Connection:
+    for _ in range(_CONNECT_MAX_ATTEMPTS - 1):
+        try:
+            return psycopg.Connection.connect(database_url, autocommit=True)
+        except psycopg.OperationalError:
+            time.sleep(_CONNECT_RETRY_BACKOFF_SECONDS)
+    return psycopg.Connection.connect(database_url, autocommit=True)
 
 
 class PostgresProducer:
@@ -55,6 +72,7 @@ class PostgresProducer:
         cdc_table_mode: str | None = None,
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
+        destination_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -76,8 +94,9 @@ class PostgresProducer:
         self._cdc_table_mode = cdc_table_mode
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
+        self._destination_ids: list[str] = list(destination_ids or [])
 
-        self._conn = psycopg.Connection.connect(database_url, autocommit=True)
+        self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
 
     @property
@@ -132,6 +151,10 @@ class PostgresProducer:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
 
+        # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
+        # this job go terminal so their batches can't double-load. Runs the loader is
+        # still draining are spared (see supersede_other_runs); a spared run that
+        # stalls later is recovered by the reconcile sweep's stranded-run pass.
         if batch_result.batch_index == 0 and not self._is_resume:
             superseded = BatchQueue.supersede_other_runs(
                 self._conn, job_id=self._job_id, current_run_uuid=self._run_uuid
@@ -141,17 +164,17 @@ class PostgresProducer:
 
         self._conn.execute(
             f"""
-            INSERT INTO {BATCH_TABLE} (
-                team_id, schema_id, source_id, job_id, run_uuid,
-                batch_index, s3_path, row_count, byte_size, is_final_batch,
-                total_batches, total_rows, sync_type, cumulative_row_count,
-                resource_name, is_resume, is_first_ever_sync, metadata, created_at
-            ) VALUES (
-                %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
-                %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
-                %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
-                %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, now()
-            )
+        INSERT INTO {BATCH_TABLE} (
+            team_id, schema_id, source_id, job_id, run_uuid,
+            batch_index, s3_path, row_count, byte_size, is_final_batch,
+            total_batches, total_rows, sync_type, cumulative_row_count,
+            resource_name, is_resume, is_first_ever_sync, metadata, destination_ids, created_at
+        ) VALUES (
+            %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
+            %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
+            %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
+            %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, %(destination_ids)s, now()
+        )
             """,
             {
                 "team_id": self._team_id,
@@ -172,6 +195,7 @@ class PostgresProducer:
                 "is_resume": self._is_resume,
                 "is_first_ever_sync": self._is_first_ever_sync,
                 "metadata": json.dumps(metadata),
+                "destination_ids": json.dumps(self._destination_ids),
             },
         )
 

@@ -2,13 +2,25 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
-import { Dataset } from '~/types'
 
-import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
+import {
+    DATASETS_PER_PAGE,
+    aiObservabilityDatasetsLogic,
+    getDatasetDetailUrl,
+    getDatasetListUrl,
+    getDatasetNavigationSearchParams,
+} from './aiObservabilityDatasetsLogic'
+import { datasetsApi } from './datasetsApi'
 
-jest.mock('~/lib/api')
+jest.mock('./datasetsApi', () => ({
+    datasetsApi: {
+        listDatasets: jest.fn(),
+        archiveDataset: jest.fn(),
+        restoreDataset: jest.fn(),
+    },
+}))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 
 describe('aiObservabilityDatasetsLogic', () => {
@@ -17,17 +29,14 @@ describe('aiObservabilityDatasetsLogic', () => {
         name: 'Test Dataset 1',
         description: 'First test dataset',
         metadata: { key1: 'value1' },
-        team: 997,
+        team_id: 997,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
-        created_by: {
-            id: 1,
-            uuid: 'test-uuid-1',
-            distinct_id: 'test-distinct-id-1',
-            first_name: 'Test',
-            email: 'test1@example.com',
-        },
-        deleted: false,
+        created_by: null,
+        archived: false,
+        current_revision: null,
+        current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDataset2: Dataset = {
@@ -35,35 +44,54 @@ describe('aiObservabilityDatasetsLogic', () => {
         name: 'Test Dataset 2',
         description: 'Second test dataset',
         metadata: { key2: 'value2' },
-        team: 997,
+        team_id: 997,
         created_at: '2024-01-02T00:00:00Z',
         updated_at: '2024-01-02T00:00:00Z',
-        created_by: {
-            id: 2,
-            uuid: 'test-uuid-2',
-            distinct_id: 'test-distinct-id-2',
-            first_name: 'Test2',
-            email: 'test2@example.com',
-        },
-        deleted: false,
+        created_by: null,
+        archived: false,
+        current_revision: null,
+        current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDatasetsResponse = {
         results: [mockDataset1, mockDataset2],
         count: 2,
-        offset: 0,
     }
 
-    const mockApi = api as jest.Mocked<typeof api>
+    const mockDatasetsApi = jest.mocked(datasetsApi)
 
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
 
-        jest.spyOn(mockApi.datasets, 'create').mockResolvedValue(undefined as any)
-        jest.spyOn(mockApi.datasets, 'update').mockResolvedValue(undefined as any)
-        jest.spyOn(mockApi.datasets, 'get').mockResolvedValue(undefined as any)
-        jest.spyOn(mockApi.datasets, 'list').mockResolvedValue(mockDatasetsResponse as any)
+        mockDatasetsApi.listDatasets.mockResolvedValue(mockDatasetsResponse)
+        mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset1, archived: true })
+        mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset1)
+    })
+
+    it('keeps list pagination without carrying detail-specific state between dataset routes', () => {
+        const searchParams = {
+            dataset_status: 'archived',
+            item: 'item-1',
+            item_status: 'archived',
+            limit: 100,
+            order_by: 'name',
+            page: 2,
+            revision: 12,
+            search: 'support',
+            tab: 'metadata',
+        }
+
+        expect(getDatasetNavigationSearchParams(searchParams)).toEqual({
+            dataset_status: 'archived',
+            datasets_page: 2,
+            order_by: 'name',
+            search: 'support',
+        })
+        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).toContain('datasets_page=2')
+        expect(getDatasetListUrl(searchParams)).toContain('datasets_page=2')
+        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('item=')
     })
 
     describe('filters functionality', () => {
@@ -85,6 +113,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 page: 2,
                 search: 'test search',
                 order_by: 'name',
+                archived: false,
             })
         })
 
@@ -114,6 +143,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 page: 1,
                 search: '',
                 order_by: '-created_at',
+                archived: false,
             })
         })
 
@@ -152,11 +182,11 @@ describe('aiObservabilityDatasetsLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(mockApi.datasets.list).toHaveBeenCalledWith({
-                search: '',
+            expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
                 order_by: '-created_at',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -170,11 +200,12 @@ describe('aiObservabilityDatasetsLogic', () => {
             // Check that the selector computes correct parameters
             expect(logic.values.filters.search).toBe('new search')
             expect(logic.values.filters.page).toBe(1) // Reset to page 1
-            expect(mockApi.datasets.list).toHaveBeenCalledWith({
+            expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
                 search: 'new search',
                 order_by: '-created_at',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -185,11 +216,11 @@ describe('aiObservabilityDatasetsLogic', () => {
             logic.actions.setFilters({ page: 3 }, false)
 
             expect(logic.values.filters.page).toBe(3)
-            expect(mockApi.datasets.list).toHaveBeenCalledWith({
-                search: '',
+            expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
                 order_by: '-created_at',
                 offset: DATASETS_PER_PAGE * 2,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -199,42 +230,64 @@ describe('aiObservabilityDatasetsLogic', () => {
 
             logic.actions.setFilters({ order_by: 'name' }, false)
 
-            expect(mockApi.datasets.list).toHaveBeenCalledWith({
-                search: '',
+            expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
                 order_by: 'name',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
+            })
+        })
+
+        it('loads archived datasets when the archived filter is selected', async () => {
+            const logic = aiObservabilityDatasetsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ archived: true }, false, false)
+            }).toFinishAllListeners()
+
+            expect(mockDatasetsApi.listDatasets).toHaveBeenLastCalledWith({
+                order_by: '-created_at',
+                offset: 0,
+                limit: DATASETS_PER_PAGE,
+                archived: true,
             })
         })
     })
 
-    describe('dataset deletion', () => {
-        it('successfully deletes a dataset', async () => {
+    describe('dataset archiving', () => {
+        it('archives and restores a dataset from Undo', async () => {
             const logic = aiObservabilityDatasetsLogic()
             logic.mount()
 
             // Set up datasets in state first
             logic.actions.loadDatasetsSuccess(mockDatasetsResponse)
-            ;(mockApi.datasets.update as jest.Mock).mockResolvedValue({ ...mockDataset1, deleted: true })
 
             await expectLogic(logic, () => {
-                logic.actions.deleteDataset(mockDataset1.id)
+                logic.actions.archiveDataset(mockDataset1.id)
             }).toFinishAllListeners()
 
-            expect(mockApi.datasets.update).toHaveBeenCalledWith(mockDataset1.id, { deleted: true })
-            expect(lemonToast.info).toHaveBeenCalledWith(`${mockDataset1.name} has been deleted.`)
+            expect(mockDatasetsApi.archiveDataset).toHaveBeenCalledWith(mockDataset1.id)
+            const toastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => Promise<void> }
+            }
+
+            await toastOptions.button.action()
+
+            expect(mockDatasetsApi.restoreDataset).toHaveBeenCalledWith(mockDataset1.id)
+            expect(lemonToast.success).toHaveBeenCalledWith(`${mockDataset1.name} has been restored.`)
         })
 
-        it('handles deletion error', async () => {
+        it('surfaces an archive error', async () => {
             const logic = aiObservabilityDatasetsLogic()
             logic.mount()
-            ;(mockApi.datasets.update as jest.Mock).mockRejectedValue(new Error('Delete failed'))
+            mockDatasetsApi.archiveDataset.mockRejectedValue(new Error('Archive failed'))
 
             await expectLogic(logic, () => {
-                logic.actions.deleteDataset(mockDataset1.id)
+                logic.actions.archiveDataset(mockDataset1.id)
             }).toFinishAllListeners()
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Failed to delete dataset')
+            expect(lemonToast.error).toHaveBeenCalledWith("Couldn't archive dataset. Try again.")
         })
     })
 

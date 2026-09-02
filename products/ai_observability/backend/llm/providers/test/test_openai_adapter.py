@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -8,9 +10,13 @@ from posthoganalytics.ai.openai import (
     AzureOpenAI as WrappedAzureOpenAI,
     OpenAI as WrappedOpenAI,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError, model_validator
 
-from products.ai_observability.backend.llm.errors import ContextWindowExceededError, QuotaExceededError
+from products.ai_observability.backend.llm.errors import (
+    ContextWindowExceededError,
+    QuotaExceededError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
@@ -62,7 +68,7 @@ class TestBuildAnalyticsKwargs:
     def test_wrapped_clients_get_analytics_kwargs_when_capture_enabled(self, _name, client_cls):
         adapter = OpenAIAdapter()
         client = MagicMock(spec=client_cls)
-        analytics = AnalyticsContext(distinct_id="user-1", trace_id="trace-1", capture=True)
+        analytics = AnalyticsContext(distinct_id="user-1", trace_id="trace-1", capture=True, privacy_mode=True)
 
         kwargs = adapter._build_analytics_kwargs(analytics, client)
 
@@ -71,6 +77,7 @@ class TestBuildAnalyticsKwargs:
             "posthog_trace_id": "trace-1",
             "posthog_properties": {},
             "posthog_groups": {},
+            "posthog_privacy_mode": True,
         }
 
     def test_capture_disabled_returns_empty_kwargs(self):
@@ -107,6 +114,29 @@ def _make_bad_request_error(message: str) -> openai.BadRequestError:
 
 class _Verdict(BaseModel):
     verdict: bool
+
+
+class _VerdictWithNA(BaseModel):
+    applicable: bool
+    verdict: bool | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> "_VerdictWithNA":
+        if self.applicable and self.verdict is None:
+            raise ValueError("verdict is required when applicable is true")
+        return self
+
+
+def _length_finish_reason_error() -> openai.LengthFinishReasonError:
+    return openai.LengthFinishReasonError(completion=MagicMock(usage=None))
+
+
+def _cross_field_error() -> ValidationError:
+    try:
+        _VerdictWithNA.model_validate({"applicable": True, "verdict": None})
+    except ValidationError as e:
+        return e
+    raise AssertionError("expected ValidationError")
 
 
 class TestOpenAIAdapterErrorMapping:
@@ -172,3 +202,82 @@ class TestOpenAIAdapterErrorMapping:
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             with pytest.raises(ContextWindowExceededError):
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+    @parameterized.expand(
+        [
+            ("length_finish_reason", _length_finish_reason_error),
+            ("cross_field_validator", _cross_field_error),
+        ]
+    )
+    def test_structured_output_parse_errors_map_to_parse_error(
+        self, _name: str, make_error: Callable[[], Exception]
+    ) -> None:
+        adapter = OpenAIAdapter()
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = make_error()
+        request = CompletionRequest(
+            model="gpt-5-mini",
+            system="s",
+            messages=[{"role": "user", "content": "x"}],
+            provider="openai",
+            response_format=_Verdict,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            with pytest.raises(StructuredOutputParseError):
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+
+class TestOpenAIStreamErrorSurfacing:
+    def test_model_404_yields_actionable_message_instead_of_raw_sdk_text(self):
+        # Streaming has no exception channel, so this chunk is the entire explanation the user
+        # gets in the playground.
+        request = CompletionRequest(
+            model="gpt-4-turbo-2024-04-09",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
+        http_request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+        response = httpx.Response(status_code=404, request=http_request, json={"error": {"message": "does not exist"}})
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = openai.NotFoundError(
+            "Error code: 404 - the model `gpt-4-turbo-2024-04-09` does not exist",
+            response=response,
+            body=None,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            chunks = list(OpenAIAdapter().stream(request, api_key="sk-test", analytics=AnalyticsContext(capture=False)))
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert errors == ["Model 'gpt-4-turbo-2024-04-09' is not available. Pick a different model and try again."]
+        assert "Error code: 404" not in errors[0]
+
+    def test_unmapped_400_keeps_the_providers_reason_instead_of_telling_the_user_to_retry(self):
+        # An unsupported parameter is the most common way a playground run fails, and it has no
+        # branch in the taxonomy. "Try again" would be advice that cannot work, so the provider's
+        # sentence has to come through — without the SDK's `Error code: 400 - {...}` wrapper.
+        request = CompletionRequest(
+            model="gpt-5",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+        )
+        detail = "Unsupported value: 'temperature' does not support 0.7 with this model."
+        body = {"error": {"message": detail}}
+        http_request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = openai.BadRequestError(
+            f"Error code: 400 - {body}",
+            response=httpx.Response(status_code=400, request=http_request, json=body),
+            body=body,
+        )
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            chunks = list(OpenAIAdapter().stream(request, api_key="sk-test", analytics=AnalyticsContext(capture=False)))
+
+        errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
+        assert len(errors) == 1
+        assert detail in errors[0]
+        assert "Error code: 400" not in errors[0]

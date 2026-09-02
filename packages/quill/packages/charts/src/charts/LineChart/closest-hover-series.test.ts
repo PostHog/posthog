@@ -59,8 +59,14 @@ describe('closestHoverSeriesKey', () => {
         expect(result).toBeNull()
     })
 
-    it('keeps the first series on a distance tie (strict less-than)', () => {
-        const result = closestHoverSeriesKey([series('a'), series('b')], yPixelFromMap({ a: 30, b: 70 }), 50)
-        expect(result).toBe('a')
+    it('picks the last tied series when lines coincide (the one painted on top)', () => {
+        // Equal values put two lines at the same y-pixel; series paint in array order, so the
+        // later one is the visible line and the dot must ring its color, not the covered one's.
+        const result = closestHoverSeriesKey(
+            [series('under'), series('over')],
+            yPixelFromMap({ under: 40, over: 40 }),
+            50
+        )
+        expect(result).toBe('over')
     })
 })

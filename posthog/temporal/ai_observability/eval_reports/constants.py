@@ -25,12 +25,28 @@ COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 COUNT_TRIGGER_CHECK_BATCH_SIZE = 5
 # Max number of per-report countIf columns in a single ClickHouse count query. Candidates
-# are grouped one team per group at this width, so one check activity runs exactly one query.
-COUNT_TRIGGER_QUERY_WIDTH = 100
+# are grouped one team per group at this width, so one check activity runs exactly one query,
+# and entries are chunked in `since`-sorted order so one stale report's window doesn't widen
+# the scan for its neighbors. Kept well below the activity/query time budget so a chunk this
+# wide, on a team's worst-case event volume, still finishes comfortably inside it.
+COUNT_TRIGGER_QUERY_WIDTH = 20
 # Max batched check activities in flight at once, capping concurrent count queries at the
 # same ceiling as the legacy per-report path.
 COUNT_TRIGGER_MAX_CONCURRENT_CHECKS = 5
-COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
+# Per-attempt ClickHouse budget. A too-slow count query fails with a catchable
+# ClickHouseQueryTimeOut the activity can split-and-retry, unlike a Temporal activity
+# timeout, which kills the split midway and replays the same sequence on every retry.
+COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS = 30
+# Wall-clock budget shared by all of one activity's count queries, split retries included.
+# Sized so a complete first-level split (a full-width timeout, then both halves running to
+# their full per-attempt budget) fits, and kept below COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT
+# with headroom for the Postgres gate and per-query overhead, so the split tree always
+# concludes inside the activity instead of racing its timeout.
+COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS = 90
+# With less remaining budget than this a retry can't do useful work (and a zero budget would
+# mean "unlimited" to ClickHouse), so the split re-raises the timeout instead of querying.
+COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS = 5
 PREPARE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + buffer)
 STORE_ACTIVITY_TIMEOUT = timedelta(seconds=60)

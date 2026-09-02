@@ -7,7 +7,7 @@ name: E2E CI Playwright
 on:
     pull_request:
         # Draft PRs skip E2E entirely — the broad path filter below matches nearly
-        # every code PR, and a full ~25-minute stack boot per draft push is the
+        # every code PR, and a full stack boot per draft push is the
         # remaining big per-PR cost. The ready-for-review full run is the merge
         # gate; use workflow_dispatch to force a run on a draft.
         types: [opened, synchronize, reopened, ready_for_review]
@@ -83,7 +83,8 @@ jobs:
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             github.event.pull_request.draft != true)
+             (github.event.pull_request.draft != true ||
+              startsWith(github.head_ref, 'trunk-merge/')))
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -91,6 +92,7 @@ jobs:
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
         steps:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
@@ -118,7 +120,7 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
             - uses: ./.github/actions/paths-filter
@@ -152,9 +154,24 @@ jobs:
                         # boot the whole stack.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Same for Django's pytest modules: the suite drives the app through a
+                        # browser and never loads them. Narrow on purpose:
+                        #  - modules, not whole test/ dirs: posthog/test/ also holds live
+                        #    server code, notably playwright_setup_functions.py, which
+                        #    posthog/urls.py serves at api/setup_test/.
+                        #  - no '*_test.py': under posthog/ that suffix names production code
+                        #    (ClickHouse migrations, ClickHouse UDF scripts), not tests.
+                        #  - per-tree prefixes, because an exclude is tested against every file
+                        #    the filter sees, not just the include it sits next to: a bare
+                        #    '!**/test_*.py' would also veto the include above for
+                        #    tools/test_playwright_spec_selection.py.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/conftest.py'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
-            # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
+            # approval. Re-running the full E2E stack for that bot push is pure waste;
             # the `playwright_tests` aggregator treats the resulting skip as success. Key
             # off the push delta (this push's commits), not the whole-PR diff the filter reports,
             # so it fires even when the PR also carries real code changes.
@@ -251,7 +268,7 @@ jobs:
             - name: Compute schema cache keys
               id: schema-key
               # Both PRs and master pushes restore the schema dump ci-backend saves on
-              # master push, skipping the ~10-min replay of the full migration history —
+              # master push, skipping the replay of the full migration history —
               # the migrate step in the heavy job still layers on anything newer. On a PR
               # the migration-set key is the merge-base's; on a master push it's HEAD's.
               # ci-backend already validates the full history on every master push (it's
@@ -264,7 +281,7 @@ jobs:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
-                  SCHEMA_CACHE_EPOCH: v1
+                  SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PUSH" = "true" ]; then
                       # Pushed commit is checked out directly — no merge commit, no base ref.
@@ -280,8 +297,29 @@ jobs:
                           echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                           exit 0
                       fi
+                      # The consumers replay the routed labels from the checked-out copy, so a PR
+                      # that edits any of them matches no master dump, the merge-base one included:
+                      # drop both keys and let migrations run from scratch.
+                      DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                          exit 0
+                      fi
                       echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                       REF="$MERGE_BASE"
+                  fi
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Shared migration-set key: mirrors the save-side computation in
                   # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
@@ -292,13 +330,15 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
@@ -489,7 +529,7 @@ jobs:
                   # GITHUB_TOKEN in .git/config where that code could read it — the report step
                   # below receives the token explicitly via its GITHUB_TOKEN env instead.
                   persist-credentials: false
-            # Fail fast (seconds, before the ~10-min stack boot) when the spec-selection
+            # Fail fast (seconds, before the stack boot) when the spec-selection
             # map has drifted: a target pointing at a renamed/deleted spec, or a new spec
             # no map entry reaches. Without this gate the selector silently falls open to
             # permanent full runs and the selection savings evaporate unnoticed. The
@@ -526,11 +566,21 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -565,7 +615,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
@@ -601,11 +651,13 @@ jobs:
             - name: Install the working version of hogql-parser
               if: needs.changes.outputs.shouldRun == 'true' && steps.hogql-parser-diff.outputs.changed == 'true'
               shell: bash
-              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
+                      || "${fetch[@]}" https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -646,11 +698,28 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Resolve Rust capture container image tag
+              id: capture-image
+              run: |
+                  if [ -n "${{ github.event.pull_request.number }}" ]; then
+                    TAG="pr-${{ github.event.pull_request.number }}"
+                  else
+                    TAG="${{ github.sha }}"
+                  fi
+                  if docker manifest inspect "ghcr.io/posthog/posthog/capture:${TAG}" > /dev/null 2>&1; then
+                    echo "capture image found: ${TAG}"
+                    echo "POSTHOG_CAPTURE_TAG=${TAG}" >> "$GITHUB_ENV"
+                  else
+                    echo "capture image not found for ${TAG}, using master"
+                    echo "POSTHOG_CAPTURE_TAG=master" >> "$GITHUB_ENV"
+                  fi
 
             - name: Start Docker services
               env:
@@ -670,11 +739,13 @@ jobs:
                   pnpm --filter=@posthog/frontend build:products
                   pnpm --filter=@posthog/frontend build
 
-            - name: Collect static files
+            - name: Collect static files without compression
               # The image-bitmap-data-url-worker-*.js.map files are already mirrored
               # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
               # (see common/esbuilder/utils.mjs), which runs as part of the
               # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              env:
+                  STATIC_PRECOMPRESS: '0'
               run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
@@ -711,7 +782,10 @@ jobs:
               # PRs and master pushes alike. Both keys are produced by ci-backend on
               # master push. Prefer the shared migration-set key (stable while master's
               # migration files are unchanged); fall back to the exact merge-base SHA key
-              # (PRs only). Cache miss falls through to a full migrate below.
+              # (PRs only), then to the newest dump of any migration set — right after a
+              # migration lands on master both exact keys miss until ci-backend re-dumps,
+              # and the migrate step below tops a slightly stale dump up in seconds.
+              # Cache miss falls through to a full migrate below.
               if: (github.event_name == 'pull_request' || github.event_name == 'push') && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
@@ -720,6 +794,7 @@ jobs:
                   key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.changes.outputs.schema_cache_key }}
+                      ${{ needs.changes.outputs.schema_prefix_key }}
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
@@ -808,7 +883,9 @@ jobs:
                   # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
                   # ingestion-logs: logs ingestion (ingestion-logs mode)
                   # ingestion-traces: traces ingestion (ingestion-traces mode)
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
+                  # capture-ai: AI event capture (/i/v0/ai/batch/, CAPTURE_MODE=ai); ingestion-general's
+                  # combined-mode AI consumer ingests the lane incl. multimodal blob offload
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -826,7 +903,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
 
             - name: Clean snapshot directory
               run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
@@ -947,6 +1024,7 @@ jobs:
                   docker logs posthog-ingestion-error-tracking-1 > playwright/test-results/docker-ingestion-error-tracking.log 2>&1 || echo "No ingestion-error-tracking container" > playwright/test-results/docker-ingestion-error-tracking.log
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
+                  docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
 
             - name: Archive test artifacts
               if: always()
@@ -980,6 +1058,9 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # Inlined rather than ./.github/actions/trunk-quarantine-gate, and so without its retry:
+            # this job checks out the PR head ref, which cannot resolve a local action that only
+            # exists on master until the branch rebases.
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -1008,6 +1089,14 @@ jobs:
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
                   BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
+                  # Cloudflare Pages rejects any single file over 25 MiB, which fails the whole
+                  # deploy and leaves triagers with no report on a red run. Trace zips and videos
+                  # can cross that, so drop them from the copy we publish; the full attachments
+                  # stay in the uploaded playwright-test-results artifact. Prune at 24 MiB for margin.
+                  # Guarded and non-fatal so a missing/partial report dir still reaches the deploy.
+                  if [ -d playwright/playwright-report ]; then
+                      find playwright/playwright-report -type f -size +24M -printf 'Pruning oversized report file (%s bytes): %p\n' -delete || true
+                  fi
                   npx --yes wrangler@3 pages deploy playwright/playwright-report \
                     --project-name=playwright-report \
                     --branch="$BRANCH" \
@@ -1030,7 +1119,9 @@ jobs:
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
             - name: Post Playwright section to CI report comment
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               continue-on-error: true
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
@@ -1043,16 +1134,17 @@ jobs:
                       echo "Skipping Playwright section — script not present on this checkout"
                   fi
 
+    # hogli-lint: not-a-required-gate - records telemetry and emits no required check.
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, select-specs, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-            always() && github.actor != 'dependabot[bot]' &&
+            ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
@@ -1123,7 +1215,16 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [playwright]
-        if: needs.playwright.outputs.vr_run_id != '' && needs.playwright.result == 'success'
+        # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to
+        # master, PR opened/reopened/ready_for_review), and GitHub propagates a skip down the whole
+        # needs chain — only a status-check function breaks the inheritance. The playwright job has
+        # its own !cancelled() so it runs, but this job inherited the skip anyway, leaving the VR run
+        # it created stuck pending and its commit status pending forever. The explicit result check
+        # restores the implicit success() that !cancelled() drops. Mirrors ci-storybook.yml.
+        if: |
+            !cancelled()
+            && needs.playwright.result == 'success'
+            && needs.playwright.outputs.vr_run_id != ''
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -1136,16 +1237,30 @@ jobs:
                       playwright/snapshots.yml
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
+              # On master pushes the run was created with --purpose observe (tracking-only), but
+              # `vr run complete` still exits 1 whenever visual changes are detected. Treat that as
+              # informational on push; PRs still gate. Mirrors ci-storybook.yml.
+              continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |

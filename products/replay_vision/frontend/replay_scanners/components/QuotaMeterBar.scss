@@ -32,3 +32,14 @@
         animation: none;
     }
 }
+
+// Free credits are still spend, so they stay in the same neutral family as the billed segment,
+// just lighter. Keeping the bar monochrome leaves green/amber/red to mean status, nothing else.
+.QuotaMeterBar__free {
+    background-color: var(--color-neutral-cool-300);
+
+    // The light-mode neutral disappears against a dark track.
+    [theme='dark'] & {
+        background-color: var(--color-neutral-cool-600);
+    }
+}

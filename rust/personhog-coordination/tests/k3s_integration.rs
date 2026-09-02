@@ -1,3 +1,4 @@
+use personhog_coordination::authority::AuthorityClock;
 mod common;
 
 use std::collections::BTreeMap;
@@ -304,6 +305,66 @@ async fn trigger_deployment_rollout(client: &Client, name: &str) {
         .expect("failed to patch deployment");
 }
 
+/// Patch the deployment to an image tag that cannot be pulled. The new
+/// ReplicaSet scales up but its pods never run, so the rollout stays in
+/// progress for the rest of the test instead of completing within
+/// seconds — quota placement only applies inside that window.
+async fn trigger_stuck_deployment_rollout(client: &Client, name: &str) {
+    let deployments: Api<Deployment> = Api::namespaced(client.clone(), NAMESPACE);
+    let patch = serde_json::json!({
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [{
+                        "name": "pause",
+                        "image": "registry.k8s.io/pause:no-such-tag"
+                    }]
+                }
+            }
+        }
+    });
+    deployments
+        .patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await
+        .expect("failed to patch deployment");
+}
+
+/// Wait for new pod *names* in any phase — a stuck rollout's pods never
+/// reach Running, but their pod-template-hash label and owner refs are
+/// set at creation, which is all generation discovery needs.
+async fn wait_for_new_pod_names(
+    client: &Client,
+    label_selector: &str,
+    old_names: &[String],
+    count: usize,
+) -> Vec<String> {
+    let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client.clone(), NAMESPACE);
+    let timeout = Duration::from_secs(120);
+    let start = std::time::Instant::now();
+    loop {
+        let list = pods
+            .list(&ListParams::default().labels(label_selector))
+            .await
+            .expect("failed to list pods");
+        let new: Vec<String> = list
+            .items
+            .iter()
+            .filter_map(|p| p.metadata.name.clone())
+            .filter(|n| !old_names.contains(n))
+            .collect();
+        if new.len() >= count {
+            return new;
+        }
+        if start.elapsed() > timeout {
+            panic!(
+                "timed out waiting for {count} new pod names, got {}",
+                new.len()
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
 async fn trigger_statefulset_rollout(client: &Client, name: &str) {
     let statefulsets: Api<StatefulSet> = Api::namespaced(client.clone(), NAMESPACE);
     let patch = serde_json::json!({
@@ -395,7 +456,13 @@ fn start_pod_k8s(
     cancel: CancellationToken,
 ) -> (Arc<Mutex<Vec<HandoffEvent>>>, JoinHandle<Result<()>>) {
     let (handler, events) = MockHandler::new();
-    let pod = PodHandle::new(store, config, Arc::new(handler), k8s_awareness);
+    let pod = PodHandle::new(
+        store,
+        config,
+        Arc::new(handler),
+        k8s_awareness,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
     let token = cancel.child_token();
     let handle = tokio::spawn(async move { pod.run(token).await });
     (events, handle)
@@ -410,13 +477,22 @@ fn start_coordinator_k8s(
         store,
         CoordinatorConfig {
             rebalance_debounce_interval: Duration::from_millis(100),
+            // These tests bring up a k3s container and deliberately park
+            // handoffs to assert what the rollout paths do with them, so
+            // they run far longer than the production deadline is sized
+            // for. Leaving it at the default would delete the state under
+            // test partway through.
+            handoff_deadline: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(StickyBalancedStrategy),
         k8s_awareness,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 // ── Tests ────────────────────────────────────────────────
@@ -467,14 +543,27 @@ async fn deployment_rollout_reassigns_partitions() {
 
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    // Set up etcd store and coordination
+    // Set up etcd store and coordination. The coordinator gets its own
+    // fresh K8sAwareness — NOT the instance the test scaffolding already
+    // primed with discover_controller above — so this test exercises the
+    // production bootstrap path: the coordinator must start controller
+    // watches itself, lazily, from the refs pods carry in their
+    // registrations. Sharing the scaffolding instance would mask a
+    // coordinator that never starts watches (classify would keep
+    // answering from the scaffolding's watch, which is exactly how this
+    // gap previously escaped the suite).
     let store = test_store("deploy-rollout-k3s").await;
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
+    let coordinator_awareness = Arc::new(K8sAwareness::new(
+        k8s_client.clone(),
+        NAMESPACE.to_string(),
+        k8s_cancel.clone(),
+    ));
     let cancel = CancellationToken::new();
     let _coord = start_coordinator_k8s(
         Arc::clone(&store),
-        Some(Arc::clone(&awareness)),
+        Some(coordinator_awareness),
         cancel.clone(),
     );
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
@@ -614,6 +703,223 @@ async fn deployment_rollout_reassigns_partitions() {
     k8s_cancel.cancel();
 }
 
+/// Deployment rollout with new-gen pods arriving one at a time: the
+/// first new-generation pod is capped at its final share instead of
+/// being handed the whole partition space and losing half of it again
+/// when its peer arrives.
+///
+/// The rollout is wedged on an unpullable image so it stays in progress
+/// for the whole test, and the coordination pods register manually so
+/// the test controls arrival order.
+///
+/// Flow:
+/// 1. Two old-gen pods share all 8 partitions
+/// 2. Wedge a rollout → coordinator holds old-gen instead of excluding it
+/// 3. new-0 registers alone → receives exactly its quota (4); old-gen
+///    pods keep serving the other 4
+/// 4. new-1 registers → takes the remaining 4; new-0's partitions are
+///    untouched, so every partition moved exactly once
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn deployment_rollout_caps_first_new_pod_at_quota() {
+    let (_container, k8s_client, _tmp) = setup_k3s().await;
+
+    let deploy_name = "test-quota-deploy";
+    create_deployment(&k8s_client, deploy_name, 2).await;
+    wait_for_ready_pods(&k8s_client, &format!("app={deploy_name}"), 2).await;
+
+    let k8s_cancel = CancellationToken::new();
+    let awareness = Arc::new(K8sAwareness::new(
+        k8s_client.clone(),
+        NAMESPACE.to_string(),
+        k8s_cancel.clone(),
+    ));
+
+    let old_names = get_running_pod_names(&k8s_client, &format!("app={deploy_name}")).await;
+    assert_eq!(old_names.len(), 2, "expected 2 running pods");
+    let pod_info = awareness
+        .discover_controller(&old_names[0])
+        .await
+        .expect("discover failed");
+    let old_generation = pod_info.generation.clone();
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let store = test_store("deploy-quota-k3s").await;
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    // Fresh awareness for the coordinator so the test exercises the lazy
+    // watch bootstrap from pod registrations (see
+    // deployment_rollout_reassigns_partitions for why sharing the
+    // scaffolding instance would mask that path).
+    let coordinator_awareness = Arc::new(K8sAwareness::new(
+        k8s_client.clone(),
+        NAMESPACE.to_string(),
+        k8s_cancel.clone(),
+    ));
+    let cancel = CancellationToken::new();
+    let _coord = start_coordinator_k8s(
+        Arc::clone(&store),
+        Some(coordinator_awareness),
+        cancel.clone(),
+    );
+    let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
+
+    let old_config = |name: &str| PodConfig {
+        pod_name: name.to_string(),
+        generation: old_generation.clone(),
+        controller: Some(pod_info.controller.clone()),
+        lease_ttl: 10,
+        heartbeat_interval: Duration::from_secs(3),
+        ..Default::default()
+    };
+    let (_old0_events, _old0_handle) = start_pod_k8s(
+        Arc::clone(&store),
+        old_config("old-0"),
+        None,
+        cancel.clone(),
+    );
+    let (_old1_events, _old1_handle) = start_pod_k8s(
+        Arc::clone(&store),
+        old_config("old-1"),
+        None,
+        cancel.clone(),
+    );
+
+    // Initial assignment across both old pods
+    let check_store = Arc::clone(&store);
+    wait_for_condition(E2E_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let a = store.list_assignments().await.unwrap_or_default();
+            let r = store.list_routers().await.unwrap_or_default();
+            let h = store.list_handoffs().await.unwrap_or_default();
+            a.len() == NUM_PARTITIONS as usize
+                && r.len() == 1
+                && h.is_empty()
+                && a.iter().any(|x| x.owner == "old-0")
+                && a.iter().any(|x| x.owner == "old-1")
+        }
+    })
+    .await;
+
+    // Wedge a rollout and wait until the old generation classifies as
+    // departing; the coordinator's own watcher sees the same events.
+    trigger_stuck_deployment_rollout(&k8s_client, deploy_name).await;
+    wait_for_departure_reason(
+        &awareness,
+        &pod_info.controller,
+        &old_generation,
+        DepartureReason::Rollout,
+    )
+    .await;
+
+    // The stuck pods never run, but they carry the new generation label.
+    let new_k8s_names =
+        wait_for_new_pod_names(&k8s_client, &format!("app={deploy_name}"), &old_names, 1).await;
+    let new_pod_info = awareness
+        .discover_controller(&new_k8s_names[0])
+        .await
+        .expect("discover new pod failed");
+    let new_generation = new_pod_info.generation;
+    assert_ne!(new_generation, old_generation);
+
+    let new_config = |name: &str| PodConfig {
+        pod_name: name.to_string(),
+        generation: new_generation.clone(),
+        controller: Some(pod_info.controller.clone()),
+        lease_ttl: 10,
+        heartbeat_interval: Duration::from_secs(3),
+        ..Default::default()
+    };
+
+    // First new-gen pod registers alone. Quota = 8 partitions / 2
+    // desired replicas = 4: it must end up with exactly its final share
+    // while the old generation keeps serving the rest.
+    let (_new0_events, _new0_handle) = start_pod_k8s(
+        Arc::clone(&store),
+        new_config("new-0"),
+        None,
+        cancel.clone(),
+    );
+
+    let quota = (NUM_PARTITIONS / 2) as usize;
+    let check_store = Arc::clone(&store);
+    wait_for_condition(E2E_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let a = store.list_assignments().await.unwrap_or_default();
+            let h = store.list_handoffs().await.unwrap_or_default();
+            let new0 = a.iter().filter(|x| x.owner == "new-0").count();
+            let old = a
+                .iter()
+                .filter(|x| x.owner == "old-0" || x.owner == "old-1")
+                .count();
+            a.len() == NUM_PARTITIONS as usize
+                && h.is_empty()
+                && new0 == (NUM_PARTITIONS / 2) as usize
+                && old == (NUM_PARTITIONS / 2) as usize
+        }
+    })
+    .await;
+
+    // Let any further (wrong) rebalance run before asserting the state
+    // held: with the pre-quota behavior new-0 would keep pulling until
+    // it owned everything.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let assignments = store.list_assignments().await.unwrap();
+    let new0_partitions: std::collections::BTreeSet<u32> = assignments
+        .iter()
+        .filter(|a| a.owner == "new-0")
+        .map(|a| a.partition)
+        .collect();
+    assert_eq!(
+        new0_partitions.len(),
+        quota,
+        "first new-gen pod must hold exactly its quota, got {new0_partitions:?}"
+    );
+    assert!(store.list_handoffs().await.unwrap().is_empty());
+
+    // Second new-gen pod takes the remainder.
+    let (_new1_events, _new1_handle) = start_pod_k8s(
+        Arc::clone(&store),
+        new_config("new-1"),
+        None,
+        cancel.clone(),
+    );
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(E2E_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let a = store.list_assignments().await.unwrap_or_default();
+            let h = store.list_handoffs().await.unwrap_or_default();
+            let new0 = a.iter().filter(|x| x.owner == "new-0").count();
+            let new1 = a.iter().filter(|x| x.owner == "new-1").count();
+            a.len() == NUM_PARTITIONS as usize
+                && h.is_empty()
+                && new0 == (NUM_PARTITIONS / 2) as usize
+                && new1 == (NUM_PARTITIONS / 2) as usize
+        }
+    })
+    .await;
+
+    // new-0 kept the same partitions — each one moved exactly once.
+    let assignments = store.list_assignments().await.unwrap();
+    let new0_after: std::collections::BTreeSet<u32> = assignments
+        .iter()
+        .filter(|a| a.owner == "new-0")
+        .map(|a| a.partition)
+        .collect();
+    assert_eq!(
+        new0_after, new0_partitions,
+        "second arrival must not churn the first pod's partitions"
+    );
+
+    cancel.cancel();
+    k8s_cancel.cancel();
+}
+
 /// StatefulSet rollout: pod skips drain and exits immediately.
 ///
 /// In a StatefulSet rolling update, K8s terminates pods one at a time and
@@ -673,6 +979,12 @@ async fn statefulset_rollout_pod_skips_drain() {
         lease_ttl: 10,
         heartbeat_interval: Duration::from_secs(3),
         drain_timeout: Duration::from_secs(30),
+        reconcile_interval: Duration::from_secs(86_400),
+        reconcile_failure_budget: 12,
+        run_retry_budget: 10,
+        run_retry_backoff: Duration::from_millis(500),
+        advertise_address: None,
+        warm_concurrency: 4,
     };
     let (_pod_events, pod_handle) = start_pod_k8s(
         Arc::clone(&store),

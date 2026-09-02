@@ -12,6 +12,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.runpod import runpod
 from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.runpod import (
     RunPodResumeConfig,
+    _normalize_billing_record,
     _row_id,
     get_rows,
     validate_credentials,
@@ -72,6 +73,20 @@ class TestRowId:
     def test_none_and_empty_string_distinguished_positionally(self) -> None:
         assert _row_id(None, "x") != _row_id("", "x")
         assert _row_id(None, "x") != _row_id("x", None)
+
+
+class TestNormalizeBillingRecord:
+    def test_start_date_is_aliased_to_time_when_time_is_missing(self) -> None:
+        # RunPod's network volume billing endpoint has been observed returning `startDate` instead
+        # of the `time` field every other billing endpoint (and our declared incremental field)
+        # relies on, so without this alias `time` never lands in the yielded row.
+        record = _normalize_billing_record({"startDate": "2025-08-01T00:00:00Z", "amount": 1.5})
+        assert record["time"] == "2025-08-01T00:00:00Z"
+        assert "startDate" not in record
+
+    def test_time_is_left_untouched_when_already_present(self) -> None:
+        record = _normalize_billing_record({"time": "2025-08-01T00:00:00Z", "podId": "p1"})
+        assert record["time"] == "2025-08-01T00:00:00Z"
 
 
 @freeze_time("2022-05-15T12:00:00Z")

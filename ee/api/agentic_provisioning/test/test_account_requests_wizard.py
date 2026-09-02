@@ -7,12 +7,13 @@ from django.test import override_settings
 from django.utils import timezone
 
 from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, GitHubUserAuthorization
-from posthog.models.oauth import OAuthApplication
 from posthog.models.user import OnboardingSkippedReason, User
 
-from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning import github_grants
+from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
+ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 INSTALLATION_ID = "777"
 CODE_CHALLENGE = "a" * 43
 
@@ -38,23 +39,6 @@ def _installation_access() -> GitHubInstallationAccess:
 
 @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
 class TestAccountRequestsWizardBlock(ProvisioningTestBase):
-    def setUp(self):
-        super().setUp()
-        self.partner = OAuthApplication.objects.create(
-            name="Drop Partner",
-            client_id="drop_partner_client_id",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://posthog.com/api/wizard/oauth-callback",
-            algorithm="RS256",
-            provisioning_auth_method="hmac",
-            provisioning_signing_secret=HMAC_SECRET,
-            provisioning_partner_type="posthog_website",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-        )
-
     def _payload(self, email: str, wizard: dict | None = None) -> dict:
         configuration: dict = {"region": "US"}
         if wizard is not None:
@@ -70,10 +54,10 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         return github_grants.create_grant(self.partner, AUTHORIZATION, email)
 
     def _post(self, payload: dict):
-        return self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload)
 
     def test_without_wizard_block_response_and_email_unchanged(self):
-        with patch("ee.api.agentic_provisioning.views.send_provisioning_welcome") as mock_email:
+        with patch("ee.api.agentic_provisioning.accounts.send_provisioning_welcome") as mock_email:
             response = self._post(self._payload("plain@example.com"))
         assert response.status_code == 200, response.json()
         body = response.json()
@@ -84,6 +68,13 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         assert len(args) == 3
         assert kwargs == {}
 
+        user = User.objects.get(email="plain@example.com")
+        team = user.teams.get()
+        assert user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
+        assert user.onboarding_skipped_at is not None
+        assert user.onboarding_skipped_organization_id == team.organization_id
+        assert team.completed_snippet_onboarding is True
+
     def test_bundled_happy_path_runs_wizard_then_emails(self):
         grant = self._grant("drop@example.com")
         created = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
@@ -93,9 +84,9 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
             patch.object(GitHubIntegration, "fetch_installation_access", return_value=_installation_access()),
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
             patch(
-                "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created
+                "ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run", return_value=created
             ) as mock_create,
-            patch("ee.api.agentic_provisioning.views.send_provisioning_welcome") as mock_email,
+            patch("ee.api.agentic_provisioning.accounts.send_provisioning_welcome") as mock_email,
         ):
             manager.attach_mock(mock_create, "create_run")
             manager.attach_mock(mock_email.delay, "email_delay")
@@ -130,7 +121,7 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         assert call_names.index("create_run") < call_names.index("email_delay")
 
     def test_wizard_grant_not_found_returns_account_with_wizard_error(self):
-        with patch("ee.api.agentic_provisioning.views.send_provisioning_welcome") as mock_email:
+        with patch("ee.api.agentic_provisioning.accounts.send_provisioning_welcome") as mock_email:
             response = self._post(
                 self._payload(
                     "droperr@example.com",
@@ -153,7 +144,7 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         grant = self._grant("denied@example.com")
         with (
             patch.object(GitHubIntegration, "verify_user_installation_access", return_value=False),
-            patch("ee.api.agentic_provisioning.views.send_provisioning_welcome"),
+            patch("ee.api.agentic_provisioning.accounts.send_provisioning_welcome"),
         ):
             response = self._post(
                 self._payload(
@@ -175,7 +166,7 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         with (
             patch.object(GitHubIntegration, "verify_user_installation_access", return_value=True),
             patch.object(GitHubIntegration, "fetch_installation_access", return_value=_installation_access()),
-            patch("ee.api.agentic_provisioning.views.send_provisioning_welcome") as mock_email,
+            patch("ee.api.agentic_provisioning.accounts.send_provisioning_welcome") as mock_email,
         ):
             response = self._post(
                 self._payload(

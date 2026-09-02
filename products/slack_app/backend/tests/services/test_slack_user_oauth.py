@@ -12,6 +12,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import MagicMock, patch
 
+from slack_sdk.errors import SlackApiError
+
 from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -21,7 +23,9 @@ from products.slack_app.backend.api import resolve_slack_user
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
+    SlackUserOAuthError,
     build_invite_url,
+    exchange_code,
     find_linked_posthog_user,
 )
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
@@ -165,7 +169,7 @@ class TestResolveSlackUserWithLink:
     delegates the lookup to it.
     """
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_falls_through_to_email_path_unchanged(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
@@ -187,7 +191,7 @@ class TestResolveSlackUserWithLink:
         assert mock_client.users_info.called
         assert result.slack_email == "dev@example.com"
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_link_short_circuits_email_lookup(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
@@ -213,7 +217,7 @@ class TestResolveSlackUserWithLink:
     # `tests/test_zz_resolve_slack_user_with_link_no_access.py` — see that
     # file's module docstring for why it can't live next to its siblings here.
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_no_link_and_no_membership_posts_invite(
@@ -251,7 +255,7 @@ class TestResolveSlackUserWithLink:
         assert invite_kwargs["slack_email"] == "stranger@example.com"
         assert invite_kwargs["invite_url"].startswith("http")
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_with_no_membership_does_not_post_invite(
@@ -279,6 +283,57 @@ class TestResolveSlackUserWithLink:
 
         assert result is None
         mock_post_invite.assert_not_called()
+
+
+class TestExchangeCode:
+    OIDC_CLAIMS = {
+        "https://slack.com/user_id": SLACK_USER_ID,
+        "https://slack.com/team_id": SLACK_TEAM_ID,
+        "https://slack.com/team_name": "My Workspace",
+        "email": "dev@slack.example",
+    }
+
+    @pytest.fixture(autouse=True)
+    def credentials(self):
+        with patch(
+            "products.slack_app.backend.services.slack_user_oauth.get_instance_settings",
+            return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
+        ):
+            yield
+
+    @pytest.fixture
+    def slack_client(self):
+        with patch("products.slack_app.backend.services.slack_user_oauth.WebClient") as mock_cls:
+            client = mock_cls.return_value
+            client.openid_connect_token.return_value = {"access_token": "xoxp-user", "refresh_token": None}
+            client.openid_connect_userInfo.return_value = dict(self.OIDC_CLAIMS)
+            yield mock_cls
+
+    def test_maps_oidc_claims_to_identity(self, slack_client):
+        identity = exchange_code(code="abc", redirect_uri="https://ph.example/complete/slack-link/")
+
+        assert identity.slack_user_id == SLACK_USER_ID
+        assert identity.slack_team_id == SLACK_TEAM_ID
+        assert identity.slack_team_name == "My Workspace"
+        assert identity.slack_email == "dev@slack.example"
+        assert identity.user_access_token == "xoxp-user"
+        # userInfo must be asked with the token minted by the code exchange —
+        # a bot or stale token would report the wrong (or no) identity.
+        slack_client.assert_any_call(token="xoxp-user", source="slack_user_oauth", app_id="posthog")
+
+    def test_token_exchange_api_error_wraps_into_oauth_error(self, slack_client):
+        slack_client.return_value.openid_connect_token.side_effect = SlackApiError(
+            "bad code", {"ok": False, "error": "invalid_code"}
+        )
+        with pytest.raises(SlackUserOAuthError, match="invalid_code"):
+            exchange_code(code="abc", redirect_uri="https://ph.example/complete/slack-link/")
+
+    @pytest.mark.parametrize("missing_claim", ["https://slack.com/user_id", "https://slack.com/team_id"])
+    def test_missing_identity_claims_raise_oauth_error(self, slack_client, missing_claim):
+        claims = {key: value for key, value in self.OIDC_CLAIMS.items() if key != missing_claim}
+        slack_client.return_value.openid_connect_userInfo.return_value = claims
+        with pytest.raises(SlackUserOAuthError, match="missing user or team id"):
+            exchange_code(code="abc", redirect_uri="https://ph.example/complete/slack-link/")
 
 
 @pytest.mark.django_db(transaction=False)

@@ -79,7 +79,7 @@ describe('cohortsModel', () => {
             // Set the current location to the cohorts page
             router.actions.push(urls.cohorts())
 
-            await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAllCohorts', 'loadAllCohortsSuccess'])
             expect(logic.values.pollTimeout).not.toBeNull()
         })
 
@@ -105,7 +105,7 @@ describe('cohortsModel', () => {
     describe('cohort operations', () => {
         it('can update a cohort', async () => {
             // Wait for initial load
-            await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAllCohortsSuccess'])
 
             const updatedCohort: CohortType = {
                 id: 1,
@@ -125,7 +125,7 @@ describe('cohortsModel', () => {
             await expectLogic(logic, () => {
                 logic.actions.updateCohort(updatedCohort)
             }).toMatchValues({
-                cohorts: expect.objectContaining({
+                allCohorts: expect.objectContaining({
                     results: expect.arrayContaining([
                         expect.objectContaining({
                             id: 1,
@@ -168,7 +168,7 @@ describe('cohortsModel', () => {
 
         it('can delete a cohort', async () => {
             // Wait for initial load
-            await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAllCohortsSuccess'])
 
             jest.spyOn(api.cohorts, 'determineDeleteEndpoint').mockImplementation(() => 'cohorts')
 
@@ -177,7 +177,7 @@ describe('cohortsModel', () => {
             })
                 .toDispatchActions(['deleteCohort'])
                 .toMatchValues({
-                    cohorts: expect.objectContaining({
+                    allCohorts: expect.objectContaining({
                         results: expect.not.arrayContaining([
                             expect.objectContaining({
                                 id: 1,
@@ -312,6 +312,45 @@ describe('cohortsModel', () => {
                 key: 'created_at',
                 value: 'have_property',
                 value_property: '2024-01-01',
+            })
+        })
+
+        it('canonicalizes a behavioral value the backend only accepts as an alias', () => {
+            const cohort = {
+                id: 6,
+                name: 'Aliased criterion cohort',
+                count: 0,
+                groups: [],
+                is_calculating: false,
+                is_static: false,
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: 'behavioral',
+                                key: 'purchase',
+                                value: 'performed_event_multiple_times',
+                                event_type: 'events',
+                                operator: 'gte',
+                                operator_value: 2,
+                                time_value: 30,
+                                time_interval: 'day',
+                            },
+                        ],
+                    },
+                },
+            } as unknown as CohortType
+
+            const result = processCohort(cohort)
+            const group = result.filters.properties.values[0]
+            // The alias has no ROWS entry, so leaving it verbatim renders the criterion as
+            // unsupported even though the backend resolves and queries it. explicit_datetime only
+            // gets converted once the value is canonical, and without it validateGroup rejects the
+            // row for a missing time window the criterion already carried.
+            expect((group as any).values[0]).toMatchObject({
+                value: 'performed_event_multiple',
+                explicit_datetime: '-30d',
             })
         })
     })

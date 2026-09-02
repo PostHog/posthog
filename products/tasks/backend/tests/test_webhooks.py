@@ -5,21 +5,34 @@ from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
+from django.db import OperationalError, connection
 from django.test import TestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
+from social_django.models import UserSocialAuth
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
-from products.tasks.backend.webhooks import _account_type, find_task_run
+from products.tasks.backend.webhooks import (
+    _account_type,
+    _attribution_db_aliases,
+    _bounded_attribution_lookup,
+    _installation_team_ids,
+    _task_run_scope_team_ids,
+    find_task_run,
+)
 
 
 class TestAccountType(TestCase):
@@ -35,6 +48,10 @@ class TestAccountType(TestCase):
     )
     def test_account_type(self, _name, payload, expected):
         self.assertEqual(_account_type(payload), expected)
+
+
+def _sample_value(name: str, labels: dict[str, str]) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
 def generate_github_signature(payload: bytes, secret: str) -> str:
@@ -73,6 +90,7 @@ class TestGitHubPRWebhook(TestCase):
             task=cls.task,
             team=cls.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
 
@@ -120,6 +138,174 @@ class TestGitHubPRWebhook(TestCase):
         self.task_run.refresh_from_db()
         assert self.task_run.output is not None
         self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @parameterized.expand(
+        [
+            ("resolvable_login", "Octocat", "merger-456", "merger-456"),
+            ("unresolvable_login", "stranger", None, "user-123"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_attributes_to_merger(
+        self, _name, merged_by_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        merger = User.objects.create(email="merger@example.com", distinct_id="merger-456")
+        OrganizationMembership.objects.create(organization=self.organization, user=merger)
+        UserSocialAuth.objects.create(user=merger, provider="github", uid="583231", extra_data={"login": "octocat"})
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": merged_by_login, "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], expected_distinct_id)
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], merged_by_login)
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_id"], 583231)
+        self.assertEqual(call_kwargs["properties"].get("pr_merged_by_distinct_id"), expected_property)
+
+    @patch("products.tasks.backend.webhooks.resolve_org_github_login_to_users", side_effect=RuntimeError("boom"))
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_by_resolution_failure_keeps_webhook_successful(
+        self, mock_capture, mock_get_secret, _mock_resolve
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": "octocat", "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], "user-123")
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], "octocat")
+        self.assertNotIn("pr_merged_by_distinct_id", call_kwargs["properties"])
+
+    @patch(
+        "products.tasks.backend.webhooks.resolve_org_github_login_to_users",
+        side_effect=OperationalError("canceling statement due to statement timeout"),
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_attribution_timeout_keeps_webhook_successful(self, mock_capture, mock_get_secret, _mock_resolve):
+        # A slow member lookup must degrade to no attribution, never cost the delivery:
+        # GitHub does not retry pull_request events and the merge side effects run after.
+        mock_get_secret.return_value = self.webhook_secret
+        before = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"})
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": "octocat", "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], "user-123")
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], "octocat")
+        self.assertNotIn("pr_merged_by_distinct_id", call_kwargs["properties"])
+        self.assertEqual(
+            _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"}), before + 1
+        )
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @patch(
+        "products.tasks.backend.webhooks.resolve_org_github_login_to_users",
+        side_effect=OperationalError("server closed the connection unexpectedly"),
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_attribution_connection_error_is_not_counted_as_timeout(
+        self, mock_capture, mock_get_secret, _mock_resolve
+    ):
+        # timeout is the leading indicator for the statement cap, so a plain DB outage has to
+        # land on error -- otherwise an incident reads as statement-timeout pressure.
+        mock_get_secret.return_value = self.webhook_secret
+        timeouts = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"})
+        errors = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "error"})
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": "octocat", "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("pr_merged_by_distinct_id", mock_capture.call_args[1]["properties"])
+        self.assertEqual(
+            _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "error"}), errors + 1
+        )
+        self.assertEqual(
+            _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"}), timeouts
+        )
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture", side_effect=RuntimeError("capture down"))
+    def test_task_backed_capture_failure_increments_drop_counter(self, _mock_capture, mock_get_secret):
+        # TaskRun.capture_event swallows the failure, so without a reported outcome the drop
+        # counter would miss the task-backed path entirely — the bulk of the traffic.
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"analytics_event": "pr_merged", "reason": "capture_exception"}
+        before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
+
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123", "merged": True},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_delivery_without_installation_falls_back_to_unscoped_lookup(self, mock_capture, mock_get_secret):
+        # Deliveries carrying no installation block keep the legacy full-table lookup, so the
+        # match must not regress. The counter is how we see how much of that traffic is left.
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"scoped": "false"}
+        before = _sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels)
+
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123", "merged": True},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_capture.call_args[1]["properties"]["run_id"], str(self.task_run.id))
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels), before + 1)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -196,7 +382,16 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
 
         run.refresh_from_db()
-        self.assertEqual(run.output, {"pr_url": "https://github.com/posthog/posthog/pull/10"})
+        self.assertEqual(
+            run.output,
+            {
+                "pr_url": "https://github.com/posthog/posthog/pull/10",
+                "pr_urls": [
+                    "https://github.com/posthog/posthog/pull/10",
+                    "https://github.com/posthog/posthog/pull/11",
+                ],
+            },
+        )
 
     def _merged_pr_payload(self, pr_url: str) -> dict:
         return {
@@ -226,7 +421,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=status,
-            state=state,
+            state={**state, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url, **extra_output},
         )
 
@@ -250,14 +445,14 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
         terminal_run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.FAILED,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
         payload = {
@@ -287,7 +482,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -333,7 +528,7 @@ class TestGitHubPRWebhook(TestCase):
             team=self.team,
             status=status,
             environment=environment,
-            state=state,
+            state={**state, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -361,7 +556,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -416,6 +611,84 @@ class TestGitHubPRWebhook(TestCase):
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_created")
 
+    # The pr: task-list filter reads output.pr_state, so each state-changing
+    # webhook action must land the canonical state on the run that claims the PR.
+    @parameterized.expand(
+        [
+            ("opened", {"draft": False, "merged": False}, "open"),
+            ("opened_as_draft", {"draft": True, "merged": False}, "draft"),
+            ("converted_to_draft", {"merged": False}, "draft"),
+            ("ready_for_review", {"merged": False}, "open"),
+            ("reopened", {"draft": False, "merged": False}, "open"),
+            ("closed", {"merged": False}, "closed"),
+            ("closed", {"merged": True}, "merged"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_action_records_pr_state(self, action_name, pr_fields, expected_state, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        action = "opened" if action_name == "opened_as_draft" else action_name
+
+        payload = {
+            "action": action,
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                **pr_fields,
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertEqual(self.task_run.output.get("pr_state"), expected_state)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_state_only_action_records_state_without_analytics(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "converted_to_draft",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": False,
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertEqual(self.task_run.output.get("pr_state"), "draft")
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_state_not_recorded_for_unclaimed_pr(self, _mock_capture, mock_get_secret):
+        """A same-branch webhook for a different PR must not restate this run's PR."""
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/999",
+                "merged": True,
+                "head": {"ref": "other-branch"},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertNotIn("pr_state", self.task_run.output)
+
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_opened_backfills_pr_url_on_branch_match(self, mock_capture, mock_get_secret):
@@ -444,6 +717,7 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
+        self.assertEqual(run.state["verified_pr_urls"], [pr_url])
 
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
@@ -562,6 +836,10 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], existing)
+        self.assertEqual(
+            run.output["pr_urls"],
+            [existing, "https://github.com/posthog/posthog/pull/901"],
+        )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):
@@ -630,7 +908,7 @@ class TestGitHubPRWebhook(TestCase):
         """Test that PR actions other than opened/closed are acknowledged but ignored."""
         mock_get_secret.return_value = self.webhook_secret
 
-        for action in ["edited", "reopened", "synchronize", "labeled"]:
+        for action in ["edited", "synchronize", "labeled"]:
             payload = {
                 "action": action,
                 "pull_request": {
@@ -691,8 +969,105 @@ class TestGitHubPRWebhook(TestCase):
         mock_capture.assert_not_called()
 
 
+class TestGitHubPRReviewWebhook(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="test@example.com", distinct_id="user-123")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            created_by=cls.user,
+            title="Test Task",
+            description="Test description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
+            output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+
+    def _make_review_webhook_request(self, payload: dict):
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={"x-hub-signature-256": signature, "x-github-event": "pull_request_review"},
+        )
+
+    def _review_payload(self, reviewer: dict, action: str = "submitted", state: str = "approved") -> dict:
+        return {
+            "action": action,
+            "review": {"id": 99, "state": state, "user": reviewer},
+            "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123"},
+        }
+
+    @parameterized.expand(
+        [
+            ("resolvable_login", "Octocat", "reviewer-456", "reviewer-456"),
+            ("unresolvable_login", "stranger", None, "user-123"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_review_submission_attributes_to_reviewer(
+        self, _name, reviewer_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        reviewer = User.objects.create(email="reviewer@example.com", distinct_id="reviewer-456")
+        OrganizationMembership.objects.create(organization=self.organization, user=reviewer)
+        UserSocialAuth.objects.create(user=reviewer, provider="github", uid="583231", extra_data={"login": "octocat"})
+
+        payload = self._review_payload(
+            {"login": reviewer_login, "id": 583231, "type": "User"}, state="changes_requested"
+        )
+        response = self._make_review_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["event"], "pr_reviewed")
+        self.assertEqual(call_kwargs["distinct_id"], expected_distinct_id)
+        self.assertEqual(call_kwargs["properties"]["pr_review_state"], "changes_requested")
+        self.assertEqual(call_kwargs["properties"]["pr_reviewed_by_login"], reviewer_login)
+        self.assertEqual(call_kwargs["properties"]["pr_reviewed_by_id"], 583231)
+        self.assertEqual(call_kwargs["properties"].get("pr_reviewed_by_distinct_id"), expected_property)
+        self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
+
+    @parameterized.expand(
+        [
+            ("bot_reviewer", {"login": "posthog-stamphog[bot]", "id": 1, "type": "Bot"}, "submitted"),
+            ("non_submitted_action", {"login": "octocat", "id": 583231, "type": "User"}, "dismissed"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_review_events_not_captured(self, _name, reviewer, action, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._make_review_webhook_request(self._review_payload(reviewer, action=action))
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
+
+
 class TestGitHubPRWebhookResolvesSignalReports(TestCase):
-    """Webhook resolves any SignalReport linked to the merged PR's task."""
+    """Webhook resolves a SignalReport when its PR merges, and archives it when the PR closes unmerged."""
 
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -719,6 +1094,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/42"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
         )
         self.report = SignalReport.objects.create(
@@ -735,11 +1111,11 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             task_id=str(self.task.id),
         )
 
-    def _post_pr_webhook(self, action: str, merged: bool):
+    def _post_pr_webhook(self, action: str, merged: bool, pr_url: str = "https://github.com/posthog/posthog/pull/42"):
         payload = {
             "action": action,
             "pull_request": {
-                "html_url": "https://github.com/posthog/posthog/pull/42",
+                "html_url": pr_url,
                 "merged": merged,
             },
         }
@@ -763,11 +1139,11 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
                 SignalReport.Status.RESOLVED,
             ),
             (
-                "closed_without_merge_is_noop",
+                "closed_without_merge_archives_ready_report",
                 "closed",
                 False,
                 SignalReport.Status.READY,
-                SignalReport.Status.READY,
+                SignalReport.Status.SUPPRESSED,
             ),
             (
                 "suppressed_report_is_skipped",
@@ -793,6 +1169,10 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(response.status_code, 200)
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
+        if merged:
+            self.task_run.refresh_from_db()
+            assert self.task_run.output is not None
+            self.assertIs(self.task_run.output.get("pr_merged"), True)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -807,6 +1187,160 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(response.status_code, 200)
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.READY)
+
+    @parameterized.expand(
+        [
+            ("merged", True, SignalReport.Status.RESOLVED),
+            ("closed", False, SignalReport.Status.SUPPRESSED),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_event_transitions_report_when_pr_is_bound_to_another_task(
+        self, _name, merged, expected_status, _mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/42"
+        self.task_run.state = {}
+        self.task_run.save(update_fields=["state"])
+        review_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Review task",
+            description="Review the implementation",
+            origin_product=Task.OriginProduct.REVIEW_HOG,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=review_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": [pr_url]},
+            output={"pr_url": pr_url},
+        )
+
+        response = self._post_pr_webhook(action="closed", merged=merged)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, expected_status)
+        if merged:
+            self.task_run.refresh_from_db()
+            assert self.task_run.output is not None
+            self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_event_does_not_transition_report_for_older_pr(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/99"},
+        )
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.READY)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_implementation_pr_takes_priority_over_newer_discussion_pr(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        discussion_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Discuss report",
+            description="Discuss the signal report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=discussion_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/99"},
+        )
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            product="signals",
+            type="discussion",
+            task_id=str(discussion_task.id),
+        )
+
+        response = self._post_pr_webhook(
+            action="closed", merged=False, pr_url="https://github.com/posthog/posthog/pull/99"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.READY)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_attests_the_run_the_badge_reads(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self.task_run.status = TaskRun.Status.IN_PROGRESS
+        self.task_run.save(update_fields=["status"])
+        newest_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
+        )
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        newest_run.refresh_from_db()
+        assert newest_run.output is not None
+        self.assertIs(newest_run.output.get("pr_merged"), True)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_does_not_attest_a_run_that_only_read_the_pr(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        research_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"ai_stage": "research"},
+            output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
+        )
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        research_run.refresh_from_db()
+        assert research_run.output is not None
+        self.assertIsNone(research_run.output.get("pr_merged"))
+
+    @parameterized.expand(
+        [
+            ("trailing_slash", "https://github.com/posthog/posthog/pull/42/"),
+            ("www_host", "https://www.github.com/posthog/posthog/pull/42"),
+            ("www_host_trailing_slash", "https://www.github.com/posthog/posthog/pull/42/"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_url_variants_match_the_webhook_pr(self, _name, stored_pr_url, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        self.task_run.output = {"pr_url": stored_pr_url}
+        self.task_run.save(update_fields=["output"])
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
+        assert self.task_run.output is not None
+        self.assertIs(self.task_run.output.get("pr_merged"), True)
 
 
 class TestExternalPRWebhook(TestCase):
@@ -930,6 +1464,90 @@ class TestExternalPRWebhook(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_external_pr_unresolved_installation_increments_drop_counter(self, mock_capture, mock_get_secret):
+        # The silent drop is now a counter, so a webhook-side event loss shows up as an
+        # error rate instead of only a dip in the downstream capture ratio.
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"analytics_event": "pr_merged", "reason": "unresolved_installation"}
+        before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
+        payload = self._external_payload("closed", merged=True)
+        payload["installation"]["id"] = 999999
+
+        self.assertEqual(self._post(payload).status_code, 200)
+
+        mock_capture.assert_not_called()
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture", side_effect=RuntimeError("capture down"))
+    def test_external_pr_capture_exception_increments_drop_counter(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"analytics_event": "pr_created", "reason": "capture_exception"}
+        before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
+
+        response = self._post(self._external_payload("opened", merged=False))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
+
+    def test_personal_install_scopes_to_the_users_org_teams(self):
+        # A personal install reaches a team only through the tasks that picked it, and
+        # Task.github_user_integration is unindexed. Such a task lives in a team of the
+        # installing user's org, so widen the scope there rather than give up and scan.
+        payload = self._external_payload("opened", merged=False)
+        self.assertEqual(_task_run_scope_team_ids(payload), [self.team.id])
+
+        personal_org = Organization.objects.create(name="Personal Org")
+        personal_team = Team.objects.create(organization=personal_org, name="Personal Team")
+        user = User.objects.create(email="personal@example.com", distinct_id="personal-1")
+        OrganizationMembership.objects.create(organization=personal_org, user=user)
+        UserIntegration.objects.create(user=user, kind="github", integration_id="555000")
+
+        self.assertEqual(_task_run_scope_team_ids(payload), sorted([self.team.id, personal_team.id]))
+        # Attribution still resolves off the Integration rows alone.
+        self.assertEqual(_installation_team_ids(payload), [self.team.id])
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_run_in_another_team_does_not_claim_the_delivery(self, mock_capture, mock_get_secret):
+        # The run lookup is scoped to the installation's teams, so a run belonging to an
+        # unrelated team cannot claim a PR URL it happens to share. Unscoped, the full-table
+        # scan would have matched it and emitted the event as pr_source="task".
+        mock_get_secret.return_value = self.webhook_secret
+        other_org = Organization.objects.create(name="Unrelated Org")
+        other_team = Team.objects.create(organization=other_org, name="Unrelated Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="Unrelated Task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="acme/widgets",
+        )
+        TaskRun.objects.create(
+            task=other_task,
+            team=other_team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/x",
+            state={"verified_pr_urls": ["https://github.com/acme/widgets/pull/7"]},
+            output={"pr_url": "https://github.com/acme/widgets/pull/7"},
+        )
+        labels = {"scoped": "true"}
+        before = _sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels)
+        # Creating the fixtures above already captured task_created through the same module.
+        mock_capture.reset_mock()
+
+        response = self._post(self._external_payload("opened", merged=False))
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_called_once()
+        properties = mock_capture.call_args[1]["properties"]
+        self.assertEqual(properties["pr_source"], "external")
+        self.assertEqual(properties["team_id"], self.team.id)
+        self.assertIsNone(properties["run_id"])
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels), before + 1)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_external_pr_shared_installation_resolves_deterministically(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         other_team = Team.objects.create(organization=self.organization, name="Other External Team")
@@ -977,6 +1595,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
         )
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
         self.assertEqual(result, task_run)
@@ -990,6 +1609,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         # Created later, so a purely newest-first lookup would wrongly pick this one.
         TaskRun.objects.create(
@@ -997,8 +1617,31 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         self.assertEqual(find_task_run(pr_url=pr_url), active_run)
+
+    def test_team_scope_excludes_runs_from_other_teams(self):
+        # team_ids comes from the delivery's installation. Every leg has to honour it, both
+        # so another customer's run can't be matched and so the scan rides the team_id index.
+        pr_url = "https://github.com/posthog/posthog/pull/900"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/scoped",
+            output={"pr_url": pr_url, "head_branches": [{"repository": "posthog/posthog", "branch": "signed/scoped"}]},
+            state={"verified_pr_urls": [pr_url]},
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        for kwargs in (
+            {"pr_url": pr_url},
+            {"branch": "feature/scoped", "repository": "posthog/posthog"},
+            {"branch": "signed/scoped", "repository": "posthog/posthog"},
+        ):
+            self.assertEqual(find_task_run(**kwargs, team_ids=[self.team.id]), run)
+            self.assertIsNone(find_task_run(**kwargs, team_ids=[other_team.id]))
 
     def test_pr_url_does_not_match_other_repositories(self):
         pr_url = "https://github.com/posthog/posthog/pull/322"
@@ -1007,6 +1650,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         self.assertIsNone(find_task_run(pr_url=pr_url, repository="acme/other"))
 
@@ -1020,12 +1664,128 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
 
+    @parameterized.expand([("branch", False), ("signed_head_branch", True)])
+    def test_branch_fallback_prefers_newest_run_even_when_it_is_terminal(self, _name, signed_head_branch):
+        branch_fields = (
+            {
+                "branch": "master",
+                "output": {"head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}]},
+            }
+            if signed_head_branch
+            else {"branch": "feature/shared-branch"}
+        )
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            **branch_fields,
+        )
+        review_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Review task",
+            description="Review the implementation",
+            origin_product=Task.OriginProduct.REVIEW_HOG,
+            repository="posthog/posthog",
+        )
+        newest_run = TaskRun.objects.create(
+            task=review_task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            **branch_fields,
+        )
+
+        result = find_task_run(branch="feature/shared-branch", repository="posthog/posthog")
+
+        self.assertEqual(result, newest_run)
+
+    @parameterized.expand([("branch", False), ("signed_head_branch", True)])
+    def test_branch_fallback_prefers_newest_run_with_same_status_rank(self, _name, signed_head_branch):
+        branch_fields = (
+            {
+                "branch": "master",
+                "output": {"head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}]},
+            }
+            if signed_head_branch
+            else {"branch": "feature/shared-branch"}
+        )
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            **branch_fields,
+        )
+        newest_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            **branch_fields,
+        )
+
+        result = find_task_run(branch="feature/shared-branch", repository="posthog/posthog")
+
+        self.assertEqual(result, newest_run)
+
+    def test_finds_by_signed_commit_head_branch(self):
+        task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="master",
+            output={
+                "head_branch": "posthog-code/feature",
+                "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
+            },
+        )
+        result = find_task_run(branch="posthog-code/feature", repository="posthog/posthog")
+        self.assertEqual(result, task_run)
+
+    def test_signed_commit_head_branch_requires_matching_repository(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={
+                "head_branch": "posthog-code/feature",
+                "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
+            },
+        )
+        self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="acme/other"))
+
+    def test_signed_commit_head_branch_requires_repository_pair(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={
+                "head_branches": [{"repository": "posthog/code", "branch": "posthog-code/feature"}],
+            },
+        )
+        self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="posthog/posthog"))
+
+    def test_finds_multi_repository_run_from_snapshot(self):
+        self.task.repositories = ["posthog/posthog", "posthog/code"]
+        self.task.save(update_fields=["repositories"])
+        task_run = self.task.create_run(branch="feature/my-branch")
+        task_run.output = {"pr_urls": ["https://github.com/posthog/code/pull/123"]}
+        task_run.state["verified_pr_urls"] = ["https://github.com/posthog/code/pull/123"]
+        task_run.save(update_fields=["output", "state"])
+
+        self.assertEqual(
+            find_task_run(
+                pr_url="https://github.com/posthog/code/pull/123",
+                repository="posthog/code",
+            ),
+            task_run,
+        )
+
     def test_pr_url_takes_priority_over_branch(self):
         pr_run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             branch="feature/other-branch",
         )
         TaskRun.objects.create(
@@ -1040,6 +1800,17 @@ class TestFindTaskRun(TestCase):
             repository="posthog/posthog",
         )
         self.assertEqual(result, pr_run)
+
+    def test_caller_reported_pr_url_is_not_trusted_for_lookup(self):
+        pr_url = "https://github.com/posthog/posthog/pull/123"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": pr_url, "pr_urls": [pr_url]},
+        )
+
+        self.assertIsNone(find_task_run(pr_url=pr_url, repository="posthog/posthog"))
 
     def test_falls_back_to_branch_when_pr_url_not_found(self):
         branch_run = TaskRun.objects.create(
@@ -1165,6 +1936,7 @@ class TestGitHubWebhookFanout(TestCase):
             task=cls.task,
             team=cls.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/myorg/myrepo/pull/99"]},
             output={"pr_url": "https://github.com/myorg/myrepo/pull/99"},
         )
         cls.integration = Integration.objects.create(
@@ -1354,3 +2126,206 @@ class TestGitHubWebhookFanout(TestCase):
     def test_unified_url_get_returns_405(self):
         response = self.client.get("/webhooks/github/")
         self.assertEqual(response.status_code, 405)
+
+
+class TestFindSignalImplementationRun(TestCase):
+    """The tasks-facade linkage other products gate automation on (stamphog's inbox carve-out)."""
+
+    STAMPED_BRANCH = "posthog-self-driving/fix-the-thing-3f9a2c"
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    report: ClassVar[SignalReport]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Link Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Link Team")
+        cls.user = User.objects.create(email="link@example.com", distinct_id="link-user")
+        cls.report = SignalReport.objects.create(
+            team=cls.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
+        )
+
+    def _make_run(
+        self,
+        *,
+        with_report: bool = True,
+        internal: bool = True,
+        ai_stage: str | None = "implementation",
+        stamped_branch: str | None = STAMPED_BRANCH,
+        output: dict | None = None,
+        branch=None,
+        team: Team | None = None,
+        status: str = TaskRun.Status.IN_PROGRESS,
+        task_deleted: bool = False,
+    ):
+        team = team or self.team
+        task = Task.objects.create(
+            team=team,
+            created_by=self.user,
+            title="Self-driving implementation",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+            signal_report=self.report if with_report else None,
+            internal=internal,
+            deleted=task_deleted,
+        )
+        # Production stamps ai_stage="implementation" and the server-generated head branch at run
+        # creation (signals' auto_start); the facade matches on the branch stamp and gates on
+        # ai_stage, so the fixture carries both to reflect the real self-driving shape.
+        state: dict = {}
+        if ai_stage:
+            state["ai_stage"] = ai_stage
+        if stamped_branch:
+            state["self_driving_head_branch"] = stamped_branch
+        return TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=status,
+            output=output or {},
+            branch=branch,
+            state=state,
+        )
+
+    def test_head_branch_match_returns_the_run(self):
+        run = self._make_run()
+
+        # Repository passed with GitHub's casing: task rows lowercase the slug, so the match must
+        # be case-insensitive or every real webhook misses.
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="PostHog/posthog", head_branch=self.STAMPED_BRANCH
+        )
+
+        assert found is not None
+        assert found.run_id == run.id
+        assert found.task_id == run.task_id
+        assert found.signal_report_id == self.report.id
+        assert found.task_created_by_id == self.user.id
+
+    def test_completed_run_still_matches(self):
+        # Success flips the run to COMPLETED right after the PR opens, so treating COMPLETED as
+        # dead would end webhook re-reviews for every successful implementation the moment it
+        # finishes, dismissing the standing approval on the next push with no replacement.
+        run = self._make_run(status=TaskRun.Status.COMPLETED)
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch=self.STAMPED_BRANCH
+        )
+
+        assert found is not None
+        assert found.run_id == run.id
+
+    def test_caller_writable_fields_never_match(self):
+        # The security property the stamp exists for: a run whose API-writable fields (output.pr_url,
+        # output.head_branch, the branch column) all point at the PR must still NOT match without the
+        # server-side stamp — reintroducing a fallback on any of them reopens the forgeable link.
+        self._make_run(
+            stamped_branch=None,
+            branch="posthog-code/sd-fix",
+            output={"pr_url": "https://github.com/posthog/posthog/pull/9", "head_branch": "posthog-code/sd-fix"},
+        )
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch="posthog-code/sd-fix"
+        )
+
+        assert found is None
+
+    @parameterized.expand(
+        [
+            # Every rejection means "treat as an ordinary PR" downstream — each of these leaking
+            # through would hand a bot PR the self-driving carve-out it must not have. The pipeline's
+            # research/repo_selection runs share signal_report_id + internal=True with the
+            # implementation run and differ only by ai_stage, so a non-implementation stage must miss.
+            ("non_implementation_stage_run", {"ai_stage": "research"}, {}),
+            ("task_without_signal_report", {"with_report": False}, {}),
+            ("other_team", {}, {"team_id_offset": 1}),
+            ("wrong_repository", {}, {"repository": "posthog/other-repo"}),
+            # The caller contract for forks: an attacker-controlled fork head ref is never passed.
+            ("fork_pr_branch_not_consulted", {}, {"head_branch": None}),
+            # A disowned or dead run must not keep the carve-out alive on later pushes.
+            ("cancelled_run", {"status": TaskRun.Status.CANCELLED}, {}),
+            ("failed_run", {"status": TaskRun.Status.FAILED}, {}),
+            ("soft_deleted_task", {"task_deleted": True}, {}),
+        ]
+    )
+    def test_non_qualifying_runs_return_none(self, _name, run_kwargs, call_overrides):
+        self._make_run(**run_kwargs)
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id + call_overrides.pop("team_id_offset", 0),
+            repository=call_overrides.pop("repository", "posthog/posthog"),
+            head_branch=call_overrides.pop("head_branch", self.STAMPED_BRANCH),
+        )
+
+        assert found is None
+
+    def test_cross_team_run_does_not_shadow_the_teams_own_run(self):
+        # Without the in-query team scope, a newer run in another tenant carrying the same stamped
+        # branch would win the pick and the team-mismatch check would return None — silently
+        # suppressing the legitimate team's self-driving re-review. Scoping the query keeps the
+        # tenant's own run findable. (Branch names carry a random suffix, so a genuine collision is
+        # unlikely; this pins the tenant boundary, not a probable event.)
+        legitimate = self._make_run()
+        other_team = Team.objects.create(organization=self.organization, name="Shadow Team")
+        # Created after the legitimate run, so it is the newer one an unscoped query would prefer.
+        self._make_run(with_report=False, team=other_team)
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch=self.STAMPED_BRANCH
+        )
+
+        assert found is not None
+        assert found.run_id == legitimate.id
+
+
+class TestAttributionDbAliases(TestCase):
+    def _with_replica_configured(self):
+        return self.settings(DATABASES={**settings.DATABASES, "replica": settings.DATABASES["default"]})
+
+    def test_default_only_when_no_replica_is_configured(self):
+        self.assertEqual(_attribution_db_aliases(), ["default"])
+
+    @patch("products.tasks.backend.webhooks.router.db_for_read", return_value="default")
+    def test_skips_a_configured_replica_the_router_would_not_read_from(self, _mock_db_for_read):
+        # Bounding an alias means opening it, and connection setup is itself unbounded (these
+        # aliases carry no connect_timeout), so a replica the router never reads from must not
+        # be dialled just to install a cap on it.
+        with self._with_replica_configured():
+            self.assertEqual(_attribution_db_aliases(), ["default"])
+
+    @patch("products.tasks.backend.webhooks.router.db_for_read", return_value="replica")
+    def test_skips_the_primary_when_every_model_reads_from_the_replica(self, _mock_db_for_read):
+        # Symmetric to the above: a fully replica-opted deployment must not be made to wait on
+        # the primary either, since opening it is just as unbounded.
+        with self._with_replica_configured():
+            self.assertEqual(_attribution_db_aliases(), ["replica"])
+
+    @patch("products.tasks.backend.webhooks.router.db_for_read")
+    def test_covers_every_alias_the_models_read_from(self, mock_db_for_read):
+        mock_db_for_read.side_effect = lambda model: "replica" if model is User else "default"
+        with self._with_replica_configured():
+            self.assertEqual(sorted(_attribution_db_aliases()), ["default", "replica"])
+
+
+class TestBoundedAttributionLookup(TestCase):
+    def _statement_timeout(self) -> str:
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            row = cursor.fetchone()
+        assert row is not None
+        return row[0]
+
+    def test_caps_statements_and_restores_the_previous_value(self):
+        # Django's TestCase runs each test inside a transaction, which is exactly the case
+        # the restore exists for: joining a transaction we did not open (a future caller's
+        # atomic block, or ATOMIC_REQUESTS) must not leave the 800 ms cap behind.
+        before = self._statement_timeout()
+
+        with _bounded_attribution_lookup():
+            inside = self._statement_timeout()
+
+        self.assertEqual(inside, "800ms")
+        self.assertEqual(self._statement_timeout(), before)

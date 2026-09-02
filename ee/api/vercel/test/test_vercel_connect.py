@@ -16,6 +16,9 @@ from posthog.models.team import Team
 from ee.api.vercel.vercel_connect import _load_connect_session, _sign_connect_session, _validate_next_url
 from ee.vercel.client import OAuthTokenResponse, OperationResult
 
+# Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
+EXPECTED_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
+
 CACHED_SESSION_DATA = {
     "access_token": "vercel_token_123",
     "token_type": "Bearer",
@@ -293,6 +296,75 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert call_kwargs["product_id"] == "posthog"
         assert call_kwargs["name"] == self.team.name
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_called_once_with(self.team)
+
+        secrets = call_kwargs["secrets"]
+        secrets_by_name = {secret["name"]: secret for secret in secrets}
+        assert set(secrets_by_name) == {
+            "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+            "NEXT_PUBLIC_POSTHOG_HOST",
+            "VITE_POSTHOG_PROJECT_TOKEN",
+            "VITE_POSTHOG_HOST",
+            "NUXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+            "NUXT_PUBLIC_POSTHOG_HOST",
+            "PUBLIC_POSTHOG_PROJECT_TOKEN",
+            "PUBLIC_POSTHOG_HOST",
+        }
+        assert secrets[0]["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN"
+        for prefix in EXPECTED_ENV_PREFIXES:
+            token_secret = secrets_by_name[f"{prefix}POSTHOG_PROJECT_TOKEN"]
+            assert token_secret["value"] == self.team.api_token
+            assert "environmentOverrides" not in token_secret
+
+            host_secret = secrets_by_name[f"{prefix}POSTHOG_HOST"]
+            assert host_secret["value"].startswith(("https://", "http://"))
+            assert "environmentOverrides" not in host_secret
+
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_link_with_different_environments_sets_overrides_on_every_prefix(
+        self, mock_client_class, mock_vercel_integration
+    ):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.import_resource.return_value = OperationResult(success=True)
+
+        preview_team = Team.objects.create(
+            organization=self.organization, name="Preview Team", api_token="preview_token"
+        )
+        development_team = Team.objects.create(
+            organization=self.organization, name="Development Team", api_token="development_token"
+        )
+        session_token = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {
+                    "production": self.team.pk,
+                    "preview": preview_team.pk,
+                    "development": development_team.pk,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        call_kwargs = mock_client.import_resource.call_args[1]
+        secrets_by_name = {secret["name"]: secret for secret in call_kwargs["secrets"]}
+
+        for prefix in EXPECTED_ENV_PREFIXES:
+            token_secret = secrets_by_name[f"{prefix}POSTHOG_PROJECT_TOKEN"]
+            assert token_secret["value"] == self.team.api_token
+            assert token_secret["environmentOverrides"] == {
+                "preview": "preview_token",
+                "development": "development_token",
+            }
+
+            host_secret = secrets_by_name[f"{prefix}POSTHOG_HOST"]
+            assert "environmentOverrides" not in host_secret
 
     def test_non_member_returns_403(self):
         other_org = Organization.objects.create(name="Not My Org")

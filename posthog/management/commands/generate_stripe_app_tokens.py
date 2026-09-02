@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone as tz
 
+from oauth2_provider.generators import generate_client_secret
 from oauthlib.common import generate_token
 
 from posthog.models import Team, User
@@ -178,10 +179,12 @@ class Command(BaseCommand):
         # Create a new OAuthApplication
         self.stdout.write("No OAuthApplication found for the Stripe App, creating one...")
         new_client_id = generate_token()
+        # The row stores only a hash of this, so it is printed once and never recoverable.
+        new_client_secret = generate_client_secret()
         oauth_app = OAuthApplication.objects.create(
             name=STRIPE_APP_NAME,
             client_id=new_client_id,
-            client_secret="",
+            client_secret=new_client_secret,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://localhost",
@@ -189,6 +192,9 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             self.style.SUCCESS(f"Created OAuthApplication '{STRIPE_APP_NAME}' (client_id={new_client_id})")
+        )
+        self.stdout.write(
+            self.style.WARNING(f"Save this client secret now, it is not shown again: {new_client_secret}")
         )
         self._write_client_id_to_env(new_client_id)
         return oauth_app

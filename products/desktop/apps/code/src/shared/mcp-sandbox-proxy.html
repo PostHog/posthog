@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    iframe {
+      border: none;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <script>
+    function log(...args) {
+      console.log("[mcp-sandbox-proxy]", ...args);
+    }
+
+    function init() {
+      "use strict";
+
+      log("Proxy starting", { origin: location.origin, href: location.href });
+
+      var inner = document.createElement("iframe");
+      inner.style.cssText = "width:100%; height:100%; border:none;";
+      inner.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
+      document.body.appendChild(inner);
+
+      // Build Permission Policy allow attribute from permissions object.
+      // Maps McpUiResourcePermissions keys to Permission Policy feature names.
+      // Uses "*" suffix for cross-origin permission delegation.
+      function buildAllowAttribute(permissions) {
+        if (!permissions || typeof permissions !== "object") return "";
+
+        var mapping = {
+          camera: "camera",
+          microphone: "microphone",
+          geolocation: "geolocation",
+          clipboardWrite: "clipboard-write"
+        };
+
+        var features = Object.keys(permissions)
+          .filter(function (key) { return mapping[key] && permissions[key] != null; })
+          .map(function (key) { return mapping[key] + " *"; });
+
+        return features.join("; ");
+      }
+
+      // Handle messages from the host (parent)
+      function handleParentMessage(data) {
+        if (data && data.method === "ui/notifications/sandbox-resource-ready") {
+          var params = data.params;
+          sent = true; // Stop retrying sandbox-proxy-ready
+          log("Received sandbox-resource-ready", {
+            hasHtml: !!(params && params.html),
+            htmlLength: params && params.html ? params.html.length : 0,
+            hasPermissions: !!(params && params.permissions),
+            hasCsp: !!(params && params.csp)
+          });
+
+          if (params && typeof params.html === "string") {
+            // Set allow attribute for Permission Policy features
+            var allowValue = buildAllowAttribute(params.permissions);
+            if (allowValue) {
+              inner.setAttribute("allow", allowValue);
+            }
+
+            // Use document.write() instead of srcdoc to preserve origin.
+            // srcdoc creates an opaque origin that breaks WebGL canvas operations
+            // like toDataURL() and cross-origin resource access.
+            var doc = inner.contentDocument;
+            log("Writing HTML to inner iframe", {
+              htmlLength: params.html.length,
+              hasContentDocument: !!doc
+            });
+
+            doc.open();
+            doc.write(params.html);
+            doc.close();
+
+            log("HTML written to inner iframe");
+          }
+        } else {
+          // Forward all other messages to inner iframe
+          log("Forwarding host -> inner", {
+            method: data.method,
+            id: data.id,
+            hasInner: !!(inner && inner.contentWindow),
+            targetOrigin: location.origin
+          });
+
+          if (inner && inner.contentWindow) {
+            inner.contentWindow.postMessage(data, location.origin);
+          }
+        }
+      }
+
+      // Listen for messages from host (parent) and inner iframe
+      window.addEventListener("message", function (event) {
+        var data = event.data;
+        if (!data || typeof data !== "object") return;
+
+        if (event.source === window.parent) {
+          log("Message from host", {
+            method: data.method,
+            id: data.id,
+            origin: event.origin
+          });
+          handleParentMessage(data);
+        } else if (event.source === inner.contentWindow) {
+          log("Relaying inner -> host", {
+            method: data.method,
+            id: data.id,
+            origin: event.origin
+          });
+          // Relay messages from inner iframe back to host
+          window.parent.postMessage(data, "*");
+        } else {
+          log("Message from unknown source", {
+            method: data.method,
+            origin: event.origin,
+            isParent: event.source === window.parent,
+            isInner: event.source === inner.contentWindow
+          });
+        }
+      });
+
+      // Notify host that proxy is ready to receive HTML.
+      // Retry a few times because the host's useEffect listener may not be
+      // registered yet when src= loads faster than React's effect cycle.
+      var readyMsg = {
+        jsonrpc: "2.0",
+        method: "ui/notifications/sandbox-proxy-ready",
+        params: {}
+      };
+      var sent = false;
+      function sendReady() {
+        if (sent) return;
+        log("Sending sandbox-proxy-ready to host");
+        window.parent.postMessage(readyMsg, "*");
+      }
+
+      // The host removes its listener on first receipt, so retries are harmless
+      sendReady();
+      setTimeout(sendReady, 50);
+      setTimeout(sendReady, 150);
+    };
+
+    // Fire and forget, similar to IIFE
+    init();
+  </script>
+</body>
+
+</html>

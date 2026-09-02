@@ -22,6 +22,7 @@ import {
     type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
+import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { barColorAt } from '../../core/color-utils'
@@ -82,7 +83,7 @@ export function ComboChart<Meta = unknown>({ onError, ...rest }: ComboChartProps
 function ComboChartInner<Meta = unknown>({
     series,
     labels,
-    config,
+    config: rawConfig,
     theme,
     tooltip,
     onPointClick,
@@ -90,6 +91,7 @@ function ComboChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: Omit<ComboChartProps<Meta>, 'onError'>): React.ReactElement {
+    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
         showGrid = false,

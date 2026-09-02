@@ -15,6 +15,7 @@ import { CrewAIInstallation } from '@posthog/shared-onboarding/ai-observability/
 import { DedalusInstallation } from '@posthog/shared-onboarding/ai-observability/dedalus'
 import { DeepSeekInstallation } from '@posthog/shared-onboarding/ai-observability/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/ai-observability/dspy'
+import { EveInstallation } from '@posthog/shared-onboarding/ai-observability/eve'
 import { FireworksAIInstallation } from '@posthog/shared-onboarding/ai-observability/fireworks-ai'
 import { GoogleInstallation } from '@posthog/shared-onboarding/ai-observability/google'
 import { GroqInstallation } from '@posthog/shared-onboarding/ai-observability/groq'
@@ -93,6 +94,10 @@ const LLMLiteLLMInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VercelAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMEveInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: EveInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
 const LLMVercelAIGatewayInstructionsWrapper = withOnboardingDocsWrapper({
@@ -234,6 +239,7 @@ export const AIObservabilitySDKInstructions: SDKInstructionsMap = {
     [SDKKey.AWS_BEDROCK]: LLMAWSBedrockInstructionsWrapper,
     [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
     [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
+    [SDKKey.EVE]: LLMEveInstructionsWrapper,
     [SDKKey.VERCEL_AI_GATEWAY]: LLMVercelAIGatewayInstructionsWrapper,
     [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
     [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,

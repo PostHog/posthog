@@ -6,6 +6,7 @@ export function CardTopHeadingRow({
     showTypeLabel = true,
     dateText,
     dateTooltip,
+    separateChildren = false,
     children,
 }: {
     typeLabel?: string | null
@@ -13,14 +14,18 @@ export function CardTopHeadingRow({
     showTypeLabel?: boolean
     dateText?: string | null
     dateTooltip?: string | null
+    /** Render a • before children when a label/date precedes; leave off for inline adornments (e.g. the freshness clock). */
+    separateChildren?: boolean
     children?: React.ReactNode
 }): JSX.Element {
+    const showLabelSegment = Boolean(showTypeLabel && typeLabel)
+
     return (
         <div className="flex items-center gap-1">
-            {showTypeLabel && typeLabel ? <span title={typeTitle ?? typeLabel}>{typeLabel}</span> : null}
+            {showLabelSegment ? <span title={typeTitle ?? typeLabel ?? undefined}>{typeLabel}</span> : null}
             {dateText ? (
                 <>
-                    {showTypeLabel && typeLabel ? <span>•</span> : null}
+                    {showLabelSegment ? <span>•</span> : null}
                     {dateTooltip ? (
                         <Tooltip title={dateTooltip}>
                             <span className="whitespace-nowrap">{dateText}</span>
@@ -30,7 +35,12 @@ export function CardTopHeadingRow({
                     )}
                 </>
             ) : null}
-            {children}
+            {children ? (
+                <>
+                    {separateChildren && (showLabelSegment || dateText) ? <span>•</span> : null}
+                    {children}
+                </>
+            ) : null}
         </div>
     )
 }

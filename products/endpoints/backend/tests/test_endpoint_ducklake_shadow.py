@@ -6,11 +6,10 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
-from posthog.ducklake.client import DuckLakeQueryResult
-
 from products.endpoints.backend.logic import ducklake_shadow
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.managed_warehouse.backend.facade.contracts import DuckLakeQueryResult
 
 pytestmark = [pytest.mark.django_db]
 
@@ -130,9 +129,7 @@ class TestShadowComparison(APIBaseTest):
         self._cm_patch = mock.patch.object(ducklake_shadow, "ph_scoped_capture", return_value=cm)
         self._cm_patch.start()
         self.addCleanup(self._cm_patch.stop)
-        server_patch = mock.patch.object(
-            ducklake_shadow, "get_duckgres_server_for_organization", return_value=mock.MagicMock()
-        )
+        server_patch = mock.patch.object(ducklake_shadow, "has_provisioned_warehouse", return_value=True)
         server_patch.start()
         self.addCleanup(server_patch.stop)
         return captured
@@ -231,7 +228,7 @@ class TestShadowComparison(APIBaseTest):
 
         with (
             mock.patch.object(ducklake_shadow, "is_dev_mode", return_value=False),
-            mock.patch.object(ducklake_shadow, "get_duckgres_server_for_organization", return_value=None),
+            mock.patch.object(ducklake_shadow, "has_provisioned_warehouse", return_value=False),
         ):
             ducklake_shadow.run_ducklake_shadow_comparison(
                 team_id=self.team.pk,
@@ -255,7 +252,7 @@ class TestShadowComparison(APIBaseTest):
 
         with (
             mock.patch.object(ducklake_shadow, "is_dev_mode", return_value=True),
-            mock.patch.object(ducklake_shadow, "get_duckgres_server_for_organization", return_value=None),
+            mock.patch.object(ducklake_shadow, "has_provisioned_warehouse", return_value=False),
             mock.patch.object(
                 ducklake_shadow,
                 "execute_ducklake_query",

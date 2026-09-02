@@ -81,3 +81,36 @@ if (typeof globalThis.performance?.markResourceTiming !== 'function') {
 const { fetch, Request, Response, Headers, FormData } = require('undici')
 
 define({ fetch, Request, Response, Headers, FormData })
+
+// jsdom ships no DOMRect, which Radix's ContextMenu constructs to anchor its content at the cursor.
+// Without it, right-clicking a trigger under jest throws before the menu ever mounts.
+if (typeof globalThis.DOMRect !== 'function') {
+    class DOMRect {
+        constructor(x = 0, y = 0, width = 0, height = 0) {
+            this.x = x
+            this.y = y
+            this.width = width
+            this.height = height
+        }
+        get top() {
+            return this.height < 0 ? this.y + this.height : this.y
+        }
+        get bottom() {
+            return this.height < 0 ? this.y : this.y + this.height
+        }
+        get left() {
+            return this.width < 0 ? this.x + this.width : this.x
+        }
+        get right() {
+            return this.width < 0 ? this.x : this.x + this.width
+        }
+        static fromRect(rect = {}) {
+            return new DOMRect(rect.x, rect.y, rect.width, rect.height)
+        }
+        toJSON() {
+            const { x, y, width, height, top, right, bottom, left } = this
+            return { x, y, width, height, top, right, bottom, left }
+        }
+    }
+    define({ DOMRect })
+}

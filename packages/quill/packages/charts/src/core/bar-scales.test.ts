@@ -225,14 +225,33 @@ describe('hog-charts bar scales', () => {
         })
     })
 
-    describe('createBarScales — valueDomain [min, max] (fixed)', () => {
+    describe('createBarScales — valueDomain with both ends pinned', () => {
         it.each([
-            ['pins the domain regardless of data and skips nice()', undefined, [0, 40] as [number, number]],
-            ['takes precedence over percent layout', 'percent' as const, [0, 200] as [number, number]],
-        ])('%s', (_name, barLayout, valueDomain) => {
+            ['pins the domain regardless of data and skips nice()', undefined, 0, 40],
+            ['takes precedence over percent layout', 'percent' as const, 0, 200],
+        ])('%s', (_name, barLayout, min, max) => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { barLayout, valueDomain })
-            expect(value.domain()).toEqual(valueDomain)
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                barLayout,
+                valueDomain: { min, max },
+            })
+            expect(value.domain()).toEqual([min, max])
+        })
+
+        // A non-finite or collapsed fixed domain maps every bar (and axis tick) to NaN, so the chart
+        // paints nothing while x-only tooltips keep working — the same failure the line path guards
+        // against via sanitizeFixedDomain. The bar value scale must stay well-formed too.
+        it.each([
+            { name: 'NaN bounds', valueDomain: { min: NaN, max: NaN } },
+            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: { min: 0, max: NaN } },
+            { name: 'an infinite max', valueDomain: { min: 0, max: Infinity } },
+            { name: 'collapsed bounds', valueDomain: { min: 50, max: 50 } },
+        ])('keeps a finite, non-degenerate domain for $name', ({ valueDomain }) => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const [min, max] = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain }).value.domain()
+            expect(isFinite(min)).toBe(true)
+            expect(isFinite(max)).toBe(true)
+            expect(min).toBeLessThan(max)
         })
     })
 

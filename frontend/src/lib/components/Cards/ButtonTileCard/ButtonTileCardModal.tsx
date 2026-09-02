@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
+import { ButtonTileCard } from 'lib/components/Cards/ButtonTileCard/ButtonTileCard'
 import { buttonTileCardModalLogic } from 'lib/components/Cards/ButtonTileCard/buttonTileCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -8,7 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
-import { DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 export function ButtonTileCardModal({
     isOpen,
@@ -22,7 +23,7 @@ export function ButtonTileCardModal({
     buttonTileId: number | 'new' | null
 }): JSX.Element {
     const modalLogic = buttonTileCardModalLogic({ dashboard, buttonTileId: buttonTileId ?? 'new', onClose })
-    const { isButtonTileSubmitting, buttonTileValidationErrors } = useValues(modalLogic)
+    const { buttonTile, isButtonTileSubmitting, buttonTileValidationErrors } = useValues(modalLogic)
     const { submitButtonTile, resetButtonTile } = useActions(modalLogic)
 
     const handleClose = (): void => {
@@ -31,12 +32,18 @@ export function ButtonTileCardModal({
     }
 
     const firstError = buttonTileValidationErrors.url || buttonTileValidationErrors.text
+    const previewTile: DashboardTile<QueryBasedInsightModel> = {
+        id: buttonTileId === 'new' ? 0 : (buttonTileId ?? 0),
+        color: null,
+        button_tile: { ...buttonTile, text: buttonTile.text || 'Click me' },
+        transparent_background: buttonTile.transparent_background,
+    }
 
     return (
         <LemonModal
             closable={true}
             isOpen={isOpen}
-            title={buttonTileId === 'new' ? 'Add button' : 'Edit button'}
+            title={buttonTileId === 'new' ? 'Add link' : 'Edit link'}
             onClose={handleClose}
             footer={
                 <>
@@ -76,10 +83,10 @@ export function ButtonTileCardModal({
                             autoFocus
                         />
                     </Field>
-                    <Field name="text" label="Button text">
+                    <Field name="text" label="Link text">
                         <LemonInput placeholder="Click me" data-attr="button-tile-text" />
                     </Field>
-                    <Field name="placement" label="Placement">
+                    <Field name="placement" label="Placement within tile">
                         <LemonSegmentedButton
                             options={[
                                 { value: 'left', label: 'Left' },
@@ -107,6 +114,17 @@ export function ButtonTileCardModal({
                             />
                         )}
                     </Field>
+                    <div>
+                        <h4 className="mb-2">Preview</h4>
+                        <div className="pointer-events-none rounded bg-surface-secondary p-3">
+                            <ButtonTileCard
+                                buttonTile={previewTile}
+                                placement={DashboardPlacement.Dashboard}
+                                showEditingControls={false}
+                                className="h-32 overflow-hidden [&_.LemonButton]:max-w-64 [&_.LemonButton__content]:truncate"
+                            />
+                        </div>
+                    </div>
                 </div>
             </Form>
         </LemonModal>

@@ -1,20 +1,24 @@
 name: Auto-resolve PR conflicts
 
-# Resolves conflicts on every open same-repo PR targeting master, on a schedule, before the author
-# looks. Forks are skipped (can't be pushed to). Never auto-merges. Graphite-stacked PRs (base
-# `graphite-base/*`) can't be merged with master, so they're flagged for the author to restack.
+# Resolves conflicts on every open same-repo PR targeting master, before the author looks. Forks are
+# skipped (can't be pushed to). Never auto-merges. Graphite-stacked PRs (base `graphite-base/*`)
+# can't be merged with master, so they're flagged for the author to restack.
+#
+# Manual dispatch only — the 15-minute schedule is disabled. The same sweep now runs as a Loop
+# (.agents/skills/autoresolving-pr-conflicts), which burns no Actions runners and keeps its GitHub
+# API traffic on a dedicated rate-limit bucket. Both write the same `autoresolve-attempt` marker, so
+# running both would be redundant rather than harmful. To fall back to this implementation, restore
+# the `schedule:` trigger below and pause the Loop.
 #
 # Deterministic fixes (lockfiles, migration numbering, generated types) skip the model; the backend
 # stack comes up only for `build:openapi`. A marker comment records the last-attempted (head, master)
-# so nothing re-runs on an unchanged conflict. Polling batches conflicts, which is cheaper than a run
-# per merge; runs on GitHub-hosted runners (cheapest for a public repo).
+# so nothing re-runs on an unchanged conflict. Runs on GitHub-hosted runners (cheapest for a public
+# repo).
 #
 # Token safety (as in pr-resolve-outdated-bot-comments.yml): `resolve` runs PR-controlled code with
 # NO write token; `finalize` holds the App token but only consumes result DATA via trusted scripts.
 
 on:
-    schedule:
-        - cron: '*/15 * * * 1-5' # every 15 minutes, weekdays only (no point resolving over the weekend)
     workflow_dispatch:
         inputs:
             pr_number:
@@ -245,6 +249,7 @@ jobs:
             # token is visible to this same-repo PR code — same as every backend CI job here — and
             # forks never reach this workflow, so there's nothing to isolate it from.
             - name: DockerHub login
+              continue-on-error: true
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
               with:

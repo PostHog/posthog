@@ -3,14 +3,66 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+import { getGrantedScopes } from 'lib/integrations/IntegrationScopesWarning'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import { InsightShortId, IntegrationType, SubscriptionType, WeekdayType } from '~/types'
+
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
+
+import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+
+export function requestSubscriptionWizardCancellation({
+    onCancel,
+    resetSubscription,
+    subscriptionChanged,
+}: {
+    onCancel: () => void
+    resetSubscription: () => void
+    subscriptionChanged: boolean
+}): void {
+    if (!subscriptionChanged) {
+        onCancel()
+        return
+    }
+
+    LemonDialog.open({
+        title: 'Discard subscription changes?',
+        description: 'Your subscription configuration will be lost.',
+        primaryButton: {
+            children: 'Discard changes',
+            status: 'danger',
+            onClick: () => {
+                resetSubscription()
+                onCancel()
+            },
+        },
+        secondaryButton: {
+            children: 'Keep editing',
+        },
+    })
+}
+
+export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
+    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
+}
+
+export function canNudgeToSubscribe(
+    hasSubscriptionsFeature: boolean,
+    freeTierSubscriptionCount: number | null
+): boolean {
+    return (
+        hasSubscriptionsFeature ||
+        (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount))
+    )
+}
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -29,20 +81,6 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     return urls.subscriptions()
 }
 
-/**
- * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled.
- * Single source of truth shared by the producer (dashboard toast) and the consumer (this
- * logic's urlToAction). The backend notification's source_url must mirror these — see the
- * comment on source_url in products/dashboards/backend/api/dashboard.py.
- */
-export const SUBSCRIPTION_PREFILL_PARAMS = {
-    param: 'prefill',
-    nudge: 'nudge',
-    viaParam: 'via',
-    viaToast: 'toast',
-    viaNotification: 'notification',
-} as const
-
 export const urlForSubscription = (
     id: number | 'new',
     { dashboardId, insightShortId }: SubscriptionBaseProps
@@ -56,14 +94,23 @@ export const urlForSubscription = (
     return id === 'new' ? urls.subscriptionNew() : urls.subscription(id)
 }
 
-export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
-    { value: 'email', label: 'Email', icon: <IconLetter /> },
-    { value: 'slack', label: 'Slack', icon: <IconSlack /> },
+export const targetTypeOptions: LemonSelectOptionLeaf<SubscriptionApi['target_type']>[] = [
+    { value: SubscriptionTargetEnumApi.Email, label: 'Email', icon: <IconLetter /> },
+    { value: SubscriptionTargetEnumApi.Slack, label: 'Slack', icon: <IconSlack /> },
+    {
+        value: SubscriptionTargetEnumApi.Teams,
+        label: 'Microsoft Teams',
+        icon: <img src={IconMicrosoftTeams} alt="" className="h-4 w-4" />,
+    },
 ]
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
 
 export type FrequencyOptionValue = 'daily' | 'weekly' | 'monthly'
+
+export function shouldShowDayPicker(frequency: SubscriptionType['frequency'], interval: number): boolean {
+    return frequency === 'weekly' || (frequency === 'daily' && interval === 1)
+}
 
 export const frequencyOptionsSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'day' },
@@ -76,9 +123,7 @@ export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] =
     { value: 'monthly', label: 'months' },
 ]
 
-export const weekdayOptions: LemonSelectOptionLeaf<
-    'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
->[] = [
+export const weekdayOptions = [
     { value: 'monday', label: 'Monday' },
     { value: 'tuesday', label: 'Tuesday' },
     { value: 'wednesday', label: 'Wednesday' },
@@ -86,9 +131,129 @@ export const weekdayOptions: LemonSelectOptionLeaf<
     { value: 'friday', label: 'Friday' },
     { value: 'saturday', label: 'Saturday' },
     { value: 'sunday', label: 'Sunday' },
-]
+] satisfies LemonSelectOptionLeaf<WeekdayType>[]
 
-export const WEEKDAYS: Set<string> = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
+export const WEEKDAY_DAYS = ALL_DAYS.slice(0, 5)
+export const WEEKEND_DAYS = ALL_DAYS.slice(5)
+
+export const WEEKDAYS: Set<string> = new Set(WEEKDAY_DAYS)
+
+function hasSameDays(selectedDays: WeekdayType[], presetDays: WeekdayType[]): boolean {
+    const selectedSet = new Set(selectedDays)
+    return selectedSet.size === presetDays.length && presetDays.every((day) => selectedSet.has(day))
+}
+
+export function selectedDaysToDayPickerLabel(selectedDays: WeekdayType[]): string {
+    if (selectedDays.length === 0) {
+        return 'Select at least one day'
+    }
+    if (hasSameDays(selectedDays, ALL_DAYS)) {
+        return 'on Monday to Sunday'
+    }
+    if (hasSameDays(selectedDays, WEEKDAY_DAYS)) {
+        return 'on weekdays'
+    }
+    if (hasSameDays(selectedDays, WEEKEND_DAYS)) {
+        return 'on weekends'
+    }
+    if (selectedDays.length === 1) {
+        const dayLabel = weekdayOptions.find(({ value }) => value === selectedDays[0])?.label ?? selectedDays[0]
+        return `on ${dayLabel}`
+    }
+    return `on ${selectedDays.length} days`
+}
+
+export function formatSubscriptionSchedule(
+    subscription: Pick<SubscriptionType, 'frequency' | 'interval' | 'start_date' | 'byweekday'>
+): string {
+    const frequency =
+        subscription.interval === 1
+            ? { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[subscription.frequency]
+            : subscription.frequency
+    const selectedDays = shouldShowDayPicker(subscription.frequency, subscription.interval)
+        ? ` ${formatSelectedDeliveryDays(subscription.byweekday ?? [])}`
+        : ''
+
+    return `Every ${subscription.interval} ${frequency}${selectedDays} at ${dayjs(subscription.start_date).format('h:mm A')}`
+}
+
+export function getSubscriptionAdvancedSettings(
+    subscription: Pick<SubscriptionType, 'summary_enabled' | 'summary_prompt_guide' | 'send_test_now'>
+): string[] {
+    const settings: string[] = []
+
+    if (subscription.summary_enabled) {
+        settings.push('Automatic AI summary')
+    }
+    if (subscription.summary_prompt_guide?.trim()) {
+        settings.push('Custom AI summary context')
+    }
+    if (subscription.send_test_now === false) {
+        settings.push('No test delivery')
+    }
+
+    return settings
+}
+
+export function integrationHasFilesWrite(integration: IntegrationType | null | undefined): boolean {
+    return integration ? getGrantedScopes(integration).includes('files:write') : false
+}
+
+export function coerceDeliveryConfigForScope(
+    subscription: SubscriptionType,
+    integrations: IntegrationType[] | null | undefined
+): SubscriptionType['delivery_config'] {
+    if (!subscription.delivery_config?.post_all_insights_in_main_message) {
+        return subscription.delivery_config
+    }
+    if (subscription.target_type !== 'slack') {
+        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+    }
+    if (integrations == null) {
+        return subscription.delivery_config
+    }
+
+    const selectedIntegration = subscription.integration_id
+        ? integrations.find((integration) => integration.id === subscription.integration_id)
+        : undefined
+    if (!integrationHasFilesWrite(selectedIntegration)) {
+        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+    }
+    return subscription.delivery_config
+}
+
+function formatSelectedDeliveryDays(selectedDays: WeekdayType[]): string {
+    if (hasSameDays(selectedDays, ALL_DAYS)) {
+        return 'on Monday to Sunday'
+    }
+    if (hasSameDays(selectedDays, WEEKDAY_DAYS)) {
+        return 'on weekdays'
+    }
+    if (hasSameDays(selectedDays, WEEKEND_DAYS)) {
+        return 'on weekends'
+    }
+
+    const labels = weekdayOptions.filter((day) => selectedDays.includes(day.value)).map((day) => day.label)
+    if (labels.length < 2) {
+        return labels.length ? `on ${labels[0]}` : 'on no days'
+    }
+    if (labels.length === 2) {
+        return `on ${labels[0]} and ${labels[1]}`
+    }
+
+    return `on ${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`
+}
+
+export function toggleSelectedDay(selectedDays: WeekdayType[], day: WeekdayType): WeekdayType[] {
+    const nextDays = new Set(selectedDays)
+    if (nextDays.has(day)) {
+        nextDays.delete(day)
+    } else {
+        nextDays.add(day)
+    }
+    return ALL_DAYS.filter((weekday) => nextDays.has(weekday))
+}
 
 export const monthlyWeekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'day' | 'weekday'
@@ -104,7 +269,7 @@ export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> =
 
 export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
     value: String(x),
-    label: `${String(x).padStart(2, '0')}:00`,
+    label: `${x % 12 || 12}:00 ${x < 12 ? 'AM' : 'PM'}`,
 }))
 
 const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
@@ -136,7 +301,7 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
             interval: subscription.interval ?? 1,
             dtstart: new Date(subscription.start_date),
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
-            bysetpos: subscription.bysetpos ?? null,
+            bysetpos: subscription.frequency === 'monthly' ? (subscription.bysetpos ?? null) : null,
         })
         return rule.after(new Date())
     } catch {

@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-replay-vision",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests evals/test/ -v --tb=short"
     },
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
@@ -9,7 +9,8 @@
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
-        "lodash.uniqby": "^4.7.0"
+        "lodash.uniqby": "^4.7.0",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@testing-library/react": "^14.3.1",

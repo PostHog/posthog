@@ -15,6 +15,10 @@ Uploads are PUBLIC and PERMANENT: URLs are SHA-pinned and keep serving even afte
 
 Do not upload `.md` snapshots, `console.log`, or every numbered screenshot. If the demo pass produced an MP4, include it in the same approved upload set through `hogli pr:upload-video` (mp4/webm, same 10 MB cap and `--yes` gate) - it prints a plain `[label](url)` link line, which is a click-to-download link: GitHub renders no player for raw-hosted video, so an inline player still requires the developer to drag the file into the comment editor by hand. If the reel is less clear than the annotated stills, omit it from the upload set and use the PNGs instead.
 
+Before asking for upload approval, inspect the final evidence exactly as it will be posted. Each image must make the claimed PASS, FAIL, SKIP, or NEEDS INTENT row understandable without reconstructing the browser session. If an image only shows the page header, hero, empty shell, or setup state while the actual proof is below the fold or too small to read, do not upload it. Recapture, crop through browser positioning, or add a clearer annotated still first.
+
+When a screenshot uses deliberately odd test data, add a one-sentence explanation in the report near the evidence or coverage row. Do this for cases where the visible data is technically valid but not self-explanatory, such as edge-case email syntax, encoded URLs, timezone boundaries, or synthetic billing states.
+
 ```bash
 hogli pr:upload-video --yes --label "demo video" \
   ".qa-frontend/runs/<run-id>/frontend-qa.mp4"

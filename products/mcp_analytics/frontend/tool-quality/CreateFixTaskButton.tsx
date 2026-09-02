@@ -31,7 +31,6 @@ export function CreateFixTaskButton({
             size={size}
             icon={<IconWrench />}
             tooltip="Create a task and start a fix agent on it"
-            // Without a repository the agent has no codebase to fix, so a task must not start.
             disabledReason={
                 githubIntegrations.length === 0
                     ? 'Connect the GitHub integration (Settings → Integrations) to give the fix agent a repository'

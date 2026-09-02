@@ -111,6 +111,14 @@ export type KafkaConsumerConfig = {
     autoCommit?: boolean
     enablePartitionEof?: boolean
     waitForBackgroundTasksOnRebalance?: boolean
+    /**
+     * Messages pulled per poll, overriding CONSUMER_BATCH_SIZE for this consumer only.
+     *
+     * For lanes whose per-message work is slow or unbounded, batch size is what keeps a batch inside
+     * max.poll.interval.ms, so it belongs next to the code that depends on it rather than in a
+     * deployment value that can drift away from the assumption without anything noticing.
+     */
+    fetchBatchSize?: number
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -166,7 +174,7 @@ export class KafkaConsumer {
         this.config.callEachBatchWhenEmpty ??= false
         this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
-        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
+        this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
@@ -224,6 +232,21 @@ export class KafkaConsumer {
         // Can be called externally to update the heartbeat time and keep the consumer alive
         // This is maintained for backward compatibility with the legacy health check mechanism
         this.lastHeartbeatTime = Date.now()
+    }
+
+    /**
+     * Say that this consumer waits on purpose, and does not stall.
+     *
+     * Separate from `heartbeat()` because it relaxes the loop stall detector, and most callers must
+     * not do that. Two lanes drive `heartbeat()` from a `setInterval`, which keeps firing while a
+     * batch is wedged on a promise that never settles, so moving the loop clock there would leave
+     * such a pod reporting healthy forever.
+     *
+     * Call this only from a handler that sleeps by design, and only from its own await chain.
+     */
+    public reportDeliberateWait(): void {
+        this.lastHeartbeatTime = Date.now()
+        this.lastConsumerLoopTime = Date.now()
     }
 
     public isHealthy(): HealthCheckResult {
@@ -353,6 +376,14 @@ export class KafkaConsumer {
         })
 
         return [offsets.lowOffset, offsets.highOffset]
+    }
+
+    public async committedOffsets(timeout = 10000): Promise<TopicPartitionOffset[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+
+        return await promisifyCallback<TopicPartitionOffset[]>((cb) => this.rdKafkaConsumer.committed(timeout, cb))
     }
 
     public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
@@ -489,9 +520,16 @@ export class KafkaConsumer {
     }
 
     private createConsumer(): RdKafkaConsumer {
+        // auto.offset.reset is a topic-level property, and librdkafka ignores the global-config
+        // form on our version (see node-rdkafka #984), so the resolved value, including any
+        // caller override, must be mirrored into the explicit topic config. v2 does the same.
+        const autoOffsetReset =
+            (this.consumerConfig['auto.offset.reset' as keyof ConsumerGlobalConfig] as
+                | 'earliest'
+                | 'latest'
+                | undefined) ?? 'earliest'
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
-            // Default settings
-            'auto.offset.reset': 'earliest',
+            'auto.offset.reset': autoOffsetReset,
         })
 
         consumer.on('event.log', (log) => {

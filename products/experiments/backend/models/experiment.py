@@ -1,3 +1,4 @@
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
@@ -82,6 +83,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     end_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    # Optimistic-concurrency token: bumped on every user-facing update so stale
+    # clients can be detected. Null (pre-backfill rows) is treated as 0.
+    version = models.IntegerField(default=0, null=True, blank=True)
     archived = models.BooleanField(default=False)
     # Whether archiving this experiment also auto-archived its linked feature flag,
     # so unarchiving only undoes an archive the experiment itself performed.
@@ -322,6 +326,19 @@ def flag_has_live_experiment(feature_flag_id: int) -> bool:
     return _live_experiments_for_flag(feature_flag_id).exists()
 
 
+def metric_display_rank(ordered_uuids: Sequence[str] | None) -> Callable[[str], int]:
+    """Sort key over metric uuids in the order the experiment's metrics page lists them, from
+    `primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`.
+
+    Metrics missing from the ordering array rank last rather than vanishing, and share one rank so
+    a stable sort keeps their stored order. Every surface that presents metrics in display order
+    ranks with this, so they cannot disagree on which metric a user put first.
+    """
+    order = {uuid: index for index, uuid in enumerate(ordered_uuids or [])}
+    fallback = len(order)
+    return lambda uuid: order.get(uuid, fallback)
+
+
 def get_experiment_rule(experiment: Experiment) -> ExperimentRuleConfig:
     """The experiment's normalized rule config — the single home for experiment-to-rule resolution.
 
@@ -503,11 +520,18 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
-        CONFIG_CHANGE = "config_change", "Config Change"
+        # Experiment-scoped change (start/end date, excluded variants, exposure criteria): advances the
+        # window to now, so every metric recomputes.
+        EXPERIMENT_CONFIG_CHANGE = "experiment_config_change", "Experiment Config Change"
+        # Metric-scoped change (add metric, breakdown add/remove/attribution/limit): reuses the latest
+        # completed window, so unchanged metrics load from cache and only new or changed metrics recompute.
+        METRIC_CONFIG_CHANGE = "metric_config_change", "Metric Config Change"
         # Deprecated: never emitted, retained for old rows.
+        CONFIG_CHANGE = "config_change", "Config Change"
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"

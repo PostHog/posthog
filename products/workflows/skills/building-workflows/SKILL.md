@@ -15,7 +15,7 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 
 1. **Compose the graph.** Build `actions` + `edges` per [references/graph-schema.md](references/graph-schema.md). For any `function` node, don't guess the template: list the live catalog with `cdp-function-templates-list` and read its required inputs with `cdp-function-templates-retrieve`.
 2. **Create as a draft.** `workflows-create`. Every workflow is created `draft`; it does not execute yet.
-3. **Test-run it.** `workflows-test-run` runs **one step at a time**. Start at the first step (omit `current_action_id`, or point it at the trigger) with sample `globals` (`{event, person, groups}`); the result includes the next step's id (`nextActionId`). Feed that back as `current_action_id` and run again, walking step by step to the end. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Async side effects (HTTP/email/SMS/push) are mocked unless you set `mock_async_functions=false`. Read each step's trace to confirm the path taken.
+3. **Test-run it.** `workflows-test-run` runs **one step at a time**. Start at the first step (omit `current_action_id`, or point it at the trigger) with sample `globals` (`{event, person, groups}`), shaped like the trigger's real payload: an `event` trigger needs an event matching its filters, and an `internal-event` trigger needs an event named in its `filters.events` (for the Slack trigger, a `$slack_message_received` event with the Slack property bag) and no person (see [references/graph-schema.md](references/graph-schema.md)). A `status=skipped` result means this payload would not fire the trigger: if you fabricated the payload, fix it to match the trigger; if it came from a real past run (`workflows-get-invocation`), the trigger's filter is wrong, not the payload. The result includes the next step's id (`nextActionId`). Feed that back as `current_action_id` and run again, walking step by step to the end. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Async side effects (HTTP/email/SMS/push) are mocked unless you set `mock_async_functions=false`. Read each step's trace to confirm the path taken.
 4. **Read logs while iterating.** `workflows-logs` shows the per-step execution trace (levels DEBUG to ERROR). This is how you see _why_ a step skipped, branched, or errored.
 5. **Edit, then re-test.** Patch the graph with `workflows-patch-graph` (see [Editing a draft](#editing-a-draft)). **Every edit invalidates your earlier test** — re-run the affected path before moving on. On a draft workflow, edits apply directly; on an active one they stage a draft (see [Changing a live workflow](#changing-a-live-workflow)).
 6. **Enable (needs the user's explicit sign-off).** `workflows-enable` flips it to `active` and an **event/webhook/manual** trigger starts firing on matching activity. From then on it runs on real people, and every change goes through the draft → test → publish cycle before taking effect — so finish testing, then get the user's explicit go before enabling. Don't enable on your own initiative.
@@ -32,7 +32,11 @@ Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](refer
 
 After **any** patch, re-test the path you changed (step 3). A patch that validates structurally can still route the wrong way.
 
-Email templates follow the same rule: edit a template's design with **`workflows-patch-email-template`** (surgical, id-addressed ops over the Unlayer blocks), not `workflows-update-email-template`, which resends the entire design JSON. Compose and edit templates with the **`designing-email-templates`** skill.
+Email content follows the same rule.
+The email inside a `function_email` step is edited with **`workflows-patch-action-email`**: the same id-addressed design ops as the template patch, plus an `email_patch` merge for subject/preheader/text/recipients, with the HTML re-rendered server-side so it always matches the design.
+Prefer it over `workflows-patch-graph` `update_action` for email content - an `update_action` that changes `design` leaves the stored `html` stale.
+Library templates are edited with **`workflows-patch-email-template`**, not `workflows-update-email-template` (which resends the entire design JSON).
+Compose and edit email designs with the **`designing-email-templates`** skill.
 
 ## Changing a live workflow
 
@@ -52,8 +56,6 @@ Timing edits apply to parked runs gradually, not instantly. Publishing a shorten
 Every live-content change appends a snapshot to the workflow's revision history. `workflows-list-revisions` lists versions (newest first); `workflows-get-revision` returns one version's full content. To roll back (or forward), `workflows-restore-revision` copies that version's content into the draft — it never touches the live config — then the normal publish cycle applies: test with `use_draft=true`, preview, confirm. The preview shows exactly what the rollback does to people in-flight, same as any publish.
 
 A restore returns 409 when a draft is already open; publish or discard it, or pass `overwrite=true` to replace it. Two things a rollback cannot undo: runs that already moved or exited while the newer version was live keep their positions (their side effects happened), and a publish that shortened a delay may have pulled parked wake times earlier — rolling back doesn't push them later again.
-
-If an edit is rejected with "editing an active workflow isn't supported", draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft (`workflows-create`), testing it, and enabling it as a replacement.
 
 ## What the server owns, never send it
 
@@ -94,14 +96,13 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
       "type": "function_email",
       "config": {
         "template_id": "template-email",
+        "template_uuid": "<uuid returned by workflows-create-email-template>",
         "message_category_type": "marketing",
         "inputs": {
           "email": {
             "value": {
               "to": { "email": "{person.properties.email}", "name": "" },
-              "from": { "email": "hi@example.com", "name": "Example" },
-              "subject": "Don't forget to finish setting up",
-              "html": "<p>Hi {person.properties.first_name}, …</p>"
+              "from": { "email": "hi@example.com", "name": "Example" }
             }
           }
         }
@@ -122,7 +123,16 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
 }
 ```
 
-For anything beyond a placeholder email body, author the design with the **`designing-email-templates`** skill and reference the template. Don't hand-write production email HTML here.
+Email bodies come from the template library, not hand-written html:
+
+1. **Reuse first.** List the library with `workflows-list-email-templates` and pick a template that fits. A drip campaign typically references one base template (say, a branded announcement) from every email step.
+2. **Create only if nothing fits.** Author a new template design-first with the **`designing-email-templates`** skill: compose the `design`, omit `html` (the server renders html from the design).
+3. **Reference it** by putting the template's UUID in each step's `config.template_uuid`, as above. The save snapshots the template's subject, text, html, and design into the step.
+4. **Differentiate per step** with `workflows-patch-action-email` design operations - each step's snapshot is edited independently, so five steps from one base template can each carry their own content.
+
+The snapshot is one-way: editing the library template later does not change steps that already referenced it, and patching a step never touches the library template. If a user expects a template edit to flow into their workflows, correct that - the steps keep their copies, and each one is updated with `workflows-patch-action-email`.
+
+Always give templates a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
 ## Hard rules to surface to the user, not work around
 

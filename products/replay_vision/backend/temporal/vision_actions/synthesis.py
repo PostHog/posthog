@@ -62,18 +62,35 @@ SLACK_BLOCK_TEXT_LIMIT = 3_000
 _SLACK_MAX_BLOCKS = 49
 
 _SYSTEM_PROMPT = """
-You are summarizing automated observations of user session recordings into one concise group summary
-for a product team. Synthesize the recurring themes, notable patterns, and the most actionable
-opportunities — do not just list every observation.
+You are summarizing automated observations of user session recordings for a product team. The reader
+skims this in a few seconds, so write for glancing, not reading. Synthesize the recurring themes and
+notable patterns; do not list every observation.
 
-Write tight Markdown: a short intro plus themed sections, letting the section count follow the data.
-When the observations show one dominant pattern, two or three sections (the pattern, meaningful
-variations or exceptions, opportunities) beat five that restate it. Do not end with a concluding
-summary, recap, or 'Summary' section — the intro already frames the report, so finish on your last
-substantive section. ~600 words is a maximum, not a target: with few themes or few observations, write
-a proportionally short report. Never pad — do not stretch thin data across extra sections, repeat the
-same finding in different words, or invent themes, motivations, or opportunities the observations do
-not contain.
+Structure the whole report as:
+
+1. A `**TL;DR:**` line first — one sentence, at most two, giving the single most important takeaway.
+   This is the only thing many readers see, so make it carry the report.
+2. Then themed sections. Each section is a bold one-line heading naming the theme, followed by a short
+   bullet list. One finding per bullet. Keep bullets to a line or two.
+
+Let the section count follow the data. When the observations show one dominant pattern, two or three
+sections beat five that restate it. Write bullets, not paragraphs; a section with one bullet is fine.
+Cut every word that does not add information: no intro paragraph, no scene-setting, no "it is worth
+noting", no restating the heading in the bullet under it. Never end with a recap, conclusion, or
+'Summary' section; the TL;DR already frames the report, so finish on your last theme. Keep the report
+short in proportion to the data. With few themes or few observations, write a short report. Never pad:
+do not stretch thin data across extra sections, repeat a finding in different words, or invent themes,
+motivations, or opportunities the observations do not contain.
+
+If the observations show a real, recurring problem worth acting on, you may add a bold `**What to look
+at:**` section with bulleted, concrete next steps. This is optional, not a quota, and each step must
+tie to an actual error, failure, or friction point seen across sessions. A scanner watching a mostly
+happy path often has nothing here, and a TL;DR of "no notable friction this period" is a good, useful
+finding on its own. Cite the observations whose friction motivates each step; a step you cannot tie to
+observed friction does not belong.
+
+Write plainly. Short sentences, one idea each, everyday words. No em-dashes: use a period, a comma, or
+two sentences. Avoid "not just X but Y", hype words ("powerful", "seamless"), and hedging preambles.
 
 A header line naming the scanner, the time window, and the recording count is added automatically above
 your output — do not restate that metadata; focus on the observations' content. In particular, never state
@@ -575,9 +592,9 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     # the LLM gateway (settings.OPENAI_BASE_URL), so the generation lands in LLM analytics tagged to
     # Replay Vision AND bills the team's AI credits ($ai_billable) — the same budget
     # is_team_over_ai_credit_budget gates on above.
-    client = OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    client = OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
     distinct_id = replay_vision_distinct_id(team.id)
-    response = client.chat.completions.create(  # type: ignore[call-overload]
+    response = client.chat.completions.create(
         model=SYNTHESIS_MODEL,
         temperature=0.3,
         timeout=120,

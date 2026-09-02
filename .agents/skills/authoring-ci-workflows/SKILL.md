@@ -9,6 +9,8 @@ description: >
 
 # Authoring CI workflows
 
+Before you propose a change to CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md) for the idea. It records what was measured, and why some good-sounding changes were reverted or rejected.
+
 Conventions for `.github/workflows/**` and `.github/actions/**`.
 The linters own the mechanical rules (below); this skill is the **judgment calls** they can't enforce.
 
@@ -26,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
@@ -75,6 +77,8 @@ concurrency:
 ```
 
 - Cancel superseded **PR** runs; never cancel across **master** pushes.
+  `WF002` rejects a bare `cancel-in-progress: true` on any push-triggered workflow.
+  Where latest-wins is genuinely right (a cache warmer), say so with `# hogli-lint: allow-master-cancel -- <reason>`.
 - Use `github.ref` as the fallback, never `github.run_id` — `run_id` is unique per run, so it silently gives every push its own group and dedup is lost.
 - Publish-on-push workflows must not let two master pushes race `:latest` / a deploy dispatch.
   Key the push arm per-SHA (see `ci-backend.yml`):
@@ -83,19 +87,85 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
   ```
 
-## Checkout / clone — shallow by default
+## Required-check gates
 
-Full clones are slow and hang on degraded runners; blobs dominate clone size and are lazily fetchable.
-Default to shallow; go deep only for real merge-base or version math, and even then bound the depth and filter blobs.
+The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
+By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally when a step reads `needs.<dep>.result`, because the convention is not universally followed.
+A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
+Gates and the workers they inspect need **opposite** conditions:
+
+| Job     | Condition          | Why                                                                           |
+| ------- | ------------------ | ----------------------------------------------------------------------------- |
+| Gate    | `if: always()`     | It must run and emit an explicit verdict, even when everything upstream died. |
+| Workers | `if: !cancelled()` | So a superseded run actually stops instead of holding the concurrency slot.   |
+
+The gate condition must be exactly `always()`, with optional `${{ }}` wrapping.
+Adding another predicate can skip the required check, so `always() && <condition>` is rejected.
+
+`!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
+Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
+
+Four rules for the gate body:
+
+1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
+   A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.
+   The trap is the `changes` detector: clearing it with `== 'failure'` and then reading `needs.changes.outputs.*` reports green on cancellation, because those outputs are empty and the gate takes its "nothing to test" exit.
+2. **`needs` every job that produces coverage.**
+   If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
+   Name the upstream job explicitly.
+3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
+4. **Every dependency's result must reach a fail-closed allowlist guard.**
+   One inline `if` per dependency is the clearest form, but a shared shell helper or an `env:` block is equally fine: `WF007` traces each result through assignments, `${!var}` indirection, and helper argument positions within that step.
+   The guard must compare with `!=`, join multiple allowed values with `&&`, and unconditionally `exit 1` when entered.
+   Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
+   A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
+
+`WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
+
+## Checkout / clone — sparse first, then shallow
+
+This repo is 45k tracked files and 4.6 GiB of packed objects, so **what you materialize costs more than how much history you fetch**.
+Measured checkout-step durations, from the GitHub API on real runs:
+
+| Pattern                                         | depot-ubuntu-24.04 | GitHub-hosted ubuntu |
+| ----------------------------------------------- | ------------------ | -------------------- |
+| `sparse-checkout` of a few paths, cone mode off | 0–7s               | 0–7s                 |
+| plain checkout (depth 1)                        | 11–13s             | 22–44s               |
+| `fetch-depth: 1000` + `filter: blob:none`       | 53–59s             | —                    |
+
+- **Biggest lever: check out only the paths the job reads.**
+  Sparse-checkout is not just for single files — a job that runs a local composite action, reads a JSON config, or lints one directory should name those paths and nothing else.
+
+  ```yaml
+  - uses: actions/checkout@<sha> # v6
+    with:
+      sparse-checkout: |
+        .github/actions/paths-filter
+        .github/clickhouse-versions.json
+      sparse-checkout-cone-mode: false
+  ```
+
+- **Always set `sparse-checkout-cone-mode: false`.**
+  Cone mode additionally materializes every file in the repo root — here 70 files and 21.5 MB, `.test_durations` alone 18.5 MB — which is most of what you were trying to avoid.
+  Cone mode also only takes whole directories, so it drags in all of `bin/` when you wanted one script.
+
+- **`filter: blob:none` is counterproductive if the job then materializes the tree.**
+  It removes blobs from the fetch, but `git checkout` immediately lazy-fetches every blob in HEAD in a second round trip, which is slower than having fetched them in the pack.
+  That lazy fetch also intermittently fails its per-blob credential lookup with `could not read Username for github.com` (#59779, blocked a merge until retried).
+  Pair `blob:none` with `sparse-checkout` so the lazy fetch is a handful of blobs, or drop it and take the plain depth-1 checkout.
 
 - **Default:** plain `actions/checkout` (depth 1). Add nothing.
-- **Diffing against the PR base:** bounded depth + blobless, then an explicit, scoped fetch (the sanctioned pattern, from `ci-backend.yml`):
+
+- **Diffing against the PR base:** you need real history, so bound the depth, filter blobs, **and** sparse-checkout the files the job reads:
 
   ```yaml
   - uses: actions/checkout@<sha> # v6
     with:
       fetch-depth: 1000
       filter: blob:none
+      sparse-checkout: .github/actions/paths-filter
+      sparse-checkout-cone-mode: false
   - name: Fetch PR base for affected diff
     if: github.event_name == 'pull_request'
     env:
@@ -103,13 +173,21 @@ Default to shallow; go deep only for real merge-base or version math, and even t
     run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
   ```
 
-- **One file (e.g. `.nvmrc` before `setup-node`):** `sparse-checkout` it instead of cloning the repo.
+  A sparse working tree does not affect `git merge-base`, `git diff <a>...<b>`, `git log --name-status`, `git ls-tree`, `git ls-files`, or `git show <rev>:<path>` — those read the object database or the index.
+  Only commands that compare against the worktree (`git diff HEAD`, `git status`) see the skip-worktree entries.
+  One caveat when `blob:none` is also set: `git show <rev>:<path>` still needs that blob, and a sparse checkout never downloaded it, so the read becomes a lazy fetch that can fail.
+  Name any file a step reads that way in the sparse set — `ci-dagster.yml` does this for `docker-compose.base.yml`, whose contents feed a cache key.
+
+- **`changes` / paths-filter gating jobs:** on `pull_request` the vendored `.github/actions/paths-filter` diffs via the GitHub API and never touches the tree.
+  The only reason to check out is that a local action must exist on disk, so sparse-checkout `.github/actions/paths-filter` plus any file the job's own steps read.
+  **Never pass `base: HEAD` to paths-filter from a sparse job** — that routes it to `git diff HEAD`, which a sparse worktree makes return nothing, so every downstream job silently skips green.
+
 - **Foot-gun:** `git fetch --deepen=N` with **no refspec** falls back to the wildcard `refs/heads/*` and pulls _every branch_.
   Always pass an explicit, `--no-tags`, `--filter=blob:none` refspec scoped to the base ref.
   (Bumping `actions/checkout`'s own `fetch-depth` is safe — it uses a scoped `refs/pull/N/merge` refspec.)
 - The linter rejects `fetch-depth: 0` unless you add `filter: blob:none`, use `sparse-checkout`, or justify it with `# hogli-lint: allow-full-depth-checkout -- <reason>`.
-  Genuinely full-history jobs: repo mirroring (`foss-sync.yml`), tag/submodule version math (`release-cli.yml`).
-  Most base-diff jobs should use bounded `1000 + blob:none`.
+  Genuinely full-history jobs: repo mirroring (`foss-sync.yml`), tag/submodule version math (`release-cli.yml`, `desktop-tag.yml`).
+  Most base-diff jobs should use bounded `1000 + blob:none` **plus** a sparse set.
 
 ## Pinning and tool versions
 
@@ -120,6 +198,19 @@ Default to shallow; go deep only for real merge-base or version math, and even t
 - **Node version comes from `.nvmrc`** — `node-version-file: .nvmrc`, never a hardcoded `node-version:`.
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
+
+## Network fetches
+
+Downloads from outside the runner need retries, or a transient reset becomes a red check with no findings ([actionlint died on `curl: (35)`](https://github.com/PostHog/posthog/actions/runs/32022348027/job/95364480249)).
+
+```bash
+curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$out" "$url"
+```
+
+- `--retry-all-errors` is the part that catches a reset; plain `--retry` covers only timeouts and 408/429/5xx, and `--retry-connrefused` adds `ECONNREFUSED`, not `ECONNRESET`.
+- Drop it on GitHub API calls: with `-f` it also retries 403 and 404, spending five more requests on an already-empty token bucket.
+- No `--retry-delay` (it replaces exponential backoff with a fixed wait). Keep `-f`, or an error page lands in your output file at exit 0.
+- Don't retry anything non-idempotent (webhook posts, telemetry), or where a shell loop or readiness wait already retries.
 
 ## Tokens — dedicated App tokens for high-volume calls
 
@@ -132,7 +223,7 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
   # forks can't read org secrets — fall back to github.token
   if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
   with:
-    client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+    client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
     private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
 # a later step consumes the token (falling back to github.token on forks):
@@ -142,7 +233,7 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
 ```
 
 - **Right-size, don't over-isolate.** One heavy consumer (change detection on a hot matrix) deserves its own app; a long tail of light workflows can share `GITHUB_TOKEN`.
-  Convention: `GH_APP_<PURPOSE>_APP_ID` + `GH_APP_<PURPOSE>_PRIVATE_KEY`.
+  Convention: `GH_APP_<PURPOSE>_APP_ID` (an org **variable** — app IDs are not sensitive, and org secret slots are capped at 100) + `GH_APP_<PURPOSE>_PRIVATE_KEY` (an org secret).
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
 
@@ -169,6 +260,12 @@ Route through the shared composites rather than hand-rolling `actions/cache`: `.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
+**Any job that runs `manage.py migrate` against a fresh Postgres must restore the master schema dump first**, keeping the migrate as a seconds-long top-up.
+A from-scratch replay of the full migration history grows with every migration merged and already costs more than most jobs' `timeout-minutes`, so an uncached migrate is a timeout that hasn't fired yet ([agent-skills cancelled at 30 min with the checks green](https://github.com/PostHog/posthog/actions/runs/32250956659/job/96061773764)).
+Copy the three steps (compute keys, `actions/cache/restore`, prime) from `ci-agent-skills.yml` for compose-stack jobs or `ci-rust-flags-integration.yml` for service-container jobs; `hogli db:restore-schema-fresh` reads `TARGET_DB` to pick the database.
+A miss falls through to the full migrate, so the restore is never a correctness risk.
+The only sanctioned exception is a job whose purpose is validating the migration history itself (ci-backend's `check-migrations`), where a restored dump would mask what it checks.
+
 ## Runners
 
 `depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
@@ -179,7 +276,7 @@ Details: `/depot-github-runners`.
 
 Most commits land before a PR is marked ready, and drafts can't merge — so heavy suites should run a narrowed subset on drafts and the full matrix on `ready_for_review` (the merge gate).
 Add `ready_for_review` to the `pull_request` types, and make aggregator "... Tests Pass" jobs treat `skipped` as success so drafts still report.
-Foot-gun: if a `select-tests` job is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
+Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
 
 ## Backwards-compat with unrebased PRs
 
@@ -193,10 +290,12 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] Triggers scoped: trigger `paths:` where the whole workflow is skippable; a required check must still fire on every PR (never paths-gate it into never dispatching).
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
-- [ ] Checkout is shallow, or bounded `1000 + blob:none` for base diffing.
+- [ ] Checkout names only the paths the job reads (`sparse-checkout` + cone mode off), or is shallow; bounded `1000 + blob:none` only for base diffing.
 - [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
+- [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
 - [ ] Caching through the shared composites; writes gated to master.
+- [ ] Any job running `manage.py migrate` restores the master schema dump first, with the migrate as top-up (see Caching).
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.
 - [ ] `bin/hogli lint:workflows` and `actionlint` pass locally.

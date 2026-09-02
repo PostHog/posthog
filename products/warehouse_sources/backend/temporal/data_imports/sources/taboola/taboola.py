@@ -8,9 +8,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.settings import (
     REPORT_DEFAULT_BACKFILL_DAYS,
     REPORT_LOOKBACK_DAYS,
@@ -101,7 +101,22 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = TABOOLA_ENDPOINTS[endpoint]
     session = _get_session(client_secret)
-    token = _mint_token(session, client_id, client_secret)
+
+    # Unlike the mid-sync re-mint below, nothing else retries this initial mint, so a
+    # transient token-endpoint failure here needs its own backoff instead of failing the
+    # sync outright. Don't reuse `fetch`'s retry for this: it also retries on
+    # TaboolaRetryableError, and re-mint failures already propagate into that retry via the
+    # 401 branch below, so decorating the mint itself too would let the two retries compound.
+    @retry(
+        retry=retry_if_exception_type(TaboolaRetryableError),
+        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=2, max=90),
+        reraise=True,
+    )
+    def mint_initial_token() -> str:
+        return _mint_token(session, client_id, client_secret)
+
+    token = mint_initial_token()
     account_base = f"{TABOOLA_API_BASE_URL}/{_encode_path_segment(account_id)}"
 
     @retry(
@@ -114,7 +129,8 @@ def get_rows(
         nonlocal token
         response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
-        # Access tokens are short-lived; re-mint once if one expires mid-sync.
+        # Access tokens are short-lived; re-mint once if one expires mid-sync. A retryable
+        # failure here isn't retried separately — it propagates to this function's own retry.
         if response.status_code == 401:
             token = _mint_token(session, client_id, client_secret)
             response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)

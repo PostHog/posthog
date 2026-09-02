@@ -2,6 +2,8 @@
 
 All analytics events tracked from the tasks backend via `posthoganalytics.capture()`.
 
+Update this document whenever a new event or property is added.
+
 All events include group analytics via `groups()` from `posthog.event_usage`, which sets `instance`, `organization`, `customer`, and `project` groups where available.
 
 ## Standard Properties
@@ -66,6 +68,21 @@ Tracked when `Task.soft_delete()` is called. Additional properties:
 | ------------------ | ------- | --------------------------- |
 | `duration_seconds` | `float` | Seconds since task creation |
 
+## Facade events
+
+Source: `products/tasks/backend/facade/api.py`
+
+### `task_handed_off`
+
+Tracked when a task controller hands the task off to a colleague (ownership moves
+to the recipient). Captured under the handoff actor's identity rather than the
+recipient's, even though the task's `created_by` has moved by then. Additional properties:
+
+| Property       | Type   | Description                          |
+| -------------- | ------ | ------------------------------------ |
+| `from_user_id` | `int?` | User ID of the previous owner        |
+| `to_user_id`   | `int`  | User ID of the recipient (new owner) |
+
 ## TaskRun Model Events
 
 Source: `products/tasks/backend/models.py`
@@ -124,14 +141,103 @@ Tracked when the workflow begins execution.
 
 Tracked after sandbox and agent server are provisioned.
 
-| Property        | Type   | Description                     |
-| --------------- | ------ | ------------------------------- |
-| `run_id`        | `str`  | UUID of the run                 |
-| `task_id`       | `str`  | UUID of the task                |
-| `sandbox_id`    | `str`  | Sandbox identifier              |
-| `sandbox_url`   | `str`  | URL of the sandbox              |
-| `used_snapshot` | `bool` | Whether a snapshot was used     |
-| `repository`    | `str`  | Repository in `org/repo` format |
+| Property                        | Type   | Description                                               |
+| ------------------------------- | ------ | --------------------------------------------------------- |
+| `run_id`                        | `str`  | UUID of the run                                           |
+| `task_id`                       | `str`  | UUID of the task                                          |
+| `sandbox_id`                    | `str`  | Sandbox identifier                                        |
+| `sandbox_url`                   | `str`  | URL of the sandbox                                        |
+| `used_snapshot`                 | `bool` | Whether a snapshot was used                               |
+| `repository`                    | `str`  | Repository in `org/repo` format                           |
+| `boot_path`                     | `str`  | Classic or overlapping clone boot                         |
+| `boot_total_ms`                 | `int`  | Infrastructure boot time, excluding setup agent execution |
+| `sandbox_create_ms`             | `int`  | Sandbox creation time                                     |
+| `repo_clone_ms`                 | `int`  | Repository clone time                                     |
+| `branch_checkout_ms`            | `int`  | Branch checkout time                                      |
+| `agent_launch_ms`               | `int`  | Agent server launch time                                  |
+| `agent_prepare_ms`              | `int`  | Backend launch configuration time                         |
+| `agent_invoke_ms`               | `int`  | Sandbox launcher and process start time                   |
+| `agent_health_poll_ms`          | `int`  | Time spent polling the agent health endpoint              |
+| `agent_ready_wait_ms`           | `int`  | Time spent waiting for the agent server                   |
+| `agent_session_init_ms`         | `int`  | Agent session initialization time                         |
+| `agent_server_total_ms`         | `int`  | Agent server initialization time                          |
+| `agent_server_http_ready_ms`    | `int`  | Time from agent process start to HTTP listen              |
+| `agent_launcher_to_process_ms`  | `int`  | Time from sandbox launch command to agent process start   |
+| `agent_context_fetch_ms`        | `int`  | Task and run context fetch time inside agent-server       |
+| `agent_acp_initialize_ms`       | `int`  | ACP process handshake time                                |
+| `agent_repository_ready_ms`     | `int`  | Time waiting on the repository-ready barrier              |
+| `agent_session_dependencies_ms` | `int`  | Skill, resume, relay, and PR checkout preparation         |
+| `agent_session_create_ms`       | `int`  | ACP session creation or resumption time                   |
+
+### `agent_shadow_observed`
+
+Tracked after the shadow observer finishes or the result read times out. Use `run_id`, `task_id`, and `sandbox_id` to correlate this event with `sandbox_started`.
+
+| Property              | Type   | Description                                  |
+| --------------------- | ------ | -------------------------------------------- |
+| `run_id`              | `str`  | UUID of the run                              |
+| `task_id`             | `str`  | UUID of the task                             |
+| `sandbox_id`          | `str`  | Sandbox identifier                           |
+| `launched`            | `bool` | Whether the matching observer launch started |
+| `outcome`             | `str`  | Observer outcome: `ready` or `failed`        |
+| `observed_ready_ms`   | `int`  | Observer readiness time on ready outcomes    |
+| `production_ready_ms` | `int`  | Production readiness time on ready outcomes  |
+| `failure_class`       | `str`  | Allowlisted observer failure category        |
+| `read_timed_out`      | `bool` | Whether result collection timed out          |
+
+### `agent_first_command_dispatched`
+
+Tracked once when the first non-steering agent command is dispatched.
+
+### `agent_first_activity_observed`
+
+Tracked once when the first agent-generated message, thought, or tool call is observed.
+
+Both first-interaction events include:
+
+| Property               | Type   | Description                       |
+| ---------------------- | ------ | --------------------------------- |
+| `run_id`               | `str`  | UUID of the run                   |
+| `task_id`              | `str`  | UUID of the task                  |
+| `sandbox_id`           | `str`  | Sandbox identifier                |
+| `elapsed_ms`           | `int`  | Time from the workflow start      |
+| `since_agent_ready_ms` | `int`  | Time from agent readiness         |
+| `boot_path`            | `str`  | Classic or overlapping clone boot |
+| `image_source`         | `str`  | Sandbox image source              |
+| `origin_product`       | `str`  | Product that created the task     |
+| `mode`                 | `str`  | Background or interactive         |
+| `task_runtime`         | `str`  | ACP or Pi runtime                 |
+| `runtime_adapter`      | `str`  | Runtime adapter                   |
+| `provider`             | `str`  | Model provider                    |
+| `sandbox_backend`      | `str`  | Sandbox provider                  |
+| `transport`            | `str`  | SSE or sequenced event ingest     |
+| `prewarmed`            | `bool` | Whether the run was prewarmed     |
+
+### Modal VM rollout payload
+
+The `tasks-modal-vm-sandbox` payload supports gradual rollout by origin product:
+
+```json
+{
+  "default_base_origin_products": ["user_created"],
+  "origin_product_rollout_percentages": { "signals_scout": 10 },
+  "default_custom_image": "posthog-dev-stack"
+}
+```
+
+Each percentage uses a stable hash of the origin product and run ID. The same run keeps its runtime choice across activity retries.
+
+### Agent server readiness retry metric
+
+`posthog_tasks_process_agent_server_readiness_retry_total` counts readiness retries that re-enter the start path in the existing sandbox. The start path keeps a process that became healthy between attempts and replaces one that remains unready.
+
+| Label            | Description                                 |
+| ---------------- | ------------------------------------------- |
+| `attempt`        | Temporal activity attempt number            |
+| `outcome`        | `succeeded` or `failed`                     |
+| `boot_path`      | Classic or overlapping clone boot           |
+| `origin_product` | Product that created the task               |
+| `runtime`        | Sandbox runtime, currently `gvisor` or `vm` |
 
 ### `task_run_cancelled`
 
@@ -178,14 +284,6 @@ Tracked when a GitHub `pull_request.closed` webhook is received with `merged=tru
 ### `pr_closed`
 
 Tracked when a GitHub `pull_request.closed` webhook is received with `merged=false`. Same additional properties as `pr_created`.
-
-## API Events
-
-Source: `products/tasks/backend/api.py`
-
-### `code_invite_redeemed`
-
-Tracked when a user redeems a Desktop invite. Includes `organization` group analytics. No additional properties.
 
 ## Activity Observability Events
 

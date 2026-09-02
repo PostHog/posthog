@@ -101,9 +101,11 @@ where
         team_id: i32,
         catalog: &C,
         _debug_images: &[DebugImage],
-        _context_lines: usize, // Java frames have no source context to bound
+        // Bounds the source context a client sent on a pass-through (no map_id) frame.
+        // ProGuard-remapped frames drop context, so it only matters on that path.
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError> {
-        self.resolve_frame(team_id, catalog).await
+        self.resolve_frame(team_id, catalog, context_lines).await
     }
 }
 

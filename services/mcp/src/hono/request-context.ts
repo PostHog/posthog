@@ -25,7 +25,6 @@ import {
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
-    private sessionCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
@@ -58,16 +57,6 @@ export class RequestContext {
         return this.tokenCacheInstance
     }
 
-    get sessionCache(): RedisCache<State> {
-        if (!this.props.mcpSessionId) {
-            throw new Error('Session ID is required to use the session cache')
-        }
-        if (!this.sessionCacheInstance) {
-            this.sessionCacheInstance = new RedisCache<State>(hash(this.props.mcpSessionId), this.redis, 'session')
-        }
-        return this.sessionCacheInstance
-    }
-
     getUserCache(distinctId: string): RedisCache<State> {
         if (!this.userCacheInstance) {
             this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
@@ -77,6 +66,13 @@ export class RequestContext {
 
     get cache(): RedisCache<State> {
         return this.tokenCache
+    }
+
+    private async readCachedOAuthClientName(): Promise<string | undefined> {
+        if (!this.props.userHash) {
+            return undefined
+        }
+        return (await this.tokenCache.get('clientName')) || undefined
     }
 
     private async api(): Promise<ApiClient> {
@@ -101,6 +97,11 @@ export class RequestContext {
                 mcpClientVersion: this.props.mcpClientVersion,
                 mcpProtocolVersion: this.props.mcpProtocolVersion,
                 mcpConsumer: this.props.mcpConsumer,
+                // Cached from a previous request's token introspection. On a cold cache this is
+                // still unset here, so `StateManager` also stamps it onto the live client's config
+                // the moment introspection resolves it — otherwise a token's first request would
+                // reach the API unattributed.
+                oauthClientName: await this.readCachedOAuthClientName(),
                 taskId: this.props.taskId,
             })
         }

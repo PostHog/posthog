@@ -12,6 +12,8 @@ export interface RetryOptions {
     name?: string
     tries?: number
     sleepMs?: number
+    /** Fraction of each backoff to jitter by. Defaults to `DEFAULT_JITTER_FACTOR`; pass `0` to opt out. */
+    jitter?: number
 }
 
 /**
@@ -41,7 +43,8 @@ export function withStepRetry<T, U, R extends string = never>(
                     return step(value)
                 },
                 options.tries ?? 3,
-                options.sleepMs ?? 100
+                options.sleepMs ?? 100,
+                options.jitter
             )
             pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)
             return result
@@ -96,7 +99,8 @@ export function withChunkRetry<T, U, R extends string = never>(
                     return step(values)
                 },
                 options.tries ?? 3,
-                options.sleepMs ?? 100
+                options.sleepMs ?? 100,
+                options.jitter
             )
             pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)
             return result

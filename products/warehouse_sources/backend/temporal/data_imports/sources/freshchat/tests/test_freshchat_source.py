@@ -7,15 +7,12 @@ import structlog
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat import FreshchatResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.source import FreshchatSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshchat import (
     FreshchatSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.source.validate_freshchat_credentials"
@@ -44,9 +41,6 @@ class TestFreshchatSource:
         self.source = FreshchatSource()
         self.team_id = 1
         self.config = FreshchatSourceConfig(domain="acme.freshchat.com", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRESHCHAT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -78,13 +72,6 @@ class TestFreshchatSource:
         # The domain is where the stored token is sent; editing it must re-require the secret.
         assert self.source.connection_host_fields == ["domain"]
 
-    @pytest.mark.parametrize(
-        "expected_key",
-        ["401 Client Error", "403 Client Error: Forbidden for url", "Freshchat domain is not allowed"],
-    )
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
-
     def test_get_schemas_covers_all_endpoints_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
@@ -113,10 +100,6 @@ class TestFreshchatSource:
 
     def test_get_schemas_unknown_name_returns_empty(self) -> None:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "domain, status, schema_name, expected_valid, expect_probe",
@@ -149,11 +132,6 @@ class TestFreshchatSource:
         assert is_valid is expected_valid
         if not expect_probe:
             mock_validate.assert_not_called()
-
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FreshchatResumeConfig
 
     def test_source_for_pipeline_plumbing(self) -> None:
         inputs = _make_inputs("agents")

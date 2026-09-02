@@ -128,13 +128,12 @@ Match on the most specific property combination you can:
 | Third-party network beacon failures | `$exception_sources icontains "<vendor-domain>"` AND a type filter (e.g. `$exception_types exact "TypeError"`)                              |
 
 The canonical exception properties (`$exception_types`, `$exception_values`,
-`$exception_sources`, `$exception_functions`) are arrays at capture time. The
-property filter compiler [special-cases them](https://github.com/PostHog/posthog/blob/master/posthog/hogql/property.py#L904) — it parses the
-JSON-materialized column and wraps the filter in
-`arrayExists(v -> ..., JSONExtract(...))`, so all the standard operators
-(`exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`) work
-against individual elements with the bare value: `exact "TypeError"`, not
-`exact '["TypeError"]'` or `regex '"TypeError"'`.
+`$exception_sources`, `$exception_functions`) are arrays at capture time.
+PostHog's property filters special-case them — each filter matches against
+the individual array elements, so all the standard operators (`exact`,
+`is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`) work with the
+bare value: `exact "TypeError"`, not `exact '["TypeError"]'` or
+`regex '"TypeError"'`.
 
 The singular forms (`$exception_type`, `$exception_message`) and
 `$exception_stack_trace_raw` are emitted on a fraction of a percent of events;
@@ -339,3 +338,8 @@ preserves the rule's configuration for forensic review.
 - A suppression rule that turns out to be too narrow is harmless (some noise
   leaks through). A rule that's too broad silently destroys real data — bias
   toward narrow.
+
+## Related skills
+
+- **`grouping-noisy-errors`** — merge or regroup instead of dropping, when the events still carry signal
+- **`triaging-error-issues`** — rank what remains once the noise is muted

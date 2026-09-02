@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -13,6 +14,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
@@ -31,9 +33,13 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
+    DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
+    clear_latest_scout_report_delivery,
+    mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
     post_scout_report_to_slack,
     slack_api_error_code,
@@ -68,7 +74,6 @@ _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync
 _SCOUT_SLACK_MAX_RETRIES = 5
 _SCOUT_SLACK_RETRY_BASE_SECONDS = 60
 _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
-_SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT))
 
 
 @shared_task(
@@ -117,6 +122,8 @@ def deliver_scout_slack_output(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -137,6 +144,7 @@ def deliver_scout_slack_output(
                 return
             post_scout_emission_to_slack(
                 emission,
+                delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
             )
@@ -146,7 +154,7 @@ def deliver_scout_slack_output(
             if report is None or run is None:
                 logger.warning("signals_scout.slack_delivery_output_missing", **context)
                 return
-            if report.status not in _SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES:
+            if report.status not in DELIVERABLE_REPORT_STATUSES:
                 logger.info(
                     "signals_scout.slack_delivery_report_not_surfaced",
                     **context,
@@ -159,6 +167,8 @@ def deliver_scout_slack_output(
                 delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
+                edit_note=edit_note,
+                thread_reports=thread_reports,
             )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
@@ -210,9 +220,26 @@ def enqueue_scout_slack_delivery(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
+    # Only a full report delivery supersedes an earlier one: a note-only update leaves the
+    # report message to the delivery that is still building it.
+    supersedes = output_type == "report" and edit_note is None
     try:
+        # Claim before publishing: an earlier delivery of the same report reads this marker to decide
+        # whether to yield, and between the two calls it would see no claim and post the report that
+        # this delivery is about to post again.
+        if supersedes:
+            mark_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
+        # Each optional arg rides as a kwarg only when set, so a delivery without one keeps the
+        # payload shape workers running the previous task signature still accept.
+        extra_kwargs: dict[str, str | bool] = {}
+        if edit_note is not None:
+            extra_kwargs["edit_note"] = edit_note
+        if thread_reports:
+            extra_kwargs["thread_reports"] = True
         deliver_scout_slack_output.delay(
             team_id,
             output_type,
@@ -221,8 +248,13 @@ def enqueue_scout_slack_delivery(
             delivery_id,
             integration_id,
             channel,
+            **extra_kwargs,
         )
     except Exception as exc:
+        # The claim now names a delivery that will never run, and would silence every later delivery
+        # of this report until it expired, so give it up before reporting the failure.
+        if supersedes:
+            clear_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
         capture_exception(
             exc,
             {
@@ -341,9 +373,9 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
     # bounds here is exactly the drift that loses the credit. The fallback covers rows created
     # before the bounds were snapshotted.
     if refund.period_start is not None and refund.period_end is not None:
-        period_start, period_end = refund.period_start, refund.period_end
+        period = BillingPeriod(start=refund.period_start, end=refund.period_end)
     else:
-        period_start, period_end = current_billing_period_bounds(organization)
+        period = current_billing_period_bounds(organization)
     payload = {
         "refund_id": str(refund.id),
         "credits": refund.credits,
@@ -352,8 +384,8 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
             "report_id": str(refund.report_id),
             "pr_url": refund.pr_url,
             "pr_run_created_at": refund.pr_run_created_at.isoformat(),
-            "period_start": period_start.isoformat(),
-            "period_end": period_end.isoformat(),
+            "period_start": period.start.isoformat(),
+            "period_end": period.end.isoformat(),
         },
     }
 
@@ -453,6 +485,12 @@ def sync_pending_signals_refund_credits() -> None:
 
 
 _ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
+# Every rebuild boots a Modal sandbox, so the weekly warm-up releases rebuilds in small batches
+# spaced this far apart rather than all at once. A single burst of the whole fan-out trips
+# Modal's API rate limit once enough repositories are warm. N repositories fully release in about
+# (N / _REFRESH_BATCH_SIZE) * _REFRESH_BATCH_INTERVAL_SECONDS, well within the weekly cadence.
+_REFRESH_BATCH_SIZE = 10
+_REFRESH_BATCH_INTERVAL_SECONDS = 60
 # Backstop for a worker dying without releasing the rebuild lock; above the task's
 # time_limit so a live rebuild is never treated as abandoned.
 _REBUILD_LOCK_TTL_SECONDS = 30 * 60
@@ -502,26 +540,103 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
 
 
 @shared_task(
-    name="products.signals.backend.tasks.refresh_signal_repository_activity",
+    name="products.signals.backend.tasks.pause_inactive_signal_scouts",
     ignore_result=True,
     max_retries=0,
 )
 @skip_team_scope_audit
-def refresh_signal_repository_activity() -> None:
-    """Weekly (Monday) warm-up: enqueue a rebuild for every recently-used repository map."""
-    now = timezone.now()
-    SignalRepositoryAreaActivity.objects.unscoped().filter(
-        last_used_at__lt=now - _ACTIVITY_ROW_MAX_IDLE
-    ).delete()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+def pause_inactive_signal_scouts() -> None:
+    """Daily sweep: warn, then auto-pause scouts nothing comes of.
 
-    repositories = list(
-        SignalRepositoryAreaActivity.objects.unscoped()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
-        .filter(last_used_at__gte=now - ACTIVITY_KEEP_WARM_WINDOW)
-        .values_list("team_id", "repository")
-        .distinct()
-        .order_by("team_id", "repository")
+    Runs here rather than on the coordinator's 30-minute tick — that tick is deliberately
+    bounded, and inactivity doesn't change by the half hour. See
+    `scout_harness/inactivity.py` for what counts as productive.
+    """
+    outcome = sweep_inactive_scouts()
+    logger.info(
+        "signals_scout inactivity sweep finished",
+        considered=outcome.considered,
+        warned=len(outcome.warned),
+        paused=len(outcome.paused),
+        recovered=outcome.recovered,
+        deferred=outcome.deferred,
     )
-    for team_id, repository in repositories:
+    if not outcome.warned and not outcome.paused:
+        return
+    # The fleet's spend was measured from analytics in the first place, so report the sweep the same
+    # way — it's how we'll tell whether the pauses are landing on the scouts we meant.
+    touched = outcome.warned + outcome.paused
+    organizations = {
+        team.id: team.organization
+        for team in Team.objects.filter(id__in={config.team_id for config in touched}).select_related("organization")
+    }
+    with ph_scoped_capture() as capture:
+        for event, configs in (
+            ("signals_scout_auto_pause_warned", outcome.warned),
+            ("signals_scout_auto_paused", outcome.paused),
+        ):
+            for config in configs:
+                organization = organizations.get(config.team_id)
+                if organization is None:
+                    continue
+                capture(
+                    distinct_id=str(organization.id),
+                    event=event,
+                    properties={
+                        "team_id": config.team_id,
+                        "organization_id": str(organization.id),
+                        "skill_name": config.skill_name,
+                        "run_interval_minutes": config.run_interval_minutes,
+                        "pause_reason": config.pause_reason,
+                        # Splits noisy-but-unconsumed from silent in the read-back; the two
+                        # cohorts need different fixes (retune vs refocus).
+                        "had_output": outcome.had_output.get(config.pk),
+                    },
+                    groups=groups(organization=organization),
+                )
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_signal_repository_activity",
+    ignore_result=True,
+    max_retries=0,
+    # The chain holds each countdown message in one worker's memory for the whole interval.
+    # Ack it only after the batch schedules the next one, so a worker restart (deploy,
+    # scale-down, OOM) redelivers the message and resumes the walk instead of dropping it.
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@skip_team_scope_audit
+def refresh_signal_repository_activity(after_team_id: int | None = None, after_repository: str | None = None) -> None:
+    """Weekly (Monday) warm-up: enqueue a rebuild for every recently-used repository map.
+
+    Releases rebuilds in batches of ``_REFRESH_BATCH_SIZE``. Each batch re-schedules the next
+    after ``_REFRESH_BATCH_INTERVAL_SECONDS`` via a stable (team_id, repository) cursor, so the
+    fan-out spreads over the window instead of bursting past Modal's sandbox-creation rate limit.
+    """
+    now = timezone.now()
+    first_batch = after_team_id is None and after_repository is None
+    if first_batch:
+        SignalRepositoryAreaActivity.objects.unscoped().filter(
+            last_used_at__lt=now - _ACTIVITY_ROW_MAX_IDLE
+        ).delete()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+
+    warm = SignalRepositoryAreaActivity.objects.unscoped().filter(  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
+        last_used_at__gte=now - ACTIVITY_KEEP_WARM_WINDOW
+    )
+    if after_team_id is not None and after_repository is not None:
+        warm = warm.filter(Q(team_id__gt=after_team_id) | Q(team_id=after_team_id, repository__gt=after_repository))
+    batch = list(
+        warm.values_list("team_id", "repository").distinct().order_by("team_id", "repository")[:_REFRESH_BATCH_SIZE]
+    )
+    if not batch:
+        return
+    for team_id, repository in batch:
         rebuild_signal_repository_activity.delay(team_id=team_id, repository=repository, force=True)
-    if repositories:
-        logger.info("signals repository activity refresh enqueued rebuilds", count=len(repositories))
+    logger.info("signals repository activity refresh enqueued rebuilds", count=len(batch))
+    if len(batch) == _REFRESH_BATCH_SIZE:
+        last_team_id, last_repository = batch[-1]
+        refresh_signal_repository_activity.apply_async(
+            kwargs={"after_team_id": last_team_id, "after_repository": last_repository},
+            countdown=_REFRESH_BATCH_INTERVAL_SECONDS,
+        )

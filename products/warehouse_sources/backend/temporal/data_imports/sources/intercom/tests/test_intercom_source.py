@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"contacts", "conversations", "tickets", "activity_logs", "conversation_parts"}
 
@@ -19,15 +16,15 @@ class TestIntercomSource:
         self.team_id = 123
         self.config = IntercomSourceConfig(intercom_integration_id=456)
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INTERCOM
-
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.
-        assert self.source.default_version == "2.15"
+        assert self.source.default_version == "2.16"
         assert self.source.default_version in self.source.supported_versions
 
-    @pytest.mark.parametrize("pinned,expected", [(None, "2.15"), ("", "2.15"), ("2.13", "2.13"), ("2.15", "2.15")])
+    @pytest.mark.parametrize(
+        "pinned,expected",
+        [(None, "2.16"), ("", "2.16"), ("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16")],
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
@@ -46,32 +43,6 @@ class TestIntercomSource:
 
         _, kwargs = mock_intercom_source.call_args
         assert kwargs["api_version"] == expected
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Intercom"
-        assert config.releaseStatus == "beta"
-        assert not config.unreleasedSource
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "intercom_integration_id"
-        assert oauth_field.kind == "intercom"
-        assert oauth_field.required is True
-
-    @pytest.mark.parametrize(
-        "key",
-        [
-            "401 Client Error",
-            "403 Client Error",
-            "Missing integration ID",
-            "Integration not found",
-            "Intercom access token not found",
-        ],
-    )
-    def test_get_non_retryable_errors(self, key):
-        assert key in self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -102,6 +73,21 @@ class TestIntercomSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "400 Client Error: Bad Request for url: https://api.intercom.io/companies/scroll",
+        ],
+    )
+    def test_companies_scroll_exists_exhaustion_is_retryable(self, error_msg):
+        # Opening a companies scroll retries a `scroll_exists` lock inline (see
+        # `_open_companies_scroll`), but a lock held longer than that budget exhausts it and
+        # the raw error propagates. A fresh Temporal attempt opens cleanly once the stale
+        # scroll expires, so this should stay out of error tracking the same way the 404
+        # scroll-expiry case above does.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -114,6 +100,17 @@ class TestIntercomSource:
             expected = name in INCREMENTAL_ENDPOINTS
             assert schema.supports_incremental is expected, name
             assert schema.supports_append is expected, name
+
+    def test_canonical_descriptions_cover_every_endpoint(self):
+        # Endpoints missing from the curated map fall back to LLM enrichment, which is
+        # both slower and less accurate than the vendor's own docs. Adding a table
+        # without its description is the easy thing to forget.
+        descriptions = self.source.get_canonical_descriptions()
+
+        assert set(descriptions) == set(INTERCOM_ENDPOINTS)
+        for name, entry in descriptions.items():
+            assert entry.get("description"), name
+            assert entry.get("columns"), name
 
     def test_get_schemas_names_filter(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])
@@ -136,9 +133,9 @@ class TestIntercomSource:
         assert error is None
         mock_get_integration.assert_called_once_with(self.config.intercom_integration_id, self.team_id)
         # No pin passed (pre-creation), so the probe runs on default_version.
-        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.15")
+        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.16")
 
-    @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), (None, "2.15")])
+    @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), (None, "2.16")])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.validate_intercom_credentials"
     )

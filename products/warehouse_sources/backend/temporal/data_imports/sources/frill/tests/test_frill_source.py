@@ -1,36 +1,11 @@
-from typing import Any
-
 import pytest
 from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill import FrillResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.source import FrillSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frill import FrillSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "ideas",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestFrillSource:
@@ -38,9 +13,6 @@ class TestFrillSource:
         self.source = FrillSource()
         self.team_id = 123
         self.config = FrillSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRILL
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -112,25 +84,6 @@ class TestFrillSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("test-key")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FrillResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.frill.source.frill_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(schema_name="votes", team_id=99, job_id="job-xyz")
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_source.assert_called_once_with(
-            api_key="test-key",
-            endpoint="votes",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-        )
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         descriptions = self.source.get_canonical_descriptions()

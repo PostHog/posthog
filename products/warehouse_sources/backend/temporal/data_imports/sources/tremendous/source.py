@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,12 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tremendous import (
     TremendousSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
     TREMENDOUS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (
@@ -116,9 +114,9 @@ You can create an API key under **Team settings → Developers** in [Tremendous]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only /orders exposes a server-side timestamp filter (`created_at[gte]`); everything else
-        # is full refresh (see settings.py).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Only /orders and /balance_transactions expose a server-side timestamp filter
+        # (`created_at[gte]`); everything else is full refresh (see settings.py).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

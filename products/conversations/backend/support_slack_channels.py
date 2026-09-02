@@ -9,9 +9,10 @@ of duplicating WebClient logic.
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
-from slack_sdk import WebClient
 
-from products.conversations.backend.support_slack import get_support_slack_bot_token
+from posthog.egress.slack.client import SlackWebClient as WebClient
+
+from products.conversations.backend.support_slack import get_support_slack_bot_token, get_support_slack_workspace_id
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -41,7 +42,12 @@ def list_support_bot_channels(team: "Team", *, members_only: bool = False) -> li
     if not bot_token:
         raise SupportSlackNotConfigured()
 
-    client = WebClient(token=bot_token)
+    client = WebClient(
+        token=bot_token,
+        source="conversations",
+        workspace_id=get_support_slack_workspace_id(team),
+        app_id="support",
+    )
     channels: list[dict[str, Any]] = []
     cursor = None
 

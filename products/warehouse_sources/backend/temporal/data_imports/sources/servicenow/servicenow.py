@@ -5,7 +5,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import AuthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import SERVICENOW_ENDPOINTS
 
 # ServiceNow's Table API defaults to a generous page size; we keep it modest so each
@@ -57,13 +59,13 @@ class ServiceNowResumeConfig:
     offset: int = 0
 
 
-@dataclasses.dataclass
+@frozen
 class ServiceNowAuth:
     """Resolved credentials for a single sync. Exactly one auth style is populated."""
 
-    api_key: Optional[str] = None
+    api_key: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
     def headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}

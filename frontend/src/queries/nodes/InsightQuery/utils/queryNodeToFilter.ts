@@ -28,6 +28,7 @@ import {
     isLifecycleDataWarehouseNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
@@ -166,6 +167,7 @@ export const nodeKindToInsightType: Record<ProductAnalyticsInsightNodeKind, Insi
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
     [NodeKind.PathsQuery]: InsightType.PATHS,
+    [NodeKind.PathsV2Query]: InsightType.JOURNEYS,
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
@@ -175,6 +177,7 @@ const nodeKindToFilterKey: Record<ProductAnalyticsInsightNodeKind, string> = {
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
     [NodeKind.PathsQuery]: 'pathsFilter',
+    [NodeKind.PathsV2Query]: 'pathsV2Filter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
@@ -184,6 +187,13 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     if (isWebAnalyticsInsightQuery(query)) {
         return {
             insight: InsightType.WEB_ANALYTICS,
+        }
+    }
+
+    // Paths v2 queries don't have a legacy filter format either
+    if (isPathsV2Query(query)) {
+        return {
+            insight: InsightType.JOURNEYS,
         }
     }
 

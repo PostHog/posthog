@@ -77,7 +77,6 @@ def service_account_config() -> dict[str, str]:
 
 
 def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
-    """Test basic case of source configuration loading."""
     private_key = "private_key"
     private_key_id = "id"
     client_email = "posthog@posthog.com"
@@ -106,7 +105,6 @@ def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
 
 
 def test_google_ads_source_config_handles_customer_id_with_dashes(developer_token: str):
-    """Test source configuration handles clean up of customer id."""
     private_key = "private_key"
     private_key_id = "id"
     client_email = "posthog@posthog.com"
@@ -543,7 +541,7 @@ class TestGoogleAdsSourceValidation:
 
         assert is_valid is False
         assert error is not None
-        assert "is not accessible" in error
+        assert "linked under that manager" in error
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
@@ -563,7 +561,7 @@ class TestGoogleAdsSourceValidation:
 
         assert is_valid is False
         assert error is not None
-        assert "is not accessible" in error
+        assert "linked under that manager" in error
 
 
 class TestGoogleAdsClientStaleConnection:

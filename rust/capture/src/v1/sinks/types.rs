@@ -6,6 +6,7 @@ use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 use crate::event_restrictions::Pipeline;
+use crate::ordering::OrderingGuarantee;
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -54,6 +55,59 @@ impl Destination {
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
             Self::HeatmapMain | Self::ClientIngestionWarning | Self::Dlq | Self::Custom(_) => None,
             Self::Drop => None,
+        }
+    }
+
+    /// Whether this lane exists to absorb hot keys, and so may publish without
+    /// a partition key to spread load across partitions.
+    ///
+    /// Everything else keeps its key even when person processing is off,
+    /// because its consumers rely on per-distinct-id ordering: historical
+    /// backfills, the dlq, admin custom redirects, and the AI main topic.
+    /// Matches the lanes legacy `route()` resolves through `person_ordering`.
+    ///
+    /// Exhaustive on purpose: a new destination has to state which side it is
+    /// on rather than silently inheriting "keeps its key".
+    pub fn absorbs_hot_keys(&self) -> bool {
+        match self {
+            Self::AnalyticsMain | Self::Overflow | Self::AiEventsOverflow => true,
+            Self::AnalyticsHistorical
+            | Self::Dlq
+            | Self::Custom(_)
+            | Self::ExceptionErrorTracking
+            | Self::HeatmapMain
+            | Self::ClientIngestionWarning
+            | Self::AiEvents => false,
+            // Never published, so it never reaches a partition key.
+            Self::Drop => false,
+        }
+    }
+
+    /// Whether this lane's consumer runs person processing with writes. On
+    /// such a lane one distinct id must stay on one partition while person
+    /// processing is on — spreading it turns a hot key into contended
+    /// person-row updates — so a spread decision only takes effect once the
+    /// person-processing flag is set. Read-only consumers (the AI lanes,
+    /// error tracking) and lanes with no person processing at all (heatmaps,
+    /// client warnings) can take keyless records at any time. The dlq and
+    /// custom redirects replay into analytics ingestion, so they count as
+    /// person-writing.
+    ///
+    /// Exhaustive for the same reason as [`Self::absorbs_hot_keys`].
+    pub fn writes_persons(&self) -> bool {
+        match self {
+            Self::AnalyticsMain
+            | Self::AnalyticsHistorical
+            | Self::Overflow
+            | Self::Dlq
+            | Self::Custom(_) => true,
+            Self::AiEvents
+            | Self::AiEventsOverflow
+            | Self::ExceptionErrorTracking
+            | Self::HeatmapMain
+            | Self::ClientIngestionWarning => false,
+            // Never published, so it never reaches a consumer.
+            Self::Drop => false,
         }
     }
 
@@ -205,8 +259,11 @@ pub struct PreparedEvent {
     pub destination: Destination,
     pub payload: bytes::Bytes,
     pub headers: CapturedEventHeaders,
-    /// Raw key; the Sink decides whether to use or null it per routing policy.
+    /// Raw key; whether the Sink uses it is decided by `ordering`.
     pub partition_key: String,
+    /// The guarantee `partition_key` exists to preserve.
+    /// [`OrderingGuarantee::None`] means publish without a key.
+    pub ordering: OrderingGuarantee,
 }
 
 // ---------------------------------------------------------------------------

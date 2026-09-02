@@ -12,41 +12,66 @@ import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
+    BackfillEstimateResponseApi,
+    BackfillWindowApi,
     BulkObserveRequestApi,
     BulkObserveResponseApi,
     CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
+    DraftScannerRequestApi,
+    DraftScannerResponseApi,
     EstimateRequestApi,
     EstimateResponseApi,
     EvaluatePromptSuggestionRequestApi,
+    InlineScanRequestApi,
+    InlineScanResponseApi,
+    ObservationSearchResponseApi,
     ObservationStatsApi,
+    ObserveAlreadyScannedApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
+    PaginatedReplayScannerBackfillListApi,
     PaginatedReplayScannerListApi,
     PaginatedReplayScannerPromptSuggestionListApi,
     PaginatedVisionActionListApi,
     PaginatedVisionActionRunListListApi,
+    PaginatedVisionAlertConfigurationListApi,
+    PaginatedVisionAlertEventListApi,
     PatchedReplayScannerApi,
     PatchedVisionActionApi,
+    PatchedVisionAlertConfigurationApi,
     ReplayObservationApi,
     ReplayObservationLabelApi,
     ReplayScannerApi,
+    ReplayScannerBackfillApi,
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
     RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
+    ScannerScoutCreateApi,
+    ScannerScoutCreateResponseApi,
+    ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
+    ScoutReportApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionActionApi,
     VisionActionRunApi,
     VisionActionsListParams,
     VisionActionsRunsListParams,
+    VisionAlertConfigurationApi,
+    VisionAlertCreateDestinationApi,
+    VisionAlertDeleteDestinationApi,
+    VisionAlertDestinationResponseApi,
+    VisionAlertsEventsListParams,
+    VisionAlertsListParams,
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
+    VisionObservationsSearchRetrieveParams,
     VisionQuotaApi,
+    VisionScannersBackfillsListParams,
     VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
@@ -90,6 +115,11 @@ export const getVisionActionsListUrl = (projectId: string, params?: VisionAction
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsList = async (
     projectId: string,
@@ -108,6 +138,11 @@ export const getVisionActionsCreateUrl = (projectId: string) => {
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsCreate = async (
     projectId: string,
@@ -128,6 +163,11 @@ export const getVisionActionsRetrieveUrl = (projectId: string, id: string) => {
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsRetrieve = async (
     projectId: string,
@@ -146,6 +186,11 @@ export const getVisionActionsPartialUpdateUrl = (projectId: string, id: string) 
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsPartialUpdate = async (
     projectId: string,
@@ -167,6 +212,11 @@ export const getVisionActionsDestroyUrl = (projectId: string, id: string) => {
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const visionActionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
@@ -252,6 +302,203 @@ export const visionActionsRunsRetrieve = async (
     })
 }
 
+export const getVisionAlertsListUrl = (projectId: string, params?: VisionAlertsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/alerts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/alerts/`
+}
+
+export const visionAlertsList = async (
+    projectId: string,
+    params?: VisionAlertsListParams,
+    options?: RequestInit
+): Promise<PaginatedVisionAlertConfigurationListApi> => {
+    return apiMutator<PaginatedVisionAlertConfigurationListApi>(getVisionAlertsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionAlertsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/alerts/`
+}
+
+export const visionAlertsCreate = async (
+    projectId: string,
+    visionAlertConfigurationApi: NonReadonly<VisionAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<VisionAlertConfigurationApi> => {
+    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(visionAlertConfigurationApi),
+    })
+}
+
+export const getVisionAlertsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/alerts/${id}/`
+}
+
+export const visionAlertsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<VisionAlertConfigurationApi> => {
+    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionAlertsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/alerts/${id}/`
+}
+
+export const visionAlertsUpdate = async (
+    projectId: string,
+    id: string,
+    visionAlertConfigurationApi: NonReadonly<VisionAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<VisionAlertConfigurationApi> => {
+    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(visionAlertConfigurationApi),
+    })
+}
+
+export const getVisionAlertsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/alerts/${id}/`
+}
+
+export const visionAlertsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedVisionAlertConfigurationApi?: NonReadonly<PatchedVisionAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<VisionAlertConfigurationApi> => {
+    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedVisionAlertConfigurationApi),
+    })
+}
+
+export const getVisionAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/alerts/${id}/`
+}
+
+export const visionAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getVisionAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getVisionAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/alerts/${id}/destinations/`
+}
+
+/**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind atomically.
+ */
+export const visionAlertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    visionAlertCreateDestinationApi: VisionAlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<VisionAlertDestinationResponseApi> => {
+    return apiMutator<VisionAlertDestinationResponseApi>(getVisionAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(visionAlertCreateDestinationApi),
+    })
+}
+
+export const getVisionAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/alerts/${id}/destinations/delete/`
+}
+
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
+export const visionAlertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    visionAlertDeleteDestinationApi: VisionAlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(visionAlertDeleteDestinationApi),
+    })
+}
+
+export const getVisionAlertsEventsListUrl = (projectId: string, id: string, params?: VisionAlertsEventsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/alerts/${id}/events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/alerts/${id}/events/`
+}
+
+/**
+ * Paginated event history for this alert, newest first. Quiet no-op check rows (no state change, no error) are filtered out. Optional `?kind=...` narrows to one kind.
+ */
+export const visionAlertsEventsList = async (
+    projectId: string,
+    id: string,
+    params?: VisionAlertsEventsListParams,
+    options?: RequestInit
+): Promise<PaginatedVisionAlertEventListApi> => {
+    return apiMutator<PaginatedVisionAlertEventListApi>(getVisionAlertsEventsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionAlertsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/alerts/${id}/reset/`
+}
+
+/**
+ * Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.
+ */
+export const visionAlertsResetCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<VisionAlertConfigurationApi> => {
+    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -269,7 +516,8 @@ export const getVisionObservationsListUrl = (projectId: string, params: VisionOb
 }
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * A session's observations across every scanner the caller can read, plus the team-level semantic
+ * `search` action, which resolves its own scanner scope instead of this queryset.
  */
 export const visionObservationsList = async (
     projectId: string,
@@ -379,7 +627,7 @@ export const getVisionObservationsRetryCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ * Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
  */
 export const visionObservationsRetryCreate = async (
     projectId: string,
@@ -389,6 +637,40 @@ export const visionObservationsRetryCreate = async (
     return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionObservationsSearchRetrieveUrl = (
+    projectId: string,
+    params: VisionObservationsSearchRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/search/`
+}
+
+/**
+ * Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
+ * (verdict, score, tags).
+ */
+export const visionObservationsSearchRetrieve = async (
+    projectId: string,
+    params: VisionObservationsSearchRetrieveParams,
+    options?: RequestInit
+): Promise<ObservationSearchResponseApi> => {
+    return apiMutator<ObservationSearchResponseApi>(getVisionObservationsSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -552,6 +834,29 @@ export const visionScannersBulkObserveCreate = async (
     })
 }
 
+export const getVisionScannersDuplicateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/duplicate/`
+}
+
+/**
+ * Copy a scanner into a new disabled scanner named "<name> (copy)".
+ *
+ * Copies the stored model row rather than the serializer's read representation, so a query
+ * that no longer validates survives the copy; duplicating through the create endpoint would
+ * silently drop it. Experiment targeting is the exception and follows the read path instead.
+ * Unlike create, no digest is provisioned: the copy starts disabled and unreviewed.
+ */
+export const visionScannersDuplicateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerApi> => {
+    return apiMutator<ReplayScannerApi>(getVisionScannersDuplicateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionScannersImpactRetrieveUrl = (
     projectId: string,
     id: string,
@@ -599,12 +904,177 @@ export const visionScannersObserveCreate = async (
     id: string,
     observeRequestApi: ObserveRequestApi,
     options?: RequestInit
-): Promise<ObserveResponseApi> => {
-    return apiMutator<ObserveResponseApi>(getVisionScannersObserveCreateUrl(projectId, id), {
+): Promise<ObserveAlreadyScannedApi | ObserveResponseApi> => {
+    return apiMutator<ObserveAlreadyScannedApi | ObserveResponseApi>(getVisionScannersObserveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(observeRequestApi),
+    })
+}
+
+export const getVisionScannersSelfDrivingStatsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/self_driving_stats/`
+}
+
+/**
+ * What self-driving did with this scanner's signals: reports contributed to and PRs opened.
+ */
+export const visionScannersSelfDrivingStatsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScannerSelfDrivingStatsApi> => {
+    return apiMutator<ScannerSelfDrivingStatsApi>(getVisionScannersSelfDrivingStatsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersBackfillsListUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersBackfillsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/`
+}
+
+/**
+ * Historical backfills of a scanner over a closed time window (nested under a scanner).
+ */
+export const visionScannersBackfillsList = async (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersBackfillsListParams,
+    options?: RequestInit
+): Promise<PaginatedReplayScannerBackfillListApi> => {
+    return apiMutator<PaginatedReplayScannerBackfillListApi>(
+        getVisionScannersBackfillsListUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersBackfillsCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/`
+}
+
+/**
+ * Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
+ *
+ * The enumeration reruns here rather than trusting the client-confirmed estimate: the count is
+ * billing-relevant, so the authoritative value is computed server-side at creation time. New
+ * settled sessions between estimate and confirm can nudge total_count slightly.
+ */
+export const visionScannersBackfillsCreate = async (
+    projectId: string,
+    scannerId: string,
+    backfillWindowApi: BackfillWindowApi,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(backfillWindowApi),
+    })
+}
+
+export const getVisionScannersBackfillsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/${id}/`
+}
+
+/**
+ * Historical backfills of a scanner over a closed time window (nested under a scanner).
+ */
+export const visionScannersBackfillsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersBackfillsCancelCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/${id}/cancel/`
+}
+
+/**
+ * Stop an active backfill; already-dispatched observations finish, nothing new dispatches.
+ */
+export const visionScannersBackfillsCancelCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    replayScannerBackfillApi?: NonReadonly<ReplayScannerBackfillApi>,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsCancelCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(replayScannerBackfillApi),
+    })
+}
+
+export const getVisionScannersBackfillsResumeCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/${id}/resume/`
+}
+
+/**
+ * Restart a backfill that paused when the monthly quota ran out.
+ */
+export const visionScannersBackfillsResumeCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    replayScannerBackfillApi?: NonReadonly<ReplayScannerBackfillApi>,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsResumeCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(replayScannerBackfillApi),
+    })
+}
+
+export const getVisionScannersBackfillsEstimateCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/estimate/`
+}
+
+/**
+ * Exactly enumerate what a backfill over the given window would dispatch and cost.
+ */
+export const visionScannersBackfillsEstimateCreate = async (
+    projectId: string,
+    scannerId: string,
+    backfillWindowApi: BackfillWindowApi,
+    options?: RequestInit
+): Promise<BackfillEstimateResponseApi> => {
+    return apiMutator<BackfillEstimateResponseApi>(getVisionScannersBackfillsEstimateCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(backfillWindowApi),
     })
 }
 
@@ -757,7 +1227,7 @@ export const getVisionScannersObservationsRetryCreateUrl = (projectId: string, s
 }
 
 /**
- * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ * Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
  */
 export const visionScannersObservationsRetryCreate = async (
     projectId: string,
@@ -907,7 +1377,7 @@ export const getVisionScannersPromptSuggestionsEvaluateCreateUrl = (
 }
 
 /**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsEvaluateCreate = async (
     projectId: string,
@@ -969,6 +1439,64 @@ export const visionScannersPromptSuggestionsGenerateCreate = async (
     )
 }
 
+export const getVisionScannersScoutReportsListUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/`
+}
+
+/**
+ * Reports filed by this scanner's scouts, newest first.
+ */
+export const visionScannersScoutReportsList = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ScoutReportApi[]> => {
+    return apiMutator<ScoutReportApi[]>(getVisionScannersScoutReportsListUrl(projectId, scannerId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutReportsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/${id}/`
+}
+
+/**
+ * One report filed by this scanner's scouts.
+ */
+export const visionScannersScoutReportsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutReportApi> => {
+    return apiMutator<ScoutReportApi>(getVisionScannersScoutReportsRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutsCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scouts/`
+}
+
+/**
+ * Create a scout that watches this scanner, recorded as belonging to it.
+ */
+export const visionScannersScoutsCreate = async (
+    projectId: string,
+    scannerId: string,
+    scannerScoutCreateApi: ScannerScoutCreateApi,
+    options?: RequestInit
+): Promise<ScannerScoutCreateResponseApi> => {
+    return apiMutator<ScannerScoutCreateResponseApi>(getVisionScannersScoutsCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scannerScoutCreateApi),
+    })
+}
+
 export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/scanners/creators/`
 }
@@ -983,6 +1511,26 @@ export const visionScannersCreatorsRetrieve = async (
     return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersDraftCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/draft/`
+}
+
+/**
+ * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ */
+export const visionScannersDraftCreate = async (
+    projectId: string,
+    draftScannerRequestApi: DraftScannerRequestApi,
+    options?: RequestInit
+): Promise<DraftScannerResponseApi> => {
+    return apiMutator<DraftScannerResponseApi>(getVisionScannersDraftCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(draftScannerRequestApi),
     })
 }
 
@@ -1003,6 +1551,29 @@ export const visionScannersEstimateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(estimateRequestApi),
+    })
+}
+
+export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/inline_scan/`
+}
+
+/**
+ * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
+ *
+ * The config resolves to a scanner minted on first use, so asking the same question twice reuses
+ * the observations it already has, while a different question about the same session gets its own.
+ */
+export const visionScannersInlineScanCreate = async (
+    projectId: string,
+    inlineScanRequestApi: InlineScanRequestApi,
+    options?: RequestInit
+): Promise<InlineScanResponseApi> => {
+    return apiMutator<InlineScanResponseApi>(getVisionScannersInlineScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inlineScanRequestApi),
     })
 }
 

@@ -1,13 +1,6 @@
 export { createEventSubpipeline, type EventSubpipelineConfig, type EventSubpipelineInput } from './event-subpipeline'
 
 export {
-    createPerDistinctIdPipeline,
-    type PerDistinctIdPipelineConfig,
-    type PerDistinctIdPipelineContext,
-    type PerDistinctIdPipelineInput,
-} from './per-distinct-id-pipeline'
-
-export {
     createPostTeamPreprocessingSubpipeline,
     type PostTeamPreprocessingSubpipelineConfig,
     type PostTeamPreprocessingSubpipelineInput,

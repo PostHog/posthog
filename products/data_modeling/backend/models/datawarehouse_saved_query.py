@@ -17,10 +17,13 @@ if TYPE_CHECKING:
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
@@ -61,6 +64,15 @@ def validate_saved_query_name(value):
             f"{value} is not a valid view name. View names cannot overlap with PostHog table names.",
             params={"value": value},
         )
+
+
+class V1SchedulingPathReached(Exception):
+    """Reported, never raised. Marks a caller that still mints a v1 per-query schedule.
+
+    v1 scheduling is being retired and the fleet no longer runs it, so this exists to find any
+    remaining path into it before the workflow type is deregistered — a schedule pointing at a
+    deregistered type does not fail loudly, it fires forever with failing workflow tasks.
+    """
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -152,6 +164,24 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         "regeneration when nothing relevant changed. Not user-facing.",
     )
 
+    # Config and progress are split because the API writes the first and the materialization
+    # activity writes the second, concurrently. Two fields let the worker save its progress with
+    # update_fields without clobbering a config edit that landed mid-run.
+    incremental_config = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Incremental materialization settings: enabled, incremental_key, unique_key, "
+        "lookback_seconds. Null means this view is always fully refreshed.",
+    )
+    incremental_state = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Incremental materialization progress: watermark, definition_fingerprint, "
+        "last_full_refresh_at, last_run_mode. System-written, not user-editable.",
+    )
+
     def save(self, *args, **kwargs):
         if self.is_test and not self.expires_at:
             from django.utils import timezone
@@ -182,10 +212,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def schedule_materialization(self, unpause: bool = False, reconcile: bool = True):
+    def schedule_materialization(
+        self, unpause: bool = False, reconcile: bool = True, trigger_immediate_run: bool = False
+    ):
         """
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.
+
+        trigger_immediate_run is for callers enabling materialization: on v2 it starts the first
+        materialization right away instead of waiting for the next scheduled DAG tick, matching
+        v1 schedule creation (which triggers immediately). Callers merely updating frequency
+        must leave it False. Best-effort: a failed start never disables materialization, since
+        the DAG schedule still covers the query.
 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
@@ -194,10 +232,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
+        from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
+            bootstrap_dag_to_tiers,
+            dag_can_bootstrap_to_tiers,
             tiered_schedules_enabled,
         )
+        from products.data_modeling.backend.models.node import Node
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.facade.api import (
             saved_query_workflow_exists,
@@ -210,20 +252,67 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
             # that, if it fails, we honor the failure contract below rather than leaving
             # is_materialized=True with no schedule backing it.
-            if self.id in get_v2_saved_query_ids([self.id]):
+            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id)
+            node = (
+                Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
+                .select_related("dag", "dag__team")
+                .first()
+            )
+            dag_to_bootstrap = None
+            if not on_v2:
+                # Nothing creates a DAG's first v2 schedule outside the migration commands, so a
+                # brand-new team would fall through to v1 forever. Bootstrap it instead — declined
+                # unless the DAG has never been scheduled at all.
+                if node is not None and node.dag is not None and dag_can_bootstrap_to_tiers(node.dag):
+                    dag_to_bootstrap = node.dag
+                    on_v2 = True
+
+            if on_v2:
+                if node is None:
+                    # v2 executes nodes, so scheduling without one would report success while
+                    # nothing ever materializes the query. Fail into the contract below instead,
+                    # which clears is_materialized and captures the error.
+                    raise MissingDagNodeError(
+                        f"Saved query {self.id} is on a v2 team but has no DAG node to schedule through"
+                    )
                 # Tiered v2: the interval is one-shot transport for frequency intent — consume
                 # it into the node target(s) and reconcile. Validation raises before the
                 # nulling below, so a rejected frequency stays visible for retry. A call with
                 # no interval carries no frequency opinion and must not touch existing targets.
                 if tiered_schedules_enabled(self.team) and self.sync_frequency_interval is not None:
-                    apply_saved_query_frequency_target(self, self.sync_frequency_interval, reconcile=reconcile)
+                    # A bootstrap reconciles the whole DAG once below, once the target has landed,
+                    # so asking for a second pass here would only repeat it.
+                    apply_saved_query_frequency_target(
+                        self, self.sync_frequency_interval, reconcile=reconcile and dag_to_bootstrap is None
+                    )
+                if dag_to_bootstrap is not None:
+                    # Last, so a frequency the validation above rejects leaves no seeded targets and
+                    # no schedules behind: on_commit fires immediately for the callers that are not
+                    # inside an atomic block, and two of the three are not.
+                    bootstrap_dag_to_tiers(dag_to_bootstrap)
                 # On any v2 flavor the interval must end up NULL: a lingering value would let
                 # a v1 per-query schedule be recreated, and on tiered teams the node target is
                 # the only durable store of frequency intent.
                 if self.sync_frequency_interval is not None:
                     self.sync_frequency_interval = None
                     self.save(update_fields=["sync_frequency_interval"])
+                if trigger_immediate_run:
+                    # Deferred to commit so the run sees the enable's writes (endpoints enable
+                    # runs inside an atomic block); immediate under autocommit.
+                    transaction.on_commit(self._start_immediate_materialization)
                 return
+
+            # Both regions hold zero `data-modeling-run` schedules, so nothing should reach here.
+            # Report each arrival with the caller's context, but still schedule: a customer's
+            # materialization must not be what proves this path is dead.
+            capture_exception(
+                V1SchedulingPathReached(f"Saved query {self.id} scheduled through the v1 per-query path"),
+                {
+                    "saved_query_id": str(self.id),
+                    "team_id": self.team_id,
+                    "dag_id": str(node.dag_id) if node is not None else None,
+                },
+            )
 
             self.setup_model_paths()
 
@@ -248,6 +337,19 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # We can re-enable schedules via the resume_schedule API endpoint
             self.is_materialized = False
             self.save(update_fields=["is_materialized"])
+
+    def _start_immediate_materialization(self) -> None:
+        from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
+
+        try:
+            materialize_saved_query(self)
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_start_initial_materialization",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+            )
 
     def revert_materialization(self):
         from products.data_modeling.backend.logic.schedule_reconcile import (
@@ -418,6 +520,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectMySQLTable,
         DirectSnowflakeTable,
         DirectRedshiftTable,
+        DirectClickHouseTable,
+        DirectMotherDuckTable,
+        DirectTrinoTable,
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)

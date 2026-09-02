@@ -5,19 +5,16 @@ import { isValidElement, ReactNode, useEffect } from 'react'
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { sessionSummaryProgressLogic } from 'scenes/session-recordings/player/player-meta/sessionSummaryProgressLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
-import { selectOutcome, sessionRecordingInfoLogic, SummaryOutcome } from './sessionRecordingInfoLogic'
+import { sessionRecordingInfoLogic } from './sessionRecordingInfoLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
 export enum ViewRecordingButtonVariant {
@@ -41,10 +38,7 @@ type ViewRecordingProps = {
     hasRecording?: boolean
     /** If true, automatically check if a recording exists for this session via batched API call */
     checkRecordingExists?: boolean
-    /** Opt in to fetching the AI summary outcome and surfacing it as a tooltip. Also gated on REPLAY_VIDEO_BASED_SUMMARIZATION. */
-    checkSummaryOutcome?: boolean
     /** When provided, short-circuits the kea fetch (e.g. parent list already has the outcome on each row). */
-    summaryOutcome?: SummaryOutcome | null
 }
 
 export type ViewRecordingButtonProps = Pick<
@@ -71,32 +65,29 @@ export default function ViewRecordingButton({
     matchingEvents,
     hasRecording,
     checkRecordingExists = false,
-    checkSummaryOutcome = false,
-    summaryOutcome,
     variant = ViewRecordingButtonVariant.Button,
     iconOnly = false,
     noPadding = false,
     ...props
 }: ViewRecordingButtonProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const summaryFlagEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
-    const summaryOutcomeEnabled = checkSummaryOutcome && summaryFlagEnabled
-    const shouldFetchSummaryOutcome = summaryOutcomeEnabled && !summaryOutcome
+    // $session_id arrives from untyped event properties and can be a non-string (e.g. a malformed
+    // object from a broken SDK). Only a real string addresses a recording, so the raw value goes to
+    // the disabled-reason check while URL and key uses are gated on this validity flag.
+    const isValidSessionId = typeof sessionId === 'string' && sessionId !== ''
 
-    const { summaryBySessionId } = useValues(sessionSummaryProgressLogic)
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists, getSummaryOutcome } = useValues(sessionRecordingInfoLogic)
+    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
 
     useEffect(() => {
-        if (!sessionId) {
+        if (!isValidSessionId) {
             return
         }
-        if (checkRecordingExists || shouldFetchSummaryOutcome) {
-            checkRecordingInfo(sessionId, { includeOutcome: shouldFetchSummaryOutcome })
+        if (checkRecordingExists) {
+            checkRecordingInfo(sessionId)
         }
-    }, [checkRecordingExists, shouldFetchSummaryOutcome, sessionId, checkRecordingInfo])
+    }, [checkRecordingExists, isValidSessionId, sessionId, checkRecordingInfo])
 
-    if (hasRecording === undefined && checkRecordingExists && sessionId) {
+    if (hasRecording === undefined && checkRecordingExists && isValidSessionId) {
         hasRecording = getRecordingExists(sessionId)
     }
 
@@ -111,20 +102,12 @@ export default function ViewRecordingButton({
         hasRecording,
     })
 
-    // Outcome precedence: live progress beats parent-supplied prop beats persisted fetch.
-    // Live is freshest mid-summarisation; the prop is a parent-list short-circuit; persisted is the kea-cached fallback.
-    const liveOutcome = summaryOutcomeEnabled && sessionId ? summaryBySessionId[sessionId]?.session_outcome : null
-    const persistedOutcome = shouldFetchSummaryOutcome && sessionId ? getSummaryOutcome(sessionId) : null
-    const isInteractive = !disabledReason && !props.loading
-    const outcomeTooltip =
-        summaryOutcomeEnabled && isInteractive
-            ? (selectOutcome([liveOutcome, summaryOutcome, persistedOutcome])?.description ?? undefined)
-            : undefined
-
     const { recordingViewed, recordingViewedLoading } = useValues(
-        sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
+        sessionRecordingViewedLogic({ sessionRecordingId: isValidSessionId ? sessionId : '' })
     )
-    const { loadRecordingViewed } = useActions(sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' }))
+    const { loadRecordingViewed } = useActions(
+        sessionRecordingViewedLogic({ sessionRecordingId: isValidSessionId ? sessionId : '' })
+    )
 
     useEffect(() => {
         if (checkIfViewed && loadRecordingViewed) {
@@ -174,25 +157,11 @@ export default function ViewRecordingButton({
                 {maybeUnwatchedIndicator}
             </Link>
         )
-        if (outcomeTooltip) {
-            return (
-                <Tooltip title={outcomeTooltip}>
-                    <span
-                        className="inline-flex items-center"
-                        data-ph-capture-attribute-view-recording-checked-existence={checkRecordingExists}
-                        data-ph-capture-attribute-view-recording-has-outcome={true}
-                    >
-                        {linkContent}
-                    </span>
-                </Tooltip>
-            )
-        }
         return linkContent
     }
 
     const captureAttrs = {
         'data-ph-capture-attribute-view-recording-checked-existence': checkRecordingExists,
-        'data-ph-capture-attribute-view-recording-has-outcome': !!outcomeTooltip,
     }
 
     if (iconOnly) {
@@ -202,7 +171,7 @@ export default function ViewRecordingButton({
                 disabledReasonInteractive={isValidElement(disabledReason)}
                 onClick={onClick}
                 icon={sideIcon}
-                tooltip={outcomeTooltip ?? 'View recording'}
+                tooltip="View recording"
                 aria-label="View recording"
                 noPadding={noPadding}
                 {...captureAttrs}
@@ -217,7 +186,6 @@ export default function ViewRecordingButton({
             disabledReasonInteractive={isValidElement(disabledReason)}
             onClick={onClick}
             sideIcon={sideIcon}
-            tooltip={outcomeTooltip}
             {...captureAttrs}
             {...props}
         >
@@ -230,13 +198,17 @@ export default function ViewRecordingButton({
 }
 
 export const recordingDisabledReason = (
-    sessionId: string | undefined,
+    sessionId: unknown,
     recordingStatus: string | undefined,
     hasRecording?: boolean
 ): JSX.Element | string | null => {
-    if (!sessionId && hasRecording === false) {
+    if (sessionId != null && typeof sessionId !== 'string') {
         return 'No recording for this event'
-    } else if (!sessionId) {
+    }
+    const isValidSessionId = typeof sessionId === 'string' && sessionId !== ''
+    if (!isValidSessionId && hasRecording === false) {
+        return 'No recording for this event'
+    } else if (!isValidSessionId) {
         return (
             <>
                 No session ID associated with this event.{' '}
@@ -294,8 +266,11 @@ export function useRecordingButton({
     disabledReason: JSX.Element | string | null
     warningReason: string | undefined
 } {
+    const isValidSessionId = typeof sessionId === 'string' && sessionId !== ''
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const { userClickedThrough } = useActions(sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' }))
+    const { userClickedThrough } = useActions(
+        sessionRecordingViewedLogic({ sessionRecordingId: isValidSessionId ? sessionId : '' })
+    )
 
     const onClick = (): void => {
         userClickedThrough()
@@ -303,13 +278,13 @@ export function useRecordingButton({
             const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
 
             openSessionPlayer(
-                { id: sessionId ?? '', matching_events: matchingEvents ?? undefined },
+                { id: isValidSessionId ? sessionId : '', matching_events: matchingEvents ?? undefined },
                 Math.max(fiveSecondsBeforeEvent, 0)
             )
         } else {
             const timestampMs = timestamp ? dayjs(timestamp).valueOf() - 5000 : undefined
             const urlParams = timestampMs ? { unixTimestampMillis: Math.max(timestampMs, 0) } : undefined
-            newInternalTab(urls.replaySingle(sessionId ?? '', urlParams))
+            newInternalTab(urls.replaySingle(isValidSessionId ? sessionId : '', urlParams))
         }
     }
 

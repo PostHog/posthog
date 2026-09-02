@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
 
 import api from 'lib/api'
 
@@ -16,6 +16,7 @@ export interface githubBranchSearchLogicValues {
     branches: string[]
     currentOffset: number
     defaultBranch: string | null
+    error: string | null
     hasMore: boolean
     loading: boolean
     searchQuery: string
@@ -29,8 +30,8 @@ export interface githubBranchSearchLogicActions {
     loadPage: (offset: number) => {
         offset: number
     }
-    loadPageFailure: () => {
-        value: true
+    loadPageFailure: (error: string) => {
+        error: string
     }
     loadPageSuccess: (
         branches: string[],
@@ -83,7 +84,7 @@ export const githubBranchSearchLogic = kea<githubBranchSearchLogicType>([
             hasMore,
             offset,
         }),
-        loadPageFailure: true,
+        loadPageFailure: (error: string) => ({ error }),
         loadMore: true,
         refresh: true,
     }),
@@ -133,6 +134,16 @@ export const githubBranchSearchLogic = kea<githubBranchSearchLogicType>([
                 loadPageFailure: () => false,
             },
         ],
+        error: [
+            null as string | null,
+            {
+                setSearchQuery: () => null,
+                refresh: () => null,
+                loadPage: () => null,
+                loadPageSuccess: () => null,
+                loadPageFailure: (_, { error }) => error,
+            },
+        ],
         currentOffset: [
             0,
             {
@@ -170,12 +181,8 @@ export const githubBranchSearchLogic = kea<githubBranchSearchLogicType>([
                 if (isBreakpoint(e)) {
                     throw e
                 }
-                actions.loadPageFailure()
+                actions.loadPageFailure("Couldn't load branches. Refresh and try again.")
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadPage(0)
-    }),
 ])

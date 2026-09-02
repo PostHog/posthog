@@ -8,7 +8,6 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.airops.airops import (
     AIROPS_BASE_URL,
     _make_session,
@@ -19,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClient,
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # All AirOps traffic (sync + credential probe) flows through _make_session, which builds its
 # tracked session in the airops module — so one patch point covers every request.

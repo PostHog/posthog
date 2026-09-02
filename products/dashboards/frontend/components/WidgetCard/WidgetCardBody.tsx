@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import React from 'react'
 
-import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
+import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconLock } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -9,7 +9,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 
-const HedgehogChartHog = pngHoggie(chartHogPng)
+const HedgehogChart = pngHoggie(chartPng)
 
 export type WidgetCardBodyProps = React.HTMLAttributes<HTMLDivElement> & {
     locked?: boolean
@@ -236,6 +236,7 @@ export const WIDGET_LIST_COUNT_ISSUES: WidgetListCountNoun = { singular: 'issue'
 export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 'recording', plural: 'recordings' }
 export const WIDGET_LIST_COUNT_EXPERIMENTS: WidgetListCountNoun = { singular: 'experiment', plural: 'experiments' }
 export const WIDGET_LIST_COUNT_LOGS: WidgetListCountNoun = { singular: 'log line', plural: 'log lines' }
+export const WIDGET_LIST_COUNT_TICKETS: WidgetListCountNoun = { singular: 'ticket', plural: 'tickets' }
 
 export function formatWidgetListCountFooter(
     shown: number,
@@ -296,7 +297,7 @@ export function WidgetCardSharedPlaceholderBody({ copy }: { copy: WidgetCardShar
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="shared-dashboard-widget-placeholder"
                     >
-                        <HedgehogChartHog className="size-20 shrink-0" />
+                        <HedgehogChart className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
                         <p className="m-0 text-sm text-muted">{copy.message}</p>
                     </div>

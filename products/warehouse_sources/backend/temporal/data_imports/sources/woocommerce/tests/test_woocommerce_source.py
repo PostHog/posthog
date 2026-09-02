@@ -3,9 +3,8 @@ from typing import Optional
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.woocommerce import (
     WooCommerceSourceConfig,
 )
@@ -13,12 +12,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PARTITION_FIELDS,
+    SCHEMA_TO_WEBHOOK_RESOURCE,
+    WEBHOOK_SCHEMA_NAMES,
+    WEBHOOK_TOPICS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source import WooCommerceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce import (
-    WooCommerceResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
@@ -33,6 +31,17 @@ def _make_inputs(schema_name: str, should_use_incremental_field: bool = False, l
     )
 
 
+@pytest.fixture(autouse=True)
+def webhook_disabled():
+    """Default every test to the polling path.
+
+    `webhook_enabled` reads the schema row out of Postgres to decide whether the table has been
+    switched to webhook sync; tests that care about that branch re-patch it themselves.
+    """
+    with mock.patch.object(WebhookSourceManager, "webhook_enabled", new=mock.AsyncMock(return_value=False)) as patched:
+        yield patched
+
+
 class TestWooCommerceSource:
     def setup_method(self):
         self.source = WooCommerceSource()
@@ -42,54 +51,6 @@ class TestWooCommerceSource:
             consumer_key="ck_test",
             consumer_secret="cs_test",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WOOCOMMERCE
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "WooCommerce"
-        assert config.label == "WooCommerce"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/woocommerce.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["store_url", "consumer_key", "consumer_secret"]
-
-        consumer_secret = config.fields[2]
-        assert isinstance(consumer_secret, SourceFieldInputConfig)
-        assert consumer_secret.type == SourceFieldInputConfigType.PASSWORD
-        assert consumer_secret.secret is True
-        assert consumer_secret.required is True
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
-
-    def test_get_schemas_lists_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_get_schemas_incremental_only_for_supported_endpoints(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        expected = endpoint in INCREMENTAL_ENDPOINTS
-
-        assert schema.supports_incremental is expected
-        assert schema.supports_append is expected
-        if expected:
-            assert schema.incremental_fields[0]["field"] == "date_modified_gmt"
-        else:
-            assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders"])
-        assert [s.name for s in schemas] == ["orders"]
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
@@ -120,11 +81,6 @@ class TestWooCommerceSource:
 
         assert is_valid is False
         assert message == "Missing WooCommerce credentials"
-
-    def test_get_resumable_source_manager(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs("orders"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WooCommerceResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
@@ -195,3 +151,93 @@ class TestWooCommerceSource:
             assert response.partition_keys == [expected_key]
         else:
             assert response.partition_keys is None
+
+    def test_get_schemas_marks_only_webhook_capable_tables(self):
+        # WooCommerce only ships core webhook topics for four resources. Marking any other table
+        # would let setup switch it to webhook sync, which stops polling it for rows that can
+        # never arrive.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+
+        assert {name for name, s in schemas.items() if s.supports_webhooks} == set(WEBHOOK_SCHEMA_NAMES)
+
+    def test_webhook_resource_map_covers_every_webhook_capable_schema(self):
+        # The map is what routes an incoming delivery to a table; a schema missing from it is a
+        # table that silently receives nothing.
+        assert set(self.source.webhook_resource_map) == set(WEBHOOK_SCHEMA_NAMES)
+        assert {f"{resource}.created" for resource in self.source.webhook_resource_map.values()} <= set(WEBHOOK_TOPICS)
+
+    def test_webhook_template_verifies_the_woocommerce_signature_header(self):
+        template = self.source.webhook_template
+
+        assert template is not None
+        assert template.type == "warehouse_source_webhook"
+        assert "x-wc-webhook-signature" in template.code
+        assert {field["key"] for field in template.inputs_schema} >= {"signing_secret", "schema_mapping", "source_id"}
+
+    @pytest.mark.parametrize(
+        "method_name, transport_name",
+        [
+            ("create_webhook", "create_woocommerce_webhook"),
+            ("delete_webhook", "delete_woocommerce_webhook"),
+            ("get_external_webhook_info", "get_woocommerce_webhook_info"),
+        ],
+    )
+    def test_webhook_management_passes_the_store_credentials_through(self, method_name, transport_name):
+        # The store URL and the key/secret pair are positional; swapping two of them would send
+        # the consumer key as the secret and 401 on every store.
+        with mock.patch(
+            f"products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.{transport_name}"
+        ) as mock_transport:
+            getattr(self.source, method_name)(self.config, "https://ph.test/hook", self.team_id)
+
+        mock_transport.assert_called_once_with(
+            "https://example.com", "ck_test", "cs_test", self.team_id, "https://ph.test/hook"
+        )
+
+    def test_source_for_pipeline_keeps_polling_while_webhooks_are_not_active(self, webhook_disabled):
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
+        ) as mock_source:
+            resource = mock.MagicMock(name="orders", column_hints=None)
+            mock_source.return_value = resource
+            response = self.source.source_for_pipeline(self.config, manager, _make_inputs("orders"))
+
+        assert response.items() is resource
+
+    def test_source_for_pipeline_reads_pushed_rows_once_webhooks_are_active(self, webhook_disabled):
+        # Once the schema is on webhook sync and its backfill has completed, the sync has to drain
+        # the buffered deliveries instead of re-walking the REST API.
+        webhook_disabled.return_value = True
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
+            ) as mock_source,
+            mock.patch.object(WebhookSourceManager, "get_items") as mock_get_items,
+        ):
+            mock_source.return_value = mock.MagicMock(name="orders", column_hints=None)
+            response = self.source.source_for_pipeline(self.config, manager, _make_inputs("orders"))
+            items = response.items()
+
+        assert items is mock_get_items.return_value
+        # Delta merge only dedupes across syncs, so the within-batch transformer must be wired up.
+        assert mock_get_items.call_args.kwargs["table_transformer"] is not None
+
+    def test_source_for_pipeline_never_consults_webhooks_for_a_polling_only_table(self, webhook_disabled):
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
+        ) as mock_source:
+            mock_source.return_value = mock.MagicMock(name="tax_rates", column_hints=None)
+            self.source.source_for_pipeline(self.config, manager, _make_inputs("tax_rates"))
+
+        webhook_disabled.assert_not_awaited()
+
+    def test_webhook_resources_are_distinct(self):
+        # Two schemas sharing a resource key would collide in `schema_mapping` and one table
+        # would stop receiving deliveries entirely.
+        assert len(set(SCHEMA_TO_WEBHOOK_RESOURCE.values())) == len(SCHEMA_TO_WEBHOOK_RESOURCE)

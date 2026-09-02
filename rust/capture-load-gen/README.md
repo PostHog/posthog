@@ -37,7 +37,14 @@ requests.
 | `--distinct-ids` | `10000` | Synthetic-user cardinality |
 | `--event-name` | `$pageview`, `$autocapture`, `custom_event` | Event names to pick from (repeatable) |
 | `--prop-bytes` | `256` | Approx filler bytes per event |
+| `--percent-person-updates` | `0` | Percentage of events carrying a `$set` payload (person update) |
+| `--percent-merges` | `0` | Percentage of events that are `$identify` merges of a fresh anon distinct id |
 | `--dry-run` | off | Print one sample batch as JSON and exit |
+
+`--percent-person-updates` and `--percent-merges` must sum to at most 100;
+the rest of the events are plain (no person-pipeline work beyond creation).
+Each merge claims a unique anonymous distinct id, so every `$identify` exercises
+the merge path instead of re-merging an already-folded pair.
 
 Output is a once-per-second throughput line plus a final summary with
 HdrHistogram latency percentiles (p50/p95/p99).

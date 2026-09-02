@@ -39,6 +39,7 @@ Completed in this branch:
 - Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper that distinguishes missing legacy signatures from missing type inference.
 - Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
 - Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
+- Added the `typeAwareCastSimplification` query modifier, which makes the simplifier reachable in production per team via `team.modifiers` without a deploy, still off by default, with `hogql_type_simplification_total{dialect, kind}` counting removals during a pilot.
 - Added emitted-SQL coverage showing typed string and URL helpers such as `base64Encode(...)` and `protocol(...)` no longer need manual `assumeNotNull(...)` to avoid defensive comparison wrapping.
 - Added resolver binding for common higher-order array lambdas, so lambda parameters inherit element types from surrounding array arguments and `arrayMap(...)` can infer its return element type from the lambda body.
 - Added parsed return-type inference for `JSONExtract(..., 'Type')`, including typed array results that feed higher-order lambda binding.

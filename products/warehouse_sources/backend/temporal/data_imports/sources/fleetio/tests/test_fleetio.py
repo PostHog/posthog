@@ -11,6 +11,8 @@ from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fleetio import (
     FLEETIO_API_VERSION,
+    FLEETIO_LEGACY_VERSION,
+    FLEETIO_VERSION_2025_05_05,
     FleetioAuth,
     FleetioResumeConfig,
     _build_base_params,
@@ -208,13 +210,42 @@ class TestPagination:
         assert params[0]["sort[updated_at]"] == "asc"
         assert params[0]["filter[updated_at][gt]"] == "2026-03-04T02:58:14+00:00"
 
+    @parameterized.expand(
+        [
+            # The "v1" pin sends the 2024-06-30 date version under the integer `/api/v1` path;
+            # 2025-05-05 drops the integer segment and moves resources to `/api/{resource}`.
+            (FLEETIO_LEGACY_VERSION, FLEETIO_API_VERSION, "https://secure.fleetio.com/api/v1/vehicles"),
+            (FLEETIO_VERSION_2025_05_05, "2025-05-05", "https://secure.fleetio.com/api/vehicles"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_version_header_is_set_on_session(self, MockSession) -> None:
+    def test_version_selects_header_and_base_path(
+        self, api_version: str, expected_header: str, expected_url: str, MockSession
+    ) -> None:
         session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], None)])
+        session.headers = {}
+        request_urls: list[str] = []
 
-        _rows(_source(_make_manager()))
-        assert session.headers.get("X-Api-Version") == FLEETIO_API_VERSION
+        def _prepare(request: Any) -> mock.MagicMock:
+            request_urls.append(request.url)
+            prepared = mock.MagicMock()
+            prepared.url = expected_url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [_response([{"id": 1}], None)]
+
+        _rows(_source(_make_manager(), api_version=api_version))
+
+        assert session.headers.get("X-Api-Version") == expected_header
+        assert request_urls[0] == expected_url
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unsupported_version_pin_raises(self, MockSession) -> None:
+        # A pin outside the supported map must fail loudly rather than fall through to no version
+        # header (which would silently track "latest").
+        with pytest.raises(ValueError, match="Unsupported Fleetio API version"):
+            _source(_make_manager(), api_version="1999-01-01")
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_bare_list_body_fails_loudly(self, MockSession) -> None:
@@ -232,9 +263,28 @@ class TestValidateCredentials:
     @mock.patch(FLEETIO_SESSION_PATCH)
     def test_status_maps_to_bool(self, mock_session, status_code: int, expected: bool) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("k", "a") is expected
+        assert validate_credentials("k", "a", FLEETIO_VERSION_2025_05_05) is expected
+
+    @pytest.mark.parametrize(
+        "api_version,expected_header,expected_url",
+        [
+            (FLEETIO_LEGACY_VERSION, FLEETIO_API_VERSION, "https://secure.fleetio.com/api/v1/vehicles?per_page=1"),
+            (FLEETIO_VERSION_2025_05_05, "2025-05-05", "https://secure.fleetio.com/api/vehicles?per_page=1"),
+        ],
+    )
+    @mock.patch(FLEETIO_SESSION_PATCH)
+    def test_probe_targets_version_base_path(
+        self, mock_session, api_version: str, expected_header: str, expected_url: str
+    ) -> None:
+        # The probe must hit the same base path/version the source will sync with, so a new source
+        # created on the default version validates against the endpoints it will actually read.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("k", "a", api_version)
+        call = mock_session.return_value.get.call_args
+        assert call.args[0] == expected_url
+        assert call.kwargs["headers"]["X-Api-Version"] == expected_header
 
     @mock.patch(FLEETIO_SESSION_PATCH)
     def test_network_error_is_not_valid(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("k", "a") is False
+        assert validate_credentials("k", "a", FLEETIO_VERSION_2025_05_05) is False

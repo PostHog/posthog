@@ -77,6 +77,22 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.replay())
             expect(router.values.searchParams).toEqual({ savedFilterId: savedFilter.short_id })
         })
+
+        it('does not redirect a saved filter load that resolves after the user navigated away', async () => {
+            const savedFilter = { ...mockPlaylist, type: 'filters' as const }
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recording_playlists/:id': savedFilter,
+                },
+            })
+            router.actions.push(urls.replayPlaylist(savedFilter.short_id))
+
+            logic.mount()
+            router.actions.push(urls.replayVision())
+
+            await expectLogic(logic).toDispatchActions(['getPlaylistSuccess'])
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.replayVision())
+        })
     })
 
     describe('update playlist', () => {

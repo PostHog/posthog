@@ -4,24 +4,13 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.firehydrant import (
-    FireHydrantResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import (
     ENDPOINTS,
     FIREHYDRANT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source import FireHydrantSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
@@ -29,9 +18,6 @@ def _config() -> Any:
 
 
 class TestFireHydrantSourceConfig:
-    def test_source_type(self) -> None:
-        assert FireHydrantSource().source_type == ExternalDataSourceType.FIREHYDRANT
-
     def test_get_source_config_basics(self) -> None:
         config = FireHydrantSource().get_source_config
         assert config.label == "FireHydrant"
@@ -40,15 +26,6 @@ class TestFireHydrantSourceConfig:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/firehydrant"
         # A finished source must not be hidden behind the unreleased flag.
         assert not config.unreleasedSource
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        fields = FireHydrantSource().get_source_config.fields
-        api_key = fields[0]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.name == "api_key"
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.required is True
-        assert api_key.secret is True
 
     def test_region_field_offers_us_and_eu(self) -> None:
         # EU accounts are region-pinned; a missing EU option would leave those customers unable to
@@ -131,12 +108,6 @@ class TestNonRetryableErrors:
 
 
 class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock(team_id=1, job_id="job-1", logger=MagicMock())
-        manager = FireHydrantSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FireHydrantResumeConfig
-
     def test_source_for_pipeline_plumbs_api_key_and_schema(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 
@@ -157,13 +128,3 @@ class TestResumableWiring:
         assert captured["endpoint"] == "incidents"
         assert captured["resumable_source_manager"] is manager
         assert captured["region"] == "us"
-
-
-class TestValidateCredentials:
-    def test_delegates_to_transport(self, monkeypatch: Any) -> None:
-        import products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source as source_module
-
-        monkeypatch.setattr(source_module, "validate_firehydrant_credentials", lambda key, region=None: (True, None))
-        valid, error = FireHydrantSource().validate_credentials(_config(), team_id=1)
-        assert valid is True
-        assert error is None

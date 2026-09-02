@@ -4,6 +4,7 @@ use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod client;
+mod pool;
 mod report;
 mod scenarios;
 mod seed;
@@ -17,6 +18,15 @@ use cli::{Cli, Command};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install a process-wide rustls CryptoProvider before any TLS use.
+    // kube's client resolves it lazily, so without this the first chaos
+    // scenario's Kubernetes API call panics its worker while plaintext
+    // traffic carries on — chaos dies silently. Mirrors the leader and
+    // router mains.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
@@ -31,6 +41,6 @@ async fn main() -> Result<()> {
         Command::Blast(args) => scenarios::blast::run(args).await,
         Command::Consistency(args) => scenarios::consistency::run(args).await,
         Command::Gate(args) => scenarios::gate::run(*args).await,
-        Command::Traffic(args) => scenarios::traffic::run(args).await,
+        Command::Traffic(args) => scenarios::traffic::run(*args).await,
     }
 }

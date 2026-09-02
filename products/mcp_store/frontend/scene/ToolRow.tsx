@@ -1,14 +1,16 @@
 import { useState } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconChevronRight, IconLock } from '@posthog/icons'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { isPolicyStateAllowedByCeiling } from '../gateway/gatewayPolicyUtils'
 import type { MCPServerInstallationToolApi } from '../generated/api.schemas'
 import type { ToolApprovalState } from '../mcpStoreLogic'
 import { ToolPolicyToggle } from './ToolPolicyToggle'
 
 interface Props {
     tool: MCPServerInstallationToolApi
+    teamScope?: boolean
     onPolicyChange: (state: ToolApprovalState) => void
     disabledReason?: string | null
 }
@@ -21,10 +23,16 @@ function formatInputSchema(schema: unknown): string {
     }
 }
 
-export function ToolRow({ tool, onPolicyChange, disabledReason }: Props): JSX.Element {
+export function ToolRow({ tool, teamScope = false, onPolicyChange, disabledReason }: Props): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const state = (tool.approval_state ?? 'needs_approval') as ToolApprovalState
     const isRemoved = !!tool.removed_at
+    const setByTeamAdmin = !teamScope && (tool.decided_by === 'team' || tool.decided_by === 'preset')
+    const disabledStates = Object.fromEntries(
+        (['approved', 'needs_approval', 'do_not_use'] as ToolApprovalState[])
+            .filter((candidate) => !teamScope && !isPolicyStateAllowedByCeiling(candidate, tool.team_state ?? null))
+            .map((candidate) => [candidate, 'Unavailable because of the team admin ceiling'])
+    ) as Partial<Record<ToolApprovalState, string>>
 
     return (
         <div
@@ -51,8 +59,22 @@ export function ToolRow({ tool, onPolicyChange, disabledReason }: Props): JSX.El
                     )}
                 </div>
                 {/* Clicks on the toggle shouldn't collapse the row. */}
-                <div onClick={(e) => e.stopPropagation()}>
-                    <ToolPolicyToggle value={state} onChange={onPolicyChange} disabledReason={disabledReason} />
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    {setByTeamAdmin && (
+                        <Tooltip title="This effective state is capped by the team admin ceiling.">
+                            <LemonTag icon={<IconLock />} type="muted">
+                                Set by team admin
+                            </LemonTag>
+                        </Tooltip>
+                    )}
+                    <ToolPolicyToggle
+                        value={state}
+                        onChange={onPolicyChange}
+                        disabledReason={
+                            disabledReason ?? (tool.locked ? 'The team admin ceiling is Blocked.' : undefined)
+                        }
+                        disabledStates={disabledStates}
+                    />
                 </div>
             </div>
             {expanded && (

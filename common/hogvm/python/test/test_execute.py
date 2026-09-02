@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,6 +16,7 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
+from common.hogvm.python.stl import STL, sleep
 from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
@@ -162,6 +164,20 @@ class TestBytecodeExecute:
         try:
             execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "replaceOne", 1], {})
         except Exception as e:
+            assert str(e) == "Function replaceOne requires at least 3 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            execute_bytecode([_H, VERSION, op.STRING, "AB", op.STRING, "extra", op.CALL_GLOBAL, "lower", 2], {})
+        except Exception as e:
+            assert str(e) == "Function lower requires at most 1 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "lower", 1], {})
+        except Exception as e:
             assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
@@ -172,6 +188,28 @@ class TestBytecodeExecute:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
         else:
             raise AssertionError("Expected Exception not raised")
+
+    def test_every_builtin_tolerates_its_own_min_args(self):
+        # A builtin whose fn indexes past its declared minArgs raises a bare IndexError instead of a
+        # HogVMException, which callers cannot tell apart from a bug in their own code. Blocking
+        # builtins are excluded because calling them would sleep or shell out.
+        leaked = []
+        for name, stl_fn in STL.items():
+            if stl_fn.is_blocking:
+                continue
+            arg_count = stl_fn.minArgs or 0
+            bytecode: list[Any] = [_H, VERSION]
+            for _ in range(arg_count):
+                bytecode += [op.STRING, "1"]
+            bytecode += [op.CALL_GLOBAL, name, arg_count]
+            try:
+                execute_bytecode(bytecode, {})
+            except IndexError:
+                leaked.append(name)
+            except Exception:
+                pass
+
+        assert leaked == []
 
     def test_memory_limits_1(self):
         # let string := 'banana'
@@ -703,6 +741,30 @@ class TestBytecodeExecute:
     def test_bytecode_length_null_raises_hogvm_exception(self):
         with pytest.raises(HogVMException, match="Can not call length on null"):
             self._run_program("return length(null);")
+
+    @parameterized.expand(
+        [
+            ("arg_over_budget_clamped_to_budget", 600.0, 0.5, 0.5),
+            ("arg_under_budget_left_as_is", 0.1, 5.0, 0.1),
+            ("negative_arg_clamped_to_zero", -5.0, 5.0, 0.0),
+        ]
+    )
+    def test_sleep_bounds_duration_to_remaining_timeout(self, _name, arg, budget, expected):
+        with patch("common.hogvm.python.stl.time.sleep") as mock_sleep:
+            sleep([arg], None, None, budget)
+        mock_sleep.assert_called_once_with(expected)
+
+    @parameterized.expand(
+        [
+            ("direct_call", "sleep(0)"),  # CALL_GLOBAL dispatch
+            ("expression_call", "(sleep)(0)"),  # CALL_LOCAL closure dispatch
+        ]
+    )
+    def test_disallowed_functions_rejected_at_dispatch(self, _name, expr):
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+        execute_bytecode(bytecode, {})  # allowed by default (sleeps 0s)
+        with pytest.raises(HogVMException, match="Function sleep is not allowed here"):
+            execute_bytecode(bytecode, {}, disallowed_functions=frozenset({"sleep"}))
 
     def test_random_float(self):
         for _ in range(50):

@@ -59,7 +59,7 @@ pub async fn build_response_from_cache(
                 )
                 .increment(1);
 
-                return Ok(apply_fallback_config(response, team, is_recordings_limited));
+                return Ok(apply_fallback_config(response, is_recordings_limited));
             }
             None => {
                 // Cache miss - return minimal fallback config with quota info
@@ -69,7 +69,7 @@ pub async fn build_response_from_cache(
                     "Config cache miss - returning fallback config"
                 );
 
-                return Ok(apply_fallback_config(response, team, is_recordings_limited));
+                return Ok(apply_fallback_config(response, is_recordings_limited));
             }
         };
 
@@ -99,11 +99,10 @@ pub async fn build_response_from_cache(
 /// Apply fallback config when cache is unavailable or returns unexpected data.
 fn apply_fallback_config(
     mut response: FlagsResponse,
-    team: &Team,
     is_recordings_limited: bool,
 ) -> FlagsResponse {
     let has_flags = !response.flags.is_empty();
-    response.config = ConfigResponse::fallback(&team.api_token, has_flags);
+    response.config = ConfigResponse::fallback(has_flags);
 
     if is_recordings_limited {
         response.quota_limited = Some(vec![QuotaResource::Recordings.as_str().to_string()]);
@@ -159,13 +158,16 @@ fn set_cached_quota_limits_without_recordings(response: &mut FlagsResponse) {
 /// Sanitize cached config before returning to clients.
 ///
 /// Matches Python's `sanitize_config_for_public_cdn` behavior:
+/// - Removes unused public config and survey fields
 /// - Removes `siteAppsJS` (raw JS only needed for array.js bundle, not JSON API)
 /// - Removes `sessionRecording.domains` (internal field, not needed by SDK)
 /// - Sets `sessionRecording` to `false` if request origin not in permitted domains
 fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap) {
     if let Some(obj) = cached_config.as_object_mut() {
         obj.remove("siteAppsJS");
+        obj.remove("token");
     }
+    sanitize_surveys_for_client(cached_config);
 
     let session_recording = match cached_config.get_mut("sessionRecording") {
         Some(sr) => sr,
@@ -190,6 +192,49 @@ fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap) {
             // Empty domains list means always permitted
             if !domain_strings.is_empty() && !on_permitted_domain(&domain_strings, headers) {
                 *session_recording = json!(false);
+            }
+        }
+    }
+}
+
+fn sanitize_surveys_for_client(payload: &mut Value) {
+    let Some(payload) = payload.as_object_mut() else {
+        return;
+    };
+    payload.remove("survey_config");
+
+    let Some(surveys) = payload.get_mut("surveys").and_then(Value::as_array_mut) else {
+        return;
+    };
+
+    for survey in surveys {
+        let Some(survey) = survey.as_object_mut() else {
+            continue;
+        };
+        survey.remove("base_language");
+
+        if let Some(questions) = survey.get_mut("questions").and_then(Value::as_array_mut) {
+            for question in questions {
+                if let Some(question) = question.as_object_mut() {
+                    question.remove("isNpsQuestion");
+                }
+            }
+        }
+
+        let Some(actions) = survey
+            .get_mut("conditions")
+            .and_then(Value::as_object_mut)
+            .and_then(|conditions| conditions.get_mut("actions"))
+            .and_then(Value::as_object_mut)
+            .and_then(|actions| actions.get_mut("values"))
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+
+        for action in actions {
+            if let Some(action) = action.as_object_mut() {
+                action.retain(|field, _| matches!(field.as_str(), "id" | "name" | "steps"));
             }
         }
     }
@@ -337,6 +382,50 @@ mod tests {
             "siteApps should be preserved"
         );
         assert_eq!(cached.get("heatmaps"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn test_sanitize_removes_unused_cached_config_fields() {
+        let mut cached = json!({
+            "token": "phc_test",
+            "survey_config": {"appearance": {"theme": "light"}},
+            "surveys": [{
+                "id": "survey-1",
+                "base_language": "en",
+                "questions": [{"type": "rating", "isNpsQuestion": true}],
+                "conditions": {
+                    "actions": {
+                        "values": [{
+                            "id": 1,
+                            "name": "signed up",
+                            "steps": [{"event": "$pageview"}],
+                            "created_by": {"email": "private@example.com"}
+                        }]
+                    }
+                }
+            }]
+        });
+
+        sanitize_config_for_client(&mut cached, &HeaderMap::new());
+
+        assert_eq!(
+            cached,
+            json!({
+                "surveys": [{
+                    "id": "survey-1",
+                    "questions": [{"type": "rating"}],
+                    "conditions": {
+                        "actions": {
+                            "values": [{
+                                "id": 1,
+                                "name": "signed up",
+                                "steps": [{"event": "$pageview"}]
+                            }]
+                        }
+                    }
+                }]
+            })
+        );
     }
 
     #[test]

@@ -19,27 +19,21 @@ import fakeredis
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
+from products.warehouse_sources.backend.management.commands.manage_warehouse_queue import Command
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
-    DUCKGRES_LEASE_TABLE,
-    DUCKGRES_STATUS_TABLE,
-)
-
-# The duckgres test module's DDL is a superset of the delta queue's (both status
-# and lease tables), which the --sink duckgres tests need.
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.test_jobs_db import (
-    _BATCH_DEFAULTS,
-    _ensure_tables,
-    _get_test_database_url,
-    _truncate_tables,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     LEASE_TABLE,
     STATUS_TABLE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
+    _BATCH_DEFAULTS,
+    _ensure_tables,
+    _get_test_database_url,
+    _truncate_tables,
 )
 
 pytestmark = [pytest.mark.django_db]
@@ -366,13 +360,6 @@ class TestTargetingValidation:
             pytest.param(
                 ["release-locks", "--team-id", "1", "--leases-only", "--redis-only"], id="release_both_only_flags"
             ),
-            pytest.param(
-                ["fail-run", "--sink", "duckgres", "--team-id", "1", "--cancel-workflow"],
-                id="cancel_workflow_duckgres",
-            ),
-            pytest.param(
-                ["release-locks", "--sink", "duckgres", "--team-id", "1", "--redis-only"], id="redis_only_duckgres"
-            ),
         ],
     )
     def test_invalid_targeting_raises(self, args, queue_conn, fake_redis):
@@ -420,86 +407,162 @@ class TestStatus:
         assert "unclaimed: 1" in out
 
 
-def _seed_duckgres_run(
-    conn: psycopg.Connection[Any],
-    *,
-    team,
-    schema: ExternalDataSchema,
-    job: ExternalDataJob,
-    run_uuid: str,
-) -> dict[str, str]:
-    """A run mid-way through the duckgres sink: one batch fully applied, one the
-    sink hasn't claimed, one retrying, and one whose delta load isn't done yet."""
-    common = {
-        "team_id": team.pk,
-        "schema_id": str(schema.id),
-        "source_id": str(schema.source_id),
-        "job_id": str(job.id),
-        "run_uuid": run_uuid,
-        "metadata": {"workflow_run_id": job.workflow_run_id},
-    }
-    applied = _insert_batch(conn, **common, batch_index=0)
-    _set_status(conn, applied, "succeeded")
-    _set_status(conn, applied, "succeeded", table=DUCKGRES_STATUS_TABLE)
-    unclaimed = _insert_batch(conn, **common, batch_index=1)
-    _set_status(conn, unclaimed, "succeeded")
-    retrying = _insert_batch(conn, **common, batch_index=2)
-    _set_status(conn, retrying, "succeeded")
-    _set_status(conn, retrying, "waiting_retry", table=DUCKGRES_STATUS_TABLE)
-    delta_pending = _insert_batch(conn, **common, batch_index=3)
-    _set_status(conn, delta_pending, "executing")
-    return {"applied": applied, "unclaimed": unclaimed, "retrying": retrying, "delta_pending": delta_pending}
-
-
-class TestDuckgresSink:
-    def test_fail_run_fails_pending_duckgres_batches_without_touching_delta_or_job(self, team, queue_conn, fake_redis):
+class TestCheckMismatches:
+    @pytest.mark.parametrize(
+        "status",
+        [ExternalDataJob.Status.FAILED, ExternalDataJob.Status.COMPLETED],
+        ids=["failed_job", "completed_job"],
+    )
+    def test_terminal_job_with_pending_batches_is_class_a(self, status, team, queue_conn, fake_redis):
         _, schema, job = _create_pipeline(team)
         run_uuid = str(uuid4())
-        _seed_duckgres_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid, age_hours=1)
+        ExternalDataJob.objects.filter(id=job.id).update(status=status)
 
-        out = _call(
-            "fail-run",
-            "--sink",
-            "duckgres",
-            "--team-id",
-            str(team.pk),
-            "--schema-id",
-            str(schema.id),
-            "--live-run",
-            "--yes",
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "A: terminal job, non-terminal batches   1 run(s), 2 batch(es)" in out
+        assert f"{status}: 1 runs / 2 batches" in out
+        assert run_uuid in out
+
+    def test_running_job_with_nothing_pending_is_class_b(self, team, queue_conn, fake_redis):
+        _, _, job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=1))
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "B: Running job, nothing pending         1 job(s)" in out
+        assert str(job.id) in out
+
+    def test_batches_referencing_a_missing_job_are_class_c(self, team, queue_conn, fake_redis):
+        _, schema, _ = _create_pipeline(team)
+        run_uuid, ghost_job_id = str(uuid4()), str(uuid4())
+        _insert_batch(
+            queue_conn,
+            team_id=team.pk,
+            schema_id=str(schema.id),
+            source_id=str(schema.source_id),
+            job_id=ghost_job_id,
+            run_uuid=run_uuid,
+            batch_index=0,
+            age_hours=1,
         )
 
-        # only the duckgres-pending batches (unclaimed + retrying) get duckgres failed rows;
-        # the applied batch and the delta-still-executing batch stay untouched
-        assert _failed_status_counts_by_run(queue_conn, table=DUCKGRES_STATUS_TABLE) == {run_uuid: 2}
-        assert _failed_status_counts_by_run(queue_conn) == {}  # delta statuses untouched
-        job.refresh_from_db()
-        assert job.status == ExternalDataJob.Status.RUNNING  # the duckgres sink doesn't own the job
-        assert _lease_count(queue_conn, str(schema.id), table=DUCKGRES_LEASE_TABLE) == 0
-        assert _lease_count(queue_conn, str(schema.id)) == 1  # delta lease untouched
-        assert "marked 2 pending batch(es) failed" in out
+        out = _call("check-mismatches", "--team-id", str(team.pk))
 
-    def test_release_locks_releases_only_duckgres_leases(self, team, queue_conn, fake_redis):
-        _, schema, _ = _create_pipeline(team)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        assert "C: batches referencing a missing job    1 run(s), 1 batch(es)" in out
+        assert "reported only" in out
 
-        _call("release-locks", "--sink", "duckgres", "--team-id", str(team.pk), "--live-run", "--yes")
+    def test_healthy_run_reports_no_mismatches(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()), age_hours=1)
 
-        assert _lease_count(queue_conn, str(schema.id), table=DUCKGRES_LEASE_TABLE) == 0
-        assert _lease_count(queue_conn, str(schema.id)) == 1
+        out = _call("check-mismatches", "--team-id", str(team.pk))
 
-    def test_status_reports_duckgres_sections(self, team, queue_conn, fake_redis):
+        assert "No mismatches in scope." in out
+
+    def test_mismatch_within_grace_is_skipped_not_reported(self, team, queue_conn, fake_redis):
         _, schema, job = _create_pipeline(team)
         run_uuid = str(uuid4())
-        batches = _seed_duckgres_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
-        _set_status(queue_conn, batches["retrying"], "executing", table=DUCKGRES_STATUS_TABLE)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)  # activity just now
+        ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.FAILED)
 
-        out = _call("status", "--sink", "duckgres", "--team-id", str(team.pk), "--stale-grace-seconds", "0")
+        out = _call("check-mismatches", "--team-id", str(team.pk))
 
-        assert run_uuid in out
-        assert "unclaimed: 1" in out  # delta-succeeded batch the duckgres sink hasn't claimed
-        assert "Redis pipeline locks" not in out  # delta-only section
+        assert "A: terminal job, non-terminal batches   0 run(s), 0 batch(es)" in out
+        assert "skipped (within grace): 1" in out
+        assert "No mismatches in scope." in out
+
+    def test_dry_run_mutates_nothing(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()), age_hours=1)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.COMPLETED)
+
+        out = _call("check-mismatches", "--team-id", str(team.pk))
+
+        assert "Would repair 1 mismatch(es)" in out
+        assert "Dry run" in out
+        assert _failed_status_counts_by_run(queue_conn) == {}
+        assert _lease_count(queue_conn, str(schema.id)) == 1
+
+    def test_live_run_terminalizes_class_a_batches_and_leaves_the_job_alone(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        run_uuid = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid, age_hours=1)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+        ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.COMPLETED)
+
+        out = _call("check-mismatches", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        assert _failed_status_counts_by_run(queue_conn) == {run_uuid: 2}
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.COMPLETED  # already terminal - not overwritten
+        assert "already terminal" in out
+        assert _lease_count(queue_conn, str(schema.id)) == 0
+
+    def test_live_run_fails_the_job_for_class_b(self, team, queue_conn, fake_redis):
+        _, _, job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=1))
+
+        _call("check-mismatches", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+
+    def test_class_b_that_races_back_to_healthy_is_not_failed(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=1))
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+
+        # Simulate a consumer enqueuing batches between detection and repair: insert a
+        # pending batch for this job right after the class B target is collected, so the
+        # repair-time re-check sees live work and leaves the job alone.
+        real_collect = Command._collect_fail_targets
+
+        def collect_then_enqueue(self, conn, scope, *, queue):
+            targets = real_collect(self, conn, scope, queue=queue)
+            _insert_batch(
+                queue_conn,
+                team_id=team.pk,
+                schema_id=str(schema.id),
+                source_id=str(schema.source_id),
+                job_id=str(job.id),
+                run_uuid=str(uuid4()),
+                batch_index=0,
+            )
+            return targets
+
+        with patch.object(Command, "_collect_fail_targets", collect_then_enqueue):
+            out = _call("check-mismatches", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING  # not failed - raced back to healthy
+        assert "no longer a class B mismatch" in out
+        assert _lease_count(queue_conn, str(schema.id)) == 1  # lease preserved for live work
+
+    def test_max_runs_cap_aborts(self, team, queue_conn, fake_redis):
+        for _ in range(2):
+            _, schema, job = _create_pipeline(team)
+            _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()), age_hours=1)
+            ExternalDataJob.objects.filter(id=job.id).update(status=ExternalDataJob.Status.FAILED)
+
+        with pytest.raises(CommandError, match="--max-runs"):
+            _call("check-mismatches", "--team-id", str(team.pk), "--max-runs", "1", "--live-run", "--yes")
+
+        assert _failed_status_counts_by_run(queue_conn) == {}
+
+    def test_source_type_scoping_only_reports_matching_runs(self, team, team_2, queue_conn, fake_redis):
+        _, stripe_schema, stripe_job = _create_pipeline(team, source_type="Stripe")
+        _, pg_schema, pg_job = _create_pipeline(team_2, source_type="Postgres")
+        stripe_run, pg_run = str(uuid4()), str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=stripe_schema, job=stripe_job, run_uuid=stripe_run, age_hours=1)
+        _seed_active_run(queue_conn, team=team_2, schema=pg_schema, job=pg_job, run_uuid=pg_run, age_hours=1)
+        ExternalDataJob.objects.filter(id__in=[stripe_job.id, pg_job.id]).update(
+            status=ExternalDataJob.Status.FAILED,
+        )
+
+        out = _call("check-mismatches", "--source-type", "stripe")
+
+        assert stripe_run in out
+        assert pg_run not in out

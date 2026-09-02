@@ -27,22 +27,22 @@ def forwards_func(apps, schema_editor):
     def sync_from_plugin_archive(plugin):
         """Create PluginSourceFile objects from a plugin that has an archive."""
         try:
-            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive)
+            code = extract_plugin_code(plugin.archive)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # Save plugin.json
-        PluginSourceFile.objects.create(plugin=plugin, filename="plugin.json", source=plugin_json)
+        PluginSourceFile.objects.create(plugin=plugin, filename="plugin.json", source=code.plugin_json)
         # Save frontend.tsx
-        if frontend_tsx is not None:
-            PluginSourceFile.objects.create(plugin=plugin, filename="frontend.tsx", source=frontend_tsx)
+        if code.frontend_tsx is not None:
+            PluginSourceFile.objects.create(plugin=plugin, filename="frontend.tsx", source=code.frontend_tsx)
         # Save site.ts
-        if site_ts is not None:
-            PluginSourceFile.objects.create(plugin=plugin, filename="site.ts", source=site_ts)
+        if code.site_ts is not None:
+            PluginSourceFile.objects.create(plugin=plugin, filename="site.ts", source=code.site_ts)
         # Save index.ts
-        if index_ts is not None:
+        if code.index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
-            PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source=index_ts)
+            PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source=code.index_ts)
 
     # Source plugins have already been migrated in 0233_plugin_source_file, while local ones don't store code in the DB
     for plugin in Plugin.objects.exclude(plugin_type__in=("source", "local")):

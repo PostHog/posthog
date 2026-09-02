@@ -105,17 +105,20 @@ class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         report_user_action(
             cast(User, request.user),
             self.user_action_name,
-            {
-                "submission_id": str(submission.id),
-                "kind": submission.kind,
-                "attempted_tool": submission.attempted_tool,
-                "mcp_client_name": submission.mcp_client_name,
-                "mcp_session_id_present": bool(submission.mcp_session_id),
-                "mcp_trace_id_present": bool(submission.mcp_trace_id),
-            },
+            self._submission_event_properties(submission),
             team=self.team,
             request=request,
         )
+
+    def _submission_event_properties(self, submission: contracts.Submission) -> dict[str, Any]:
+        return {
+            "submission_id": str(submission.id),
+            "kind": submission.kind,
+            "attempted_tool": submission.attempted_tool,
+            "mcp_client_name": submission.mcp_client_name,
+            "mcp_session_id_present": bool(submission.mcp_session_id),
+            "mcp_trace_id_present": bool(submission.mcp_trace_id),
+        }
 
     def _list_response(self, request: Request, kind: enums.SubmissionKind) -> Response:
         paginator = self.pagination_class()
@@ -259,8 +262,10 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="mcp_analytics_sessions_intent_digest",
         description=(
             "Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, "
-            "derived from the most recent recorded $mcp_intents across all sessions. Content-addressed cache: "
-            "only regenerates when new intents arrive. Powers the dashboard's low-volume activity stage."
+            "derived from the most recent recorded $mcp_intents across all sessions: a one-sentence summary "
+            "plus semantic themes, each sized and attributed to tools from the intents themselves. Cached by "
+            "intent corpus and by recency, so repeated calls are cheap and a busy server regenerates at a "
+            "bounded rate. Powers the dashboard's activity tab."
         ),
         request=None,
         responses={
@@ -301,7 +306,7 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # the write scope; the snapshot read stays on the read scope.
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["recompute"]
-    posthog_feature_flag = "mcp-analytics"
+    posthog_feature_flag = contracts.MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = None
 
@@ -315,10 +320,24 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Return the most recent intent cluster snapshot for the current project. "
             "Returns an empty IDLE snapshot when no clustering run has happened yet."
         ),
+        parameters=[
+            OpenApiParameter(
+                name="tool",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow the response to one tool: its pivot entry, the clusters it serves or switches "
+                    "with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use "
+                    "this for single-tool views so they don't download every cluster and pivot to render "
+                    "one row. An unknown tool returns empty sections, not a 404."
+                ),
+            )
+        ],
         responses={200: MCPIntentClusterSnapshotSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        snapshot = api.get_intent_cluster_snapshot(self.team)
+        snapshot = api.get_intent_cluster_snapshot(self.team, tool=request.query_params.get("tool") or None)
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data)
 
@@ -340,7 +359,9 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
-    user_action_name = "mcp analytics missing capability reported"
+    def _report_submission_created(self, request: Request, submission: contracts.Submission) -> None:
+        distinct_id = str(getattr(request.user, "distinct_id", "") or f"mcp-missing-capability-{self.team.id}")
+        api.capture_missing_capability_event(self.team, distinct_id, submission)
 
     @validated_request(
         request_serializer=MCPMissingCapabilityCreateSerializer,

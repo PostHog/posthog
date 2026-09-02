@@ -13,7 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach
     SMARTREACH_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.smartreach import (
+    SMARTREACH_API_V1,
+    SMARTREACH_API_V3,
     SMARTREACH_BASE_URL,
+    SMARTREACH_BASE_URLS,
     SmartreachResumeConfig,
     check_access,
     smartreach_source,
@@ -28,11 +31,22 @@ SMARTREACH_SESSION_PATCH = (
 
 
 def _response(rows: list[dict[str, Any]] | None, data_key: str, next_url: str | None, status: int = 200) -> Response:
+    # v1 envelope: the row list is nested under `data.<data_key>`.
     body: dict[str, Any] = {"data": {data_key: rows if rows is not None else []}, "links": {"next": next_url}}
     resp = Response()
     resp.status_code = status
     resp._content = json.dumps(body).encode()
     resp.url = f"{SMARTREACH_BASE_URL}/prospects"
+    return resp
+
+
+def _response_v3(rows: list[dict[str, Any]] | None, data_key: str, next_url: str | None, status: int = 200) -> Response:
+    # v3 envelope: the row list sits at the response root (e.g. `prospects`), not under `data`.
+    body: dict[str, Any] = {data_key: rows if rows is not None else [], "links": {"next": next_url}}
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.url = f"{SMARTREACH_BASE_URLS[SMARTREACH_API_V3]}/prospects"
     return resp
 
 
@@ -43,18 +57,23 @@ def _make_manager(resume_state: SmartreachResumeConfig | None = None) -> mock.Ma
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+def _wire(
+    session: mock.MagicMock, responses: list[Response], params_out: list[dict[str, Any]] | None = None
+) -> list[str]:
     """Wire a mock session and return a list that captures each request's URL AT SEND TIME.
 
     The paginator rewrites ``request.url`` in place across pages, so snapshot it as each request is
     prepared. The prepared request must expose a real ``url`` string because the client's host-pinning
-    guard (``allowed_hosts``) runs on ``prepared.url`` before every send.
+    guard (``allowed_hosts``) runs on ``prepared.url`` before every send. Pass ``params_out`` to also
+    capture each request's query params (the v3 ``team_id`` rides here, not in ``request.url``).
     """
     session.headers = {}
     url_snapshots: list[str] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         url_snapshots.append(request.url)
+        if params_out is not None:
+            params_out.append(dict(request.params or {}))
         prepared = mock.MagicMock()
         prepared.url = request.url
         return prepared
@@ -68,13 +87,20 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(manager: mock.MagicMock, endpoint: str = "prospects") -> Any:
+def _source(
+    manager: mock.MagicMock,
+    endpoint: str = "prospects",
+    api_version: str = SMARTREACH_API_V1,
+    smartreach_team_id: str | None = None,
+) -> Any:
     return smartreach_source(
         api_key="uk_test",
         endpoint=endpoint,
         team_id=1,
         job_id="j",
         resumable_source_manager=manager,
+        api_version=api_version,
+        smartreach_team_id=smartreach_team_id,
     )
 
 
@@ -179,6 +205,35 @@ class TestPagination:
         assert _rows(_source(_make_manager())) == []
 
 
+class TestVersionDispatch:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_v3_uses_v3_base_root_envelope_and_team_id(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        params: list[dict[str, Any]] = []
+        urls = _wire(session, [_response_v3([{"id": "p_1"}], "prospects", next_url=None)], params_out=params)
+
+        rows = _rows(_source(_make_manager(), api_version=SMARTREACH_API_V3, smartreach_team_id="team_abc"))
+
+        # Rows come from the v3 root envelope; a leftover v1 `data.prospects` selector would yield none.
+        assert rows == [{"id": "p_1"}]
+        assert urls == [f"{SMARTREACH_BASE_URLS[SMARTREACH_API_V3]}/prospects"]
+        # v3 requires team_id on the first request; the paginator carries it forward via links.next.
+        assert params == [{"team_id": "team_abc"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_v1_uses_v1_base_and_never_sends_team_id(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        params: list[dict[str, Any]] = []
+        urls = _wire(session, [_response([{"id": 1}], "prospects", next_url=None)], params_out=params)
+
+        # Even if a team_id is threaded through, v1 keeps its legacy base + `data.*` envelope untouched.
+        rows = _rows(_source(_make_manager(), api_version=SMARTREACH_API_V1, smartreach_team_id="team_abc"))
+
+        assert rows == [{"id": 1}]
+        assert urls == [f"{SMARTREACH_BASE_URL}/prospects"]
+        assert params == [{}]
+
+
 class TestSSRFHostPinning:
     @parameterized.expand(
         [
@@ -246,21 +301,30 @@ class TestCheckAccess:
         response = mock.MagicMock()
         response.status_code = status
         with self._patch_session(response):
-            assert check_access("uk_test") == (expected_status, expected_message)
+            assert check_access("uk_test", SMARTREACH_API_V1) == (expected_status, expected_message)
 
     def test_connection_error_maps_to_zero(self) -> None:
         with self._patch_session(requests.ConnectionError("boom")):
-            status, message = check_access("uk_test")
+            status, message = check_access("uk_test", SMARTREACH_API_V1)
         assert status == 0
         assert message == "Could not connect to SmartReach"
 
-    def test_probes_campaigns_endpoint(self) -> None:
+    def test_v1_probes_campaigns_without_team_id(self) -> None:
         response = mock.MagicMock()
         response.status_code = 200
         with self._patch_session(response) as patched:
-            check_access("uk_test")
+            check_access("uk_test", SMARTREACH_API_V1)
         session = patched.return_value
         assert session.get.call_args.args[0] == f"{SMARTREACH_BASE_URL}/campaigns"
+
+    def test_v3_probes_campaigns_with_team_id_on_v3_base(self) -> None:
+        # v3 rejects a list request without team_id, so the probe URL must carry it against the v3 base.
+        response = mock.MagicMock()
+        response.status_code = 200
+        with self._patch_session(response) as patched:
+            check_access("uk_test", SMARTREACH_API_V3, smartreach_team_id="team_abc")
+        session = patched.return_value
+        assert session.get.call_args.args[0] == f"{SMARTREACH_BASE_URLS[SMARTREACH_API_V3]}/campaigns?team_id=team_abc"
 
 
 class TestSmartreachSourceResponse:

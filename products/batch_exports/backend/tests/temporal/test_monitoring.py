@@ -2,7 +2,6 @@ import uuid
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
@@ -132,29 +131,30 @@ async def generate_batch_export_runs(
 async def _run_workflow(batch_export):
     workflow_id = str(uuid.uuid4())
     inputs = BatchExportMonitoringInputs(batch_export_id=batch_export.id)
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-            workflows=[BatchExportMonitoringWorkflow],
-            activities=[
-                get_batch_export,
-                get_clickhouse_event_counts,
-                fetch_exported_event_counts,
-                update_batch_export_runs,
-                reconcile_event_counts,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            batch_export_runs_updated = await activity_environment.client.execute_workflow(
-                BatchExportMonitoringWorkflow.run,
-                inputs,
-                id=workflow_id,
+    with patch("products.batch_exports.backend.temporal.monitoring.workflow.now", return_value=NOW):
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
-            )
-            return batch_export_runs_updated
+                workflows=[BatchExportMonitoringWorkflow],
+                activities=[
+                    get_batch_export,
+                    get_clickhouse_event_counts,
+                    fetch_exported_event_counts,
+                    update_batch_export_runs,
+                    reconcile_event_counts,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                batch_export_runs_updated = await activity_environment.client.execute_workflow(
+                    BatchExportMonitoringWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+                return batch_export_runs_updated
 
 
 async def test_monitoring_workflow_when_no_event_data(batch_export):
@@ -177,7 +177,6 @@ async def test_monitoring_workflow_when_no_event_data(batch_export):
     ["every 5 minutes"],
     indirect=True,
 )
-@freeze_time(NOW)
 async def test_monitoring_workflow_no_issues(
     batch_export,
     generate_test_data,
@@ -234,7 +233,6 @@ async def test_monitoring_workflow_no_issues(
     ["every 5 minutes"],
     indirect=True,
 )
-@freeze_time(NOW)
 async def test_monitoring_workflow_when_missing_batch_export_runs(
     batch_export,
     generate_test_data,
@@ -296,7 +294,6 @@ async def test_monitoring_workflow_when_missing_batch_export_runs(
     ["every 5 minutes"],
     indirect=True,
 )
-@freeze_time(NOW)
 async def test_monitoring_workflow_when_missing_events(
     batch_export,
     generate_test_data,

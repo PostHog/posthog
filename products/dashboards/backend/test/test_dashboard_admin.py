@@ -9,7 +9,7 @@ from django.test import RequestFactory
 from products.dashboards.backend.admin.dashboard_admin import DashboardAdmin
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _attach_messages(request) -> None:

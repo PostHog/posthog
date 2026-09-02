@@ -5,6 +5,8 @@ This test file is written FIRST to define the behavior we want for experiment fu
 The implementation will follow to make these tests pass.
 """
 
+from datetime import timedelta
+
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -14,12 +16,20 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import ActorsQuery, EventsNode, ExperimentActorsQuery, ExperimentFunnelMetric, ExperimentQuery
+from posthog.schema import (
+    ActorsQuery,
+    EventsNode,
+    ExperimentActorsQuery,
+    ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
+    ExperimentQuery,
+)
 
 from posthog.hogql.context import HogQLContext
 
@@ -27,6 +37,7 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import print_cohort_hogql_query
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 
@@ -136,11 +147,15 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
 
     @parameterized.expand(
         [
+            ("exposure_control", 0, "control", 10),  # Step 0 = all exposed actors (control)
+            ("exposure_test", 0, "test", 10),  # Step 0 = all exposed actors (test)
             ("conversions_step1_control", 1, "control", 6),  # Step 1 conversions (signup)
             ("conversions_step2_control", 2, "control", 4),  # Step 2 conversions (purchase)
+            ("dropoffs_step1_control", -1, "control", 4),  # Step 1 drop-offs (exposed, no signup)
             ("dropoffs_control", -2, "control", 2),  # Step 2 drop-offs (signup but no purchase)
             ("conversions_step1_test", 1, "test", 8),  # Step 1 conversions (signup) - test variant
             ("conversions_step2_test", 2, "test", 6),  # Step 2 conversions (purchase) - test variant
+            ("dropoffs_step1_test", -1, "test", 2),  # Step 1 drop-offs (exposed, no signup) - test variant
             ("dropoffs_test", -2, "test", 2),  # Step 2 drop-offs - test variant
         ]
     )
@@ -179,6 +194,46 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         distinct_ids = {row[1]["distinct_ids"][0] for row in response.results}
         for distinct_id in distinct_ids:
             assert distinct_id.startswith(f"user_{variant}_")
+
+    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4))
+    def test_experiment_funnel_actors_resolves_explicit_default_exposure_event(self) -> None:
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+        experiment.start_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1)
+        experiment.end_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=3)
+        experiment.save(update_fields=["start_date", "end_date"])
+
+        distinct_id = "user_exposed_after_cutoff"
+        _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$experiment_exposure",
+            distinct_id=distinct_id,
+            timestamp=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=1),
+            properties={"$feature_flag": feature_flag.key, "$feature_flag_response": "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id=distinct_id,
+            timestamp=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1, hours=2),
+        )
+        flush_persons_and_events()
+
+        actors_query = ActorsQuery(
+            source=ExperimentActorsQuery(
+                kind="ExperimentActorsQuery",
+                source=experiment_query,
+                funnelStep=1,
+                funnelStepBreakdown="control",
+                exposureConfig=ExperimentEventExposureConfig(event="$feature_flag_called", properties=[]),
+            ),
+            select=["id", "person"],
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert [row[1]["distinct_ids"][0] for row in response.results] == [distinct_id]
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -265,6 +320,38 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         assert isinstance(response.results[0][2], list)
 
     @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_experiment_exposure_actors_with_recordings(self):
+        """
+        Step 0 (exposure) actors query should still expose matched_recordings,
+        sourced from the first exposure event rather than a metric step.
+        """
+        feature_flag, _experiment, experiment_query = self._create_experiment_with_funnel()
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        self._create_funnel_data_both_variants(feature_flag_property)
+        flush_persons_and_events()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=0,
+            funnelStepBreakdown="control",
+            includeRecordings=True,
+        )
+
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["id", "person", "matched_recordings"],
+        )
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 10
+        assert len(response.results[0]) == 3
+        assert isinstance(response.results[0][2], list)
+
+    @freeze_time("2020-01-01T12:00:00Z")
     def test_experiment_funnel_actors_invalid_steps(self):
         """
         Test that invalid funnelStep values are properly rejected with helpful error messages.
@@ -276,64 +363,11 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         4. Use clear, actionable language
 
         Experiment funnels have unique constraints:
-        - Exposure is step 0 in main query but excluded from actors query
-        - funnelStep=-1 is invalid (would mean "exposed but never entered funnel")
-        - funnelStep=0 is invalid (steps are 1-indexed)
+        - Exposure is step 0 in main query and queryable via the actors query (returns all exposed actors)
+        - funnelStep=-1 is valid (exposed, did not reach the first metric step)
         - Out-of-range steps should be rejected
         """
         feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
-
-        # Test -1: Invalid drop-off (would mean "dropped before first metric step")
-        # Error message should explain the experiment funnel structure and why this is invalid
-        experiment_actors_query = ExperimentActorsQuery(
-            kind="ExperimentActorsQuery",
-            source=experiment_query,
-            funnelStep=-1,
-            funnelStepBreakdown="control",
-            includeRecordings=False,
-        )
-
-        actors_query = ActorsQuery(
-            source=experiment_actors_query,
-            select=["id", "person"],
-        )
-
-        with self.assertRaises(Exception) as context:
-            ActorsQueryRunner(query=actors_query, team=self.team).calculate()
-
-        error_message = str(context.exception)
-        # Verify error message contains all key information
-        self.assertIn("Cannot query drop-offs before the first metric step", error_message)
-        self.assertIn("experiment funnel", error_message.lower())
-        self.assertIn("Exposure", error_message)  # Shows funnel structure
-        self.assertIn("signup", error_message)  # Shows first metric event name
-        self.assertIn("exposed but never entered the funnel", error_message)  # Explains WHY invalid
-        self.assertIn("Valid drop-off steps: -2", error_message)  # Shows valid range
-        self.assertIn("-3", error_message)  # Shows upper bound of valid range
-
-        # Test 0: Invalid step (steps are 1-indexed)
-        # Error message should explain that step 0 doesn't exist and show valid range
-        experiment_actors_query_zero = ExperimentActorsQuery(
-            kind="ExperimentActorsQuery",
-            source=experiment_query,
-            funnelStep=0,
-            funnelStepBreakdown="control",
-            includeRecordings=False,
-        )
-
-        actors_query_zero = ActorsQuery(
-            source=experiment_actors_query_zero,
-            select=["id", "person"],
-        )
-
-        with self.assertRaises(Exception) as context:
-            ActorsQueryRunner(query=actors_query_zero, team=self.team).calculate()
-
-        error_message = str(context.exception)
-        self.assertIn("Funnel steps are 1-indexed", error_message)
-        self.assertIn("Step 0 does not exist", error_message)
-        self.assertIn("Valid conversion steps: 1", error_message)  # Shows start of valid range
-        self.assertIn("2", error_message)  # Shows end of valid range (2 metric steps)
 
         # Test out-of-range drop-off (2-step funnel, so -3 is last valid, -4 is invalid)
         # Error message should show the invalid step, number of metric steps, and valid range
@@ -356,7 +390,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         error_message = str(context.exception)
         self.assertIn("Invalid drop-off step -4", error_message)  # Shows the invalid value
         self.assertIn("2 metric steps", error_message)  # Shows context
-        self.assertIn("Valid drop-off steps: -2", error_message)  # Shows valid range start
+        self.assertIn("Valid drop-off steps: -1", error_message)  # Shows valid range start
         self.assertIn("-3", error_message)  # Shows valid range end
 
         # Test out-of-range conversion (2-step funnel, so 3 is invalid)
@@ -380,8 +414,8 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         error_message = str(context.exception)
         self.assertIn("Invalid conversion step 3", error_message)  # Shows the invalid value
         self.assertIn("2 metric steps", error_message)  # Shows context
-        self.assertIn("Valid conversion steps: 1", error_message)  # Shows valid range start
-        self.assertIn("(first metric step) to 2", error_message)  # Shows valid range end with explanation
+        self.assertIn("Valid conversion steps: 0", error_message)  # Shows valid range start
+        self.assertIn("(exposure step) to 2", error_message)  # Shows valid range end with explanation
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -472,6 +506,70 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         # user_before_exposure should NOT be counted because their signup was before exposure
         assert len(response.results) == 1
         assert response.results[0][1]["distinct_ids"][0] == "user_after_exposure"
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_experiment_funnel_actors_step1_dropoff_counts_pre_exposure_signup(self):
+        """
+        Step-1 drop-offs (funnelStep=-1) are "exposed but did not reach the first metric step".
+
+        A signup that happened BEFORE exposure does not count toward the funnel, so that user
+        is exposed-only (step_reached=0) and should appear as a step-1 drop-off. A user who
+        signed up AFTER exposure reached the first metric step and must be excluded.
+        """
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+
+        # Signup before exposure -> does not enter the funnel -> step-1 drop-off
+        _create_person(distinct_ids=["user_before_exposure"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_before_exposure",
+            timestamp="2020-01-02T10:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_before_exposure",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$feature_flag": feature_flag.key, "$feature_flag_response": "control"},
+        )
+
+        # Signup after exposure -> reaches first metric step -> NOT a step-1 drop-off
+        _create_person(distinct_ids=["user_after_exposure"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_after_exposure",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$feature_flag": feature_flag.key, "$feature_flag_response": "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_after_exposure",
+            timestamp="2020-01-02T13:00:00Z",
+        )
+
+        flush_persons_and_events()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=-1,
+            funnelStepBreakdown="control",
+            includeRecordings=False,
+        )
+
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["id", "person"],
+        )
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0][1]["distinct_ids"][0] == "user_before_exposure"
 
     @parameterized.expand(
         [

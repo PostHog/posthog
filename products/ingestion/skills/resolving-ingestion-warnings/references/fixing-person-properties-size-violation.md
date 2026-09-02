@@ -23,7 +23,7 @@ These combine: a dynamically-keyed map of nested objects is the worst case and t
 
 ## Diagnose
 
-1. List the warnings with `posthog:ingestion-warnings-list` (`type: person_properties_size_violation`). Samples carry `person_id` and `distinct_id`. Remember distinct IDs are not persons — resolve them (`posthog:persons-list` filtered by distinct ID); the person's properties are shared across all of their distinct IDs.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'person_properties_size_violation' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. The `details` JSON carries `person_id` and `distinct_id`. Remember distinct IDs are not persons — resolve them (`posthog:persons-list` filtered by distinct ID); the person's properties are shared across all of their distinct IDs.
 2. Profile the person's properties against the three patterns:
    - **Count the keys** — hundreds+ means dynamic keying; look for the generated-name pattern.
    - **Rank values by size** (`JSONExtractKeys(properties)` + `length()` of each value via `posthog:execute-sql`, or eyeball the person page) — a few dominant keys means big payloads.
@@ -63,7 +63,7 @@ posthog.capture({
 ## Verify
 
 1. After the cleanup, send a small `$set` (e.g. a `profile_cleaned_at` timestamp) and confirm it appears on the person — proof updates apply again.
-2. Re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences. Judge by absence of new warnings over a real usage window; historical counts don't shrink.
+2. Re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'person_properties_size_violation'`, `timestamp` after your fix) — no new occurrences. Judge by absence of new warnings over a real usage window; historical counts don't shrink.
 3. If `message_size_too_large` was firing for the same persons, confirm it stopped too.
 
 ## Related

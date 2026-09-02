@@ -29,12 +29,12 @@ export const ProductPushCampaignApi = zod.object({
 export type ProductPushCampaignApi = zod.input<typeof ProductPushCampaignApi>
 export type ProductPushCampaignApiOutput = zod.output<typeof ProductPushCampaignApi>
 
-export const TierEnumApi = zod
+export const IdentityMatchingLinkTierEnumApi = zod
     .enum(['high', 'medium', 'low'])
     .describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low')
 
-export type TierEnumApi = zod.input<typeof TierEnumApi>
-export type TierEnumApiOutput = zod.output<typeof TierEnumApi>
+export type IdentityMatchingLinkTierEnumApi = zod.input<typeof IdentityMatchingLinkTierEnumApi>
+export type IdentityMatchingLinkTierEnumApiOutput = zod.output<typeof IdentityMatchingLinkTierEnumApi>
 
 export const IdentityMatchingPersonApi = zod
     .object({
@@ -451,12 +451,12 @@ export const OverallHealthEnumApi = zod
 export type OverallHealthEnumApi = zod.input<typeof OverallHealthEnumApi>
 export type OverallHealthEnumApiOutput = zod.output<typeof OverallHealthEnumApi>
 
-export const HealthEnumApi = zod
+export const SdkHealthReportHealthEnumApi = zod
     .enum(['success', 'warning', 'danger'])
     .describe('\* `success` - success\n\* `warning` - warning\n\* `danger` - danger')
 
-export type HealthEnumApi = zod.input<typeof HealthEnumApi>
-export type HealthEnumApiOutput = zod.output<typeof HealthEnumApi>
+export type SdkHealthReportHealthEnumApi = zod.input<typeof SdkHealthReportHealthEnumApi>
+export type SdkHealthReportHealthEnumApiOutput = zod.output<typeof SdkHealthReportHealthEnumApi>
 
 export const LibEnumApi = zod
     .enum([

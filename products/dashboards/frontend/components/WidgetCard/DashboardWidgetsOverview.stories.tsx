@@ -102,7 +102,7 @@ const dashboardOverviewFrameDecorator = [
 ]
 
 const meta: Meta<typeof DashboardWidgetsOverview> = {
-    title: 'Dashboards/Dashboard Widgets/Overview',
+    title: 'Products/Dashboards/Dashboard Widgets/Overview',
     component: DashboardWidgetsOverview,
     parameters: {
         layout: 'fullscreen',

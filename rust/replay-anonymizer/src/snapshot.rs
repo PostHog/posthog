@@ -28,7 +28,7 @@ use simd_json::prelude::Writable;
 
 use crate::allow_lists::AllowLists;
 use crate::collect::{CollectedImage, ImageCollection};
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSourceCount};
 use crate::event::{
     route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
     SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
@@ -41,6 +41,7 @@ use crate::json::{
 };
 use crate::scan::{self, Span};
 use crate::timings::PhaseTimings;
+use crate::url_collect::UrlCollection;
 
 /// Why a payload could not be anonymized; maps onto the TS pipeline's dlq/drop reasons so the fused
 /// step classifies failures exactly like the TS parse step does.
@@ -134,6 +135,18 @@ pub struct ImageEntry {
     pub len: usize,
 }
 
+/// One collected remote image URL, on its way to the fetch lane.
+///
+/// The payload travels inline, not in a side buffer like [`ImageEntry`]. A URL is small, and it is
+/// the thing the fetcher needs, so there is nothing to pack.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct UrlEntry {
+    pub hash: String,
+    pub url: String,
+    pub host: String,
+    pub domain: String,
+}
+
 /// Message envelope + per-event metadata the TS scaffolding needs for routing/batching.
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -156,6 +169,24 @@ pub struct SnapshotMeta {
     /// Collected original images (hash-sorted); non-empty only on the image-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ImageEntry>,
+    /// Collected remote image URLs (hash-sorted); non-empty only on the URL-collection lane.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<UrlEntry>,
+    /// Collected ref occurrences by bounded replay location, property, and inline or URL lane.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub image_sources: Vec<ImageSourceCount>,
+    /// Counts by reason for the URLs the collector refused. Every decline is otherwise invisible,
+    /// and the phase that measures this lane would report a smaller URL set than the traffic holds
+    /// with nothing to say why.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub url_declines: Vec<UrlDecline>,
+}
+
+/// One reason the collector refused a URL, and how many times it did.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct UrlDecline {
+    pub reason: String,
+    pub count: u32,
 }
 
 /// Which implementation produced the output (tree = the whole-message fallback fired). Both are
@@ -258,8 +289,31 @@ pub fn anonymize_kafka_payload_timed(
     timings: Option<&PhaseTimings>,
     image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
+    anonymize_kafka_payload_collecting(allow, payload, opts, timings, image_collection, None)
+}
+
+/// [`anonymize_kafka_payload_timed`] with the URL-collection lane as well.
+///
+/// A remote image keeps its placeholder while a namespaced sibling attribute carries its ref. Its
+/// original URL comes back in `meta.urls`, which the caller passes to the fetch lane. `None` omits
+/// the sibling ref and leaves the placeholder unchanged.
+pub fn anonymize_kafka_payload_collecting(
+    allow: &AllowLists,
+    payload: &mut [u8],
+    opts: AnonymizeOpts,
+    timings: Option<&PhaseTimings>,
+    image_collection: Option<ImageCollection>,
+    url_collection: Option<UrlCollection>,
+) -> SResult<AnonymizedMessage> {
     contain_panics(|| {
-        anonymize_kafka_payload_opts_impl(allow, payload, opts, timings, image_collection)
+        anonymize_kafka_payload_opts_impl(
+            allow,
+            payload,
+            opts,
+            timings,
+            image_collection,
+            url_collection,
+        )
     })
 }
 
@@ -269,6 +323,7 @@ fn anonymize_kafka_payload_opts_impl(
     opts: AnonymizeOpts,
     timings: Option<&PhaseTimings>,
     image_collection: Option<ImageCollection>,
+    url_collection: Option<UrlCollection>,
 ) -> SResult<AnonymizedMessage> {
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
@@ -279,6 +334,7 @@ fn anonymize_kafka_payload_opts_impl(
                 opts,
                 timings,
                 image_collection,
+                url_collection,
             );
         };
         let distinct_id = distinct_id.into_owned();
@@ -304,9 +360,17 @@ fn anonymize_kafka_payload_opts_impl(
             opts,
             timings,
             image_collection,
+            url_collection,
         );
     }
-    anonymize_kafka_payload_via_parse(allow, payload, opts, timings, image_collection)
+    anonymize_kafka_payload_via_parse(
+        allow,
+        payload,
+        opts,
+        timings,
+        image_collection,
+        url_collection,
+    )
 }
 
 /// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
@@ -383,6 +447,7 @@ fn anonymize_kafka_payload_via_parse(
     opts: AnonymizeOpts,
     timings: Option<&PhaseTimings>,
     image_collection: Option<ImageCollection>,
+    url_collection: Option<UrlCollection>,
 ) -> SResult<AnonymizedMessage> {
     reject_if_too_deep(payload, "kafka payload")
         .map_err(|e| Failure::new(FailKind::InvalidJson, e.to_string()))?;
@@ -415,6 +480,7 @@ fn anonymize_kafka_payload_via_parse(
         opts,
         timings,
         image_collection,
+        url_collection,
     )
 }
 
@@ -437,7 +503,15 @@ pub fn anonymize_snapshot_data_opts(
     image_collection: Option<ImageCollection>,
 ) -> SResult<AnonymizedMessage> {
     contain_panics(|| {
-        anonymize_snapshot_data_inner(allow, distinct_id, inner, opts, None, image_collection)
+        anonymize_snapshot_data_inner(
+            allow,
+            distinct_id,
+            inner,
+            opts,
+            None,
+            image_collection,
+            None,
+        )
     })
 }
 
@@ -448,17 +522,35 @@ fn anonymize_snapshot_data_inner(
     opts: AnonymizeOpts,
     timings: Option<&PhaseTimings>,
     image_collection: Option<ImageCollection>,
+    url_collection: Option<UrlCollection>,
 ) -> SResult<AnonymizedMessage> {
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let ctx = Ctx::with_options(allow, timings, opts.image_policy, image_collection);
+    let mut ctx = Ctx::with_options(allow, timings, opts.image_policy, image_collection)
+        .collecting_urls(url_collection);
     let mut msg = match stream_message(&ctx, distinct_id, inner, opts)? {
         Some(msg) => msg,
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
         // consumed before the signal, so the tree path re-reads the intact buffer.
         None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
     };
+    msg.meta.url_declines = ctx
+        .take_url_declines()
+        .into_iter()
+        .map(|(reason, count)| UrlDecline { reason, count })
+        .collect();
+    msg.meta.urls = ctx
+        .take_collected_urls()
+        .into_iter()
+        .map(|u| UrlEntry {
+            hash: u.hash,
+            url: u.url,
+            host: u.host,
+            domain: u.domain,
+        })
+        .collect();
+    msg.meta.image_sources = ctx.take_image_source_counts();
     let (entries, image_bytes) = pack_images(ctx.into_collected_images());
     msg.meta.images = entries;
     msg.image_bytes = image_bytes;
@@ -870,6 +962,14 @@ fn finish(
     }
     // Deferred image jobs resolve here: the block lines are the last surface tokens can be on.
     let lines = ctx.patch_pending_images(lines);
+    // Nothing downstream can fix a token that gets past this point, and a shipped one is an image
+    // no reader can ever recover (the marker is random per process). Fail closed instead.
+    if crate::images::contains_token(&lines) {
+        return Err(Failure::new(
+            FailKind::AnonymizeFailed,
+            "internal: unresolved image token in anonymized output",
+        ));
+    }
     Ok(AnonymizedMessage {
         lines,
         route,
@@ -887,6 +987,9 @@ fn finish(
             events: sink.events,
             // The collector lives on the Ctx, not the Sink; the entry point packs it in.
             images: Vec::new(),
+            urls: Vec::new(),
+            image_sources: Vec::new(),
+            url_declines: Vec::new(),
         },
         image_bytes: Vec::new(),
     })

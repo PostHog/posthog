@@ -1,20 +1,24 @@
+import re
 import time
 import random
+from collections import Counter
 from collections.abc import Callable
-from typing import Any, Optional, TypeVar
+from typing import Any, Optional, TypeVar, cast
 
 from django.conf import settings
 
 import gspread
 import requests
 from cachetools import Cache, TTLCache, cached
+from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
+from gspread.utils import numericise_all
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
 )
@@ -66,11 +70,13 @@ max_attempts = 10
 jitter_in_seconds = 10
 sleep_per_attempt_in_seconds = 30
 
-# Transient Google Sheets API failures worth retrying: 429 (per-minute quota exhausted) plus the
-# 5xx server-side errors Google returns intermittently (e.g. "[500]: Internal error encountered.").
-# Google's API guidance is to retry these with backoff — they are not caused by our request and
-# usually clear on the next attempt, so re-raising immediately turns a blip into a failed sync.
-_RETRYABLE_API_ERROR_CODES = {429, 500, 502, 503, 504}
+# Transient Google Sheets API failures worth retrying: 429 (per-minute quota exhausted), the
+# 5xx server-side errors Google returns intermittently (e.g. "[500]: Internal error encountered."),
+# and 409 ("[409]: The operation was aborted.") — Google's ABORTED code, a concurrency conflict
+# (e.g. another process editing the same spreadsheet) rather than a problem with our request.
+# Google's API guidance is to retry these with backoff — they usually clear on the next attempt,
+# so re-raising immediately turns a blip into a failed sync.
+_RETRYABLE_API_ERROR_CODES = {409, 429, 500, 502, 503, 504}
 
 # gspread raises a bare `PermissionError` (with no message) when the Google Sheets
 # API returns 403 — see gspread/client.py: `raise PermissionError from ex`.
@@ -101,7 +107,7 @@ def _assert_unique_normalized_column_names(headers: list[str]) -> None:
     same column. gspread only rejects *exact* duplicate headers, so these near-duplicates slip past it
     and fail much later with an opaque "duplicate column name" deep in table creation, after the sync
     has already started. Detect the collision up front and raise an actionable message naming the
-    offending headers instead. Exact duplicates are left to gspread's own check."""
+    offending headers instead. Exact duplicates are left to `_resolve_column_names`."""
     seen: dict[str, str] = {}
     for header in headers:
         if not header or not header.strip():
@@ -112,9 +118,67 @@ def _assert_unique_normalized_column_names(headers: list[str]) -> None:
             raise Exception(
                 f'Column headers "{previous}" and "{header}" collapse to the same column name '
                 f'"{normalized}" when synced. Column headers must stay unique after PostHog normalizes '
-                f"them (it ignores case, spaces, and punctuation). Rename one of them and resync."
+                f"them (it ignores case and punctuation, and drops characters outside a-z and 0-9, so "
+                f"headers written entirely in another script all end up with the same name). Give one of "
+                f"them a name that differs in its letters or digits, then resync."
             )
         seen[normalized] = header
+
+
+def _resolve_column_names(headers: list[str]) -> list[str]:
+    """Turn a worksheet's header row into a usable column name per position.
+
+    Header cells are routinely blank: the Sheets API pads every row out to the width of the widest
+    row, so a single stray value typed to the right of the header row invents columns with nothing
+    in their header cell. gspread keys its records straight off the raw cells, which turns one blank
+    header into a column literally named "" (rejected later by the naming convention with an empty
+    error message) and two or more into its "contains duplicates" error. Name the unnamed columns
+    after their position instead, so the sync completes with the data intact. Duplicated *named*
+    headers still fail: there the user has two real names, and only they can decide which is which."""
+    named = [header for header in headers if header and header.strip()]
+    duplicates = sorted({header for header, count in Counter(named).items() if count > 1})
+    if duplicates:
+        # Keep gspread's wording — the source registers its user-facing message against this text.
+        raise Exception(f"the header row in the worksheet contains duplicates: {duplicates}")
+
+    taken = set(named)
+    resolved: list[str] = []
+
+    for position, header in enumerate(headers, start=1):
+        if header and header.strip():
+            resolved.append(header)
+            continue
+
+        name = f"column_{position}"
+        while name in taken:
+            name = f"_{name}"
+        taken.add(name)
+        resolved.append(name)
+
+    return resolved
+
+
+def _records_from_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
+    if not grid or grid == [[]]:
+        return []
+
+    column_names = _resolve_column_names(list(grid[0]))
+
+    # default_blank defaults to "", which turns empty cells into strings and breaks numeric
+    # columns that legitimately have gaps. None lets blank cells import as null instead.
+    return [dict(zip(column_names, numericise_all(row, default_blank=None))) for row in grid[1:]]
+
+
+# Google's frontend returns this stable "That's an error" doodle page — an HTML body, not the JSON
+# `{"error": ...}` an OAuth rejection (e.g. invalid_grant) returns — when its infra has a transient
+# outage in front of the token endpoint. `google-auth`'s own `RefreshError.retryable` flag doesn't
+# cover this: it only recognizes 500/503/504/408/429 as retryable and treats an HTML body's implied
+# 502 as not retryable (see `google.oauth2._client._can_retry`), so key off the page's title instead.
+_GOOGLE_FRONTEND_ERROR_RE = re.compile(r"Error 5\d\d \(")
+
+
+def _is_transient_refresh_error(e: BaseException) -> bool:
+    return bool(_GOOGLE_FRONTEND_ERROR_RE.search(str(e)))
 
 
 def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
@@ -147,7 +211,7 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     by quota limits dont all retry at the same time.
 
     This wraps every gspread call that hits the API — worksheet acquisition *and* the
-    cell-reading calls (`get_all_values`/`get_all_records`). The reads issue their own
+    cell-reading calls (`get_all_values`/`get`). The reads issue their own
     requests, so a transient 5xx there must be retried too rather than failing the sync."""
 
     attempts = 1
@@ -157,6 +221,8 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
             return execute()
         except (
             gspread.exceptions.APIError,
+            google_auth_exceptions.RefreshError,
+            google_auth_exceptions.TransportError,
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
             requests.exceptions.ChunkedEncodingError,
@@ -172,7 +238,18 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
             # streaming the response body and re-raises it as `ChunkedEncodingError`, which is a
             # sibling of `ConnectionError` in the `requests` hierarchy (not a subclass), so the
             # `ConnectionError` entry above would not catch it.
-            is_retryable = _is_retryable_api_error(e) if isinstance(e, gspread.exceptions.APIError) else True
+            #
+            # `RefreshError`/`TransportError` come from `AuthorizedSession` refreshing our own
+            # service-account token as a side effect of this call (see `_is_transient_refresh_error`)
+            # — gate those on the frontend-error signature rather than treating every auth failure
+            # as transient, since a persistent problem (e.g. a rotated/invalid key) should still fail
+            # fast instead of spending the whole retry budget first.
+            if isinstance(e, gspread.exceptions.APIError):
+                is_retryable = _is_retryable_api_error(e)
+            elif isinstance(e, google_auth_exceptions.RefreshError | google_auth_exceptions.TransportError):
+                is_retryable = _is_transient_refresh_error(e)
+            else:
+                is_retryable = True
             if not is_retryable or attempts >= max_attempts:
                 raise
 
@@ -281,7 +358,16 @@ def google_sheets_source(
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
-    headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    try:
+        headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    except gspread.exceptions.APIError as e:
+        # Same deterministic 400 handled in `get_schema_incremental_fields` above (e.g. empty
+        # sheets, or sheets resized to have no columns) — treat it as a worksheet with no header
+        # row rather than failing the sync.
+        if e.code == 400 and "Unable to parse range" in str(e):
+            headers = []
+        else:
+            raise
     if len(headers) > 0:
         _assert_unique_normalized_column_names(headers[0])
     primary_keys = None
@@ -289,9 +375,9 @@ def google_sheets_source(
         primary_keys = ["id"]
 
     # Note: this source intentionally remains a SimpleSource rather than a ResumableSource.
-    # gspread's get_all_records() performs a single Sheets API call that returns every row at
-    # once, with no pagination cursor, continuation token, or range handle exposed to the
-    # caller. The loop below yields exactly one batch, so there is no intermediate checkpoint
+    # The grid read below performs a single Sheets API call that returns every row at once,
+    # with no pagination cursor, continuation token, or range handle exposed to the caller.
+    # The loop below yields exactly one batch, so there is no intermediate checkpoint
     # where some rows have been emitted and others are still pending — the two states are
     # "nothing yielded yet" and "fully done". A ResumableSource would have no cursor to
     # persist and would still have to re-download the entire sheet on restart, so it adds no
@@ -301,9 +387,21 @@ def google_sheets_source(
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
-        # default_blank defaults to "", which turns empty cells into strings and breaks numeric
-        # columns that legitimately have gaps. None lets blank cells import as null instead.
-        values = _retry_on_transient_api_error(lambda: worksheet.get_all_records(default_blank=None))
+        # Read the raw grid and build the records ourselves rather than calling
+        # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
+        # what `get_all_records` asks for, so every row is the same width as the widest one.
+        try:
+            grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
+        except gspread.exceptions.APIError as e:
+            # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
+            # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,
+            # so Google rejects the bare sheet-name reference as "Invalid range: '<title>'" instead
+            # of "Unable to parse range". Treat it as an empty grid rather than failing the sync.
+            if e.code == 400 and "Invalid range" in str(e):
+                grid = []
+            else:
+                raise
+        values = _records_from_grid(grid)
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]

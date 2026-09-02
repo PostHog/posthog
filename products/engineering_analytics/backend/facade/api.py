@@ -29,10 +29,13 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
     CISignalsConfig,
+    CITestRunner,
     CurrentBranchHealth,
+    DoraOverview,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    MergedPullRequest,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -44,6 +47,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
     TeamCIHealthList,
     TeamMergeTrend,
+    TrunkQuarantineDebt,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
@@ -56,8 +60,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from posthog.rbac.user_access_control import UserAccessControl
-
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 
@@ -304,6 +307,33 @@ def list_pull_requests(
     )
 
 
+def list_recently_merged_pull_requests(
+    *,
+    team: Team,
+    repository: str,
+    since: "datetime | None" = None,
+    numbers: list[int] | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[MergedPullRequest]:
+    """Merged pull requests in ``repository`` ('owner/name'), newest first, each with its branch-tip
+    ``head_sha`` — the discovery seam for ReviewHog telemetry. Raises
+    ``GitHubSourceNotConnectedError`` (propagated to the caller) when no GitHub source is connected.
+
+    Ask one of two ways. ``numbers`` returns exactly those PRs whatever their merge date, which is
+    what a caller waiting on specific PRs wants: it also keeps a high-merge-volume repo from pushing
+    them past the query's row ceiling. ``since`` scans everything merged at or after a cutoff. They
+    are alternatives, not filters that combine, so a by-number ask can never come back empty merely
+    because the PR merged before some cutoff. Supply exactly one; ``numbers`` wins if both are given.
+    """
+    return logic.build_merged_pull_requests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repository),
+        repo=repository,
+        since=since,
+        numbers=numbers,
+    )
+
+
 def list_workflow_health(
     *,
     team: Team,
@@ -331,6 +361,7 @@ def list_flaky_tests(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    runner: CITestRunner | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -341,6 +372,7 @@ def list_flaky_tests(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        runner=runner,
     )
 
 
@@ -351,6 +383,7 @@ def list_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    owner_team: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
@@ -360,6 +393,7 @@ def list_team_ci_health(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        owner_team=owner_team,
     )
 
 
@@ -413,6 +447,16 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     return logic.build_github_sources(team=team, user_access_control=user_access_control)
 
 
+def get_trunk_quarantine(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TrunkQuarantineDebt:
+    return logic.build_trunk_quarantine(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
 def get_quarantine(
     *,
     team: Team,
@@ -450,6 +494,26 @@ def get_repo_overview(
         date_from=date_from,
         date_to=date_to,
         include_series=include_series,
+    )
+
+
+def get_dora_overview(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    environment: str | None = None,
+    github_team: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DoraOverview:
+    return logic.build_dora_overview(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
+        environment=environment,
+        github_team=github_team,
     )
 
 

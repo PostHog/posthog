@@ -124,6 +124,11 @@ export class FixtureHogFlowBuilder {
         return this
     }
 
+    withTriggerMasking(triggerMasking: HogFlow['trigger_masking']): this {
+        this.hogFlow.trigger_masking = triggerMasking
+        return this
+    }
+
     withSimpleWorkflow({ trigger }: { trigger?: HogFlow['trigger'] } = {}): this {
         return this.withWorkflow({
             actions: {

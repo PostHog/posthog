@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +9,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -27,7 +32,11 @@ from products.data_catalog.backend.presentation.serializers import (
     CertificationSerializer,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 
 
 def _table(
@@ -44,8 +53,28 @@ def _table(
     )
 
 
+def _external_source(team: Team, source_id: str = "stripe", prefix: str | None = None) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=source_id,
+        connection_id=source_id,
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type="Stripe",
+        prefix=prefix,
+    )
+
+
 def _view(team: Team, name: str = "revenue_view") -> DataWarehouseSavedQuery:
     return DataWarehouseSavedQuery.objects.create(team=team, name=name, query={"kind": "HogQLQuery"})
+
+
+_CHECK_ACCESS = (
+    "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object"
+)
+
+
+def _deny_warehouse_targets(obj: Any = None, *args: Any, **kwargs: Any) -> bool:
+    return type(obj).__name__ not in ("DataWarehouseTable", "DataWarehouseSavedQuery")
 
 
 class TestTableCertificationModel(BaseTest):
@@ -74,25 +103,124 @@ class TestCertificationLogic(BaseTest):
     )
     def test_propose_by_selector(self, selector: str, target_type: str) -> None:
         target = _table(self.team) if target_type == "table" else _view(self.team)
-        selector_value = str(target.id) if selector.endswith("_id") else target.name
+        selector_kwargs: dict[str, Any] = {selector: str(target.id) if selector.endswith("_id") else target.name}
 
-        certification = propose_certification(team=self.team, user=self.user, **{selector: selector_value})
+        certification = propose_certification(team=self.team, user=self.user, **selector_kwargs)
 
         assert certification.status == CertificationStatus.PROPOSED
+        assert certification.proposed_status == CertificationStatus.CERTIFIED
         assert certification.created_by_id == self.user.id
         assert certification.table_id == (target.id if target_type == "table" else None)
         assert certification.saved_query_id == (target.id if target_type == "view" else None)
 
+    @parameterized.expand(
+        [
+            ("dotted", "stripe_subscriptions", None, "stripe.subscriptions", True),
+            ("prefixed", "stripe_subscriptions", "prod_", "stripe.prod.subscriptions", True),
+            ("raw", "stripe_subscriptions", None, "stripe_subscriptions", True),
+            ("mixed_case_stored_name", "Stripe_Subscriptions", None, "stripe.subscriptions", True),
+            ("missing_dotted", "stripe_subscriptions", None, "stripe.refunds", False),
+        ]
+    )
+    def test_propose_by_external_table_name(
+        self, _name: str, table_name: str, source_prefix: str | None, selector: str, found: bool
+    ) -> None:
+        table = _table(
+            self.team, name=table_name, external_data_source=_external_source(self.team, prefix=source_prefix)
+        )
+
+        if not found:
+            with self.assertRaises(ValidationError) as error:
+                propose_certification(team=self.team, user=self.user, table_name=selector)
+            assert "table_name" in error.exception.detail
+            return
+
+        certification = propose_certification(team=self.team, user=self.user, table_name=selector)
+
+        assert certification.table_id == table.id
+
+    def test_propose_deprecation_records_intent_and_settles(self) -> None:
+        table = _table(self.team)
+        cert = propose_certification(
+            team=self.team, user=self.user, table_id=str(table.id), proposed_status=CertificationStatus.DEPRECATED
+        )
+        assert cert.status == CertificationStatus.PROPOSED
+        assert cert.proposed_status == CertificationStatus.DEPRECATED
+
+        assert deprecate(cert, self.user).status == CertificationStatus.DEPRECATED
+
+    def test_propose_rejects_invalid_proposed_status(self) -> None:
+        table = _table(self.team)
+        with self.assertRaisesMessage(ValidationError, "certified"):
+            propose_certification(team=self.team, user=self.user, table_id=str(table.id), proposed_status="proposed")
+
     def test_ambiguous_table_name_returns_candidates(self) -> None:
-        _table(self.team, name="dupe")
-        _table(self.team, name="dupe")
-        with self.assertRaises(CatalogConflict):
-            propose_certification(team=self.team, user=self.user, table_name="dupe")
+        first_source = _external_source(self.team, source_id="stripe-first")
+        second_source = _external_source(self.team, source_id="stripe-second")
+        first_table = _table(self.team, name="stripe_subscriptions", external_data_source=first_source)
+        second_table = _table(self.team, name="stripe_subscriptions", external_data_source=second_source)
+
+        with self.assertRaises(CatalogConflict) as error:
+            propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        candidates = error.exception.extra["candidates"]
+        assert {candidate["id"] for candidate in candidates} == {str(first_table.id), str(second_table.id)}
+        assert {candidate["name"] for candidate in candidates} == {"stripe_subscriptions"}
+        assert {candidate["source_id"] for candidate in candidates} == {str(first_source.id), str(second_source.id)}
+        assert {candidate["source_prefix"] for candidate in candidates} == {None}
+
+    @parameterized.expand(
+        [("table_id", "table"), ("table_name", "table"), ("saved_query_id", "view"), ("view_name", "view")]
+    )
+    def test_denied_target_reads_as_missing(self, selector: str, target_type: str) -> None:
+        target = _table(self.team) if target_type == "table" else _view(self.team)
+        selector_kwargs: dict[str, Any] = {selector: str(target.id) if selector.endswith("_id") else target.name}
+
+        with patch(_CHECK_ACCESS, side_effect=_deny_warehouse_targets):
+            with self.assertRaises(ValidationError):
+                propose_certification(team=self.team, user=self.user, **selector_kwargs)
+
+        assert not TableCertification.objects.for_team(self.team.id).exists()
+
+    def test_mixed_visibility_dotted_name_resolves_to_visible_candidate(self) -> None:
+        visible = _table(
+            self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team, source_id="a")
+        )
+        hidden = _table(
+            self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team, source_id="b")
+        )
+
+        with patch(_CHECK_ACCESS, side_effect=lambda obj=None, *a, **k: getattr(obj, "id", None) != hidden.id):
+            certification = propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        assert certification.table_id == visible.id
+
+    def test_all_denied_dotted_candidates_read_as_missing(self) -> None:
+        for source_id in ("a", "b"):
+            _table(
+                self.team,
+                name="stripe_subscriptions",
+                external_data_source=_external_source(self.team, source_id=source_id),
+            )
+
+        with patch(_CHECK_ACCESS, side_effect=_deny_warehouse_targets):
+            with self.assertRaises(ValidationError) as error:
+                propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        assert "table_name" in error.exception.detail
+
+    def test_system_caller_bypasses_object_access(self) -> None:
+        table = _table(self.team)
+
+        with patch(_CHECK_ACCESS, side_effect=AssertionError("system callers must skip the access check")):
+            certification = propose_certification(team=self.team, user=None, table_id=str(table.id))
+
+        assert certification.table_id == table.id
 
     @parameterized.expand([("table_id", "table"), ("saved_query_id", "view")])
     def test_duplicate_target_conflicts(self, selector: str, target_type: str) -> None:
         target = _table(self.team) if target_type == "table" else _view(self.team)
-        target_selector = {selector: str(target.id)}
+        target_selector: dict[str, Any] = {selector: str(target.id)}
         propose_certification(team=self.team, user=self.user, **target_selector)
         with self.assertRaises(CatalogConflict):
             propose_certification(team=self.team, user=self.user, **target_selector)
@@ -117,12 +245,12 @@ class TestCertificationLogic(BaseTest):
             "view_name": view.name,
         }
 
+        mixed_selectors: dict[str, Any] = {
+            first_selector: selector_values[first_selector],
+            second_selector: selector_values[second_selector],
+        }
         with self.assertRaisesMessage(ValidationError, "exactly one"):
-            propose_certification(
-                team=self.team,
-                user=self.user,
-                **{first_selector: selector_values[first_selector], second_selector: selector_values[second_selector]},
-            )
+            propose_certification(team=self.team, user=self.user, **mixed_selectors)
 
     def test_concurrent_duplicate_conflicts(self) -> None:
         table = _table(self.team)
@@ -166,8 +294,8 @@ class TestCertificationLogic(BaseTest):
                 source_type="Stripe",
             )
         target = _view(self.team) if target_type == "view" else _table(self.team, external_data_source=source)
-        selector = "saved_query_id" if target_type == "view" else "table_id"
-        propose_certification(team=self.team, user=self.user, **{selector: str(target.id)})
+        selector_kwargs: dict[str, Any] = {("saved_query_id" if target_type == "view" else "table_id"): str(target.id)}
+        propose_certification(team=self.team, user=self.user, **selector_kwargs)
         assert certifications_for_team(self.team).count() == 1
 
         deleted_object = source or target
@@ -177,7 +305,8 @@ class TestCertificationLogic(BaseTest):
         assert certifications_for_team(self.team).count() == 0
 
     def test_serializes_mixed_certifications_in_one_query(self) -> None:
-        table_certification = propose_certification(team=self.team, user=self.user, table_id=str(_table(self.team).id))
+        table = _table(self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team))
+        table_certification = propose_certification(team=self.team, user=self.user, table_id=str(table.id))
         certify(table_certification, self.user)
         propose_certification(team=self.team, user=self.user, saved_query_id=str(_view(self.team).id))
 
@@ -185,6 +314,10 @@ class TestCertificationLogic(BaseTest):
             serialized = CertificationSerializer(certifications_for_team(self.team), many=True).data
 
         assert {certification["target_type"] for certification in serialized} == {"table", "view"}
+        assert {certification["target_name"] for certification in serialized} == {
+            "stripe.subscriptions",
+            "revenue_view",
+        }
         assert any(certification["certified_by"] is None for certification in serialized)
 
     def test_proposal_stays_in_the_requested_environment(self) -> None:
@@ -238,6 +371,25 @@ class TestCertificationAPI(APIBaseTest):
         certified = self.client.post(f"{self.url}{cert_id}/certify/")
         assert certified.status_code == status.HTTP_200_OK
         assert certified.json()["status"] == CertificationStatus.CERTIFIED
+
+    def test_propose_deprecation_and_settle(self) -> None:
+        table = _table(self.team)
+        created = self.client.post(
+            self.url, {"table_id": str(table.id), "proposed_status": "deprecated"}, format="json"
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        body = created.json()
+        assert body["status"] == CertificationStatus.PROPOSED
+        assert body["proposed_status"] == CertificationStatus.DEPRECATED
+
+        deprecated = self.client.post(f"{self.url}{body['id']}/deprecate/")
+        assert deprecated.status_code == status.HTTP_200_OK
+        assert deprecated.json()["status"] == CertificationStatus.DEPRECATED
+
+    def test_create_rejects_invalid_proposed_status(self) -> None:
+        table = _table(self.team)
+        response = self.client.post(self.url, {"table_id": str(table.id), "proposed_status": "proposed"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_ambiguous_table_name_returns_409_with_candidates(self) -> None:
         # The conflict must render through the HTTP exception handler — a shape it can't
@@ -314,6 +466,30 @@ class TestCertificationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @parameterized.expand(
+        [
+            ("table_with_read", "table", ["data_catalog:write", "warehouse_table:read"], status.HTTP_201_CREATED),
+            ("table_without_read", "table", ["data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            ("table_wrong_read", "table", ["data_catalog:write", "warehouse_view:read"], status.HTTP_403_FORBIDDEN),
+            ("view_with_read", "view", ["data_catalog:write", "warehouse_view:read"], status.HTTP_201_CREATED),
+            ("view_without_read", "view", ["data_catalog:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_requires_selector_read_scope(
+        self, _name: str, target_type: str, scopes: list[str], expected_status: int
+    ) -> None:
+        target = _table(self.team) if target_type == "table" else _view(self.team)
+        selector = "table_id" if target_type == "table" else "saved_query_id"
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self.url, {selector: str(target.id)}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected_status, response.content
+
     @parameterized.expand([("put",), ("patch",)])
     def test_update_methods_not_allowed(self, method: str) -> None:
         table = _table(self.team)
@@ -337,3 +513,59 @@ class TestCertificationInputValidation(SimpleTestCase):
         serializer = CertificationCreateSerializer(data={field: "not-a-uuid"})
         assert not serializer.is_valid()
         assert field in serializer.errors
+
+
+class TestSerializedSchemaCertification(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        self.warehouse_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue_view",
+            query={"kind": "HogQLQuery", "query": "select event from events limit 1"},
+            columns={"event": "String"},
+        )
+
+    def _serialized_tables(self) -> dict:
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team=self.team, team_id=self.team.pk, database=database)
+        return database.serialize(context)
+
+    @parameterized.expand(
+        [("table", "stripe_customers", certify, "certified"), ("view", "revenue_view", deprecate, "deprecated")]
+    )
+    def test_settled_certification_serialized_on_schema(
+        self, target_type: str, table_key: str, action, expected_status: str
+    ) -> None:
+        target_selector: dict[str, Any] = (
+            {"table_id": str(self.warehouse_table.id)}
+            if target_type == "table"
+            else {"saved_query_id": str(self.view.id)}
+        )
+        action(
+            propose_certification(team=self.team, user=self.user, notes="canonical source", **target_selector),
+            self.user,
+        )
+
+        certification = self._serialized_tables()[table_key].certification
+
+        assert certification is not None
+        assert certification.status == expected_status
+        assert certification.notes == "canonical source"
+        assert certification.certified_by == self.user.email
+
+    def test_proposed_certification_absent_from_schema(self) -> None:
+        propose_certification(team=self.team, user=self.user, table_id=str(self.warehouse_table.id))
+
+        tables = self._serialized_tables()
+
+        assert tables["stripe_customers"].certification is None
+        assert tables["revenue_view"].certification is None

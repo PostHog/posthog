@@ -123,6 +123,13 @@ def safe_seconds_difference(dt1: datetime, dt2: datetime) -> int:
 
 
 def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:
+    # The exposure filter refuses userless callers because cached counts reach playlist
+    # viewers without an access check, and this task has no principal to offer. Skip rather
+    # than error into the park/retry cycle; counting these needs a principal-scoped recount.
+    if (playlist_filters or {}).get("experiment_exposure"):
+        REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="experiment_exposure").inc()
+        return True
+
     # if we have results from the last hour we don't need to run the query
     if existing_value.get("refreshed_at"):
         last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
@@ -215,13 +222,11 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             if should_query_incrementally:
                 query.date_from = existing_value["refreshed_at"]
 
-            (recordings, more_recordings_available, _, _) = list_recordings_from_query(
-                query, user=None, team=playlist.team
-            )
+            listing_result = list_recordings_from_query(query, user=None, team=playlist.team)
 
             counted_at_date = timezone.now()
             new_sessions: dict[str, str | None] = {
-                r.session_id: r.expiry_time.isoformat() if r.expiry_time else None for r in recordings
+                r.session_id: r.expiry_time.isoformat() if r.expiry_time else None for r in listing_result.recordings
             }
 
             if should_query_incrementally:
@@ -237,7 +242,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                     "version": 2,
                     "session_ids": list(new_sessions.keys()),
                     "sessions_with_expiry": new_sessions,
-                    "has_more": more_recordings_available,
+                    "has_more": listing_result.more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
                     "refreshed_at": counted_at_date.isoformat(),
                     "error_count": 0,

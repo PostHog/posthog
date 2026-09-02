@@ -14,6 +14,7 @@ from posthog.schema import ProductKey
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 
 FUNCTION_KIND_TO_PRODUCT_KEY: dict[str, ProductKey] = {
     "hog_function": ProductKey.PIPELINE_DESTINATIONS,
@@ -128,7 +129,9 @@ class HogInvocationResultDetailSerializer(DataclassSerializer):
         dataclass = HogInvocationResultDetail
 
 
-class HogInvocationResultsRequestSerializer(serializers.Serializer):
+class HogInvocationResultsFiltersSerializer(serializers.Serializer):
+    """Filters shared by the invocation results list and count endpoints."""
+
     status = serializers.CharField(
         required=False,
         help_text="Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.",
@@ -136,6 +139,14 @@ class HogInvocationResultsRequestSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(
         required=False,
         help_text="Only return invocations triggered for this distinct_id (the person the run executed for).",
+    )
+    error_message_contains = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Only return invocations whose latest error_message contains this substring (case-insensitive). "
+            "Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+        ),
     )
     after = serializers.CharField(
         required=False,
@@ -147,12 +158,21 @@ class HogInvocationResultsRequestSerializer(serializers.Serializer):
         required=False,
         help_text="End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.",
     )
+
+
+class HogInvocationResultsRequestSerializer(HogInvocationResultsFiltersSerializer):
     limit = serializers.IntegerField(
         required=False,
         default=50,
         max_value=500,
         min_value=1,
         help_text="Maximum number of invocations to return (1-500, default 50).",
+    )
+
+
+class HogInvocationResultsCountSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text="Number of invocations matching the filters, without the list endpoint's 500-row cap."
     )
 
 
@@ -176,17 +196,25 @@ def _build_invocation(row: tuple, detail: bool) -> Any:
     return HogInvocationResult(**common)
 
 
-def fetch_hog_invocation_results(
+@frozen
+class _InvocationResultsFilters:
+    """Shared WHERE clauses for the list and count queries, so their filters can't drift."""
+
+    where: list[str]
+    outer_where: list[str]
+    kwargs: dict[str, Any]
+
+
+def _build_invocation_results_filters(
     team_id: int,
     function_kind: str,
     function_id: str,
-    limit: int,
     status: Optional[list[str]] = None,
     distinct_id: Optional[str] = None,
+    error_message_contains: Optional[str] = None,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
-) -> list[HogInvocationResult]:
-    """List a function's invocations, each collapsed to its latest lifecycle state."""
+) -> _InvocationResultsFilters:
     where = [
         "team_id = %(team_id)s",
         "function_kind = %(function_kind)s",
@@ -196,7 +224,6 @@ def fetch_hog_invocation_results(
         "team_id": team_id,
         "function_kind": function_kind,
         "function_id": function_id,
-        "limit": limit,
     }
 
     # distinct_id is invocation identity — stable across lifecycle rows — so filter
@@ -219,22 +246,92 @@ def fetch_hog_invocation_results(
     if status:
         outer_where.append("latest_status IN %(statuses)s")
         kwargs["statuses"] = status
+    # Post-collapse like status: the message changes across lifecycle rows, so only the
+    # latest one reflects what the invocation actually failed with. positionCaseInsensitive
+    # instead of LIKE so the needle needs no %/_ escaping — mirrors the rerun paginator.
+    if error_message_contains:
+        outer_where.append("positionCaseInsensitive(latest_error_message, %(error_message_contains)s) > 0")
+        kwargs["error_message_contains"] = error_message_contains
+
+    return _InvocationResultsFilters(where=where, outer_where=outer_where, kwargs=kwargs)
+
+
+def fetch_hog_invocation_results(
+    team_id: int,
+    function_kind: str,
+    function_id: str,
+    limit: int,
+    status: Optional[list[str]] = None,
+    distinct_id: Optional[str] = None,
+    error_message_contains: Optional[str] = None,
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+) -> list[HogInvocationResult]:
+    """List a function's invocations, each collapsed to its latest lifecycle state."""
+    filters = _build_invocation_results_filters(
+        team_id=team_id,
+        function_kind=function_kind,
+        function_id=function_id,
+        status=status,
+        distinct_id=distinct_id,
+        error_message_contains=error_message_contains,
+        after=after,
+        before=before,
+    )
+    filters.kwargs["limit"] = limit
 
     query = f"""
         SELECT {_OUTER_COLUMNS}
         FROM (
             SELECT {_COLLAPSED_AGGREGATES}
             FROM hog_invocation_results
-            WHERE {" AND ".join(where)}
+            WHERE {" AND ".join(filters.where)}
             GROUP BY invocation_id
         )
-        WHERE {" AND ".join(outer_where)}
+        WHERE {" AND ".join(filters.outer_where)}
         ORDER BY latest_scheduled_at DESC
         LIMIT %(limit)s
     """
 
-    results = cast(list, sync_execute(query, kwargs))
+    results = cast(list, sync_execute(query, filters.kwargs))
     return [_build_invocation(row, detail=False) for row in results]
+
+
+def fetch_hog_invocation_results_count(
+    team_id: int,
+    function_kind: str,
+    function_id: str,
+    status: Optional[list[str]] = None,
+    distinct_id: Optional[str] = None,
+    error_message_contains: Optional[str] = None,
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+) -> int:
+    """Count invocations matching the same filters as fetch_hog_invocation_results, without the row cap."""
+    filters = _build_invocation_results_filters(
+        team_id=team_id,
+        function_kind=function_kind,
+        function_id=function_id,
+        status=status,
+        distinct_id=distinct_id,
+        error_message_contains=error_message_contains,
+        after=after,
+        before=before,
+    )
+
+    query = f"""
+        SELECT count()
+        FROM (
+            SELECT {_COLLAPSED_AGGREGATES}
+            FROM hog_invocation_results
+            WHERE {" AND ".join(filters.where)}
+            GROUP BY invocation_id
+        )
+        WHERE {" AND ".join(filters.outer_where)}
+    """
+
+    results = cast(list, sync_execute(query, filters.kwargs))
+    return int(results[0][0]) if results else 0
 
 
 def fetch_hog_invocation_result(

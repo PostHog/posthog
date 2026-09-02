@@ -197,10 +197,17 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # creation entirely — no managed DAG is created for that kind.
         if saved_queries_to_schedule:
             managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+            dag_database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
             for saved_query in saved_queries_to_schedule:
                 try:
                     # reconcile once after both loops, not once per view
-                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True, reconcile=False)
+                    sync_saved_query_to_dag(
+                        saved_query,
+                        dag=managed_dag,
+                        allow_managed=True,
+                        reconcile=False,
+                        database=dag_database,
+                    )
                     # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
                     # unless something there still depends on it (don't orphan a dependent).
                     for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):

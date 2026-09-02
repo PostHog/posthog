@@ -6,7 +6,7 @@ import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { ChunkPipelineBuilder } from './builders'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { FanOutFanInChunkPipeline, FanOutSubContext } from './fan-out-fan-in-chunk-pipeline'
-import { createNewChunkPipeline, createOkContext } from './helpers'
+import { createKafkaDebugContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, dlq, drop, isDlqResult, isOkResult, ok, redirect } from './results'
 
@@ -52,7 +52,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 function feedParents(pipeline: ChunkPipeline<Parent, unknown, { message: Message }>, parents: Parent[]): void {
-    pipeline.feed(parents.map((parent) => createOkContext(parent, { message: createTestMessage() })))
+    pipeline.feed(
+        parents.map((parent) => {
+            const message = createTestMessage()
+            return createOkContext(parent, { message, debugContext: createKafkaDebugContext(message) })
+        })
+    )
 }
 
 async function drainAll<T, R extends string>(
@@ -466,6 +471,53 @@ describe('FanOutFanInChunkPipeline', () => {
         expect(okValues(first!)).toEqual([{ id: 'done', total: 1 }])
         await expect(pipeline.next()).rejects.toThrow('sub boom')
         await expect(pipeline.next()).rejects.toThrow('sub boom')
+    })
+
+    it('logs the copied parent debug context when a sub step throws', async () => {
+        function failingSubStep(): Promise<PipelineResult<SubItem>> {
+            return Promise.reject(new Error('sub failed'))
+        }
+
+        const pipeline = createNewChunkPipeline<Parent>()
+            .fanOut(splitSubs)
+            .via((sub) => sub.concurrently((b) => b.pipe(failingSubStep)))
+            .fanIn(sumSubs)
+            .build()
+
+        feedParents(pipeline, [{ id: 'a', subs: [1] }])
+
+        await expect(drainAll(pipeline)).rejects.toThrow('sub failed')
+        expect(mockLogger.error).toHaveBeenCalledWith(
+            '🔥',
+            expect.stringContaining('threw'),
+            expect.objectContaining({
+                error: 'sub failed',
+                debugContext: { topic: 'test-topic', partition: 5, offset: 100 },
+            })
+        )
+    })
+
+    it('logs the parent debug context when the fan-out function throws', async () => {
+        function failingFanOut(): SubItem[] {
+            throw new Error('fan-out failed')
+        }
+
+        const pipeline = createNewChunkPipeline<Parent>()
+            .fanOut(failingFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(doubleStep)))
+            .fanIn(sumSubs)
+            .build()
+
+        feedParents(pipeline, [{ id: 'a', subs: [1] }])
+
+        await expect(drainAll(pipeline)).rejects.toThrow('fan-out failed')
+        expect(mockLogger.error).toHaveBeenCalledWith(
+            '🔥',
+            expect.stringContaining('failingFanOut threw'),
+            expect.objectContaining({
+                debugContext: { topic: 'test-topic', partition: 5, offset: 100 },
+            })
+        )
     })
 
     it('routes a batch fed while a prior parent is parked on slow subs', async () => {

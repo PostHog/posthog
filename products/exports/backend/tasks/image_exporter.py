@@ -22,17 +22,18 @@ from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
 from posthog.hogql.errors import TableAccessDeniedError
 
+from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
@@ -40,8 +41,8 @@ from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext,
     classify_failure_type,
 )
-from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.exports.backend.url_security import is_heatmap_url_allowed
+from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
 logger = structlog.get_logger(__name__)
 
@@ -137,6 +138,49 @@ ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
+def _insight_query_wants_legend(query: dict) -> bool:
+    """A static PNG has no hover tooltips, so multi-series charts default the exporter's
+    horizontal legend on — unless the query explicitly opted out."""
+    source = query.get("source", query)  # This to handle the InsightVizNode wrapper
+    if not isinstance(source, dict) or source.get("kind") != NodeKind.TRENDS_QUERY:
+        return False
+    trends_filter = source.get("trendsFilter") or {}
+    if trends_filter.get("showLegend") is False:
+        return False
+    series = source.get("series")
+    return (isinstance(series, list) and len(series) > 1) or bool(source.get("breakdownFilter"))
+
+
+def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
+    """Initial viewport width for an insight-style query render.
+
+    Only left-to-right funnels (vertical layout, which is the default) need the wide
+    viewport — they grow horizontally with step count. Top-to-bottom funnels (horizontal
+    layout) grow vertically, not horizontally. Small funnels are constrained later by the
+    width measurement. The higher the number, the more RAM the Chromium driver needs.
+
+    A metric renders as a card whose height derives from the viewport width, so a narrower
+    viewport keeps it at dashboard-tile size instead of a 400px-tall banner.
+    Mirrors the frontend's check (InsightVizNode wrapper required), which gates the
+    metric card CSS — a bare TrendsQuery gets neither, so it must keep the default viewport.
+    """
+    source = query.get("source", query)  # This to handle the InsightVizNode wrapper
+    is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
+    funnels_filter = source.get("funnelsFilter") or {}
+    funnel_layout = funnels_filter.get("layout")
+    is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
+    if is_left_to_right_funnel:
+        return 4000
+
+    trends_filter = source.get("trendsFilter") or {}
+    is_metric = (
+        query.get("kind") == NodeKind.INSIGHT_VIZ_NODE
+        and source.get("kind") == NodeKind.TRENDS_QUERY
+        and trends_filter.get("display") == ChartDisplayType.METRIC
+    )
+    return 600 if is_metric else 800
+
+
 def _export_to_png(
     exported_asset: ExportedAsset,
     max_height_pixels: Optional[int] = None,
@@ -187,33 +231,7 @@ def _export_to_png(
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
-            query = exported_asset.insight.query or {}
-            source = query.get("source", query)  # This to handle the InsightVizNode wrapper
-            is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
-            # Only use wide width for left-to-right funnels (vertical layout, which is the default)
-            # Top-to-bottom funnels (horizontal layout) grow vertically, not horizontally
-            funnels_filter = source.get("funnelsFilter") or {}
-            funnel_layout = funnels_filter.get("layout")
-            is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
-            # A metric renders as a square card whose height derives from the viewport width, so a
-            # narrower viewport keeps it at dashboard-tile size instead of an 800px-tall square.
-            # Mirrors the frontend's check (InsightVizNode wrapper required), which gates the square
-            # metric CSS — a bare TrendsQuery gets neither, so it must keep the default viewport.
-            trends_filter = source.get("trendsFilter") or {}
-            is_metric = (
-                query.get("kind") == NodeKind.INSIGHT_VIZ_NODE
-                and source.get("kind") == NodeKind.TRENDS_QUERY
-                and trends_filter.get("display") == ChartDisplayType.METRIC
-            )
-            # Set initial window size large enough for wide content like left-to-right funnels with many steps
-            # Small funnels will be constrained later.
-            # The higher the number, the more RAM will be required by the Chromium driver.
-            if is_left_to_right_funnel:
-                screenshot_width = 4000
-            elif is_metric:
-                screenshot_width = 600
-            else:
-                screenshot_width = 800
+            screenshot_width = _insight_query_screenshot_width(exported_asset.insight.query or {})
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
@@ -238,7 +256,7 @@ def _export_to_png(
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             heatmap_url = exported_asset.export_context["heatmap_url"]
-            ok, err = is_url_allowed(heatmap_url)
+            ok, err = is_heatmap_url_allowed(heatmap_url, exported_asset.export_context.get("heatmap_type"))
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
@@ -264,9 +282,21 @@ def _export_to_png(
                 css_selector=wait_for_css_selector,
                 token_preview=access_token[:10],
             )
+        elif exported_asset.export_context and exported_asset.export_context.get("source"):
+            # Ad-hoc query export: no saved insight, the query lives in export_context. The
+            # sharing view computes the (cache-warmed) result server-side at page load, so
+            # give the navigation extra headroom over the insight path.
+            # The exporter page still skips the legend for display types without one.
+            legend_param = (
+                "&legend=true" if _insight_query_wants_legend(exported_asset.export_context["source"]) else ""
+            )
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
+            wait_for_css_selector = ".ExportedInsight"
+            screenshot_width = _insight_query_screenshot_width(exported_asset.export_context["source"])
+            page_load_timeout = 100
         else:
             raise InvalidExportContext(
-                "Export is missing required dashboard, insight ID, or session_recording_id in export_context"
+                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context"
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
@@ -517,7 +547,7 @@ def export_image(
                 tile_filters_override = None
                 if exported_asset.dashboard:
                     if exported_asset.dashboard.variables:
-                        variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                        variables = insight_variables_for_team(exported_asset.team_id)
                         dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
                     tile = DashboardTile.objects.filter(
                         dashboard=exported_asset.dashboard,
@@ -569,7 +599,7 @@ def export_image(
                 export_context = exported_asset.export_context or {}
                 dashboard_variables = export_context.get("variables_override")
                 if not dashboard_variables and exported_asset.dashboard.variables:
-                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                    variables = insight_variables_for_team(exported_asset.team_id)
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 
                 tiles = (
@@ -596,6 +626,27 @@ def export_image(
                         )
                         if result.cache_key:
                             insight_cache_keys[insight.id] = result.cache_key
+            elif exported_asset.export_context and exported_asset.export_context.get("source"):
+                logger.info("export_image.calculate_adhoc_query", asset_id=exported_asset.id)
+                # Ad-hoc query export: run the query now so a bad query fails here (with a real
+                # exception on the asset) rather than inside the headless browser, and so the
+                # sharing view's cache-aggressive recompute at page load is a cache hit.
+                warm_result = process_query_dict(
+                    exported_asset.team,
+                    exported_asset.export_context["source"],
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                    limit_context=export_limit_context(exported_asset.export_context),
+                    # Background render (no request user); attribute the read to the export owner.
+                    user=exported_asset.created_by,
+                )
+                # Validation failures come back as an error response rather than raising
+                # (process_query_dict only raises for dashboard contexts) — surface them here
+                # instead of letting the render burn a browserless timeout on a broken page.
+                warm_error = (
+                    warm_result.get("error") if isinstance(warm_result, dict) else getattr(warm_result, "error", None)
+                )
+                if warm_error:
+                    raise InvalidExportContext(f"Invalid query: {warm_error}")
 
             if exported_asset.export_format == "image/png":
                 with EXPORT_TIMER.labels(type=exported_asset.export_format).time():

@@ -2,9 +2,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_database::PoolConfig;
+use tokio::sync::Semaphore;
 
 use crate::cache::TtlCache;
 use crate::config::Config;
+use crate::etcd::EtcdHandle;
 use crate::jobs::JobRegistry;
 use crate::k8s::PodDiscovery;
 use crate::kafka::lag::{ConsumerTarget, LagOverview};
@@ -21,6 +23,11 @@ pub struct AppState {
     pub discovery: Arc<TtlCache<Vec<ConsumerTarget>>>,
     /// Overview scan results; short TTL + single-flight bounds broker load.
     pub overview: Arc<TtlCache<LagOverview>>,
+    /// Caps concurrent synchronous message-browse scans; each holds a Kafka
+    /// consumer on the blocking pool for up to the browse deadline.
+    pub browse_permits: Arc<Semaphore>,
+    /// `None` when `ETCD_ENDPOINTS` is unset; the etcd tools then 503.
+    pub etcd: Option<Arc<EtcdHandle>>,
 }
 
 impl AppState {
@@ -45,6 +52,11 @@ impl AppState {
             }
         };
 
+        let etcd = EtcdHandle::from_config(&config);
+        if etcd.is_none() {
+            tracing::info!("ETCD_ENDPOINTS not set; etcd tools disabled");
+        }
+
         // No overall request timeout: the debug proxy pipes long-lived SSE
         // streams. Connect timeout still bounds unreachable pods.
         let http = reqwest::Client::builder()
@@ -63,6 +75,8 @@ impl AppState {
             overview: Arc::new(TtlCache::new(Duration::from_secs(
                 config.overview_cache_ttl_secs,
             ))),
+            browse_permits: Arc::new(Semaphore::new(config.browse_max_concurrent.max(1))),
+            etcd: etcd.map(Arc::new),
             config: Arc::new(config),
         })
     }

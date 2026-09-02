@@ -13,9 +13,10 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
+    JobSourceTables,
     list_github_sources,
     resolve_github_tables,
-    resolve_job_cost_source_pairs,
+    resolve_job_source_tables,
 )
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
@@ -429,10 +430,19 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
             },
         )
-        pairs = resolve_job_cost_source_pairs(self.team)
-        assert set(pairs) == {
-            ("costgithub_posthog_posthog_workflow_jobs", "costgithub_posthog_posthog_workflow_runs"),
-            ("costgithub_posthog_posthog_com_workflow_jobs", "costgithub_posthog_posthog_com_workflow_runs"),
+        # pull_requests stays None here: these views qualify on jobs + runs, so a repo reaches them
+        # with no PR snapshot and the run builder's PR attribution degrades to the message suffix.
+        assert set(resolve_job_source_tables(self.team)) == {
+            JobSourceTables(
+                workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
+                workflow_runs="costgithub_posthog_posthog_workflow_runs",
+                pull_requests=None,
+            ),
+            JobSourceTables(
+                workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
+                workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
+                pull_requests=None,
+            ),
         }
 
     def test_picker_lists_one_entry_per_configured_repo(self) -> None:
@@ -456,7 +466,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
 
 class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
     """A team with one GitHub source per repository: a repo-scoped read must resolve the source
-    connected for that repo, not the oldest one. Skips when object storage is unreachable."""
+    connected for that repo, not the oldest one."""
 
     def _connect_source(self, *, source_id: str, prefix: str, repository: str) -> ExternalDataSource:
         return ExternalDataSource.objects.create(

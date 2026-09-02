@@ -9,6 +9,11 @@ import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.capture import capture_batch_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
@@ -20,6 +25,7 @@ from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
     get_cache_stats,
+    publish_shadow_invalidation,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
@@ -36,6 +42,8 @@ logger = structlog.get_logger(__name__)
 # Matches the task's hard time_limit so a crashed run's lock expires before the next
 # 5-minute schedule.
 LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS = 90
+
+ENROLLMENT_MIGRATION_PAGE_SIZE = MAX_SELECT_RETURNED_ROWS
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
@@ -76,7 +84,13 @@ def sync_cross_region_flags_task() -> None:
     sync_cross_region_flags()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+# Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
+# cycle), so a module move must not silently rename the registration out from under that caller.
+@shared_task(
+    name="products.feature_flags.backend.tasks.update_team_service_flags_cache",
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+)
 @skip_team_scope_audit
 def update_team_service_flags_cache(team_id: int) -> None:
     """
@@ -98,6 +112,105 @@ def update_team_service_flags_cache(team_id: int) -> None:
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
         namespace="feature_flags", cache_name="flags", operation="update", result="success" if success else "failure"
     ).inc()
+
+    # KAFKA-CUTOVER TRANSITIONAL CODE — remove with the block it belongs to in
+    # flags_cache.py. Gated on `success` because a shadow build must diff against
+    # the entry this task just wrote. After a failed write the live entry is the
+    # stale one, and the diff would report Python's failure as Rust drift.
+    if success:
+        publish_shadow_invalidation(team_id)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
+@skip_team_scope_audit
+def migrate_feature_enrollment_on_key_change(team_id: int, old_key: str, flag_id: int) -> None:
+    """
+    Copy `$feature_enrollment/<old_key>` person properties to the flag's key after a rename,
+    so existing early access opt-ins (and explicit opt-outs) keep applying — evaluation
+    derives the enrollment property name from the flag's current key.
+
+    The destination is the flag's key as of execution, not as of the rename, so a chain of
+    renames converges on the final key instead of stranding people on an intermediate one.
+    Writes use `$set_once`, so a person who makes a fresh choice under the new key during the
+    migration can't be clobbered, and retries are harmless. The old property is kept so
+    renaming back stays lossless. Enrollees are paged through by person id.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.exception("Team does not exist for enrollment migration", team_id=team_id)
+        return
+
+    flag = FeatureFlag.objects.filter(team_id=team_id, id=flag_id, deleted=False).first()
+    if flag is None:
+        return
+
+    new_key = flag.key
+    if new_key == old_key:
+        return
+
+    new_prop = f"$feature_enrollment/{new_key}"
+    cursor = ""
+
+    while True:
+        # Property access (rather than JSONExtractString) lets the HogQL printer use
+        # materialized person-property columns when available.
+        response = execute_hogql_query(
+            """
+            SELECT
+                toString(id) AS person_id,
+                argMax(pdi.distinct_id, created_at) AS distinct_id,
+                properties[{old_prop}] AS enrollment_value
+            FROM persons
+            WHERE properties[{old_prop}] IN ('true', 'false')
+            AND properties[{new_prop}] IS NULL
+            AND toString(id) > {cursor}
+            GROUP BY id, enrollment_value
+            ORDER BY person_id
+            LIMIT {limit}
+            """,
+            placeholders={
+                "old_prop": ast.Constant(value=f"$feature_enrollment/{old_key}"),
+                "new_prop": ast.Constant(value=new_prop),
+                "cursor": ast.Constant(value=cursor),
+                "limit": ast.Constant(value=ENROLLMENT_MIGRATION_PAGE_SIZE),
+            },
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+
+        if not response.results:
+            return
+
+        # A person whose distinct ids all moved to another person in a merge joins to nothing
+        # and comes back blank; capture rejects the whole batch over one such event.
+        events = [
+            {
+                "event": "$set",
+                "distinct_id": distinct_id,
+                "properties": {"$set_once": {new_prop: enrollment_value == "true"}},
+            }
+            for _person_id, distinct_id, enrollment_value in response.results
+            if distinct_id
+        ]
+        if events:
+            capture_batch_internal(
+                events=events,
+                token=team.api_token,
+                event_source="feature_flag_enrollment_key_migration",
+                process_person_profile=True,
+            ).raise_for_status()
+
+        if len(response.results) < ENROLLMENT_MIGRATION_PAGE_SIZE:
+            return
+
+        cursor = response.results[-1][0]
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
@@ -151,14 +264,14 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful, failed = refresh_expiring_flags_caches(
+    counts = refresh_expiring_flags_caches(
         ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
     # Record metrics
-    successful_gauge.set(successful)
-    failed_gauge.set(failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     # Note: Teams processed metrics are pushed to Pushgateway by
     # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -170,8 +283,8 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
 
     logger.info(
         "Completed flags cache refresh",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         total_cached=stats_after.get("total_cached", 0),
         total_teams=stats_after.get("total_teams", 0),
         cache_coverage=stats_after.get("cache_coverage", "unknown"),
@@ -367,20 +480,20 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful, failed = refresh_expiring_caches(
+    counts = refresh_expiring_caches(
         config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
         ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful_gauge.set(successful)
-    failed_gauge.set(failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     duration = time.time() - start_time
     logger.info(
         "Completed flag definitions cache refresh",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         duration_seconds=duration,
     )
 

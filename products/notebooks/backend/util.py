@@ -50,6 +50,8 @@ _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple
     "Query": {
         "hideFilters": bool,
         "hideResults": bool,
+        "showFilters": bool,
+        "showResults": bool,
         "height": (int, float),
         "isDefaultFilterApplied": bool,
         "nodeId": str,

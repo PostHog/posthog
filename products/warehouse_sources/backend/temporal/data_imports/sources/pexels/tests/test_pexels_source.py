@@ -2,34 +2,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pexels import PexelsSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.pexels import PexelsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source import PexelsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPexelsSource:
     def setup_method(self) -> None:
         self.source = PexelsSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PEXELS
-
-    def test_config_fields(self) -> None:
-        fields = {f.name: f for f in self.source.get_source_config.fields}
-        assert set(fields) == {"api_key", "search_query"}
-        api_key, search_query = fields["api_key"], fields["search_query"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(search_query, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert search_query.required is False
 
     def test_schemas_without_query_exclude_search_tables(self) -> None:
         config = PexelsSourceConfig(api_key="k", search_query=None)
@@ -101,29 +81,3 @@ class TestPexelsSource:
     )
     def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
         assert not any(key in observed for key in self.source.get_non_retryable_errors())
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        inputs = mock.MagicMock(spec=SourceInputs)
-        inputs.logger = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PexelsResumeConfig
-
-    def test_source_for_pipeline_plumbs_endpoint_and_query(self) -> None:
-        config = PexelsSourceConfig(api_key="k", search_query="nature")
-        inputs = mock.MagicMock(spec=SourceInputs)
-        inputs.schema_name = "search_photos"
-        inputs.team_id = 123
-        inputs.job_id = "job-1"
-        inputs.logger = mock.MagicMock()
-        manager = mock.MagicMock()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source.pexels_source"
-        ) as mock_source:
-            self.source.source_for_pipeline(config, manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "k"
-        assert kwargs["endpoint"] == "search_photos"
-        assert kwargs["search_query"] == "nature"

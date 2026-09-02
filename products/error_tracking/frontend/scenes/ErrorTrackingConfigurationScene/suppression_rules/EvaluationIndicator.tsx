@@ -1,21 +1,41 @@
 import { IconLaptop, IconServer } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
+// Kept in sync with SERVER_ONLY_PROPERTIES and CLIENT_EVALUABLE_OPERATORS in
+// products/error_tracking/backend/logic/__init__.py, which decides what actually reaches the SDK.
+// Showing a rule as client-evaluated when the backend withholds it tells the user the wrong thing
+// about where their rule runs.
 const SERVER_ONLY_PROPERTIES = new Set(['$exception_sources', '$exception_functions'])
+const CLIENT_EVALUABLE_OPERATORS = new Set([
+    'exact',
+    'is_not',
+    'regex',
+    'not_regex',
+    'icontains',
+    'not_icontains',
+    'gt',
+    'lt',
+])
 
-function isFilterClientSafe(f: AnyPropertyFilter): boolean {
+function isFilterClientSafe(f: UniversalFiltersGroupValue): boolean {
+    // A rule can nest groups, and the backend recurses into them, so a group is safe when its
+    // leaves are. Treating one as a leaf here reads its missing operator as unevaluable.
+    if ('values' in f) {
+        return (f.values ?? []).every(isFilterClientSafe)
+    }
     if ('key' in f && f.key && SERVER_ONLY_PROPERTIES.has(f.key)) {
         return false
     }
-    return true
+    const operator = 'operator' in f ? f.operator : undefined
+    return !!operator && CLIENT_EVALUABLE_OPERATORS.has(operator)
 }
 
 export type EvalMode = 'client' | 'partial' | 'server'
 
 export function getEvalMode(filters: UniversalFiltersGroup): EvalMode {
-    const values = (filters.values ?? []) as AnyPropertyFilter[]
+    const values = filters.values ?? []
     if (values.length === 0) {
         return 'client'
     }

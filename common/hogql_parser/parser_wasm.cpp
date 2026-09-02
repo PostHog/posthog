@@ -110,6 +110,8 @@ struct ParserContext {
     parser->removeErrorListeners();
     error_listener = std::make_unique<HogQLErrorListener>(input);
     parser->addErrorListener(error_listener.get());
+    // Reject pathologically deep bracket nesting before ANTLR runs (see guardNestingDepth).
+    guardNestingDepth(stream.get());
   }
 
   // Prevent copying (would cause double-free)

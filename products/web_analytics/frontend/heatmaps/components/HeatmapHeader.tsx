@@ -1,0 +1,123 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonTag } from '@posthog/lemon-ui'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
+import { HeatmapAdvancedSettings } from './HeatmapAdvancedSettings'
+import { HeatmapRecordingFallback } from './HeatmapRecordingFallback'
+import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapsForbiddenURL } from './HeatmapsForbiddenURL'
+import { HeatmapsInvalidURL } from './HeatmapsInvalidURL'
+
+export function HeatmapHeader(): JSX.Element {
+    const {
+        pageUrlDraft,
+        isPageUrlDraftValid,
+        pageUrlDraftIsPattern,
+        loading,
+        screenshotError,
+        displayUrl,
+        displayUrlIsPattern,
+        type,
+        source,
+        userAccessLevel,
+    } = useValues(heatmapLogic)
+    const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
+    const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
+
+    const draftIsEmpty = pageUrlDraft.trim() === ''
+    const disabledReason = !isPageUrlDraftValid ? 'Enter a valid URL' : draftIsEmpty ? 'Enter a URL' : null
+
+    return (
+        <>
+            <div className="flex-none md:flex justify-between items-end gap-2 w-full">
+                <div className="flex flex-col gap-3 flex-1 min-w-0">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <LemonLabel>Page URL</LemonLabel>
+                            {source === 'toolbar' && <LemonTag type="highlight">Captured from toolbar</LemonTag>}
+                        </div>
+                        <div className="flex gap-2 items-start">
+                            <LemonInput
+                                size="small"
+                                placeholder="https://www.example.com/pricing"
+                                value={pageUrlDraft}
+                                onChange={setPageUrlDraft}
+                                onPressEnter={applyPageUrlDraft}
+                                fullWidth={true}
+                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Heatmap}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={userAccessLevel ?? undefined}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={applyPageUrlDraft}
+                                    loading={loading}
+                                    disabledReason={disabledReason}
+                                >
+                                    Regenerate
+                                </LemonButton>
+                            </AccessControlAction>
+                        </div>
+                        <div className="text-xs text-muted mt-1">
+                            The page we load in the iframe or capture as a screenshot.
+                        </div>
+                        {pageUrlDraft && !isPageUrlDraftValid ? (
+                            pageUrlDraftIsPattern ? (
+                                <div className="mt-2">
+                                    <LemonBanner type="error">
+                                        The page URL can't contain wildcards. Use a concrete URL here and add wildcards
+                                        to the heatmap data URL below.
+                                    </LemonBanner>
+                                </div>
+                            ) : (
+                                <HeatmapsInvalidURL />
+                            )
+                        ) : null}
+                        {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
+                    </div>
+                    {type === 'screenshot' && screenshotError && (
+                        <div className="flex flex-col gap-2">
+                            <LemonBanner
+                                type="error"
+                                action={{
+                                    children: 'Retry',
+                                    onClick: regenerateScreenshot,
+                                }}
+                            >
+                                {screenshotError}
+                            </LemonBanner>
+                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
+                        </div>
+                    )}
+                    {type === 'iframe' && iframeBanner?.level === 'error' && (
+                        <div className="flex flex-col gap-2">
+                            <LemonBanner
+                                type="error"
+                                action={{
+                                    children: 'Switch to screenshot',
+                                    onClick: () => changeCaptureMethod('screenshot'),
+                                }}
+                            >
+                                {iframeBanner.message}
+                            </LemonBanner>
+                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
+                        </div>
+                    )}
+                    <HeatmapAdvancedSettings
+                        dataUrlPlaceholderFallback="Enter a URL"
+                        dataUrlHelp="Defaults to the page URL. Add * for wildcards to aggregate data from multiple pages."
+                        consentHelp="Ask the browser to close cookie/consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it's off by default. Save to apply."
+                    />
+                </div>
+            </div>
+        </>
+    )
+}

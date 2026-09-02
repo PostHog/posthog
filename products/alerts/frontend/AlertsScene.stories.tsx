@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -172,7 +171,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-07-16',
         pageUrl: `${urls.alerts()}?alert_type=insights`,
-        featureFlags: [FEATURE_FLAGS.LOGS_ALERTING],
         testOptions: { viewport: { width: 1300, height: 900 } },
     },
     decorators: [
@@ -211,6 +209,19 @@ export const LogAlerts: Story = {
                     200,
                     { count: logAlerts.length, next: null, previous: null, results: logAlerts },
                 ],
+            },
+        }),
+    ],
+}
+
+export const EmptyLogAlerts: Story = {
+    parameters: {
+        pageUrl: `${urls.alerts()}?alert_type=logs`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/logs/alerts/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
     ],

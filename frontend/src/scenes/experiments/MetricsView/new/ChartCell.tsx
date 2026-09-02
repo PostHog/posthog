@@ -44,6 +44,8 @@ interface ChartCellProps {
     onTimeseriesClick?: () => void
     /** Extra suffix to disambiguate SVG gradient IDs (e.g. breakdown value) */
     gradientSuffix?: string
+    /** Row-level tint for significant results; replaces the alternating background */
+    highlightBackgroundColor?: string
 }
 
 export function ChartCell({
@@ -57,6 +59,7 @@ export function ChartCell({
     isSecondary = false,
     onTimeseriesClick,
     gradientSuffix,
+    highlightBackgroundColor,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -94,7 +97,12 @@ export function ChartCell({
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
-            style={CHART_CELL_HEIGHT_STYLE}
+            style={{
+                ...CHART_CELL_HEIGHT_STYLE,
+                backgroundImage: highlightBackgroundColor
+                    ? `linear-gradient(${highlightBackgroundColor}, ${highlightBackgroundColor})`
+                    : undefined,
+            }}
         >
             <div className="relative h-full">
                 <svg

@@ -161,15 +161,21 @@ class HoglandBackend(PreviewBackend):
         # Stable identity first, then a fresh box from the golden. Each box gets a
         # per-attempt unique name so a failed placement cannot block a retry. The
         # pen outlives the box across pushes.
-        timing.stage("pen resolve/create")
-        self._ensure_pen()
-        timing.stage("box restore start")
-        self._box = self._restore_fresh()
-        self._box_id = self._box.id
+        with timing.span("pen-resolve"):
+            self._ensure_pen()
+        with timing.span("box-restore"):
+            self._box = self._restore_fresh()
+            self._box_id = self._box.id
         # `running` means the VM resumed, not that hogpanion's HTTP API answers
         # yet — a restored box needs a beat before the first exec.
-        self._wait_exec_ready()
-        timing.stage("box restored (exec ready)")
+        #
+        # Timed separately from the restore on purpose. hogland's own
+        # create->running metric stops at `running`, so the guest-boot tail was
+        # invisible to both sides: sampled builds spent 30s and 171s between
+        # those two points with no way to tell whether a slow bring-up was the
+        # VM or hogpanion.
+        with timing.span("box-exec-ready"):
+            self._wait_exec_ready()
         # Point the pen at the new box, re-send the spec so it carries the current
         # shape, and RE-ASSERT the hibernate/wake policies. The spec re-send heals
         # a pen left by an older SDK whose nested expose:{http_port} the server
@@ -180,13 +186,14 @@ class HoglandBackend(PreviewBackend):
         # unaffordable — so even a pen that somehow lost the policy (older create,
         # manual PATCH) is healed back to hibernate-on-idle here, not just at
         # create. Idempotent for a freshly-created pen.
-        self._client.update_pen(
-            self.name,
-            current_box_id=self._box_id,
-            spec=self._pen_spec(),
-            on_idle="hibernate",
-            wake="on-request",
-        )
+        with timing.span("pen-repoint"):
+            self._client.update_pen(
+                self.name,
+                current_box_id=self._box_id,
+                spec=self._pen_spec(),
+                on_idle="hibernate",
+                wake="on-request",
+            )
 
     def _box_name(self) -> str:
         # A per-attempt unique box name: `<pen-name>-<6hex>`. hogland's name

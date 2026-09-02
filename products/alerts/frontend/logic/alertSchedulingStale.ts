@@ -1,8 +1,45 @@
 import { deepEqual as equal } from 'fast-equals'
 
+import { Dayjs, dayjs } from 'lib/dayjs'
+
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
 import type { ScheduleRestriction } from '../types'
+
+function calendarAnchor(localDate: Dayjs, hour: number, timezone: string): Dayjs {
+    return dayjs.tz(`${localDate.format('YYYY-MM-DD')} ${hour}:00`, 'YYYY-MM-DD H:mm', timezone)
+}
+
+export function approximateNextAlertRun(
+    interval: AlertCalculationInterval,
+    timezone: string,
+    now: Dayjs = dayjs()
+): Dayjs {
+    let localNow: Dayjs
+    try {
+        localNow = now.tz(timezone)
+    } catch {
+        timezone = 'UTC'
+        localNow = now.utc()
+    }
+
+    switch (interval) {
+        case AlertCalculationInterval.REAL_TIME:
+            return localNow.add(2, 'minutes')
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return localNow.add(15, 'minutes')
+        case AlertCalculationInterval.HOURLY:
+            return localNow.add(1, 'hour')
+        case AlertCalculationInterval.DAILY:
+            return calendarAnchor(localNow.add(1, 'day'), 1, timezone)
+        case AlertCalculationInterval.WEEKLY: {
+            const daysUntilMonday = localNow.day() === 0 ? 1 : 8 - localNow.day()
+            return calendarAnchor(localNow.add(daysUntilMonday, 'days'), 3, timezone)
+        }
+        case AlertCalculationInterval.MONTHLY:
+            return calendarAnchor(localNow.add(1, 'month').startOf('month'), 4, timezone)
+    }
+}
 
 export function normalizeScheduleRestrictionForCompare(
     sr: ScheduleRestriction | null | undefined

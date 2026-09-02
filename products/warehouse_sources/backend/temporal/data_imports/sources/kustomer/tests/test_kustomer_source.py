@@ -8,16 +8,11 @@ from unittest import mock
 
 from requests import Response
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
     KustomerSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.kustomer import KustomerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The REST framework builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -28,28 +23,6 @@ class TestKustomerSource:
         self.source = KustomerSource()
         self.team_id = 123
         self.config = KustomerSourceConfig(org_name="myorg", api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.KUSTOMER
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Kustomer"
-        assert config.label == "Kustomer"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/kustomer.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["org_name", "api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     def test_org_name_is_a_connection_host_field(self):
         # The stored API key is sent to the host derived from org_name, so
@@ -83,14 +56,6 @@ class TestKustomerSource:
         assert all(not schema.supports_append for schema in schemas)
         assert all(schema.incremental_fields == [] for schema in schemas)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["customers"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "customers"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -110,33 +75,11 @@ class TestKustomerSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.org_name, self.config.api_key)
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is KustomerResumeConfig
-
-    def test_version_declaration_keeps_v1_default_with_v2_supported(self):
-        # v2 is declared but dormant; new sources stay stamped v1 until a /v2/ path is confirmed live.
+    def test_version_declaration_defaults_to_v2_with_v1_supported(self):
+        # Both labels resolve to the same /v1/ requests, so the default tracks the newest label.
         assert self.source.supported_versions == ("v1", "v2")
-        assert self.source.default_version == "v1"
+        assert self.source.default_version == "v2"
         assert self.source.deprecated_versions == ()
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.kustomer_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_kustomer_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "customers"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_kustomer_source.assert_called_once()
-        kwargs = mock_kustomer_source.call_args.kwargs
-        assert kwargs["org_name"] == "myorg"
-        assert kwargs["api_key"] == "api-key"
-        assert kwargs["endpoint"] == "customers"
-        assert kwargs["resumable_source_manager"] is manager
 
     @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
     @pytest.mark.parametrize("endpoint", ENDPOINTS)

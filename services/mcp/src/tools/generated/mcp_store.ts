@@ -2,40 +2,43 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    McpServerInstallationsListQueryParams,
-    McpServerInstallationsToolsRetrieveParams,
-} from '@/generated/mcp_store/api'
+import * as orvalSchemas from '@/generated/mcp_store/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const McpConnectionToolsListSchema = McpServerInstallationsToolsRetrieveParams.omit({ project_id: true })
+const McpConnectionToolsListSchema = () => {
+    const McpServerInstallationsToolsRetrieveParams = orvalSchemas.McpServerInstallationsToolsRetrieveParams()
+    return McpServerInstallationsToolsRetrieveParams.omit({ project_id: true })
+}
 
 const mcpConnectionToolsList = (): ToolBase<
-    typeof McpConnectionToolsListSchema,
+    ReturnType<typeof McpConnectionToolsListSchema>,
     WithPostHogUrl<Schemas.PaginatedMCPServerInstallationToolList>
 > => ({
     name: 'mcp-connection-tools-list',
-    schema: McpConnectionToolsListSchema,
-    handler: async (context: Context, params: z.infer<typeof McpConnectionToolsListSchema>) => {
+    schema: McpConnectionToolsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpConnectionToolsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMCPServerInstallationToolList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_server_installations/${encodeURIComponent(String(params.id))}/tools/`,
         })
-        return await withPostHogUrl(context, result, '/settings/environment-mcp-servers')
+        return await withPostHogUrl(context, result, '/settings/mcp-servers')
     },
 })
 
-const McpConnectionsListSchema = McpServerInstallationsListQueryParams
+const McpConnectionsListSchema = () => {
+    const McpServerInstallationsListQueryParams = orvalSchemas.McpServerInstallationsListQueryParams()
+    return McpServerInstallationsListQueryParams
+}
 
 const mcpConnectionsList = (): ToolBase<
-    typeof McpConnectionsListSchema,
+    ReturnType<typeof McpConnectionsListSchema>,
     WithPostHogUrl<Schemas.PaginatedMCPServerInstallationList>
 > => ({
     name: 'mcp-connections-list',
-    schema: McpConnectionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof McpConnectionsListSchema>) => {
+    schema: McpConnectionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof McpConnectionsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMCPServerInstallationList>({
             method: 'GET',
@@ -45,7 +48,7 @@ const mcpConnectionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/settings/environment-mcp-servers')
+        return await withPostHogUrl(context, result, '/settings/mcp-servers')
     },
 })
 

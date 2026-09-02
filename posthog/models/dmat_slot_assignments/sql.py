@@ -64,7 +64,9 @@ FINAL
 """.replace("\n", " ").strip()
 
 
-CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+_dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+CLICKHOUSE_DICT_READER_USER = _dict_reader_creds.user
+CLICKHOUSE_DICT_READER_PASSWORD = _dict_reader_creds.password
 
 
 def DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster: bool = False) -> str:

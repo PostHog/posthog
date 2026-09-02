@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     LangSmithRepeatedCursorError,
     LangSmithResponseTooLargeError,
     LangSmithResumeConfig,
+    LangSmithRunsPageTooLargeError,
     _fetch_page,
     _read_capped_body,
     _resolve_window_start,
@@ -248,6 +249,39 @@ class TestRunsPagination:
         assert manager.saved == [LangSmithResumeConfig(cursor=None, window_start=None)]
 
 
+class TestRunsPageShrinking:
+    def test_oversized_page_halves_limit_and_retries_same_cursor(self):
+        # A legitimate host with large prompt payloads can trip MAX_RESPONSE_BYTES on a full page.
+        # The walk must halve the limit and re-request the same cursor (skipping no runs), not fail.
+        manager = FakeManager()
+        limits: list[int] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            limit = json_body["limit"]
+            limits.append(limit)
+            if limit > 25:
+                raise LangSmithResponseTooLargeError("oversized")
+            return {"runs": [_run("a")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert [r["id"] for r in rows] == ["a"]
+        assert limits == [100, 50, 25]  # halved on the same cursorless first page until it fits
+
+    def test_single_run_page_still_oversized_raises(self):
+        # If even a one-run page exceeds the cap, halving can't help; fail with the non-retryable
+        # error instead of re-hitting the same wall until the activity timeout.
+        manager = FakeManager()
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            raise LangSmithResponseTooLargeError("oversized")
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            with pytest.raises(LangSmithRunsPageTooLargeError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+
 class TestOffsetPagination:
     def test_walks_offsets_until_short_page(self):
         manager = FakeManager()
@@ -293,6 +327,89 @@ class TestOffsetPagination:
 
         assert "offset=200" in urls[0]
         assert "min_created_at=2026-01-01T00%3A00%3A00.000000Z" in urls[0]
+
+
+class TestExamplesPagination:
+    def test_examples_are_scoped_per_dataset(self):
+        # GET /examples rejects an unscoped request (a 400), so examples must be paged per dataset
+        # with a `dataset` filter — the regression that failed every examples sync.
+        manager = FakeManager()
+        dataset_ids = ["ds-1", "ds-2"]
+        urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            urls.append(url)
+            if "/api/v1/examples" in url:
+                return [{"id": "ex-1"}]
+            return [{"id": d} for d in dataset_ids]
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            rows = _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        example_urls = [u for u in urls if "/api/v1/examples" in u]
+        assert len(example_urls) == 2
+        assert "dataset=ds-1" in example_urls[0]
+        assert "dataset=ds-2" in example_urls[1]
+        assert len(rows) == 2
+
+    def test_no_datasets_in_workspace_skips_examples_entirely(self):
+        # With no datasets there is nothing to scope to, so no examples request should be issued.
+        manager = FakeManager()
+        urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            urls.append(url)
+            return []
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            rows = _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert rows == []
+        assert all("/api/v1/examples" not in u for u in urls)
+
+    def test_resume_continues_from_saved_dataset_and_offset(self):
+        # A resumed run skips datasets already fully read, picks the interrupted dataset up at its
+        # saved offset, and reads the remaining datasets from the start.
+        manager = FakeManager(resume=LangSmithResumeConfig(dataset_id="ds-2", offset=100))
+        dataset_ids = ["ds-1", "ds-2", "ds-3"]
+        example_urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            if "/api/v1/examples" in url:
+                example_urls.append(url)
+                return [{"id": "ex"}]
+            return [{"id": d} for d in dataset_ids]
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert len(example_urls) == 2
+        assert "dataset=ds-2" in example_urls[0] and "offset=100" in example_urls[0]
+        assert "dataset=ds-3" in example_urls[1] and "offset=0" in example_urls[1]
+        assert all("dataset=ds-1" not in u for u in example_urls)
+
+    def test_many_short_pages_still_hit_the_page_limit(self):
+        # A dataset whose examples fit on a single short page must still cost one request against
+        # MAX_PAGES_PER_RUN. Otherwise a host serving many datasets (bounded only by
+        # MAX_DATASET_IDS_BYTES), each with one short page, could page forever without ever
+        # tripping the per-run limit.
+        manager = FakeManager()
+        dataset_ids = [f"ds-{i}" for i in range(10)]
+        example_urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            if "/api/v1/examples" in url:
+                example_urls.append(url)
+                return [{"id": "ex"}]  # a single-item, short page — never the "full page" branch
+            return [{"id": d} for d in dataset_ids]
+
+        with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            with pytest.raises(LangSmithPageLimitError):
+                _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert len(example_urls) == 3
+        assert manager.saved[-1].dataset_id == "ds-3"
+        assert manager.saved[-1].offset == 0
 
 
 class TestPaginationAbuseGuards:

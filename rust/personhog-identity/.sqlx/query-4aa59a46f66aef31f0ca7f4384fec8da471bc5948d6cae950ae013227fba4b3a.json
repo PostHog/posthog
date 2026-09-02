@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE lifecycle_op\n        SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL\n        WHERE op_id = $1 AND step = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4aa59a46f66aef31f0ca7f4384fec8da471bc5948d6cae950ae013227fba4b3a"
+}

@@ -77,7 +77,7 @@ function EvalsTabContentInner({
                         </Link>
                     ) : generationEvent && !evaluationsLoading && runnableEvaluations.length === 0 ? (
                         <span className="text-muted text-sm">
-                            No generation-target evaluations to run manually. Trace-target evaluations run
+                            No generation-target evaluations to run manually. Trace and session evaluations run
                             automatically.
                         </span>
                     ) : generationEvent ? (

@@ -7,7 +7,14 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import AttributionMode, BaseMathType, ConversionGoalFilter1, EventPropertyFilter, PropertyOperator
+from posthog.schema import (
+    AttributionMode,
+    BaseMathType,
+    ConversionGoalFilter1,
+    EventPropertyFilter,
+    PropertyOperator,
+    RevenueCurrencyPropertyConfig,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -22,6 +29,8 @@ def _make_event_goal(
     event: str = "purchase",
     properties: list | None = None,
     schema_map: dict | None = None,
+    math_property: str | None = None,
+    math_property_revenue_currency: RevenueCurrencyPropertyConfig | None = None,
 ) -> ConversionGoalFilter1:
     return ConversionGoalFilter1(
         kind="EventsNode",
@@ -31,6 +40,8 @@ def _make_event_goal(
         math=BaseMathType.TOTAL,
         schema_map=schema_map or {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         properties=properties or [],
+        math_property=math_property,
+        math_property_revenue_currency=math_property_revenue_currency,
     )
 
 
@@ -97,11 +108,27 @@ class TestConversionGoalProcessorRefactor(BaseTest):
 
         assert single.select != multi.select
 
-    def test_precompute_skipped_when_tracked_property_restricted(self):
-        # Precompute materializes tracked attribution properties via the touchpoints table, bypassing
-        # the per-user masking HogQL applies to events.properties. When such a property is restricted
-        # for the user, eligibility must fail so the direct (masked) events query is used instead.
-        processor = self._processor()
+    @parameterized.expand(
+        [
+            # utm_source is one of the tracked attribution properties resolved from the goal's schema_map.
+            ("tracked_utm_property", {}, "utm_source"),
+            (
+                "revenue_currency_property",
+                {
+                    "math_property": "revenue",
+                    "math_property_revenue_currency": RevenueCurrencyPropertyConfig(property="currency_code"),
+                },
+                "currency_code",
+            ),
+        ]
+    )
+    def test_precompute_skipped_when_materialized_property_restricted(
+        self, _name: str, goal_overrides: dict, restricted_property: str
+    ):
+        # Precompute materializes these properties into scalar columns, bypassing the per-user masking
+        # HogQL applies to events.properties. When one is restricted for the user, eligibility must fail
+        # so the direct (masked) events query is used instead.
+        processor = self._processor(**goal_overrides)
         processor.config.conversion_goal_precomputation_enabled = True
         date_from = datetime(2025, 1, 1, tzinfo=UTC)
         date_to = datetime(2025, 1, 31, tzinfo=UTC)
@@ -112,8 +139,7 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         with patch(target, return_value=set()):
             assert processor._should_use_precompute(date_from, date_to) is True
 
-        # utm_source is one of the tracked attribution properties resolved from the goal's schema_map.
-        with patch(target, return_value={"utm_source"}):
+        with patch(target, return_value={restricted_property}):
             assert processor._should_use_precompute(date_from, date_to) is False
 
     def test_tracked_fields_match_touchpoints_table_schema(self):
@@ -124,6 +150,21 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import TRACKED_FIELDS
 
         assert [f.name for f in TRACKED_FIELDS] == MARKETING_TOUCHPOINTS_TRACKED_FIELD_NAMES
+
+    def test_click_ids_read_the_property_the_sdk_writes(self):
+        # `$gclid` and friends don't exist on events — the taxonomy calls them `gclid`,
+        # `fbclid` and `gad_source`, and the `$initial_*` forms are person-scoped copies.
+        # Reading the prefixed name silently emptied every click-id column, so the paid
+        # branch of channel_type never fired for auto-tagged traffic.
+        from posthog.taxonomy.taxonomy import CAMPAIGN_PROPERTIES
+
+        from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import TRACKED_FIELDS
+
+        click_ids = [f for f in TRACKED_FIELDS if f.name in ("gclid", "fbclid", "gad_source")]
+        assert len(click_ids) == 3
+        for field in click_ids:
+            assert field.event_property == field.name
+            assert field.event_property in CAMPAIGN_PROPERTIES
 
     @parameterized.expand(
         [

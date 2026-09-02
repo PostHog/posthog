@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { timeoutGuard } from '~/common/utils/db/utils'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { LazyLoader, LoaderRetryOptions } from '~/common/utils/lazy-loader'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '~/types'
@@ -10,17 +10,24 @@ import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectI
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
 
+export interface GroupTypeManagerOptions {
+    /** Retry transient group-type-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
+    loaderRetry?: LoaderRetryOptions
+}
+
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
 
     constructor(
         private groupRepository: GroupRepository,
-        private teamManager: TeamManager
+        private teamManager: TeamManager,
+        options?: GroupTypeManagerOptions
     ) {
         this.loader = new LazyLoader({
             name: 'GroupTypeManager',
             refreshAgeMs: 30_000, // 30 seconds
             refreshJitterMs: 0,
+            loaderRetry: options?.loaderRetry,
             loader: async (projectIds: string[]) => {
                 const response: Record<string, GroupTypeToColumnIndex> = {}
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)

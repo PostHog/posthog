@@ -91,7 +91,15 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
 const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
-    return homepage ? tabToPersistableSnapshot(homepage) : null
+    if (!homepage) {
+        return null
+    }
+    // A homepage saved against a scene that no longer ships would send `/` to a dead route on
+    // every visit, with no way back except reconfiguring it. Fall back to the project default.
+    if (homepage.sceneId && !sceneConfigurations[homepage.sceneId]) {
+        return null
+    }
+    return tabToPersistableSnapshot(homepage)
 }
 
 const pathPrefixesOnboardingNotRequiredFor = [
@@ -738,9 +746,6 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 } catch (error) {
-                    // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
-                    // route params like `/dashboard/abc`. Capture so regressions surface, then
-                    // route to Error404 so the user sees a proper 404 instead of a blank crash.
                     posthog.captureException(error, { extra: { sceneId, sceneKey } })
                     newLogicErrored = true
                 }

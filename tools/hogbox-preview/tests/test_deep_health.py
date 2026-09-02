@@ -1,11 +1,13 @@
-"""Unit tests for the personhog override parity + the authed deep-health gate.
+"""Unit tests for the compose-override parity + the authed deep-health gate.
 
 Self-contained: no network, no live box. Two seams are covered:
 
   - ``write_override`` must mirror hogland's scripts/posthog-preview-setup.sh —
     the PERSONHOG_ADDR web env plus the personhog-replica/router services. When
     those drifted, previews 500'd fleet-wide with "personhog client not
-    configured" (2026-07-06 -> 07-10).
+    configured" (2026-07-06 -> 07-10). The temporal pair is held to the same bar
+    and fails even quieter: web schedules, nothing services the queue, and a
+    materialization just never runs.
   - ``deep_health`` — after /_health, log into the seeded demo user and hit the
     endpoints that actually broke. Passes on 200s, raises with the failing
     step's body + a docker-logs tail on a 500, and is skipped on --no-seed.
@@ -18,7 +20,10 @@ sibling tests.
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+
 import unittest
+from unittest.mock import MagicMock, call, patch
 
 try:
     from hogbox_preview.backend import ExecResult
@@ -38,10 +43,15 @@ class _RecordingBackend:
         self.web_port = 8000
         self.files: dict[str, str] = {}
         self.execs: list[str] = []
+        self.long_runs: list[str] = []
         self._probe_result = probe_result
 
     def write_file(self, remote_path, content) -> None:
         self.files[remote_path] = content if isinstance(content, str) else content.decode()
+
+    def run_long(self, script, *, name, timeout: int = 1800, interval: int = 3) -> ExecResult:
+        self.long_runs.append(script)
+        return ExecResult(0, "", "")
 
     def exec(self, command, *, timeout: int = 120) -> ExecResult:
         self.execs.append(command)
@@ -84,6 +94,214 @@ class OverridePersonhogParityTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class OverrideTemporalParityTest(unittest.TestCase):
+    """Same parity bar as personhog, for the services that run materializations."""
+
+    def _override(self, **kwargs) -> str:
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend, **kwargs)
+        stack.write_override()
+        return backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+
+    def test_temporal_services_overridden(self):
+        override = self._override()
+        self.assertIn("  temporal:", override)
+        self.assertIn("  temporal-django-worker:", override)
+        # ES off: base would otherwise drag an elasticsearch container into every
+        # preview just to run workflows (postgres visibility is enough).
+        self.assertIn("ENABLE_ES=false", override)
+
+    def test_temporal_drops_the_inherited_elasticsearch_edge(self):
+        # `extends` propagates depends_on and depends_on MERGES across files, so
+        # ENABLE_ES=false alone still leaves temporal blocking on a ~1 GiB ES
+        # container. Only `!override` drops the inherited edge.
+        temporal_block = self._override().split("  temporal:", 1)[1].split("  temporal-django-worker:", 1)[0]
+        self.assertIn("depends_on: !override", temporal_block)
+        self.assertIn("db:", temporal_block)
+        self.assertNotIn("elasticsearch", temporal_block)
+
+    def test_temporal_mounts_the_dynamicconfig(self):
+        # The auto-setup image doesn't ship the dynamicconfig file base points
+        # DYNAMIC_CONFIG_FILE_PATH at; without the checkout's copy mounted the
+        # server crash-loops and the container never turns healthy (cost a full
+        # golden bake on 2026-08-07).
+        temporal_block = self._override().split("  temporal:", 1)[1].split("  temporal-django-worker:", 1)[0]
+        self.assertIn("- ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig", temporal_block)
+
+    def test_worker_serves_the_data_modeling_queue(self):
+        # DEBUG=0 means the real queue names apply, and one worker serves exactly
+        # one queue — materialized views schedule onto this one.
+        self.assertIn("TEMPORAL_TASK_QUEUE=data-modeling-task-queue", self._override())
+
+    def test_worker_shares_webs_secret_key(self):
+        # TEMPORAL_SECRET_KEY defaults to SECRET_KEY and keys the payload codec;
+        # a mismatch makes workflow payloads undecodable across the boundary.
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.write_override()
+        override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+        self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 2)
+
+    def test_worker_pins_the_image(self):
+        # dev-full's worker carries `build: .` — an unpinned image turns
+        # `up --no-build` into the 20-min build.
+        self.assertIn(
+            "    image: ghcr.io/posthog/posthog:abc123", self._override(image="ghcr.io/posthog/posthog:abc123")
+        )
+
+    def test_worker_mounts_the_prs_backend_source(self):
+        # Without these the worker materializes views against stale :master.
+        override = self._override()
+        worker_block = override.split("  temporal-django-worker:", 1)[1]
+        for src, dst in PostHogPreviewStack.MOUNTS:
+            self.assertIn(f"- ./{src}:{dst}", worker_block)
+        # ...but the frontend mounts stay web-only (the worker serves no HTTP).
+        self.assertNotIn("/code/frontend/dist", worker_block)
+        self.assertNotIn("/code/staticfiles", worker_block)
+
+    def test_both_services_force_the_local_warehouse_path(self):
+        # A preview runs DEBUG=0, so USE_LOCAL_SETUP has to be forced or every
+        # warehouse path reaches for real AWS creds instead of the stack's MinIO.
+        self.assertEqual(self._override().count("USE_LOCAL_SETUP=1"), 2)
+
+    def test_temporal_server_started_with_deps_but_not_the_worker(self):
+        # The server must be listening before web schedules; the worker imports
+        # Django + touches the schema, so it can only start after migrate() —
+        # up_web brings it up with the PR mounts instead.
+        self.assertIn("temporal", PostHogPreviewStack.DEPS)
+        self.assertNotIn("temporal-django-worker", PostHogPreviewStack.DEPS)
+
+    def test_up_web_recreates_the_worker_too(self):
+        # You can't add a bind mount to a running container, so the golden's warm
+        # worker has to be recreated from the override or it keeps running
+        # :master. Still --no-build (the override pins its image).
+        backend = _RecordingBackend()
+        PostHogPreviewStack(backend).up_web()
+        script = backend.long_runs[-1]
+        self.assertIn("up -d --no-build web temporal-django-worker", script)
+
+    def test_migrate_registers_search_attributes_tolerantly(self):
+        # Fresh temporal namespaces lack PostHogDagId & co. and /materialize/
+        # 500s without them — migrate() must register them, but tolerantly: a
+        # PR branch predating the management command must not abort bring-up.
+        backend = _RecordingBackend()
+        PostHogPreviewStack(backend).migrate()
+        script = backend.long_runs[-1]
+        self.assertIn("register_temporal_search_attributes", script)
+        self.assertIn("WARN", script)  # non-fatal fallthrough, not a bare run
+
+    def test_reset_database_recreates_temporal(self):
+        # The wiped postgres volume held temporal's DBs, and only temporal's
+        # auto-setup ENTRYPOINT recreates that schema — so a reset that leaves
+        # the temporal container running strands it erroring forever.
+        backend = _RecordingBackend()
+        PostHogPreviewStack(backend).reset_database()
+        script = backend.long_runs[-1]
+        self.assertIn("rm -f db clickhouse web temporal temporal-django-worker", script)
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class ImagePullTest(unittest.TestCase):
+    def test_retries_each_image_independently(self):
+        backend = MagicMock()
+        backend.run_long.side_effect = [RuntimeError("app TLS timeout"), None, RuntimeError("CDP TLS timeout"), None]
+        image = "ghcr.io/posthog/posthog:test"
+        stack = PostHogPreviewStack(backend, image=image)
+
+        stack.pull_image(attempts=3)
+
+        backend.run_long.assert_has_calls(
+            [
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {stack.CDP_IMAGE}", name="pull", timeout=1800),
+                call(f"docker pull {stack.CDP_IMAGE}", name="pull", timeout=1800),
+            ]
+        )
+        self.assertEqual(backend.run_long.call_count, 4)
+
+    def test_stops_before_cdp_image_when_app_image_exhausts_retries(self):
+        backend = MagicMock()
+        backend.run_long.side_effect = RuntimeError("TLS timeout")
+        image = "ghcr.io/posthog/posthog:test"
+        stack = PostHogPreviewStack(backend, image=image)
+
+        with self.assertRaisesRegex(RuntimeError, f"docker pull {image} failed after 2 attempts: TLS timeout"):
+            stack.pull_image(attempts=2)
+
+        self.assertEqual(
+            backend.run_long.call_args_list,
+            [
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {image}", name="pull", timeout=1800),
+            ],
+        )
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class TemplateSyncTest(unittest.TestCase):
+    def test_no_seed_bring_up_still_syncs_templates(self):
+        backend = MagicMock()
+        backend.web_url = "https://preview.example.com"
+        preview = PostHogPreviewStack(backend, seed_demo_data=False)
+        events: list[str] = []
+        methods = (
+            "start_runtime",
+            "write_override",
+            "pull_image",
+            "up_deps",
+            "migrate",
+            "start_cdp_service",
+            "sync_hog_function_templates",
+            "up_web",
+            "wait_for_health",
+            "deep_health",
+        )
+
+        with ExitStack() as patches:
+            for method in methods:
+                patches.enter_context(
+                    patch.object(preview, method, side_effect=lambda name=method: events.append(name))
+                )
+            preview.bring_up()
+
+        self.assertLess(events.index("migrate"), events.index("start_cdp_service"))
+        self.assertLess(events.index("start_cdp_service"), events.index("sync_hog_function_templates"))
+        self.assertLess(events.index("sync_hog_function_templates"), events.index("up_web"))
+
+    def test_cdp_service_uses_the_published_image_configuration(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.write_override()
+        override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
+        plugins_block = override.split("  plugins:", 1)[1].split("  personhog-replica:", 1)[0]
+
+        self.assertIn(f"image: {stack.CDP_IMAGE}", plugins_block)
+        self.assertIn("volumes: !override []", plugins_block)
+        self.assertIn("CYCLOTRON_NODE_DATABASE_URL=postgres://posthog:posthog@db:5432/cyclotron_node", plugins_block)
+        self.assertIn("CDP_REDIS_HOST=redis7", plugins_block)
+        self.assertIn("CDP_VALKEY_HOST=valkey", plugins_block)
+        self.assertIn("ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00", plugins_block)
+        self.assertIn("PERSONHOG_ADDR=personhog-router:50052", plugins_block)
+
+    def test_starts_cdp_service_and_waits_until_ready(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.start_cdp_service()
+
+        script = backend.long_runs[-1]
+        self.assertIn("up -d --no-build plugins", script)
+        self.assertIn("http://localhost:6738/_ready", script)
+
+    def test_syncs_hog_function_templates(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.sync_hog_function_templates()
+
+        self.assertIn("python manage.py sync_hog_function_templates", backend.long_runs[-1])
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
 class DeepHealthTest(unittest.TestCase):
     def test_passes_when_probe_reports_ok(self):
         backend = _RecordingBackend(probe_result=ExecResult(0, "STEP projects 200\nDEEP_HEALTH_OK\n", ""))
@@ -100,6 +318,7 @@ class DeepHealthTest(unittest.TestCase):
         self.assertIn("/api/login/", script)
         self.assertIn("/api/projects/@current/", script)
         self.assertIn("/api/environments/@current/query/", script)
+        self.assertIn("/api/projects/@current/hog_function_templates/template-slack/", script)
         self.assertIn("HogQLQuery", script)
         self.assertIn("test@posthog.com", script)
 

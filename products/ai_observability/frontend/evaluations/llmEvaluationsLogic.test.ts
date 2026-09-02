@@ -1,4 +1,7 @@
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -49,10 +52,15 @@ const mockProviderKeys: LLMProviderKey[] = [
     },
 ]
 
-const evaluationWithKey = (id: string, providerKeyId: string | null): LLMJudgeEvaluation => ({
+const evaluationWithKey = (
+    id: string,
+    providerKeyId: string | null,
+    directoryId: string | null = null
+): LLMJudgeEvaluation => ({
     id,
     name: `Evaluation ${id}`,
     description: '',
+    directory_id: directoryId,
     enabled: true,
     status: 'active',
     status_reason: null,
@@ -105,7 +113,7 @@ describe('llmEvaluationsLogic', () => {
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 },
-                '/api/environments/:teamId/evaluations/': {
+                '/api/projects/:teamId/evaluations/': {
                     results: [
                         evaluationWithKey('eval-ok', 'key-ok'),
                         evaluationWithKey('eval-invalid', 'key-invalid'),
@@ -114,6 +122,16 @@ describe('llmEvaluationsLogic', () => {
                         evaluationWithKey('eval-default', null),
                     ],
                 },
+                '/api/projects/:teamId/evaluation_directories/': [
+                    {
+                        id: 'directory-a',
+                        name: 'Directory A',
+                        created_at: '2024-01-01T00:00:00Z',
+                        updated_at: '2024-01-01T00:00:00Z',
+                        created_by: null,
+                        evaluation_count: 1,
+                    },
+                ],
             },
         })
 
@@ -220,7 +238,7 @@ describe('llmEvaluationsLogic', () => {
         it('dispatches toggleEvaluationEnabledFailure when the API rejects the toggle', async () => {
             useMocks({
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': () => [
+                    '/api/projects/:teamId/evaluations/:id/': () => [
                         400,
                         {
                             enabled: ['Add a provider API key to enable this evaluation.'],
@@ -271,6 +289,57 @@ describe('llmEvaluationsLogic', () => {
             await expectLogic(logic).toMatchValues({
                 filteredEvaluations: [enabledEval],
             })
+        })
+
+        it('scopes the list to a directory but searches across all directories', async () => {
+            const rootEvaluation = evaluationWithKey('root', null)
+            const directoryEvaluation = evaluationWithKey('inside', null, 'directory-a')
+
+            router.actions.push(
+                combineUrl(urls.aiObservabilityEvaluations(), {
+                    directory: 'directory-a',
+                }).url
+            )
+            logic.actions.loadEvaluationsSuccess([rootEvaluation, directoryEvaluation])
+
+            await expectLogic(logic).toMatchValues({
+                selectedDirectoryId: 'directory-a',
+                displayedEvaluations: [directoryEvaluation],
+            })
+
+            logic.actions.setEvaluationsFilter('root')
+
+            await expectLogic(logic).toMatchValues({
+                displayedEvaluations: [rootEvaluation],
+            })
+        })
+
+        it('does not reload evaluations when the selected directory changes', async () => {
+            const evaluation = evaluationWithKey('local-state', null)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadEvaluationsSuccess([evaluation])
+
+            router.actions.push(
+                combineUrl(urls.aiObservabilityEvaluations(), {
+                    directory: 'directory-a',
+                }).url
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.evaluations).toEqual([evaluation])
+        })
+
+        it('restores an evaluation in server list order', async () => {
+            const newerEvaluation = {
+                ...evaluationWithKey('newer', null),
+                created_at: '2024-02-01T00:00:00Z',
+            }
+            const olderEvaluation = evaluationWithKey('older', null)
+            logic.actions.loadEvaluationsSuccess([newerEvaluation])
+
+            logic.actions.restoreEvaluationSuccess(olderEvaluation)
+
+            expect(logic.values.evaluations).toEqual([newerEvaluation, olderEvaluation])
         })
     })
 })

@@ -11,6 +11,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    TrunkQuarantineDebt,
+    TrunkQuarantinedTest,
+    TrunkQuarantineTeamDebt,
 )
 from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
@@ -19,21 +22,20 @@ class FlakyTestItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = FlakyTestItem
         extra_kwargs = {
+            "runner": {"help_text": "Test runner that emitted this signal: 'pytest' or 'jest'."},
             "nodeid": {
-                "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
-                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
-                "selector — use `selector` to run or quarantine the test.",
+                "help_text": "Runner-specific stable test identity (the CI span name). This is a grouping key, "
+                "not necessarily runnable; use `selector` to run or quarantine the test.",
             },
             "selector": {
-                "help_text": "Runnable pytest selector, e.g. "
-                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
-                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
+                "help_text": "Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older "
+                "pytest spans use a best-effort reconstruction from the nodeid.",
             },
             "classification": {
                 "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
-                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it "
-                "fails while masked as xfail. suspected_regression: only failures were recorded, which is "
-                "absence of proof, not proof that it is a real break.",
+                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a "
+                "tolerated failure was recorded while it was masked. suspected_regression: only failures were "
+                "recorded, which is absence of proof, not proof that it is a real break.",
             },
             "same_commit_recovery_run_count": {
                 "help_text": "Runs where one commit both failed and passed the test: a 'Re-run failed jobs' "
@@ -54,11 +56,83 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "now' signal that a test is breaking the trunk, not just PR branches.",
             },
             "quarantined_failed_run_count": {
-                "help_text": "Runs where the test failed while quarantined (xfail): already masked in CI, still "
-                "failing.",
+                "help_text": "Runs where the test recorded a tolerated failure while quarantined: already masked "
+                "in CI, still failing.",
             },
             "last_signal_at": {
-                "help_text": "Most recent failure, recovery, or xfail run for this test in the window.",
+                "help_text": "Most recent failure, recovery, or quarantined-failure run for this test in the window.",
+            },
+        }
+
+
+class TrunkQuarantinedTestSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrunkQuarantinedTest
+        extra_kwargs = {
+            "runner": {"help_text": "Test runner: 'pytest' or 'jest'."},
+            "nodeid": {
+                "help_text": "Runner-native test id reconstructed from Trunk's (file, classname, name) key.",
+            },
+            "file": {
+                "help_text": "Repo-relative path of the test file, empty when neither the repository nor "
+                "Trunk places it.",
+            },
+            "owner_team": {
+                "help_text": "Owning team slug from the repository's ownership files, or 'unowned' when the "
+                "test's file cannot be placed or no team claims its path.",
+            },
+            "status": {"help_text": "Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'."},
+            "quarantine_setting": {
+                "help_text": "How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'.",
+            },
+            "quarantined_at": {"help_text": "When Trunk quarantined the test."},
+            "age_days": {"help_text": "Whole days since the quarantine started."},
+            "overdue": {"help_text": "True once age_days exceeds ttl_days: the quarantine has outlived the TTL."},
+            "trunk_url": {
+                "help_text": "The Trunk app's page for this test; null when the connected source has no "
+                "organization slug or the row carries no test case id.",
+            },
+        }
+
+
+class TrunkQuarantineTeamDebtSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrunkQuarantineTeamDebt
+        extra_kwargs = {
+            "owner_team": {"help_text": "Owning team slug, or 'unowned'."},
+            "test_count": {"help_text": "Tests this team owns that Trunk currently quarantines."},
+            "overdue_count": {"help_text": "Of those, tests quarantined longer than ttl_days."},
+            "oldest_age_days": {"help_text": "Age in days of the team's oldest standing quarantine."},
+        }
+
+
+class TrunkQuarantineDebtSerializer(DataclassSerializer):
+    teams = TrunkQuarantineTeamDebtSerializer(
+        many=True,
+        help_text="Per-team rollup, most indebted first: overdue count, then test count, then oldest age.",
+    )
+    tests = TrunkQuarantinedTestSerializer(
+        many=True,
+        help_text="Every currently quarantined test, oldest first.",
+    )
+
+    class Meta:
+        dataclass = TrunkQuarantineDebt
+        extra_kwargs = {
+            "available": {
+                "help_text": "False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error.",
+            },
+            "owners_resolved": {
+                "help_text": "False when the repository's ownership files could not be read, so every "
+                "test reads as 'unowned' for that reason rather than because no team claims it.",
+            },
+            "ttl_days": {"help_text": "Days a quarantine may stand before it counts as overdue."},
+            "repository": {
+                "help_text": "The 'owner/name' repository the debt was read for; test file paths are relative to it.",
+            },
+            "trunk_url": {
+                "help_text": "The Trunk app's flaky-tests page for this repository; null when the connected "
+                "source has no organization slug.",
             },
         }
 
@@ -99,9 +173,10 @@ class BrokenTestRowSerializer(DataclassSerializer):
             "repo": {"help_text": "'owner/name' repository the failure belongs to."},
             "state": {
                 "help_text": "The classifier's verdict on how this failure is behaving right now: "
-                "'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a "
-                "day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but "
-                "trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
+                "'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped "
+                "a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new "
+                "within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk "
+                "but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
                 "(confined to one branch — one PR's own problem).",
             },
             "first_seen": {"help_text": "Earliest failure line for this fingerprint in the analysis window."},
@@ -217,6 +292,13 @@ class QuarantineRequestSerializer(DataclassSerializer):
             "selector": {
                 "help_text": "Test selector to act on: an exact test id, a file, a directory, a class prefix, or "
                 "'product:<dashed-name>'.",
+            },
+            "runner": {
+                "help_text": "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries "
+                "and Jest file extensions are inferred for older clients that omit it; other selectors default to "
+                "'pytest'.",
+                "required": False,
+                "allow_null": True,
             },
             "repo": {
                 "help_text": "Optional 'owner/name' repository override; defaults to the team's most active repo.",

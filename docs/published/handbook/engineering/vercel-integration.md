@@ -544,7 +544,7 @@ For integration or billing issues that need Vercel's involvement, post in the sh
 | `ee/vercel/integration.py`                   | `VercelIntegration` class - core logic (upsert, delete, sync flags)    |
 | `ee/billing/billing_manager.py`              | `BillingManager` - intermediary for all billing service calls          |
 | `posthog/models/organization_integration.py` | `OrganizationIntegration` model (org-level, stores Vercel credentials) |
-| `posthog/models/integration.py`              | `Integration` model (team/project-level resource record)               |
+| `posthog/models/integration/model.py`        | `Integration` model (team/project-level resource record)               |
 
 ### Billing repo (`billing/`)
 

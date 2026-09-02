@@ -57,6 +57,7 @@ A sentence or two that names the surface and the shapes is the whole job.
 ## Body structure
 
 The canonical body is a workflow, not a script — it reads like how an experienced analyst would approach the surface, and trusts the agent to adapt.
+(One variant departs from it: a **recurring measurement / LLM-judge scout** on the structured-output channel replaces the discriminator + Decide sections with a rubric and a sample → judge → record loop — see that pattern in [`scout-patterns.md`](scout-patterns.md); orient and memory stay the same, and so does close-out — except its quick early-exit fires only on an empty eligible population, never at a steady baseline, since the scout samples and records every verdict (the unremarkable ones are the denominator) on any run with items to judge.)
 The fleet's specialists all share this shape:
 
 1. **Identity + discriminator (the most important lines).** One sentence on what the scout is, then **name the signal-vs-noise discriminator explicitly** and tell the agent to internalize it.
@@ -76,8 +77,9 @@ The fleet's specialists all share this shape:
 
 3. **Orient.** Three cheap reads cold-start every run — bake them into the body:
    - `scout-scratchpad-search` (`text=<scope keyword>`) — durable steering from past runs; the `pattern:` / `noise:` / `addressed:` / `dedupe:` entries tell the scout what's normal and what's already covered.
-   - `scout-runs-list` (last 7d) — what prior runs of this scout (and siblings) found and ruled out.
+   - `scout-runs-list` (last 7d) — what prior runs of this scout found and ruled out.
      Pull `-runs-retrieve` only for a summary worth drilling into.
+     The fleet-wide read (siblings' runs, and following an interesting summary into the report it produced) is already in the harness prompt for every scout, so don't restate it in your body.
    - `scout-project-profile-get` — the deterministic snapshot; read the discriminator metrics off the relevant `top_events` row.
 
 4. **Profile shape / discriminator table.** A small table mapping the discriminator's shapes to what they usually mean, so the agent triages fast.

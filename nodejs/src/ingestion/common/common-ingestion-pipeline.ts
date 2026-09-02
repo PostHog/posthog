@@ -17,7 +17,9 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { ChunkPipelineBuilder, GroupProcessingBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { GroupingFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import { TopHogMetricFactory, TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { FanInFunction, FanOutFunction, FanOutSubContext } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
+import { KafkaDebugContext, aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import { RetryOptions } from '~/ingestion/framework/retry'
@@ -25,7 +27,12 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
-import { createParseHeadersStep, createParseKafkaMessageStep, createResolveTeamStep } from './steps/event-preprocessing'
+import {
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    parseMessageTopHogMetrics,
+} from './steps/event-preprocessing'
 import { addTeamToContext } from './subpipelines/helpers'
 
 /**
@@ -76,6 +83,13 @@ export interface CommonIngestionPipelineConfig<ROut extends string = never> {
     teamManager: TeamManager
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | ROut>
     promiseScheduler: PromiseScheduler
+    /**
+     * TopHog registry for per-tenant metrics. The skeleton itself records
+     * parse timing and message sizes (see `parseMessageTopHogMetrics`);
+     * pipelines can layer their own metrics via the `parseMessage` /
+     * `resolveTeam` factory lists.
+     */
+    topHog: TopHogRegistry
     /** Maximum number of batches accepted concurrently. Defaults to the framework default. */
     concurrentBatches?: number
     /**
@@ -122,8 +136,8 @@ export type AfterBatchCallback<TOutput, TContext, CBatch, ROut extends string> =
  * so the skeleton is composed exactly once, at `.build()`.
  */
 type ChainTransform<TStart, TCurrent, C, ROut extends string> = (
-    builder: ChunkPipelineBuilder<TStart, TStart, C, C>
-) => ChunkPipelineBuilder<TStart, TCurrent, C, C, ROut>
+    builder: ChunkPipelineBuilder<TStart, TStart, C, C, never, KafkaDebugContext>
+) => ChunkPipelineBuilder<TStart, TCurrent, C, C, ROut, KafkaDebugContext>
 
 /** The messageAware block before `.resolveTeam()`: runs under the batch context. */
 type SubpipelineTransform<TInput, TContext, CBatch, TOut, ROut extends string> = ChainTransform<
@@ -188,7 +202,7 @@ type TeamChain<TPost, TContext, ROut extends string, TCurrent> = Chain<
 
 export function newCommonIngestionPipeline<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string = never,
 >(config: CommonIngestionPipelineConfig<ROut>): CommonIngestionPipelineBuilder<TInput, TContext, ROut> {
     return new CommonIngestionPipelineBuilder(config)
@@ -196,7 +210,7 @@ export function newCommonIngestionPipeline<
 
 export class CommonIngestionPipelineBuilder<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string,
 > {
     constructor(private readonly config: CommonIngestionPipelineConfig<ROut>) {}
@@ -226,7 +240,7 @@ export class CommonIngestionPipelineBuilder<
 
 export class CommonBatchHooksStage<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string,
     CBatch,
 > {
@@ -262,7 +276,7 @@ export class CommonBatchHooksStage<
 
 export class CommonPreTeamStage<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string,
     CBatch,
     TCurrent extends { message: Message; headers: EventHeaders },
@@ -273,12 +287,14 @@ export class CommonPreTeamStage<
         private readonly chain: PreTeamChain<TInput, TContext, ROut, CBatch, TCurrent>
     ) {}
 
-    /** Per-element step; consecutive pipes run in one sequential block. */
+    /** Per-element step; consecutive pipes run in one sequential block.
+     * `options.topHog` records metric factories around the step. */
     pipe<U extends { message: Message; headers: EventHeaders }, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
-        options?: { retry?: RetryOptions }
+        options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }
     ): CommonPreTeamStage<TInput, TContext, ROut, CBatch, U> {
-        return new CommonPreTeamStage(this.config, this.beforeBatchCallback, this.chain.extend(step, options))
+        const wrapped = options?.topHog?.length ? createTopHogWrapper(this.config.topHog)(step, options.topHog) : step
+        return new CommonPreTeamStage(this.config, this.beforeBatchCallback, this.chain.extend(wrapped, options))
     }
 
     /** Chunk-level step (e.g. rate-limit-to-overflow); closes the open sequential block. */
@@ -294,9 +310,23 @@ export class CommonPreTeamStage<
         )
     }
 
-    /** Parse the message body; after this, body-dependent steps can be piped. */
-    parseMessage(): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
-        return this.pipe(createParseKafkaMessageStep())
+    /**
+     * Parse the message body; after this, body-dependent steps can be piped.
+     *
+     * Parse timing and raw message sizes are always recorded to topHog
+     * (`parseMessageTopHogMetrics`); `options.topHog` appends
+     * pipeline-specific metric factories on top.
+     */
+    parseMessage(options?: {
+        topHog?: TopHogMetricFactory<TCurrent, TCurrent & { event: IncomingEvent }>[]
+    }): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
+        const topHog = createTopHogWrapper(this.config.topHog)
+        return this.pipe(
+            topHog(createParseKafkaMessageStep<TCurrent>(), [
+                ...parseMessageTopHogMetrics<TCurrent, TCurrent & { event: IncomingEvent }>(),
+                ...(options?.topHog ?? []),
+            ])
+        )
     }
 
     /**
@@ -304,19 +334,19 @@ export class CommonPreTeamStage<
      * open the team-aware scope: every step piped after this runs inside
      * `handleIngestionWarnings`, with warnings routed to the resolved team.
      *
-     * `options.wrap` decorates the team-resolution step while preserving its
-     * types — e.g. a topHog metrics wrapper.
+     * `options.topHog` records metric factories around the team-resolution
+     * step (e.g. a per-team resolved counter).
      */
     resolveTeam(
         this: CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }>,
         options?: {
-            wrap?: (
-                step: ProcessingStep<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>
-            ) => ProcessingStep<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>, ROut>
+            topHog?: TopHogMetricFactory<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>[]
         }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TeamResolved<TCurrent>, TeamResolved<TCurrent>> {
         const step = createResolveTeamStep<TCurrent & { event: IncomingEvent }>(this.config.teamManager)
-        const resolved = this.chain.extend(options?.wrap ? options.wrap(step) : step)
+        const topHog = createTopHogWrapper(this.config.topHog)
+        const metrics = options?.topHog
+        const resolved = this.chain.extend(metrics?.length ? topHog(step, metrics) : step)
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
@@ -335,12 +365,12 @@ export class CommonPreTeamStage<
  * need into the sub-element value.
  */
 type FanOutViaCallback<TSub, TSubOut, ROut extends string> = (
-    builder: ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext>
-) => ChunkPipelineBuilder<TSub, TSubOut, FanOutSubContext, FanOutSubContext, ROut>
+    builder: ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext, never, KafkaDebugContext>
+) => ChunkPipelineBuilder<TSub, TSubOut, FanOutSubContext, FanOutSubContext, ROut, KafkaDebugContext>
 
 export class CommonTeamStage<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string,
     CBatch,
     TPost extends { team: Team },
@@ -353,16 +383,18 @@ export class CommonTeamStage<
         private readonly chain: TeamChain<TPost, TContext, ROut, TCurrent>
     ) {}
 
-    /** Per-element step; consecutive pipes run in one sequential block. */
+    /** Per-element step; consecutive pipes run in one sequential block.
+     * `options.topHog` records metric factories around the step. */
     pipe<U, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
-        options?: { retry?: RetryOptions }
+        options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
+        const wrapped = options?.topHog?.length ? createTopHogWrapper(this.config.topHog)(step, options.topHog) : step
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            this.chain.extend(step, options)
+            this.chain.extend(wrapped, options)
         )
     }
 
@@ -399,8 +431,22 @@ export class CommonTeamStage<
     concurrentlyPerGroup<TKey, U>(
         groupingFn: GroupingFunction<TCurrent, TKey>,
         callback: (
-            group: GroupProcessingBuilder<TPost, TCurrent, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
-        ) => ChunkPipelineBuilder<TPost, U, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>,
+            group: GroupProcessingBuilder<
+                TPost,
+                TCurrent,
+                TeamAwareContext<TContext>,
+                TeamAwareContext<TContext>,
+                ROut,
+                KafkaDebugContext
+            >
+        ) => GroupProcessingBuilder<
+            TPost,
+            U,
+            TeamAwareContext<TContext>,
+            TeamAwareContext<TContext>,
+            ROut,
+            KafkaDebugContext
+        >,
         options?: { maxConcurrency?: number }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
         const committed = this.chain.build()
@@ -440,8 +486,22 @@ export class CommonTeamStage<
     /** Escape hatch: apply a subpipeline function (a transform over the chunk builder). */
     compose<U>(
         fn: (
-            builder: ChunkPipelineBuilder<TPost, TCurrent, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
-        ) => ChunkPipelineBuilder<TPost, U, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
+            builder: ChunkPipelineBuilder<
+                TPost,
+                TCurrent,
+                TeamAwareContext<TContext>,
+                TeamAwareContext<TContext>,
+                ROut,
+                KafkaDebugContext
+            >
+        ) => ChunkPipelineBuilder<
+            TPost,
+            U,
+            TeamAwareContext<TContext>,
+            TeamAwareContext<TContext>,
+            ROut,
+            KafkaDebugContext
+        >
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
         const committed = this.chain.build()
         return new CommonTeamStage(
@@ -459,8 +519,16 @@ export class CommonTeamStage<
         return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform(), callback)
     }
 
-    build(): BatchingPipeline<TInput, TCurrent, TContext, CBatch, BatchContext<TContext>, ROut> {
-        return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform()).build()
+    build<CFeed extends object = Record<never, never>>(): BatchingPipeline<
+        TInput,
+        TCurrent,
+        TContext,
+        CBatch,
+        BatchContext<TContext>,
+        ROut,
+        CFeed
+    > {
+        return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform()).build<CFeed>()
     }
 
     private completeTransform(): SubpipelineTransform<TInput, TContext, CBatch, TCurrent, ROut> {
@@ -481,7 +549,7 @@ export class CommonTeamStage<
  */
 export class CommonFanOutStage<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string,
     CBatch,
     TPost extends { team: Team },
@@ -518,7 +586,7 @@ export class CommonFanOutStage<
  */
 export class CommonFanInStage<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string,
     CBatch,
     TPost extends { team: Team },
@@ -540,7 +608,7 @@ export class CommonFanInStage<
 
 export class CommonBuildStage<
     TInput extends { message: Message },
-    TContext extends { message: Message },
+    TContext extends { message: Message; debugContext?: KafkaDebugContext },
     ROut extends string,
     CBatch,
     TFinal,
@@ -552,7 +620,15 @@ export class CommonBuildStage<
         private readonly afterBatchCallback?: AfterBatchCallback<TFinal, TContext, CBatch, ROut>
     ) {}
 
-    build(): BatchingPipeline<TInput, TFinal, TContext, CBatch, BatchContext<TContext>, ROut> {
+    build<CFeed extends object = Record<never, never>>(): BatchingPipeline<
+        TInput,
+        TFinal,
+        TContext,
+        CBatch,
+        BatchContext<TContext>,
+        ROut,
+        CFeed
+    > {
         const { outputs, promiseScheduler, concurrentBatches, awaitSideEffects } = this.config
         const pipelineConfig: PipelineConfig<ROut> = { outputs, promiseScheduler }
         const sideEffectOptions = { await: awaitSideEffects ?? false }
@@ -565,7 +641,7 @@ export class CommonBuildStage<
 
         // The hooks handle their own side effects, so nothing rides out on
         // `BatchResult.sideEffects` and drivers only ever drain results.
-        return newBatchingPipeline<TInput, TFinal, TContext, CBatch, TContext, ROut>(
+        return newBatchingPipeline<TInput, TFinal, TContext, CBatch, TContext, ROut, KafkaDebugContext, CFeed>(
             (builder) => this.beforeBatchCallback(builder).handleSideEffects(promiseScheduler, sideEffectOptions),
             (batch) =>
                 batch
@@ -573,7 +649,8 @@ export class CommonBuildStage<
                     .handleResults(pipelineConfig)
                     .handleSideEffects(promiseScheduler, sideEffectOptions),
             (builder) => afterBatchCallback(builder).handleSideEffects(promiseScheduler, sideEffectOptions),
-            concurrentBatches === undefined ? undefined : { concurrentBatches }
+            concurrentBatches === undefined ? undefined : { concurrentBatches },
+            { aggregateDebugContexts: aggregateKafkaDebugContexts }
         )
     }
 }

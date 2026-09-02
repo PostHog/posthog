@@ -1,10 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getWebSteps as getWebStepsPA } from '../product-analytics/web'
+import { getWebInstallSteps } from '../product-analytics/web'
 import { StepDefinition } from '../steps'
-import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
+import { sessionReplayFinalStep } from './_snippets/session-replay-final-step'
 
-export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =>
-    createSessionReplayStepsFromPA(getWebStepsPA, ctx)
+export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getWebInstallSteps(ctx),
+    sessionReplayFinalStep(ctx),
+]
 
 export const WebInstallation = createInstallation(getWebSteps)

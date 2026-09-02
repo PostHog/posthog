@@ -54,7 +54,7 @@ class TestVisionActionSynthesis(BaseTest):
             name="summarizer",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "summarize"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _observation(self, summary: str, title: str | None = None, session_id: str = "s1") -> ReplayObservation:
@@ -456,7 +456,7 @@ class TestVisionActionSynthesis(BaseTest):
             name="hidden",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "classify"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._observation("visible scanner output", session_id="visible")
         ReplayObservation.objects.create(
@@ -473,7 +473,7 @@ class TestVisionActionSynthesis(BaseTest):
 
         prompts: list[str] = []
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             result = self._synthesize(action, run, captured_prompts=prompts)

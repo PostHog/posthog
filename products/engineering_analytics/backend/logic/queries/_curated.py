@@ -14,6 +14,7 @@ into these fragments.
 """
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -24,19 +25,107 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
+from products.engineering_analytics.backend.logic.sources import (
+    GitHubTables,
+    TrunkQuarantineSource,
+    resolve_github_tables,
+    resolve_trunk_merge_queue_table,
+    resolve_trunk_quarantined_tests_source,
+)
 from products.engineering_analytics.backend.logic.views import (
+    deployments,
+    issue_events,
     job_costs,
     pull_requests,
     team_members,
+    trunk_merge_queue,
+    trunk_quarantined_tests,
     workflow_jobs,
     workflow_runs,
 )
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+
+@dataclass(frozen=True, kw_only=True)
+class _IssueEventsWindow:
+    """The observed issue-event range's edges as scalar subquery strings."""
+
+    start: str
+    end: str
+
+
+@frozen
+class DeploySources:
+    """The curated deploy pair's ``SELECT`` subqueries, resolved and gated together."""
+
+    deployments: str
+    statuses: str
+
+
+_READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ReadyToMergeSql:
+    """The SQL for reading per-PR ready-to-merge seconds (SPEC §6), in the three pieces a query
+    substitutes. They are only valid together: ``cte`` belongs in the query's ``WITH`` list, ``join``
+    in its ``FROM`` clause with the PR source aliased ``pr``, and ``expr`` reads the joined row.
+
+    When the optional issue-events table isn't synced ``expr`` degrades to a constant NULL and the
+    other two are empty, so a caller substitutes all three unconditionally rather than branching on
+    whether the measure is observable.
+    """
+
+    cte: str
+    join: str
+    expr: str
+
+    @property
+    def observable(self) -> bool:
+        """False when ``expr`` is the constant NULL, so a query whose only output is this measure
+        can skip a scan that could return nothing else."""
+        return bool(self.cte)
+
+    @property
+    def with_clause(self) -> str:
+        """``cte`` as a whole ``WITH`` clause, for a query that has no other CTE."""
+        return f"WITH {self.cte} " if self.cte else ""
+
+    def median(self, *, scope: str) -> str:
+        """The measure's p50 over the rows matching ``scope``. Unobservable degrades to the NULL
+        expression itself, not a percentile over it: an aggregate needs a column type to work on,
+        and a bare NULL literal has none."""
+        return f"quantileIf(0.5)({self.expr}, {scope})" if self.observable else self.expr
+
+
+_READY_TO_MERGE_UNOBSERVABLE = ReadyToMergeSql(cte="", join="", expr="NULL")
+
+
+def _ready_to_merge_expr(window: _IssueEventsWindow) -> str:
+    """Per-PR ready-to-merge seconds, read off the ``ready_by_pr`` join.
+
+    Last transition is a ready -> merged_at minus it; no transition rows and the PR's whole
+    open-to-merge life inside the observed window -> never left ready, so open-to-merge IS
+    ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
+    bearing: created_at before the window means pre-window flips are possible, and merged_at past
+    the window means the transitions may simply not have synced yet (every merge lands a `merged`
+    issue event, so an in-range merge with no transition rows is proof of never drafting). The
+    coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
+    """
+    return f"""multiIf(
+            pr.merged_at IS NULL, NULL,
+            coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
+            coalesce(re.pr_number, 0) = 0
+                AND pr.created_at >= {window.start}
+                AND pr.merged_at <= {window.end}, pr.open_to_merge_seconds,
+            NULL
+        )"""
 
 
 class CuratedGitHubSource:
@@ -54,6 +143,10 @@ class CuratedGitHubSource:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._trunk_table: str | None = None
+        self._trunk_table_resolved = False
+        self._trunk_quarantine_source: TrunkQuarantineSource | None = None
+        self._trunk_quarantine_resolved = False
 
     @property
     def team(self) -> Team:
@@ -90,13 +183,56 @@ class CuratedGitHubSource:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
-        return f"({workflow_runs.build_query(self._tables.workflow_runs, started_floor=started_floor)})"
+        query = workflow_runs.build_query(
+            self._tables.workflow_runs,
+            pull_requests_table=self._tables.pull_requests,
+            started_floor=started_floor,
+        )
+        return f"({query})"
 
-    def jobs_source(self) -> str | None:
-        """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
+    def jobs_source(self, *, created_floor: bool = False) -> str | None:
+        """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
+
+        ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
+        {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
-        return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+        return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
+
+    def trunk_merge_queue_source(self) -> str | None:
+        """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
+        opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
+        one; either way consumers degrade to the GitHub-derived proxy. Resolved lazily on first
+        call and cached, so probing stays as cheap as the sibling sources."""
+        if not self._trunk_table_resolved:
+            self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
+            self._trunk_table_resolved = True
+        if self._trunk_table is None:
+            return None
+        return f"({trunk_merge_queue.build_query(self._trunk_table)})"
+
+    def _trunk_quarantine(self) -> "TrunkQuarantineSource | None":
+        if not self._trunk_quarantine_resolved:
+            self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
+                self._team, self.repository, self._user_access_control
+            )
+            self._trunk_quarantine_resolved = True
+        return self._trunk_quarantine_source
+
+    def trunk_quarantined_tests_source(self) -> str | None:
+        """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
+        the QuarantinedTests endpoint synced or the requesting user can't access one; consumers
+        degrade to ``available: false``. Lazily resolved and cached like the merge-queue sibling."""
+        source = self._trunk_quarantine()
+        if source is None:
+            return None
+        return f"({trunk_quarantined_tests.build_query(source.table)})"
+
+    def trunk_org_url_slug(self) -> str | None:
+        """The TrunkIo source's org slug, for links into the Trunk app; None when unsynced or unset."""
+        source = self._trunk_quarantine()
+        return source.org_url_slug if source else None
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
@@ -104,7 +240,71 @@ class CuratedGitHubSource:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
 
-    def job_cost_source(self) -> str | None:
+    def issue_events_source(self) -> str | None:
+        """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
+        issue-events table isn't synced."""
+        if not self._tables.issue_events:
+            return None
+        return f"({issue_events.build_query(self._tables.issue_events)})"
+
+    def deploy_sources(self) -> "DeploySources | None":
+        """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
+        fully synced. Gated on BOTH tables in one place: a deployment's outcome lives on its
+        status rows, so one table without the other can't serve an honest read."""
+        if not (self._tables.deployments and self._tables.deployment_statuses):
+            return None
+        return DeploySources(
+            deployments=f"({deployments.build_deployments_query(self._tables.deployments)})",
+            statuses=f"({deployments.build_deployment_statuses_query(self._tables.deployment_statuses)})",
+        )
+
+    def ready_to_merge_sql(self) -> ReadyToMergeSql:
+        """SQL for the per-PR ready-to-merge measure, off the PR source aliased ``pr``. Degrades to
+        a constant NULL when the optional issue-events table isn't synced, so every consumer reads
+        the measure the same way."""
+        window = self._issue_events_window()
+        cte = self._ready_by_pr_cte()
+        if window is None or cte is None:
+            return _READY_TO_MERGE_UNOBSERVABLE
+        return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
+
+    def _issue_events_window(self) -> "_IssueEventsWindow | None":
+        """Scalar subqueries bounding the observed issue-event range, or None when the table
+        isn't synced. The desc walk lands a contiguous range, so the min and max landed
+        timestamps are its edges; both are NULL over an empty table, so comparisons against
+        them are never-true."""
+        if not self._tables.issue_events:
+            return None
+        return _IssueEventsWindow(
+            start=f"({issue_events.build_window_start_query(self._tables.issue_events)})",
+            end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
+        )
+
+    def _ready_by_pr_cte(self) -> str | None:
+        """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
+
+        Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
+        that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
+        event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
+        ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
+        PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
+        issue-events table belongs to that one repo by table construction.
+        """
+        source = self.issue_events_source()
+        if source is None:
+            return None
+        return f"""
+            ready_by_pr AS (
+                SELECT
+                    pr_number,
+                    argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
+                    max(created_at) AS last_transition_at
+                FROM {source} AS se
+                GROUP BY pr_number
+            )
+        """
+
+    def job_cost_source(self, *, created_floor: bool = False) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
         exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
         ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
@@ -113,6 +313,12 @@ class CuratedGitHubSource:
         / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
         query aggregates the same per-job figures the exposed view (and the parity test) do — there is
         no separate Python cost rollup to drift.
+
+        ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
+        register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
+        the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
+        source's window predicates read the RUN's columns and so can never prune the jobs scan, and
+        the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
         """
         if not self._tables.workflow_jobs:
             return None
@@ -120,6 +326,7 @@ class CuratedGitHubSource:
             jobs_table=self._tables.workflow_jobs,
             runs_table=self._tables.workflow_runs,
             include_run_columns=True,
+            created_floor=created_floor,
         )
         return f"({query})"
 
@@ -132,12 +339,25 @@ class CuratedGitHubSource:
         """
         return f"runs AS {self.run_source()}"
 
+    def _pr_scope_cte(self, pr_scope_where: str) -> str:
+        """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over
+        unqualified curated PR columns), read once and shared by both runs rollups below —
+        the same one-scan-per-query reasoning as ``runs_cte``, applied to the PR source.
+
+        The runs rollups only ever join back to PRs the consuming query keeps, so they
+        prefilter the runs scan to this set. Unscoped, they aggregate the team's whole
+        run history — millions of ``(head_sha, workflow)`` groups on a busy repo — and
+        the query runs out of memory before the join discards almost all of it.
+        """
+        return f"pr_scope AS (SELECT number, head_sha FROM {self.pr_source()} AS scope_pr WHERE {pr_scope_where})"
+
     def ci_rollup_cte(self) -> str:
         """CTE collapsing each head SHA's workflow runs into pass/fail/pending counts.
 
         Takes the latest run per ``(head_sha, workflow_name)`` via ``argMax`` (a PR's CI status
         is its newest run per workflow), then aggregates per SHA. Reads the shared ``runs`` CTE
-        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI.
+        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI. Scoped to the
+        ``pr_scope`` CTE the composing query adds (see ``_pr_scope_cte``).
         """
         return f"""
             ci_rollup AS (
@@ -145,13 +365,13 @@ class CuratedGitHubSource:
                     head_sha,
                     count() AS runs,
                     countIf(s = 'completed' AND c = 'success') AS passing,
-                    countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
+                    countIf(s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
-                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,
@@ -159,28 +379,41 @@ class CuratedGitHubSource:
                         argMax(status, run_started_at) AS s,
                         argMax(conclusion, run_started_at) AS c
                     FROM runs AS r
+                    WHERE head_sha IN (SELECT head_sha FROM pr_scope)
                     GROUP BY head_sha, workflow_name
                 )
                 GROUP BY head_sha
             )
         """
 
-    def pr_rollup_query(self, select: str) -> str:
+    def pr_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
         """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
 
-        Prefixes ``select`` with the CI rollup CTE and fills its ``__PR_SOURCE__`` placeholder
-        with the curated pull-requests source — the two steps the cards and PR-list queries always
-        do together.
+        Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs and fills its
+        ``__PR_SOURCE__`` placeholder with the curated pull-requests source — the steps the
+        cards and PR-list queries always do together. ``pr_scope_where`` must keep every PR the
+        ``select`` reads CI for (it prunes the rollup scan, see ``_pr_scope_cte``); a PR outside
+        it joins as if it had no runs.
         """
-        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte()], select)
+        return self._compose_pr_query(
+            [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()], select
+        )
 
     def runs_by_pr_cte(self) -> str:
-        """CTE: per-PR activity from the workflow runs attributed to each PR.
+        """CTE: per-PR activity from the workflow runs attributed to each PR. Scoped to the
+        ``pr_scope`` CTE the composing query adds (see ``_pr_scope_cte``); the scope is a
+        prefilter — the repo-qualified join below still decides correctness.
 
         A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
         the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
         (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
         association (``pr_number = 0``) and are excluded.
+
+        Merge-queue gate runs are excluded too, even though the runs builder credits them to the PR
+        they were landing. This rollup measures what the *author* did to the PR, and a gate branch's
+        head SHA is a rebase the queue made — counting it would report a push nobody made, once per
+        merge attempt. Cost and CI-health surfaces keep the gate run; they measure spend and outcomes,
+        not authoring activity.
 
         Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
         restart per repository, so the PR-list join is qualified by repo to stay correct — as
@@ -198,14 +431,26 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0
+                WHERE pr_number > 0 AND NOT is_merge_queue
+                    AND pr_number IN (SELECT number FROM pr_scope)
                 GROUP BY repo_owner, repo_name, pr_number
             )
         """
 
-    def pr_list_rollup_query(self, select: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles)."""
-        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()], select)
+    def pr_list_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
+        """``pr_rollup_query`` plus the per-PR runs rollup and, when it is observable, the
+        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads. ``pr_scope_where`` scopes both
+        runs rollups via the shared ``pr_scope`` CTE (see ``pr_rollup_query``)."""
+        ctes = [
+            self.runs_cte(),
+            self._pr_scope_cte(pr_scope_where),
+            self.ci_rollup_cte(),
+            self.runs_by_pr_cte(),
+        ]
+        ready_cte = self.ready_to_merge_sql().cte
+        if ready_cte:
+            ctes.append(ready_cte)
+        return self._compose_pr_query(ctes, select)
 
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""

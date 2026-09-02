@@ -2,7 +2,7 @@ import { ProductKey, QueryLogTags } from '~/queries/schema/schema-general'
 
 export const CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID = 'customer-analytics'
 
-export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
+export const ACCOUNTS_TABLE_DATA_NODE_KEY = 'customer-analytics-accounts-table'
 
 // Overview-tile metrics load through their own data node so their (slower)
 // aggregations never block the list rows from rendering.

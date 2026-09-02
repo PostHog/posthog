@@ -133,6 +133,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture
+        image: ghcr.io/posthog/posthog/capture:${POSTHOG_CAPTURE_TAG:-master}
         restart: on-failure
         ports:
             - '3307:3000'
@@ -149,6 +150,28 @@ services:
             start_period: 10s
         profiles:
             - capture
+
+    capture-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-ai
+        image: ghcr.io/posthog/posthog/capture:${POSTHOG_CAPTURE_TAG:-master}
+        restart: on-failure
+        ports:
+            - '3309:3000'
+        depends_on:
+            kafka:
+                condition: service_healthy
+            redis7:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3000/_liveness']
+            interval: 5s
+            timeout: 5s
+            retries: 24
+            start_period: 10s
+        profiles:
+            - ingestion
 
     plugins:
         extends:
@@ -167,6 +190,8 @@ services:
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
             # CDP Redis defaults to 127.0.0.1 — must point to the Docker service
             CDP_REDIS_HOST: redis7
+            CDP_VALKEY_HOST: valkey-cluster
+            CDP_VALKEY_PORT: 6379
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
             # PersonHog is required for CDP — point at the local gRPC router
@@ -176,6 +201,8 @@ services:
             kafka:
                 condition: service_started
             redis7:
+                condition: service_healthy
+            valkey-cluster:
                 condition: service_healthy
             db:
                 condition: service_healthy
@@ -201,6 +228,9 @@ services:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
+            # The combined-mode AI consumer reads persons through PersonHog
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             kafka:
                 condition: service_started
@@ -208,6 +238,12 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+            objectstorage:
+                # The combined AI consumer's blob store healthchecks the ai-blobs bucket at
+                # startup, and SeaweedFS creates it asynchronously, so wait for the sentinel.
+                condition: service_healthy
+            personhog-router:
+                condition: service_started
         healthcheck:
             test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
             interval: 5s
@@ -254,6 +290,13 @@ services:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-posthog}
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+            # The image runs as production, so the in-code dev defaults do not apply. Set both
+            # secrets to the values Django uses under DEBUG so local calls authenticate and exercise
+            # the JWT path. These live here rather than in docker-compose.base.yml because hobby
+            # extends that file, and hobby's Django resolves both secrets to empty, so inheriting
+            # them there would make recording-api reject every hobby call.
+            INTERNAL_API_SECRET: 'posthog123'
+            RECORDING_API_JWT_SECRET: 'dev-recording-api-jwt-secret'
         depends_on:
             redis7:
                 condition: service_healthy
@@ -381,6 +424,31 @@ services:
         ports:
             - '6379:6379'
 
+    valkey-cluster:
+        image: valkey/valkey:8.1-alpine
+        restart: on-failure
+        ports:
+            - '127.0.0.1:6390:6379'
+        command:
+            - /bin/sh
+            - -ec
+            - |
+                valkey-server --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
+                pid=$$!
+                until valkey-cli ping >/dev/null 2>&1; do sleep 0.1; done
+                valkey-cli cluster addslots $$(seq 0 16383)
+                wait $$pid
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'valkey-cli cluster info | grep -q cluster_state:ok && test "$$(valkey-cli cluster info | sed -n "s/cluster_slots_assigned://p" | tr -d "\r")" = 16384',
+                ]
+            interval: 2s
+            timeout: 3s
+            retries: 15
+            start_period: 5s
+
     redis-cluster:
         image: redis:7.2
         restart: on-failure
@@ -448,6 +516,7 @@ services:
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+            - clickhouse-data:/var/lib/clickhouse
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         depends_on:
@@ -460,6 +529,15 @@ services:
             service: zookeeper
         ports:
             - '2181:2181'
+        # With persistent volumes, snapshots and txn logs accumulate forever unless
+        # autopurge is on (the image default disables it). Matches hobby.
+        environment:
+            ZOO_AUTOPURGE_PURGEINTERVAL: 1
+            ZOO_AUTOPURGE_SNAPRETAINCOUNT: 3
+        volumes:
+            - zookeeper-datalog:/datalog
+            - zookeeper-data:/data
+            - zookeeper-logs:/logs
 
     kafka:
         extends:
@@ -501,7 +579,9 @@ services:
                     clickhouse_events_json \
                     clickhouse_ai_events_json \
                     clickhouse_heatmap_events \
+                    clickhouse_flag_evaluations \
                     clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_ai \
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
@@ -513,7 +593,8 @@ services:
                     clickhouse_app_metrics2 \
                     log_entries \
                     clickhouse_property_values \
-                    clickhouse_tophog"
+                    clickhouse_tophog \
+                    clickhouse_billing_usage_records"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created"
@@ -614,6 +695,22 @@ services:
             REDIS_COMPRESSION_ENABLED: 'true'
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
 
+    usage-ingestion:
+        extends:
+            file: docker-compose.base.yml
+            service: usage-ingestion
+        ports:
+            - '7143:7143'
+            - '7144:7144'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_healthy
+        # Keeps a bare `up` from building an image that is not published yet.
+        profiles:
+            - ingestion
+
     # Temporal containers
     elasticsearch:
         extends:
@@ -706,14 +803,16 @@ services:
             - '14268:14268' # jaeger.thrift
             - '14250:14250' # model.proto
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
-        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
+            service: dynamodb
+        profiles: [dynamodb]
+        container_name: '${DYNAMODB_DOCKER_NAME:-dynamodb-main}'
         ports:
-            - '127.0.0.1:4566:4566' # LocalStack Gateway
-            - '127.0.0.1:4510-4559:4510-4559' # external services port range
+            # Not 8000 (the Django dev server) and not 18000, which the eval harness binds for its
+            # live server, where sharing the port fails `hogli evals` on Linux with the stack up.
+            - '127.0.0.1:18010:8000'
 
     seaweedfs:
         extends:
@@ -762,3 +861,7 @@ volumes:
     seaweedfs-data:
     duckgres-data:
     objectstorage-data:
+    clickhouse-data:
+    zookeeper-data:
+    zookeeper-datalog:
+    zookeeper-logs:

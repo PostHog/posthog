@@ -10,10 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
-from products.customer_analytics.backend.facade.api import _set_tags
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.customer_analytics.backend.facade.api import (
+    AccountConflictError,
+    _set_tags,
+    create_account,
+    update_account,
+)
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -214,7 +219,7 @@ class UpsertAccountTool(MaxTool):
         properties = action.properties.model_dump(exclude_unset=True) if action.properties is not None else {}
         try:
             account = await self._create_account(action, properties)
-        except IntegrityError:
+        except AccountConflictError:
             return f"An account with external_id '{action.external_id}' already exists for this team.", {
                 "error": "duplicate_external_id",
             }
@@ -273,15 +278,14 @@ class UpsertAccountTool(MaxTool):
     @sync_to_async
     def _create_account(self, action: CreateAccountAction, properties: dict[str, Any]) -> Account:
         with transaction.atomic():
-            account = Account.objects.create_account(
+            account = create_account(
                 team=self._team,
                 created_by=self._user,
                 name=action.name,
                 external_id=(action.external_id or None),
                 properties=properties,
+                tags=action.tags,
             )
-            if action.tags is not None:
-                _set_tags(action.tags, account, actor=self._user)
             if action.relationships:
                 self._apply_relationship_assignments(account, action.relationships)
         return account
@@ -298,7 +302,7 @@ class UpsertAccountTool(MaxTool):
             properties.update(action.properties.model_dump(exclude_unset=True))
             update_kwargs["properties"] = properties
         with transaction.atomic():
-            account = Account.objects.update_account(account, **update_kwargs)
+            account = update_account(account, **update_kwargs)
             if action.tags is not None:
                 _set_tags(action.tags, account, actor=self._user)
             if action.relationships:
@@ -331,7 +335,12 @@ class UpsertAccountTool(MaxTool):
         for name, user_id in assignments.items():
             definition = definitions[name]
             if user_id is None:
-                relationships_logic.end_active(team_id=self._team.id, account=account, definition=definition)
+                relationships_logic.end_active(
+                    team_id=self._team.id,
+                    account=account,
+                    definition=definition,
+                    actor=self._user,
+                )
                 continue
             relationships_logic.assign(
                 team_id=self._team.id,

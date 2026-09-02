@@ -22,12 +22,12 @@ class ResearchAgentExecutable(PlanModeExecutable):
     THINKING_CONFIG = {"type": "enabled", "budget_tokens": 4096}
     MAX_TOKENS = 16_384
 
-    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
-        is_research_mode = state.supermode == AgentMode.RESEARCH
-        model_name = "claude-opus-4-6" if is_research_mode else "claude-sonnet-4-6"
+    def _get_model_name(self, state: AssistantState) -> str:
+        return "claude-opus-4-6" if state.supermode == AgentMode.RESEARCH else "claude-sonnet-4-6"
 
+    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         base_model = MaxChatAnthropic(
-            model=model_name,
+            model=self._get_model_name(state),
             streaming=True,
             stream_usage=True,
             user=self._user,

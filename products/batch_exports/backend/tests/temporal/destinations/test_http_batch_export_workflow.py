@@ -38,7 +38,7 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     http_default_fields,
     insert_into_http_activity,
 )
-from products.batch_exports.backend.temporal.spmc import compose_filters_clause
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [

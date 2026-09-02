@@ -9,18 +9,17 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::info;
 use uuid::Uuid;
 
+use crate::modes::processing::redis_heal::HealGate;
 use crate::{
-    core::config::{build_pg_pool, get_aws_config},
-    core::resolver::build_catalog,
+    core::config::build_pg_pool,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
     stages::rate_limiting::RedisRateLimiter,
+    stages::resolution::event_release::ReleaseCache,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
     },
-    symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
-    symbolication::symbol_store::{BlobClient, Catalog, S3Client},
     teams::TeamManager,
     types::operator::TeamId,
 };
@@ -36,20 +35,17 @@ pub struct AppContext {
     // The primary producer's cluster (warpstream-shared) does not carry that topic.
     pub app_metrics_producer: FutureProducer<KafkaContext>,
     pub posthog_pool: PgPool,
-    pub catalog: Arc<Catalog>,
-    pub symbol_resolver: Arc<dyn SymbolResolver>,
-    pub symbol_resolution_limiter: Arc<Semaphore>,
     pub process_request_limiter: Arc<Semaphore>,
-    /// When set, cymbal's resolution stage routes exception resolution to the
-    /// remote `cymbal-resolution` service pool instead of running the local
-    /// resolver. Built once at startup; the endpoint pool refreshes itself in
-    /// the background.
+    /// The `cymbal-resolution` service pool. Built once at startup; the
+    /// endpoint pool refreshes itself in the background.
     pub remote_resolution: Option<RemoteResolutionContext>,
     remote_resolution_refresh_task: Option<JoinHandle<()>>,
     pub config: ProcessingConfig,
 
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    // Debounces heal-task spawns for the issue-buckets client (see redis_heal).
+    pub issue_buckets_heal_gate: HealGate,
     // Error-tracking rate limiter. `None` when disabled (the default), in which
     // case `RateLimitingStage` is a pass-through no-op.
     pub rate_limiter: Option<Arc<RedisRateLimiter>>,
@@ -61,6 +57,10 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    // Caches event-level release resolution (`$release_id` and the mobile app-metadata hash) so a
+    // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
+    // for apps that never bound one. Lives here so it survives across batches.
+    pub release_cache: ReleaseCache,
 }
 
 impl Drop for AppContext {
@@ -78,10 +78,6 @@ impl AppContext {
             config.resolver.max_pg_connections,
             "cymbal_processing",
         )?;
-
-        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(&config.resolver).await);
-        let s3_client = S3Client::new(s3_client);
-        let s3_client = Arc::new(s3_client);
 
         let issue_buckets_redis_client = RedisClient::with_config(
             config.issue_buckets_redis_url.clone(),
@@ -103,15 +99,20 @@ impl AppContext {
         let issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync> =
             Arc::new(issue_buckets_redis_client);
 
-        AppContext::new(config, s3_client, posthog_pool, issue_buckets_redis_client).await
+        AppContext::new(config, posthog_pool, issue_buckets_redis_client).await
     }
 
     pub async fn new(
         config: &ProcessingConfig,
-        s3_client: Arc<dyn BlobClient>,
         posthog_pool: PgPool,
         issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     ) -> Result<Self, UnhandledError> {
+        if config.remote_resolution_host.trim().is_empty() {
+            return Err(UnhandledError::Other(
+                "CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
+            ));
+        }
+
         init_global_state(config);
         let health_registry = HealthRegistry::new("liveness");
 
@@ -157,30 +158,21 @@ impl AppContext {
             _ => immediate_producer.clone(),
         };
 
-        s3_client
-            .ping_bucket(&config.resolver.object_storage_bucket)
-            .await?;
-
-        let catalog = build_catalog(&config.resolver, s3_client, posthog_pool.clone());
-
         info!("AppContext initialized");
 
         let team_manager = TeamManager::new(config);
 
-        let symbol_resolver = Arc::new(LocalSymbolResolver::new(
-            &config.resolver,
-            catalog.clone(),
-            posthog_pool.clone(),
-        ));
-        let symbol_resolution_limiter = Arc::new(Semaphore::new(
-            config.resolver.symbol_resolution_concurrency.max(1),
-        ));
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
         let issue_cache = CacheBuilder::new(config.issue_cache_capacity)
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
+
+        let release_cache = ReleaseCache::new(
+            config.release_cache_max_entries,
+            Duration::from_secs(config.release_cache_ttl_seconds),
+        );
 
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
@@ -195,16 +187,15 @@ impl AppContext {
             cyclotron_producer,
             app_metrics_producer,
             posthog_pool,
-            catalog,
             config: config.clone(),
-            symbol_resolution_limiter,
             process_request_limiter,
             team_manager,
             issue_buckets_redis_client,
+            issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
             rate_limiter_enabled_team_ids,
-            symbol_resolver,
             issue_cache,
+            release_cache,
             remote_resolution,
             remote_resolution_refresh_task,
         })
@@ -263,10 +254,6 @@ fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
 async fn build_remote_resolution(
     config: &ProcessingConfig,
 ) -> Result<(Option<RemoteResolutionContext>, Option<JoinHandle<()>>), UnhandledError> {
-    if !config.remote_resolution_enabled {
-        return Ok((None, None));
-    }
-
     let remote_config = RemoteResolutionConfig::from_config(config)?;
     info!(
         host = %remote_config.host,
@@ -274,8 +261,7 @@ async fn build_remote_resolution(
         deadline_ms = remote_config.request_deadline.as_millis() as u64,
         dns_refresh_secs = remote_config.dns_refresh.as_secs(),
         max_retries = remote_config.max_retries,
-        sample_rate = remote_config.sample_rate,
-        "remote resolution enabled, building endpoint pool"
+        "building remote resolution endpoint pool"
     );
 
     let resolver = Arc::new(TokioDnsResolver);

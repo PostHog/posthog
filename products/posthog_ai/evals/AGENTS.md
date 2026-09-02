@@ -1,6 +1,9 @@
 # Hedgebox demo data — reference for eval authors
 
-Every eval in this tree (and in `ee/hogai/eval/ci`) runs against a **single, deterministic, seeded Hedgebox dataset**. Hedgebox is a fictional cloud-storage SaaS (think Dropbox). When you write an eval case, the events, properties, groups, flags, insights, and experiments below are the ground truth the agent has to work with — your `expected` queries and scorers must match this taxonomy exactly (e.g. the event is `signed_up`, not `sign_up` or `user_signed_up`).
+Evals that need a project to query — every eval in this tree, and those in `ee/hogai/eval/ci` that take the `demo_org_team_user` fixture — run against a **single, deterministic, seeded Hedgebox dataset**. Hedgebox is a fictional cloud-storage SaaS (think Dropbox). When you write an eval case, the events, properties, groups, flags, insights, and experiments below are the ground truth the agent has to work with — your `expected` queries and scorers must match this taxonomy exactly (e.g. the event is `signed_up`, not `sign_up` or `user_signed_up`).
+
+Evals that score a prompt rather than a query supply their own case data inline and never touch this taxonomy.
+That data has to be invented rather than adapted from real material — see [`ee/hogai/eval/AGENTS.md`](../../../ee/hogai/eval/AGENTS.md).
 
 Source of truth (read these if anything below looks stale):
 

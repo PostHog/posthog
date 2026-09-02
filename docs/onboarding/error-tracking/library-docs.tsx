@@ -48,21 +48,6 @@ export const JavaErrorTrackingInstallation = createInstallation(
     })
 )
 
-export const KMPErrorTrackingInstallation = createInstallation(
-    createLibraryDocsSteps({
-        title: 'Capture Kotlin Multiplatform exceptions',
-        guidance:
-            'The Kotlin Multiplatform SDK supports handled exceptions through `PostHog.captureException`. The shared KMP API does not currently enable automatic exception capture.',
-        docsLink: 'https://posthog.com/docs/libraries/kmp#error-tracking',
-        language: 'kotlin',
-        code: `try {
-    riskyOperation()
-} catch (error: Exception) {
-    PostHog.captureException(error)
-}`,
-    })
-)
-
 export const ConvexErrorTrackingInstallation = createInstallation(
     createLibraryDocsSteps({
         title: 'Capture Convex exceptions',

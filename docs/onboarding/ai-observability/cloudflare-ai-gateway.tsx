@@ -23,7 +23,7 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>Install the OpenTelemetry SDK, the OpenAI instrumentation, and the OpenAI SDK.</Markdown>
+                    <Markdown>Install the PostHog SDK and the OpenAI SDK.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -31,14 +31,14 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
+                                    pip install posthog openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install @posthog/ai posthog-node openai
                                 `,
                             },
                         ]}
@@ -47,13 +47,15 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to auto-instrument OpenAI SDK calls and export traces to PostHog.
-                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
+                        {dedent`
+                            Create a PostHog client, then swap in PostHog's OpenAI wrapper, pointed at your
+                            Cloudflare AI Gateway endpoint.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -62,54 +64,39 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.openai import OpenAI
+                                    import time, uuid, json
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
-                                        )
+                                    client = OpenAI(
+                                        base_url="https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
+                                        api_key="<openai_api_key>",
+                                        default_headers={
+                                            "cf-aig-authorization": "Bearer <cf_aig_token>",
+                                        },
+                                        posthog_client=posthog,
                                     )
-                                    trace.set_tracer_provider(provider)
-
-                                    OpenAIInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { OpenAIInstrumentation } from '@opentelemetry/instrumentation-openai'
+                                    import { OpenAI } from '@posthog/ai/openai'
+                                    import { PostHog } from 'posthog-node'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new OpenAIInstrumentation()],
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new OpenAI({
+                                      baseURL: 'https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat',
+                                      apiKey: '<openai_api_key>',
+                                      defaultHeaders: {
+                                        'cf-aig-authorization': 'Bearer <cf_aig_token>',
+                                      },
+                                      posthog,
                                     })
-                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -124,11 +111,8 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                 <>
                     <Markdown>
                         {dedent`
-                            Cloudflare AI Gateway exposes an OpenAI-compatible \`compat\` endpoint at
-                            \`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat\`. Point the OpenAI SDK at
-                            this URL with your upstream provider key (e.g. your OpenAI key) and pass your AI Gateway token via
-                            the \`cf-aig-authorization\` header. Specify models as \`provider/model-id\` (for example
-                            \`openai/gpt-5-mini\` or \`anthropic/claude-sonnet-4-5\`).
+                            When you use the wrapped client to call Cloudflare AI Gateway, PostHog automatically
+                            captures an \`$ai_generation\` event.
                         `}
                     </Markdown>
 
@@ -138,48 +122,40 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    import openai
-
-                                    client = openai.OpenAI(
-                                        api_key="<openai_api_key>",
-                                        default_headers={
-                                            "cf-aig-authorization": "Bearer <cf_aig_token>",
-                                        },
-                                        base_url="https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
-                                    )
+                                    trace_id = str(uuid.uuid4())
 
                                     response = client.chat.completions.create(
                                         model="openai/gpt-5-mini",
                                         max_completion_tokens=1024,
-                                        messages=[
-                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                        ],
+                                        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                        tools=tools,
+                                        posthog_distinct_id="user_123",
+                                        posthog_trace_id=trace_id,
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                            "$ai_provider": "cloudflare",
+                                        },
                                     )
-
-                                    print(response.choices[0].message.content)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import OpenAI from 'openai'
-
-                                    const client = new OpenAI({
-                                      apiKey: '<openai_api_key>',
-                                      defaultHeaders: {
-                                        'cf-aig-authorization': 'Bearer <cf_aig_token>',
-                                      },
-                                      baseURL: 'https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat',
-                                    })
+                                    const traceId = crypto.randomUUID()
 
                                     const response = await client.chat.completions.create({
                                       model: 'openai/gpt-5-mini',
                                       max_completion_tokens: 1024,
-                                      messages: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
+                                      messages: [{ role: 'user', content: "What's the weather in Paris?" }],
+                                      tools,
+                                      posthogDistinctId: 'user_123',
+                                      posthogTraceId: traceId,
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                        $ai_provider: 'cloudflare',
+                                      },
                                     })
-
-                                    console.log(response.choices[0].message.content)
                                 `,
                             },
                         ]}
@@ -187,9 +163,9 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
 
                     <Blockquote>
                         <Markdown>
-                            {dedent`
-                            **Note:** If you want to capture LLM events anonymously, omit the \`posthog.distinct_id\` resource attribute. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
-                            `}
+                            **Note:** If you want to capture LLM events anonymously, omit `posthog_distinct_id` from the
+                            call. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
 
@@ -200,6 +176,79 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            For standard responses, the posthog client captures it as a generation. For all tool
+                            calls, you must manually capture them as \`$ai_span\` events.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    for call in response.choices[0].message.tool_calls or []:
+                                        start = time.time()
+                                        result = run_tool(call.function.name, json.loads(call.function.arguments))
+
+                                        posthog.capture(
+                                            distinct_id="user_123",
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": "conversation-abc",
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": call.function.name,
+                                                "$ai_input_state": call.function.arguments,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    for (const call of response.choices[0].message.tool_calls ?? []) {
+                                      const start = Date.now()
+                                      const result = await runTool(call.function.name, JSON.parse(call.function.arguments))
+
+                                      posthog.capture({
+                                        distinctId,
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: sessionId,
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: call.function.name,
+                                          $ai_input_state: call.function.arguments,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                            properties.
+                        `}
+                    </Markdown>
                 </>
             ),
         },

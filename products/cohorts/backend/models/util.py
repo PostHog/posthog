@@ -3,9 +3,9 @@ from __future__ import annotations
 import copy
 import uuid
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connections
@@ -18,12 +18,18 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import (
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLGlobalSettings,
+    LimitContext,
+    get_default_hogql_global_settings,
+)
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -45,27 +51,16 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
-from posthog.schema_enums import PersonsOnEventsMode, ProductKey
+from posthog.schema_enums import ChartDisplayType, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.actions.backend.models.action import Action
-from products.actions.backend.models.util import format_action_filter
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
-from products.cohorts.backend.models.sql import (
-    GET_COHORT_SIZE_SQL,
-    GET_COHORTS_BY_PERSON_UUID,
-    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
-    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
-    RECALCULATE_COHORT_BY_ID,
-)
+from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
-    from posthog.schema import HogQLQueryModifiers
-
     from posthog.personhog_client import ReadConsistency
-from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -151,7 +146,7 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
-def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int) -> None:
+def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
     """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
 
     A long recalculation can outlive its connection (the server closes it unexpectedly); the first
@@ -307,17 +302,51 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
     return None
 
 
-def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
-    if cohort.is_static:
-        return format_static_cohort_query(cohort, index, prepend="")
+def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:
+    """Reject actor queries that would only fail once the populate task compiles them.
 
-    if not cohort.properties.values:
-        # No person can match an empty cohort
-        return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
+    Pydantic validation is not enough here: `day` is optional on `InsightActorsQuery`, but a
+    time-series trends source cannot be compiled without it, so the cohort would save fine and
+    then raise for good in the background populate task.
+    """
+    if query_dict.get("kind") != "ActorsQuery":
+        return
 
-    # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id subquery.
-    cohort_query, cohort_context = hogql_cohort_subquery_sql(cohort, team=cohort.team)
-    return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
+    source = query_dict.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "InsightActorsQuery":
+        return
+
+    insight = source.get("source")
+    if not isinstance(insight, dict) or insight.get("kind") != "TrendsQuery":
+        return
+
+    from posthog.hogql_queries.insights.trends.display import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
+        TrendsDisplay,
+    )
+
+    trends_filter = insight.get("trendsFilter")
+    raw_display = trends_filter.get("display") if isinstance(trends_filter, dict) else None
+    try:
+        display = ChartDisplayType(raw_display) if raw_display else None
+    except ValueError:
+        return  # Pydantic validation owns unknown display types
+    day = source.get("day")
+    if TrendsDisplay(display).is_total_value():
+        if day is not None:
+            raise ValidationError("Do not provide a day for a total value trends insight.")
+        return
+
+    invalid_day_message = (
+        "Provide a valid day for this time series trends insight. "
+        "To choose a day in PostHog, open the insight and click a data point."
+    )
+    if not isinstance(day, str):
+        raise ValidationError(invalid_day_message)
+
+    try:
+        parser.parse(day)
+    except (ValueError, OverflowError):
+        raise ValidationError(invalid_day_message) from None
 
 
 def _sanitize_query_for_cohort(query_dict: dict) -> dict:
@@ -349,6 +378,64 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
     return query_dict
 
 
+def _select_list_positions_are_known(select_list: list[ast.Expr]) -> bool:
+    """Whether ordinal N reliably maps to `select_list[N - 1]`.
+
+    `*`, `table.*` and `COLUMNS(...)` are each a single node here and only fan out into one node per
+    real column later, in the resolver. ClickHouse numbers positional arguments against that expanded
+    list, so mapping an ordinal onto the unexpanded list would point at the wrong expression and
+    silently change who ends up in the cohort. Leave those queries alone so they keep failing loudly
+    instead.
+    """
+    for expr in select_list:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if isinstance(expr, ast.ColumnsExpr):
+            return False
+        if isinstance(expr, ast.Field) and expr.chain and str(expr.chain[-1]) == "*":
+            return False
+    return True
+
+
+def _inline_positional_references(select_query: ast.SelectQuery) -> None:
+    """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
+
+    In ClickHouse a bare integer in GROUP BY/ORDER BY/LIMIT BY (`GROUP BY 2`) is a 1-based reference
+    into the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
+    any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
+    SELECT list up front keeps the grouping/ordering semantics intact once the list shrinks.
+
+    Ordinals nested inside GROUP BY GROUPING SETS are not resolved, because those entries are tuples
+    of expressions rather than bare ordinals. Such a query keeps failing the way it does today.
+    """
+    if not _select_list_positions_are_known(select_query.select):
+        return
+
+    select_list = select_query.select
+
+    def resolve(expr: ast.Expr) -> ast.Expr:
+        if (
+            isinstance(expr, ast.Constant)
+            and isinstance(expr.value, int)
+            and not isinstance(expr.value, bool)
+            and 1 <= expr.value <= len(select_list)
+        ):
+            target = select_list[expr.value - 1]
+            return clone_expr(target.expr if isinstance(target, ast.Alias) else target)
+        return expr
+
+    if select_query.group_by:
+        select_query.group_by = [resolve(expr) for expr in select_query.group_by]
+
+    if select_query.order_by:
+        for order_expr in select_query.order_by:
+            order_expr.expr = resolve(order_expr.expr)
+
+    # Only the LIMIT BY expressions are positional; `n` is the per-group row count, not an ordinal.
+    if select_query.limit_by:
+        select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -364,6 +451,13 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     for select_query in extract_select_queries(query):
+        # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
+        # expression. We're about to collapse the SELECT list down to a single actor column,
+        # which leaves those ordinals pointing past the end of the new one-column list, so
+        # ClickHouse rejects the query with an out-of-bounds positional argument error. Inline
+        # the referenced expression now so the reference survives the collapse.
+        _inline_positional_references(select_query)
+
         # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
         # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
         # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only
@@ -460,17 +554,6 @@ def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tupl
     )
 
 
-def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> tuple[str, dict[str, Any]]:
-    filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
-    return (
-        filter_query,
-        {
-            f"{prepend}_cohort_id_{index}": cohort.pk,
-            f"{prepend}_version_{index}": cohort.version,
-        },
-    )
-
-
 def get_count_operator(count_operator: Optional[str]) -> str:
     if count_operator == "gte":
         return ">="
@@ -501,76 +584,6 @@ def get_count_operator_ast(count_operator: Optional[str]) -> ast.CompareOperatio
         raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
-def get_entity_query(
-    event_id: Optional[str],
-    action_id: Optional[int],
-    team_id: int,
-    group_idx: Union[int, str],
-    hogql_context: HogQLContext,
-    person_properties_mode: Optional[PersonPropertiesMode] = None,
-) -> tuple[str, dict[str, str]]:
-    if event_id:
-        return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
-    elif action_id:
-        action = Action.objects.get(pk=action_id)
-        action_filter_query, action_params = format_action_filter(
-            team_id=team_id,
-            action=action,
-            prepend="_{}_action".format(group_idx),
-            hogql_context=hogql_context,
-            person_properties_mode=(
-                person_properties_mode if person_properties_mode else PersonPropertiesMode.USING_SUBQUERY
-            ),
-        )
-        return action_filter_query, action_params
-    else:
-        raise ValidationError("Cohort query requires action_id or event_id")
-
-
-def get_date_query(
-    days: Optional[str], start_time: Optional[str], end_time: Optional[str]
-) -> tuple[str, dict[str, str]]:
-    date_query: str = ""
-    date_params: dict[str, str] = {}
-    if days:
-        date_query, date_params = parse_entity_timestamps_in_days(int(days))
-    elif start_time or end_time:
-        date_query, date_params = parse_cohort_timestamps(start_time, end_time)
-
-    return date_query, date_params
-
-
-def parse_entity_timestamps_in_days(days: int) -> tuple[str, dict[str, str]]:
-    curr_time = timezone.now()
-    start_time = curr_time - timedelta(days=days)
-
-    return (
-        "AND timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
-        {
-            "date_from": start_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "date_to": curr_time.strftime("%Y-%m-%d %H:%M:%S"),
-        },
-    )
-
-
-def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) -> tuple[str, dict[str, str]]:
-    clause = "AND "
-    params: dict[str, str] = {}
-
-    if start_time:
-        clause += "timestamp >= %(date_from)s"
-
-        params = {"date_from": datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
-    if end_time:
-        clause += "timestamp <= %(date_to)s"
-        params = {
-            **params,
-            "date_to": datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S"),
-        }
-
-    return clause, params
-
-
 def is_precalculated_query(cohort: Cohort) -> bool:
     if (
         cohort.last_calculation
@@ -586,85 +599,6 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 def _trim_trailing_settings(sql: str) -> str:
     # ClickHouse rejects a top-level SETTINGS clause when the SELECT is embedded as a subquery, so trim it.
     return sql[: sql.rfind("SETTINGS")]
-
-
-def _prefix_cohort_hogql_params(
-    sql: str, values: dict[str, Any], *, cohort: Cohort, index: int
-) -> tuple[str, dict[str, Any]]:
-    # HogQLCohortQuery builds its own HogQLContext, so its %(hogql_val_N)s placeholders would collide with
-    # the parent query's context and with sibling cohort subqueries in the same query. Prefix them per
-    # cohort+index so they stay unique once embedded in the legacy parent query. The `)s` terminator in the
-    # search string keeps hogql_val_1 from also matching hogql_val_10.
-    prefix = f"cohort_{cohort.pk}_{index}_"
-    params: dict[str, Any] = {}
-    for key, value in values.items():
-        prefixed_key = f"{prefix}{key}"
-        sql = sql.replace(f"%({key})s", f"%({prefixed_key})s")
-        params[prefixed_key] = value
-    return sql, params
-
-
-def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple[str, dict[str, Any]]:
-    # Distinct_ids of the cohort's members, via HogQL's person_distinct_ids table — it owns the
-    # argMax(person_id, version)/is_deleted dedup and the team scoping, so this path no longer
-    # hand-rolls them. Members come from the cohortpeople tables for static/precalculated cohorts
-    # and from evaluating the criteria (HogQLCohortQuery) otherwise.
-    from posthog.hogql.query import HogQLQueryExecutor
-
-    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-    if cohort.is_static:
-        members: ast.SelectQuery | ast.SelectSetQuery = parse_select(
-            "SELECT person_id FROM static_cohort_people WHERE cohort_id = {id}",
-            {"id": ast.Constant(value=cohort.pk)},
-        )
-    elif is_precalculated_query(cohort):
-        members = parse_select(
-            "SELECT person_id FROM raw_cohort_people WHERE cohort_id = {id} AND version = {version}",
-            {"id": ast.Constant(value=cohort.pk), "version": ast.Constant(value=cohort.version)},
-        )
-    else:
-        members = HogQLCohortQuery(cohort=cohort, team=team).get_query()
-
-    query = parse_select(
-        "SELECT distinct_id FROM person_distinct_ids WHERE person_id IN {members}",
-        {"members": members},
-    )
-    sql, context = HogQLQueryExecutor(
-        query_type="CohortFilterDistinctIds",
-        query=query,
-        modifiers=_cohort_calculation_modifiers(),
-        team=team,
-        limit_context=LimitContext.COHORT_CALCULATION,
-        settings=HogQLGlobalSettings(),
-    ).generate_clickhouse_sql()
-    sql = _trim_trailing_settings(sql)
-    return _prefix_cohort_hogql_params(sql, context.values, cohort=cohort, index=index)
-
-
-def _cohort_calculation_modifiers() -> HogQLQueryModifiers:
-    # Deferred: posthog.schema (the pydantic models) stays off django.setup(), where this
-    # module loads in every process via the cohort model.
-    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
-
-    return HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
-
-
-def format_filter_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
-    distinct_ids_sql, params = _cohort_distinct_ids_sql(cohort, index, team=cohort.team)
-    # Callers embed this in `distinct_id IN (...)`, so it must select exactly distinct_id.
-    return f"SELECT distinct_id FROM ({distinct_ids_sql})", params
-
-
-def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> tuple[str, dict[str, Any]]:
-    is_precalculated = is_precalculated_query(cohort)
-    if is_precalculated:
-        query, params = format_precalculated_cohort_query(cohort, index)
-    else:
-        query, params = format_person_query(cohort, index)
-
-    person_query = f"{custom_match_field} IN ({query})"
-    return person_query, params
 
 
 def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
@@ -788,10 +722,18 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         raise
 
 
-def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+def hogql_cohort_subquery_sql(
+    cohort: Cohort,
+    *,
+    team: Team,
+    bypass_warehouse_access_control: bool = False,
+) -> tuple[str, HogQLContext]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
-    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+    executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(
+        bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
+    sql, hogql_context = executor.generate_clickhouse_sql()
 
     return _trim_trailing_settings(sql), hogql_context
 
@@ -810,7 +752,11 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
-        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+        # SECURITY-SENSITIVE: recalculation always executes without warehouse access control.
+        # It is internal maintenance of a team-owned definition with no acting user - access is
+        # enforced when the filters are saved (CohortSerializer), and failing here would only
+        # silently freeze the cohort's membership.
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
         cohort_params = hogql_context.values
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
@@ -824,7 +770,20 @@ def _recalculate_cohortpeople_for_team_hogql(
             cohort_id=cohort.pk,
             team_id=team.id,
         )
-        hogql_global_settings = HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(team_id=team.id).model_dump(exclude_none=True)
+        # This runs INSERT INTO cohortpeople; readonly=2 (a HogQLGlobalSettings default) would make
+        # ClickHouse reject the write, so drop it — same as the preaggregation INSERT path.
+        settings.pop("readonly", None)
+        settings.update(
+            {
+                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "optimize_on_insert": 0,
+                "max_bytes_ratio_before_external_group_by": 0.5,
+                "max_bytes_ratio_before_external_sort": 0.5,
+            }
+        )
 
         return sync_execute(
             recalculate_cohortpeople_sql,
@@ -834,16 +793,7 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "team_id": team.id,
                 "new_version": pending_version,
             },
-            settings={
-                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
-                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "optimize_on_insert": 0,
-                "max_ast_elements": hogql_global_settings.max_ast_elements,
-                "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-                "max_bytes_ratio_before_external_group_by": 0.5,
-                "max_bytes_ratio_before_external_sort": 0.5,
-            },
+            settings=settings,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
             team_id=team.id,
@@ -957,11 +907,30 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
         return cohort.properties
 
 
-def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+def _get_cohort_ids_by_person_uuid(uuid: str, team: Team, database: Database) -> list[int]:
+    # Deferred: posthog.hogql.query reaches posthog.models.property.util, which imports this module.
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
     tag_queries(product=ProductKey.COHORTS, name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
-    res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    res = execute_hogql_query(
+        """
+        SELECT cohort_id, argMax(version, version) AS latest_version
+        FROM raw_cohort_people
+        WHERE person_id = {person_id}
+        GROUP BY cohort_id
+        HAVING argMax(sign, version) > 0
+        LIMIT {limit}
+        """,
+        placeholders={
+            "person_id": ast.Constant(value=uuid),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        team=team,
+        query_type="get_cohort_ids_by_person_uuid",
+        context=HogQLContext(team_id=team.pk, database=database),
+    ).results
     cohort_ids_from_cohortperson = [row[0] for row in res]
-    cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
+    cohorts = Cohort.objects.filter(deleted=False, team_id=team.pk, pk__in=cohort_ids_from_cohortperson)
     values_list_result = cohorts.values_list("id", "version")
     id_latest_version_map = dict(values_list_result)
     cohort_ids = []
@@ -977,16 +946,32 @@ def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return cohort_ids
 
 
-def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+def _get_static_cohort_ids_by_person_uuid(uuid: str, team: Team, database: Database) -> list[int]:
+    # Deferred: posthog.hogql.query reaches posthog.models.property.util, which imports this module.
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
     tag_queries(product=ProductKey.COHORTS, name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
-    res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    res = execute_hogql_query(
+        "SELECT DISTINCT cohort_id FROM static_cohort_people WHERE person_id = {person_id} LIMIT {limit}",
+        placeholders={
+            "person_id": ast.Constant(value=uuid),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        team=team,
+        query_type="get_static_cohort_ids_by_person_uuid",
+        context=HogQLContext(team_id=team.pk, database=database),
+    ).results
     return [row[0] for row in res]
 
 
-def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    with tags_context(team_id=team_id):
-        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
-        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+def get_all_cohort_ids_by_person_uuid(uuid: str, team: Team) -> list[int]:
+    with tags_context(team_id=team.pk):
+        # Both lookups run per request, so build the team's HogQL database once and share it.
+        # Each execute_hogql_query call would otherwise build its own, and the build cost
+        # scales with the team's warehouse size.
+        database = Database.create_for(team=team)
+        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team, database)
+        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team, database)
     return [*cohort_ids, *static_cohort_ids]
 
 
@@ -1167,7 +1152,9 @@ def insert_actors_into_cohort_by_query(
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    # SECURITY-SENSITIVE: background population from the cohort's saved source query, with no
+    # acting user - the query was run by its author when they created the cohort from it.
+    context = HogQLContext(enable_select_queries=True, team_id=team.id, bypass_warehouse_access_control=True)
     query = print_cohort_hogql_query(cohort, context, team=team)
     insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
 
@@ -1176,7 +1163,9 @@ def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[st
     # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
     # it's being populated for the first time, so we evaluate the criteria rather than reading the
     # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
-    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+    # SECURITY-SENSITIVE: background population of a saved, team-owned definition with no acting
+    # user - warehouse access is enforced when the definition is saved (CohortSerializer).
+    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
 
     # Params live on hogql_context.values, which the consumer already spreads — pass {} to avoid spreading twice.
     return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
@@ -1200,7 +1189,7 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,

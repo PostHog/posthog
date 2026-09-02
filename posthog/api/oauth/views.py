@@ -4,12 +4,12 @@ import hashlib
 import calendar
 from datetime import datetime, timedelta
 from typing import TypedDict, cast
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
-from django.db import OperationalError
-from django.http import JsonResponse
+from django.db import DatabaseError, OperationalError, transaction
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -20,6 +20,7 @@ import posthoganalytics
 from oauth2_provider.compat import login_not_required
 from oauth2_provider.exceptions import FatalClientError, OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
+from oauth2_provider.models import AbstractApplication
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import (
@@ -31,7 +32,9 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidGrantError
+from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -43,27 +46,44 @@ from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
-    get_application_by_client_id,
+    enqueue_cimd_refresh_if_stale,
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
+from posthog.api.oauth.client_assertion import (
+    ClientAssertionError,
+    ResolvedClientAssertion,
+    expected_assertion_audiences,
+    resolve_client_assertion,
+    verify_client_assertion,
+)
+from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken, revoke_oauth_session
+from posthog.models.oauth import (
+    OAuthApplicationAccessLevel,
+    OAuthGrant,
+    OAuthRefreshToken,
+    TokenEndpointAuthMethod,
+    lock_oauth_connection,
+    revoke_oauth_session,
+    revoke_oauth_token_family,
+)
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
+    clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
     effective_ceiling,
     get_oauth_scopes_supported,
     get_scope_descriptions,
+    grantable_ceiling,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
     scopes_outside_ceiling,
-    scopes_within_ceiling,
 )
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, render_template
 from posthog.views import login_required
@@ -81,7 +101,7 @@ EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
 # Clients for which we must NOT issue refresh tokens. The token response will omit
 # "refresh_token" and no OAuthRefreshToken row will be created. Entries are matched
-# against the app's cimd_metadata_url for CIMD clients, and against client_id otherwise.
+# against the app's client_id, which for a CIMD client is its metadata-document URL.
 CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
     {
         # PostHog Wizard CLI (CIMD) — short-lived auth, no persistent session needed.
@@ -93,6 +113,11 @@ CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
 # Sentinel for the per-request impersonator_id cache so None (no impersonator) is
 # distinguishable from "not resolved yet".
 _IMPERSONATOR_CACHE_UNSET: object = object()
+
+# Paths this endpoint answers on, so a private_key_jwt assertion minted for either the
+# issuer or the token_endpoint advertised in discovery is accepted (RFC 7523 section 3).
+# Both slash forms are listed because opt_slash_path serves the route with and without one.
+STANDARD_TOKEN_ENDPOINT_PATHS = ("/oauth/token/", "/oauth/token")
 
 
 def get_region_info() -> dict | None:
@@ -149,6 +174,38 @@ def _impersonator_id_for_request(request) -> int | None:
         return None
     original_user = get_original_user_from_session(request)
     return original_user.pk if original_user else None
+
+
+def _registration_type(application: OAuthApplication) -> str:
+    if application.is_cimd_client:
+        return "cimd"
+    return "dcr" if application.is_dcr_client else "manual"
+
+
+def _oauth_app_event_properties(application: OAuthApplication) -> dict:
+    """Client identity shared by every `oauth_*` analytics event, so the funnel from
+    `oauth_authorization_requested` through to `oauth_token_issued` breaks down by the
+    same client dimensions at every step."""
+    return {
+        "client_name": application.name,
+        "app_id": str(application.pk),
+        "registration_type": _registration_type(application),
+        "is_verified": application.is_verified,
+        "is_first_party": application.is_first_party,
+        **({"cimd_url": application.client_id} if application.is_cimd_client else {}),
+    }
+
+
+def _token_error_code(response: HttpResponse) -> str:
+    """RFC 6749 §5.2 error code from a token-endpoint failure, falling back to the status
+    code when the body isn't the documented JSON shape."""
+    try:
+        payload = json.loads(response.content)
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return f"http_{response.status_code}"
+    if isinstance(payload, dict) and isinstance(payload.get("error"), str):
+        return payload["error"]
+    return f"http_{response.status_code}"
 
 
 def _scoped_organization_ids(
@@ -286,6 +343,16 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _check_secret(self, provided_secret, stored_secret):
+        """Reject a blank secret, which the library's own implementation accepts.
+
+        An application registered for ``private_key_jwt`` is confidential but holds no
+        secret, so its column stores ``make_password("")``. The library compares with a bare
+        ``check_password``, which returns True for an empty input against that hash, so such
+        a client would authenticate here having presented no credential at all.
+        """
+        return verify_client_secret(provided_secret, stored_secret)
+
     def _is_dynamic_client(self, request) -> bool:
         """Check if the client was registered dynamically (DCR or CIMD)."""
         if hasattr(request, "client") and request.client:
@@ -303,23 +370,15 @@ class OAuthValidator(OAuth2Validator):
         if self._get_impersonator_id(request) is not None:
             return True
 
-        # CIMD clients expose their canonical id via cimd_metadata_url (the model's
-        # client_id is an auto-generated UUID for those). Gate on is_cimd_client so
-        # a stray cimd_metadata_url on a non-CIMD app can't flip the behavior.
         client_key: str | None = None
-        if not hasattr(request, "client") or not request.client:
-            client_key = None
-        elif getattr(request.client, "is_cimd_client", False):
-            client_key = getattr(request.client, "cimd_metadata_url", None)
-        else:
+        if hasattr(request, "client") and request.client:
             client_key = getattr(request.client, "client_id", None)
         return bool(client_key and client_key in CLIENT_IDS_WITHOUT_REFRESH_TOKEN)
 
     def _load_application(self, client_id, request):
         """
-        Load the application from the database, supporting CIMD URL-form client_ids.
+        Load the application from the database.
 
-        For URL-format client_ids, looks up by cimd_metadata_url.
         Does NOT fetch metadata — that only happens in validate_client_id().
         """
 
@@ -329,18 +388,153 @@ class OAuthValidator(OAuth2Validator):
         if request.client:
             return request.client
 
-        # CIMD URLs are looked up by cimd_metadata_url, not the auto-generated client_id UUID
-        app: OAuthApplication | None = None
-        if is_cimd_client_id(client_id):
-            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
-        else:
-            app = OAuthApplication.objects.filter(client_id=client_id).first()
+        if not client_id:
+            return None
+
+        app = OAuthApplication.objects.filter(client_id=client_id).first()
 
         if app is None or not app.is_usable(request):
             return None
 
         request.client = app
         return request.client
+
+    def client_authentication_required(self, request, *args, **kwargs):
+        """Route assertions to verification, and let credential-less CIMD private_key_jwt
+        clients fall back to public PKCE semantics on code and refresh exchanges.
+
+        Keyed on the raw ``client_assertion`` field, not on whether it resolves: any
+        presented assertion, including one whose ``client_assertion_type`` is missing or
+        wrong, requires authentication and so gets verified rather than ignored. Without
+        that, an invalid assertion would silently downgrade into a successful bare-public
+        exchange, and the ``client_auth_method`` funnel stamp (also keyed on the raw
+        field) would count unverified traffic as assertion adoption.
+
+        The credential-less fallback exists because a CIMD client's auth method is
+        partner-declared metadata we re-read hourly, and registration marks a
+        private_key_jwt declarer confidential. Enforcing that declaration locks out a
+        partner whose runtime still authenticates with ``none`` (because it never re-reads
+        our server metadata to learn we accept assertions) from every code and refresh
+        exchange, in place and with no operator involved on either side. PKCE remains the
+        enforced baseline for the fallback, exactly as for any public client. The
+        grant-type gate in ``_credentialless_cimd_private_key_jwt_client`` keeps the
+        fallback off revocation, which shares this validator; the agentic provisioning
+        endpoints keep requiring the declared method, and partners there demonstrably
+        send assertions.
+        """
+        if getattr(request, "client_assertion", None):
+            return True
+        if self._credentialless_cimd_private_key_jwt_client(request) is not None:
+            return False
+        return super().client_authentication_required(request, *args, **kwargs)
+
+    def authenticate_client_id(self, request_client_id, request, *args, **kwargs):
+        """The library rejects any confidential client here; permit the credential-less
+        CIMD private_key_jwt shape that client_authentication_required routed this way.
+
+        This is the point a fallback exchange is accepted, so the stale-metadata refresh
+        rides on it just as it does on the assertion path: without the enqueue, a client
+        living on credential-less refresh grants would keep stale scopes and config
+        forever."""
+        if super().authenticate_client_id(request_client_id, request, *args, **kwargs):
+            return True
+        app = self._credentialless_cimd_private_key_jwt_client(request)
+        if app is None:
+            return False
+        if app.is_cimd_client:
+            self._enqueue_cimd_metadata_refresh(app.client_id)
+        return True
+
+    def _credentialless_cimd_private_key_jwt_client(self, request) -> OAuthApplication | None:
+        """The shape the public-PKCE fallback accepts: a code or refresh exchange for a
+        CIMD private_key_jwt client presenting no credential of any kind. Any presented
+        credential (assertion, secret, Basic auth) disqualifies the request so it
+        authenticates or fails, and the grant-type gate excludes requests without a token
+        grant, which is how revocation stays on the declared method.
+
+        Provisioning partners are excluded. They register through CIMD and declare
+        private_key_jwt too, so they match this shape without needing it: they do send
+        assertions, and the key is the credential their registration is built on. Including
+        them would hand every partner a way to downgrade itself by sending nothing."""
+        if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
+            return None
+        if getattr(request, "client_assertion", None):
+            return None
+        if self._extract_basic_auth(request):
+            return None
+        if getattr(request, "client_secret", None):
+            return None
+        app = self._load_application(getattr(request, "client_id", None) or "", request)
+        if app is not None and app.is_cimd_client and app.uses_private_key_jwt_auth:
+            return None if app.is_provisioning_partner else app
+        return None
+
+    def authenticate_client(self, request, *args, **kwargs):
+        """Authenticate a client presenting ``private_key_jwt`` (RFC 7523).
+
+        CIMD clients that hold a jwks_uri never receive a secret, so the library's
+        secret-based paths cannot authenticate them — confidential partners, whose signature
+        is required, and public CIMD clients that publish keys and sign opportunistically,
+        whose signature is only ever a bonus (see ``_authenticate_client_assertion``). A
+        client presenting a signed assertion is verified here against the keys it publishes;
+        every other client falls through to the library's HTTP Basic and request-body secret
+        checks.
+        """
+        if self._authenticate_client_assertion(request):
+            return True
+        return super().authenticate_client(request, *args, **kwargs)
+
+    @staticmethod
+    def _enqueue_cimd_metadata_refresh(client_id: str) -> None:
+        """Token and refresh exchanges never pass through validate_client_id, which is
+        where a CIMD document is normally re-read, so a client living on refresh grants
+        alone would otherwise keep a stale auth method or key source forever.
+        Best-effort: a broker outage must not fail an otherwise valid exchange."""
+        try:
+            enqueue_cimd_refresh_if_stale(client_id)
+        except Exception as e:
+            logger.warning(
+                "oauth_cimd_refresh_enqueue_error",
+                client_id=client_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+
+    @staticmethod
+    def _resolve_request_assertion(request) -> ResolvedClientAssertion | None:
+        return resolve_client_assertion(
+            getattr(request, "client_assertion", None) or "",
+            getattr(request, "client_assertion_type", None) or "",
+            getattr(request, "client_id", None) or "",
+        )
+
+    def _authenticate_client_assertion(self, request) -> bool:
+        assertion = self._resolve_request_assertion(request)
+        if assertion is None:
+            return False
+
+        app = self._load_application(assertion.client_id, request)
+        # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
+        # and start signing before any partner registration. What's REQUIRED is a separate
+        # question, decided by client_type via client_authentication_required.
+        if app is None or not app.jwks_uri:
+            return False
+
+        if app.is_cimd_client:
+            self._enqueue_cimd_metadata_refresh(app.client_id)
+
+        try:
+            verify_client_assertion(
+                app,
+                assertion.client_assertion,
+                audiences=expected_assertion_audiences(*STANDARD_TOKEN_ENDPOINT_PATHS),
+            )
+        except ClientAssertionError as e:
+            logger.warning("oauth_client_assertion_rejected", client_id=assertion.client_id, error=str(e))
+            return False
+
+        request.client = app
+        return True
 
     # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
     # authorization must go through the interactive login + consent prompt — we never issue a
@@ -405,7 +599,9 @@ class OAuthValidator(OAuth2Validator):
         http://localhost/callback and request http://localhost:<ephemeral>/callback.
         """
 
-        if has_authority_bypass_chars(redirect_uri):
+        # The authorization code is delivered to this URI as given, with no userinfo stripped,
+        # so the authority has to be unambiguous rather than merely parseable.
+        if has_ambiguous_authority(redirect_uri):
             return False
 
         if request.client.redirect_uri_allowed(redirect_uri):
@@ -432,36 +628,41 @@ class OAuthValidator(OAuth2Validator):
         return False
 
     def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
-        """Enforce the per-application scope ceiling from the app's grantable set.
+        """Clamp the requested scopes to the per-application ceiling.
 
         The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
         using the required/optional split can request its optional scopes too.
-        Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
-        and the hand-rolled provisioning mint paths share one implementation. Two
-        `/authorize`-specific mutations of `request.scopes` live here:
+        Resolution lives in `clamp_scopes_to_ceiling`. The agentic-provisioning mint
+        paths still reject out-of-ceiling scopes via `scopes_within_ceiling`: they mint
+        for a partner against scopes that partner declared, so a mismatch there is a
+        misconfiguration worth failing on, not a client with a stale pinned list.
+
+        A request naming scopes outside the ceiling is granted the part that is
+        inside rather than rejected outright, so one ungrantable scope no longer
+        costs the user the whole authorization. The clamped set is written back to
+        `request.scopes`, which is what oauthlib grants and reports in the token
+        response. Two `/authorize`-specific cases resolve here as well:
         - the client omitting `scope=`, so oauthlib doesn't fall back to just
           `["openid"]` from `DEFAULT_SCOPES`.
-        - a `*` request against a *seeded* (non-empty) ceiling, narrowed down to the
-          resolved ceiling rather than rejected. This keeps legacy first-party
-          clients still sending `*` signing in once a ceiling is seeded, granting
-          strictly less than the empty-ceiling `*` grandfathering below. The token
-          response carries the actual (narrowed) `scope`, so this stays spec-valid.
+        - a `*` request against a *seeded* (non-empty) ceiling, which resolves to
+          the ceiling rather than staying a wildcard.
 
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
         Desktop CLI) but never on the provisioning paths — see the flag.
+
+        This never returns `False`. `/authorize` does not reject on scope grounds:
+        scopes are retired and renamed routinely, and a client pinning a hardcoded
+        list cannot see that coming, so an ungrantable scope must not cost the user
+        their sign-in. A request with nothing grantable yields an identity-only
+        token whose resource calls 403; `oauth_scopes_clamped` is what surfaces it.
         """
         app_scopes = getattr(client, "ceiling_scopes", None) or []
         requested = set(scopes or [])
         if not requested:
             request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
             return True
-        ceiling = resolve_ceiling(app_scopes)
-        if ceiling is not None and "*" in requested:
-            # `*` is never grantable under an explicit ceiling, even if the ceiling itself
-            # lists it — mirrors the guard in `scopes_within_ceiling`/`scopes_outside_ceiling`.
-            request.scopes = sorted((ceiling - {"*"}) | (requested & ALWAYS_ALLOWED_SCOPES))
-            return True
-        return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+        request.scopes = clamp_scopes_to_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+        return True
 
     def get_original_scopes(self, refresh_token, request, *args, **kwargs):
         """Cap refreshed scopes at the application's current ceiling.
@@ -480,6 +681,16 @@ class OAuthValidator(OAuth2Validator):
           without emptying it, so we reject the refresh (`invalid_grant`) — the client
           re-authorizes and gets a token within the current ceiling, rather than
           silently keeping out-of-ceiling access.
+        - a token that never held any scope refreshes as an empty grant instead.
+          Rejecting that one would loop, since re-authorizing returns the same empty
+          grant; its 403s by scope are where the client should find out.
+        - except for first-party apps, where an empty grant is rejected
+          (`invalid_grant`). `/authorize` auto-grants first-party requests their full
+          clamped scope set with no consent screen, so re-authorization cannot return
+          another empty grant and the loop above does not apply. A scope-less token
+          only arises for them as a corruption artifact (e.g. a refresh racing the
+          reuse-protection mass revoke), and letting it refresh forever leaves the
+          client silently 403ing on every resource call instead of re-authorizing.
 
         An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
         required floor — a token consented below a later-declared required set keeps
@@ -497,6 +708,16 @@ class OAuthValidator(OAuth2Validator):
             application = rt.application if rt else None
 
         narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
+        if narrowed == [] and getattr(application, "is_first_party", False):
+            logger.warning(
+                "oauth_empty_scope_refresh_rejected",
+                client_name=getattr(application, "name", "unknown"),
+                app_id=str(getattr(application, "pk", "unknown")),
+            )
+            raise InvalidGrantError(
+                description="Token carries no scopes; re-authorize to obtain a scoped token.",
+                request=request,
+            )
         if narrowed is None:
             # Raised inside oauthlib's validate_token_request, which create_token_response
             # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
@@ -540,7 +761,9 @@ class OAuthValidator(OAuth2Validator):
 
     def save_bearer_token(self, token, request, *args, **kwargs):
         """
-        Override to use custom token expiry for certain clients.
+        Override to use custom token expiry for certain clients, and to serialize a refresh
+        against a concurrent revoke of the same connection.
+
         Sets token["expires_in"] before calling parent, which uses this value
         when calculating the actual expiry datetime stored in the database.
         """
@@ -563,7 +786,28 @@ class OAuthValidator(OAuth2Validator):
             refresh_token_suppressed=skip_refresh,
             grant_type=getattr(request, "grant_type", "unknown"),
         )
-        return super().save_bearer_token(token, request, *args, **kwargs)
+
+        presented_refresh_token = getattr(request, "refresh_token_instance", None)
+        if not isinstance(presented_refresh_token, OAuthRefreshToken):
+            return super().save_bearer_token(token, request, *args, **kwargs)
+
+        # Take the connection lock before `super()`, which is where DOT opens its transaction and
+        # locks the refresh-token row: acquiring in the other order would deadlock against
+        # `revoke_oauth_session`, which takes this lock and then writes those same rows.
+        with transaction.atomic():
+            lock_oauth_connection(
+                user_id=presented_refresh_token.user_id,
+                application_id=presented_refresh_token.application_id,
+            )
+            # DOT validated this token in autocommit, so a revoke may have deleted the row while
+            # this request waited for the lock. DOT's own re-read is an unguarded `.get()`, which
+            # would surface as a 500; reject the grant instead so the client re-authorizes.
+            if not OAuthRefreshToken.objects.filter(pk=presented_refresh_token.pk).exists():
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            return super().save_bearer_token(token, request, *args, **kwargs)
 
     def _save_bearer_token(self, token, request, *args, **kwargs):
         """
@@ -612,6 +856,53 @@ class OAuthValidator(OAuth2Validator):
             client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
             refresh_token_id=str(refresh_token_instance.pk),
         )
+
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
+        """Fork of django-oauth-toolkit 3.2.x ``OAuth2Validator.validate_refresh_token``
+        with the reuse-protection family sweep made set-based.
+
+        Upstream revokes the compromised family one row at a time (``related_rt.revoke()``
+        per member). Each row costs a ``SELECT ... FOR UPDATE`` plus access-token cleanup,
+        even when already revoked, and a rotating session grows its family by one row per
+        refresh, so a long-lived client that keeps re-presenting a stale token turns every
+        ``/oauth/token`` request into hundreds of serial row-locking queries.
+
+        Everything here is upstream line for line except the two blocks marked
+        "PostHog:" below. ``test_oauth_validator_fork.py`` pins the upstream sources this
+        fork was taken from, so a django-oauth-toolkit upgrade that touches any of them
+        fails CI until this method is re-reviewed against the new upstream. Known hazards
+        when moving to 3.4+: refresh tokens are looked up by SHA-256 ``token_checksum``
+        there (the ``token`` column loses its unique index and is blank under
+        hashed-at-rest storage, so the ``token=`` filter below would lose its index or
+        match nothing), and ``request.refresh_token`` must become the raw presented token
+        rather than ``rt.token``.
+        """
+        # Upstream verbatim from here to the sweep, with RefreshToken resolved to our
+        # swapped OAuthRefreshToken model.
+        rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("access_token").first()
+
+        if not rt:
+            return False
+
+        if rt.revoked is not None and rt.revoked <= timezone.now() - timedelta(
+            seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+        ):
+            if oauth2_settings.REFRESH_TOKEN_REUSE_PROTECTION and rt.token_family:
+                # PostHog: upstream loops `related_rt.revoke()` over the whole family
+                # here. This batched sweep is the reason the method is forked.
+                revoke_oauth_token_family(rt)
+            return False
+
+        # Upstream verbatim: attach the validated token for get_original_scopes and
+        # save_bearer_token, which read request.refresh_token_instance.
+        request.user = rt.user
+        request.refresh_token = rt.token
+        request.refresh_token_instance = rt
+
+        # PostHog: upstream returns `rt.application == client`. Django model equality is
+        # pk-based and False against None, so this is equivalent while avoiding a lazy
+        # load of the Application row.
+        return client is not None and rt.application_id == client.pk
 
     def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
         """
@@ -905,9 +1196,90 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     @staticmethod
     def _registration_type(application: OAuthApplication) -> str:
-        if application.is_cimd_client:
-            return "cimd"
-        return "dcr" if application.is_dcr_client else "manual"
+        return _registration_type(application)
+
+    @staticmethod
+    def _capture_authorization_granted(
+        request,
+        application: OAuthApplication,
+        requested_scopes: str,
+        grant_path: str,
+        redirect_uri: str,
+    ) -> None:
+        """Closes the funnel opened by `oauth_authorization_requested`. Every path that
+        mints an authorization code reports here — `grant_path` separates the consent
+        screen from the two that bypass it (first-party apps, auto-approval) — so a
+        client that completes authorization and then fails downstream is distinguishable
+        from one that never got past `/authorize`.
+
+        Scopes and scoping dimensions are read back from the minted grant (via the code
+        in `redirect_uri`) rather than from the request, so the event reports what was
+        actually stored: `validate_scopes` clamps out-of-ceiling scopes (and `*`) to the
+        app's ceiling, and the first-party path injects scoped organizations after the
+        request is parsed, so the request-side values drift from the grant on both
+        paths."""
+        grant = None
+        codes = parse_qs(urlparse(redirect_uri).query).get("code")
+        if codes:
+            grant = (
+                OAuthGrant.objects.filter(code=codes[0]).only("scope", "scoped_organizations", "scoped_teams").first()
+            )
+        granted_scopes = (grant.scope if grant else requested_scopes) or ""
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_authorization_granted",
+            properties={
+                **_oauth_app_event_properties(application),
+                "grant_path": grant_path,
+                "granted_scopes": granted_scopes,
+                "granted_scope_count": len(granted_scopes.split()),
+                "has_scoped_organizations": bool(grant.scoped_organizations) if grant else False,
+                "has_scoped_teams": bool(grant.scoped_teams) if grant else False,
+                **(get_region_info() or {}),
+            },
+        )
+
+    def _capture_scopes_clamped(self, request, application: OAuthApplication, submitted_scope: str) -> None:
+        """Report scopes `validate_scopes` dropped from an issued grant.
+
+        Called at each point a grant is actually minted rather than when the request
+        arrives, so an abandoned or denied authorization is not counted. Since
+        `/authorize` no longer fails on scope grounds, this is the only signal that a
+        client is asking for scopes it cannot have. `*` is excluded because
+        `oauth_wildcard_scopes_narrowed` already owns that case.
+
+        Both counts derive from `submitted_scope`, the set the grant was minted from,
+        so `granted_scope_count` is what the token carries rather than what was asked
+        for.
+        """
+        submitted = submitted_scope.split()
+        dropped_scopes = [
+            scope
+            for scope in scopes_outside_ceiling(
+                submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+            )
+            if scope != "*"
+        ]
+        if not dropped_scopes:
+            return
+
+        granted = clamp_scopes_to_ceiling(
+            submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+        )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_scopes_clamped",
+            properties={
+                "client_name": application.name,
+                "app_id": str(application.pk),
+                "registration_type": self._registration_type(application),
+                "is_verified": application.is_verified,
+                "is_first_party": application.is_first_party,
+                "dropped_scopes": dropped_scopes,
+                "granted_scope_count": len(granted),
+                **(get_region_info() or {}),
+            },
+        )
 
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
@@ -915,7 +1287,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Must happen here (not in the OAuthValidator) because the validator
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(client_id=client_id).exists():
             for throttle_cls in CIMD_THROTTLE_CLASSES:
                 throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
@@ -937,7 +1309,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             client_id = request.query_params.get("client_id")
             if client_id:
                 try:
-                    error_application = get_application_by_client_id(client_id)
+                    error_application = OAuthApplication.objects.get(client_id=client_id)
                 except OAuthApplication.DoesNotExist:
                     pass
             return self.error_response(error, application=error_application, state=request.query_params.get("state"))
@@ -948,7 +1320,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # Get application and scope details
         try:
-            application = get_application_by_client_id(credentials["client_id"])
+            application = OAuthApplication.objects.get(client_id=credentials["client_id"])
         except OAuthApplication.DoesNotExist:
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -957,14 +1329,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="oauth_authorization_requested",
-            properties={
-                "client_name": application.name,
-                "app_id": str(application.pk),
-                "registration_type": registration_type,
-                "is_verified": application.is_verified,
-                "is_first_party": application.is_first_party,
-                **({"cimd_url": application.cimd_metadata_url} if application.is_cimd_client else {}),
-            },
+            properties=_oauth_app_event_properties(application),
         )
 
         # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
@@ -1006,6 +1371,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
                 )
+                self._capture_scopes_clamped(request, application, scope_str)
+                self._capture_authorization_granted(request, application, scope_str, "first_party", uri)
                 return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
@@ -1036,6 +1403,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
+                        self._capture_scopes_clamped(request, application, scope_str)
+                        self._capture_authorization_granted(request, application, scope_str, "auto_approval", uri)
                         return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
@@ -1051,8 +1420,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # resolution `validate_scopes` enforces — the frontend's scope list
                 # drifts from the server's (both over- and under-granting otherwise).
                 "wildcard_read_scopes": sorted(
-                    scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                    scope for scope in grantable_ceiling(application.ceiling_scopes) if scope.endswith(":read")
                 ),
+                # The same resolution `validate_scopes` clamps against, so the consent screen
+                # can drop requested scopes the grant will not include instead of promising them.
+                "grantable_scopes": sorted(grantable_ceiling(application.ceiling_scopes)),
             }
         }
 
@@ -1073,7 +1445,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            application = get_application_by_client_id(serializer.validated_data["client_id"])
+            application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
             logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1112,6 +1484,17 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     client_id=serializer.validated_data["client_id"],
                     missing=sorted(missing_required),
                 )
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event="oauth_authorization_rejected",
+                    properties={
+                        "reason": "missing_required_scopes",
+                        **_oauth_app_event_properties(application),
+                        "requested_scopes": scopes,
+                        "missing_scopes": sorted(missing_required),
+                        **(get_region_info() or {}),
+                    },
+                )
                 return Response(
                     {
                         "error": "invalid_scope",
@@ -1143,6 +1526,31 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 client_id=serializer.validated_data["client_id"],
                 error=str(error),
             )
+            # oauthlib signals a declined consent as an `access_denied` error rather than a
+            # normal return, so a user saying no arrives here too — reporting that as a
+            # rejection would bury real failures under ordinary declines.
+            if serializer.validated_data["allow"]:
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event="oauth_authorization_rejected",
+                    properties={
+                        "reason": "toolkit_error",
+                        **_oauth_app_event_properties(application),
+                        "requested_scopes": scopes,
+                        "error": getattr(error.oauthlib_error, "error", None) or "unknown",
+                        **(get_region_info() or {}),
+                    },
+                )
+            else:
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event="oauth_authorization_denied",
+                    properties={
+                        **_oauth_app_event_properties(application),
+                        "requested_scopes": scopes,
+                        **(get_region_info() or {}),
+                    },
+                )
             return self.error_response(
                 error, application, no_redirect=True, state=serializer.validated_data.get("state")
             )
@@ -1150,6 +1558,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         logger.debug("Success url for the request: %s", uri)
 
         redirect = self.redirect(uri, application)
+
+        if serializer.validated_data["allow"]:
+            self._capture_scopes_clamped(request, application, scopes)
+            self._capture_authorization_granted(request, application, scopes, "consent", uri)
 
         return Response(
             {
@@ -1193,11 +1605,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 event="oauth_authorization_rejected",
                 properties={
                     "reason": "invalid_scope",
-                    "client_name": application.name,
-                    "app_id": str(application.pk),
-                    "registration_type": self._registration_type(application),
-                    "is_verified": application.is_verified,
-                    "is_first_party": application.is_first_party,
+                    **_oauth_app_event_properties(application),
                     "requested_scopes": requested_scope,
                     "rejected_scopes": rejected_scopes,
                 },
@@ -1245,6 +1653,86 @@ class OAuthTokenView(TokenView):
     RFC 6749 requires x-www-form-urlencoded, but this endpoint also accepts application/json for convenience.
     """
 
+    @staticmethod
+    def _request_client_auth_method(request) -> str:
+        """Which client-authentication method the token request presented, regardless of
+        whether it verified. Stamped onto the funnel events because a client registered for
+        multiple acceptable methods (a CIMD private_key_jwt client is registered public yet
+        may send assertions) is only readable from what its traffic actually carries: a
+        sustained switch from "none" to "client_assertion" is the analytics signal that
+        assertion enforcement can be tightened for that client."""
+        if request.POST.get("client_assertion"):
+            return "client_assertion"
+        if request.POST.get("client_secret") or request.headers.get("Authorization", "").startswith("Basic "):
+            return "client_secret"
+        return "none"
+
+    @staticmethod
+    def _capture_token_issued(
+        access_token: OAuthAccessToken,
+        grant_type: str,
+        scoped_organizations: list,
+        scoped_teams: list,
+        client_auth_method: str | None = None,
+    ) -> None:
+        """The last step of the authorization funnel. `oauth_authorization_granted` without
+        a matching `oauth_token_issued` means the client never redeemed its code."""
+        properties: dict = {
+            "grant_type": grant_type,
+            "granted_scopes": access_token.scope or "",
+            "granted_scope_count": len((access_token.scope or "").split()),
+            "has_scoped_organizations": bool(scoped_organizations),
+            "has_scoped_teams": bool(scoped_teams),
+            **({"client_auth_method": client_auth_method} if client_auth_method else {}),
+            **(get_region_info() or {}),
+        }
+        if access_token.application:
+            properties.update(_oauth_app_event_properties(access_token.application))
+        # `user` is nullable on an access token (client-credentials grants have no
+        # resource owner), so fall back to the client id and skip person processing.
+        if access_token.user is None:
+            properties["$process_person_profile"] = False
+            distinct_id = access_token.application.client_id if access_token.application else "unknown"
+        else:
+            distinct_id = str(access_token.user.distinct_id)
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="oauth_token_issued",
+            properties=properties,
+        )
+
+    @staticmethod
+    def _capture_token_rejected(
+        grant_type: str, client_id: str, error: str, client_auth_method: str | None = None
+    ) -> None:
+        """The token exchange has no authenticated user, so this keys on the client id —
+        enough to tell "the client never came back for a token" apart from "it came back
+        and we refused", which the authorization events alone cannot distinguish.
+
+        The application lookup is best-effort enrichment: the rejection being reported may
+        itself be a database failure, so a lookup error must drop the client identity from
+        the event rather than replace the mapped error response with a 500."""
+        properties: dict = {
+            "grant_type": grant_type,
+            "error": error,
+            "client_id": client_id,
+            # Personless: the client id is not a user, and one person per client would be noise.
+            "$process_person_profile": False,
+            **({"client_auth_method": client_auth_method} if client_auth_method else {}),
+            **(get_region_info() or {}),
+        }
+        try:
+            application = OAuthApplication.objects.get(client_id=client_id)
+        except (OAuthApplication.DoesNotExist, DatabaseError):
+            pass
+        else:
+            properties.update(_oauth_app_event_properties(application))
+        posthoganalytics.capture(
+            distinct_id=client_id or "unknown",
+            event="oauth_token_rejected",
+            properties=properties,
+        )
+
     def _handle_jwt_bearer_grant(self, request) -> JsonResponse:
         """ID-JAG (XAA) JWT Bearer grant (RFC 7523). The XAA spec puts the
         ID-JAG → access-token exchange at the Authorization Server's
@@ -1253,6 +1741,9 @@ class OAuthTokenView(TokenView):
         `posthog.api.id_jag.issue_access_token`."""
         assertion = request.POST.get("assertion")
         if not assertion or not isinstance(assertion, str):
+            self._capture_token_rejected(
+                id_jag.JWT_BEARER_GRANT_TYPE, request.POST.get("client_id") or "", "invalid_request"
+            )
             return JsonResponse(
                 {"error": "invalid_request", "error_description": "assertion is required"},
                 status=400,
@@ -1262,22 +1753,37 @@ class OAuthTokenView(TokenView):
         request_client_id = request.POST.get("client_id")
 
         try:
-            token, granted, expires_in_seconds = id_jag.issue_access_token(
-                assertion, requested_scope, request_client_id
-            )
+            issued_access_token = id_jag.issue_access_token(assertion, requested_scope, request_client_id)
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
+            self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, request_client_id or "", e.error_code)
             return JsonResponse(
                 {"error": e.error_code, "error_description": e.description},
                 status=e.http_status,
             )
 
+        # Reported alongside the rejection above so this grant type isn't all-failures in
+        # the funnel. There is no resource owner to attribute it to, so it stays personless
+        # and keyed on the client.
+        posthoganalytics.capture(
+            distinct_id=request_client_id or "unknown",
+            event="oauth_token_issued",
+            properties={
+                "grant_type": id_jag.JWT_BEARER_GRANT_TYPE,
+                "client_id": request_client_id or "",
+                "granted_scopes": " ".join(issued_access_token.granted_scopes),
+                "granted_scope_count": len(issued_access_token.granted_scopes),
+                "$process_person_profile": False,
+                **(get_region_info() or {}),
+            },
+        )
+
         return JsonResponse(
             {
-                "access_token": token,
+                "access_token": issued_access_token.access_token,
                 "token_type": "Bearer",
-                "expires_in": expires_in_seconds,
-                "scope": " ".join(granted),
+                "expires_in": issued_access_token.expires_in_seconds,
+                "scope": " ".join(issued_access_token.granted_scopes),
             }
         )
 
@@ -1285,14 +1791,35 @@ class OAuthTokenView(TokenView):
         if request.content_type == "application/json" and request.body:
             try:
                 json_data = json.loads(request.body)
-                request.POST = request.POST.copy()
-                for key, value in json_data.items():
-                    request.POST[key] = value
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
+                self._capture_token_rejected("unknown", "", "invalid_request")
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
                     status=400,
                 )
+
+            if not isinstance(json_data, dict):
+                return JsonResponse(
+                    {"error": "invalid_request", "error_description": "JSON payload must be an object"},
+                    status=400,
+                )
+
+            # Everything downstream (oauthlib, our own logging) treats these as form
+            # parameters, so anything that isn't a scalar is rejected here rather than
+            # left to blow up as a string operation on a dict or a list.
+            request.POST = request.POST.copy()
+            for key, value in json_data.items():
+                if value is None:
+                    continue
+                if isinstance(value, dict | list):
+                    return JsonResponse(
+                        {
+                            "error": "invalid_request",
+                            "error_description": f"Parameter '{key}' must be a string",
+                        },
+                        status=400,
+                    )
+                request.POST[str(key)] = str(value)
 
         grant_type = request.POST.get("grant_type", "unknown")
 
@@ -1301,6 +1828,7 @@ class OAuthTokenView(TokenView):
 
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
+        client_auth_method = self._request_client_auth_method(request)
         redirect_uri = request.POST.get("redirect_uri", "")
         logger.info(
             "oauth_token_request",
@@ -1321,6 +1849,7 @@ class OAuthTokenView(TokenView):
                 client_id_prefix=client_id_prefix,
                 redirect_uri=redirect_uri,
             )
+            self._capture_token_rejected(grant_type, client_id, "invalid_grant", client_auth_method)
             return JsonResponse(
                 {
                     "error": "invalid_grant",
@@ -1341,6 +1870,18 @@ class OAuthTokenView(TokenView):
                 redirect_uri=redirect_uri,
                 error=str(e),
             )
+            self._capture_token_rejected(grant_type, client_id, "temporarily_unavailable", client_auth_method)
+            return _temporarily_unavailable_response()
+        except RedisError as e:
+            # Client authentication reads Redis on the private_key_jwt path (JWKS cache, jti
+            # replay cache), so a transient Redis failure otherwise surfaces as an unhandled
+            # 500 instead of a retryable response.
+            logger.warning(
+                "oauth_token_redis_unavailable",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                error=str(e),
+            )
             return _temporarily_unavailable_response()
 
         logger.info(
@@ -1357,7 +1898,9 @@ class OAuthTokenView(TokenView):
                 access_token_value = response_data.get("access_token")
 
                 if access_token_value:
-                    access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    access_token = OAuthAccessToken.objects.select_related("application", "user").get(
+                        token=access_token_value
+                    )
                     scoped_teams = list(access_token.scoped_teams or [])
                     scoped_organizations = list(access_token.scoped_organizations or [])
 
@@ -1380,6 +1923,10 @@ class OAuthTokenView(TokenView):
                     response_data["scoped_teams"] = scoped_teams
                     response_data["scoped_organizations"] = scoped_organizations
 
+                    self._capture_token_issued(
+                        access_token, grant_type, scoped_organizations, scoped_teams, client_auth_method
+                    )
+
                     if region_info := get_region_info():
                         response_data.update(region_info)
                     return JsonResponse(response_data)
@@ -1399,6 +1946,9 @@ class OAuthTokenView(TokenView):
             else:
                 response["Content-Type"] = "application/json"
 
+        if response.status_code != 200:
+            self._capture_token_rejected(grant_type, client_id, _token_error_code(response), client_auth_method)
+
         return response
 
 
@@ -1414,6 +1964,27 @@ class OAuthRevokeTokenView(RevokeTokenView):
     pass
 
 
+class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
+    """Client-credentials gate that only a confidential client can pass.
+
+    A public client holds no secret to prove, so it must never satisfy an endpoint whose
+    only authentication is client credentials. The library does let it: both
+    `_authenticate_basic_auth` and `_authenticate_request_body` return True for a public
+    client whose request carries `grant_type=urn:ietf:params:oauth:grant-type:device_code`,
+    and they do so before reaching `_check_secret`, so the blank-secret guard in
+    `verify_client_secret` never runs on that path. `grant_type` is read from the request
+    body, so the application's own configured grant does not constrain it.
+
+    Kept separate from `OAuthValidator` because the token endpoint legitimately tolerates a
+    public client presenting a secret it then ignores (the grant is bound by PKCE instead).
+    """
+
+    def authenticate_client(self, request, *args, **kwargs):
+        if not super().authenticate_client(request, *args, **kwargs):
+            return False
+        return getattr(request.client, "client_type", None) == AbstractApplication.CLIENT_CONFIDENTIAL
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 @method_decorator(login_not_required, name="dispatch")
 class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
@@ -1423,7 +1994,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
     To access this view the request must pass a OAuth2 Bearer Token
     which is allowed to access the scope `introspection`. Alternatively,
-    if the client_id and client_secret are provided, the request is
+    if a confidential client's client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
     Self-introspection: An access token can always introspect itself without
@@ -1433,6 +2004,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     """
 
     required_scopes = ["introspection"]
+    validator_class = ConfidentialClientOnlyOAuthValidator
 
     def _is_self_introspection(self, request) -> bool:
         """
@@ -1453,7 +2025,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             if not token_to_introspect and request.content_type == "application/json" and request.body:
                 try:
                     token_to_introspect = json.loads(request.body).get("token")
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError, RecursionError):
                     pass
 
         return bool(bearer_token and token_to_introspect and bearer_token == token_to_introspect)
@@ -1477,8 +2049,41 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             return True, request
         return super().verify_request(request)
 
-    @staticmethod
-    def get_token_response(token_value=None):
+    def authenticate_client(self, request):
+        """Authenticate the client and record which application was verified.
+
+        The base mixin returns only a bool and discards the oauthlib request that holds the
+        verified ``client``, so the ownership check would otherwise have to re-derive the
+        caller's identity from request fields. Those fields lie: an ``Authorization: Basic``
+        header or a ``client_id`` body param can name any client without proving anything,
+        while authentication may have succeeded through an entirely different credential. The
+        only trustworthy identity is the one the validator bound to the request during
+        verification, so capture it here for get_token_response to read back.
+        """
+        core = self.get_oauthlib_core()
+        uri, http_method, body, headers = core._extract_params(request)
+        oauth_request = OauthlibRequest(uri, http_method, body, headers)
+        if not core.server.request_validator.authenticate_client(oauth_request):
+            return False
+        request.oauth_authenticated_client = oauth_request.client
+        return True
+
+    def _client_credentials_client_id(self, request) -> str | None:
+        """The client_id the server verified via client credentials, or None.
+
+        None means the request reached us through the bearer-token path instead (self-
+        introspection or the `introspection` scope), where ClientProtectedResourceMixin.dispatch
+        sets `resource_owner` rather than authenticating a client. On the client-credentials
+        path the identity comes only from the application the validator actually verified (see
+        authenticate_client), never from unverified request headers or body params.
+        """
+        if hasattr(request, "resource_owner"):
+            return None
+
+        client = getattr(request, "oauth_authenticated_client", None)
+        return client.client_id if client is not None else None
+
+    def get_token_response(self, request, token_value=None):
         """
         RFC 7662 Token Introspection response.
 
@@ -1493,6 +2098,16 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
+        credential_client_id = self._client_credentials_client_id(request)
+
+        # The bearer path (self-introspection or the `introspection` scope) is governed by
+        # scope, not by client identity, and never reaches here. On the client-credentials
+        # path, treating an unidentifiable caller as exempt from the ownership check below
+        # would be indistinguishable from disclosing any token to anyone.
+        is_client_credentials = not hasattr(request, "resource_owner")
+        if is_client_credentials and credential_client_id is None:
+            return JsonResponse({"active": False}, status=200)
+
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
@@ -1501,6 +2116,11 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             access_token = None
 
         if access_token:
+            # A client-credentials caller may only introspect its own tokens. Being
+            # confidential is not a meaningful barrier on its own, since /oauth/register/
+            # issues a confidential client_id and secret to anyone who asks.
+            if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
                 return JsonResponse({"active": False}, status=200)
@@ -1525,6 +2145,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             refresh_token = None
 
         if refresh_token:
+            if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available
             data = {
@@ -1545,7 +2167,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         Get the token from the URL parameters.
         URL: https://example.com/introspect?token=mF_9.B5f-4.1JqM
         """
-        return self.get_token_response(request.GET.get("token", None))
+        return self.get_token_response(request, request.GET.get("token", None))
 
     def post(self, request, *args, **kwargs):
         """
@@ -1558,9 +2180,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             try:
                 json_data = json.loads(request.body)
                 token = json_data.get("token")
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 pass
-        return self.get_token_response(token)
+        return self.get_token_response(request, token)
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):
@@ -1628,7 +2250,14 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
                 id_jag.JWT_BEARER_GRANT_TYPE,
             ],
             "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
-            "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
+            # Every method a client can register under (including CIMD's private_key_jwt) must
+            # appear here, or a client reads this document, picks a method we do not accept, and
+            # fails the token exchange.
+            "token_endpoint_auth_methods_supported": [
+                TokenEndpointAuthMethod.NONE.value,
+                TokenEndpointAuthMethod.CLIENT_SECRET_POST.value,
+                TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value,
+            ],
             "code_challenge_methods_supported": ["S256"],
             # Service documentation
             "service_documentation": "https://posthog.com/docs/api",

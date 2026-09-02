@@ -3,13 +3,13 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { LLMPromptVersionSummary } from '~/types'
 
 import {
     experimentsCreateFromPromptCreate,
     experimentsPromptTemplatesRetrieve,
 } from '../../../experiments/frontend/generated/api'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
+import { LLMPromptVersionSummary } from './types'
 
 jest.mock('../../../experiments/frontend/generated/api', () => ({
     experimentsCreateFromPromptCreate: jest.fn(),
@@ -31,13 +31,23 @@ const MOCK_TEMPLATES = [
 
 const MOCK_PROMPT_NAME = 'test-prompt'
 const MOCK_VERSIONS: LLMPromptVersionSummary[] = [
-    { id: 'v3', version: 3, created_by: MOCK_DEFAULT_BASIC_USER, created_at: '2025-01-15T00:00:00Z', is_latest: true },
+    {
+        id: 'v3',
+        version: 3,
+        created_by: MOCK_DEFAULT_BASIC_USER,
+        created_at: '2025-01-15T00:00:00Z',
+        is_latest: true,
+        version_description: null,
+        labels: [],
+    },
     {
         id: 'v2',
         version: 2,
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2025-01-10T00:00:00Z',
         is_latest: false,
+        version_description: null,
+        labels: [],
     },
     {
         id: 'v1',
@@ -45,6 +55,8 @@ const MOCK_VERSIONS: LLMPromptVersionSummary[] = [
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2025-01-01T00:00:00Z',
         is_latest: false,
+        version_description: null,
+        labels: [],
     },
 ]
 

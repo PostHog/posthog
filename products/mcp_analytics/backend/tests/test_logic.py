@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from django.utils import timezone
 
 from products.mcp_analytics.backend import logic
+from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -122,6 +123,49 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert snapshot.computed_with is not None
         assert snapshot.computed_with.n_clusters == 1
 
+    def test_caps_clusters_from_an_oversized_stored_blob(self) -> None:
+        # Snapshots persisted before the build-side cap can hold hundreds of
+        # clusters; the read path must not return them all in one response.
+        def cluster_item(i: int) -> dict:
+            return {
+                "id": i,
+                "label": f"intent {i}",
+                "intent_count": 1,
+                "session_count": 1,
+                "call_count": i + 1,
+                "error_count": 0,
+                "error_rate_pct": 0.0,
+                "routing_entropy": 0.0,
+                "tool_distribution": [],
+                "sample_intents": [],
+            }
+
+        n_total = MAX_SNAPSHOT_CLUSTERS + 10
+        # Stored lowest-volume first to prove the read path ranks by call count
+        # instead of trusting blob order.
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            last_computed_at=timezone.now(),
+            clusters={
+                "clusters": [cluster_item(i) for i in range(n_total)],
+                "computed_with": {
+                    "distance_threshold": 0.2,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": n_total,
+                    "n_clusters": n_total,
+                },
+            },
+        )
+
+        snapshot = logic.get_intent_cluster_snapshot(self.team)
+
+        assert len(snapshot.clusters) == MAX_SNAPSHOT_CLUSTERS
+        assert snapshot.clusters[0].call_count == n_total
+        assert min(cluster.call_count for cluster in snapshot.clusters) == 11
+        assert snapshot.computed_with is not None
+        assert snapshot.computed_with.n_clusters == n_total
+
     def test_stale_computing_snapshot_is_auto_flipped_to_error(self) -> None:
         from datetime import timedelta
 
@@ -138,10 +182,20 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         snapshot = logic.get_intent_cluster_snapshot(self.team)
 
         assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
-        assert "did not complete" in snapshot.error_message
+        assert "didn't finish" in snapshot.error_message
 
         row.refresh_from_db()
         assert row.status == MCPIntentClusterSnapshot.Status.ERROR
+
+    def test_stale_threshold_exceeds_activity_timeout_budget(self) -> None:
+        from posthog.temporal.mcp_analytics.intent_clustering.constants import COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT
+
+        from products.mcp_analytics.backend.logic import STALE_COMPUTING_THRESHOLD
+
+        # If the sweep threshold drops below the activity's total timeout budget
+        # (queue wait + retries), the sweep flips runs to ERROR while they are
+        # still legitimately queued or retrying.
+        assert STALE_COMPUTING_THRESHOLD > COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT
 
     def test_fresh_computing_snapshot_is_left_alone(self) -> None:
         MCPIntentClusterSnapshot.objects.create(

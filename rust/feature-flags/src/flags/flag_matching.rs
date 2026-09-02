@@ -1,10 +1,12 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::cohorts::cohort_models::{Cohort, CohortId};
-use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::cohorts::cohort_models::{Cohort, CohortId, MembershipStampPolicy};
+use crate::cohorts::cohort_operations::{
+    apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
+};
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
-use crate::database::PostgresRouter;
+use crate::database::{pool_names, PostgresRouter};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -25,10 +27,11 @@ use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
     FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_COHORT_SOURCE_COUNTER,
-    FLAG_DB_PROPERTIES_FETCH_TIME, FLAG_EVALUATE_ALL_CONDITIONS_TIME,
-    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED,
-    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
-    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_CONDITION_SKIPPED_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
+    FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
+    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
@@ -45,7 +48,7 @@ use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
@@ -178,6 +181,13 @@ impl FlagEvaluationState {
             PersonPropertyState::Fetched(props) => Some(props),
             _ => None,
         }
+    }
+
+    /// True when person-property DB prep never ran (neither fetched nor deliberately
+    /// skipped in favor of overrides). Distinct from `Skipped`, where overrides are
+    /// known to cover every property the batch needs — see `PersonPropertyState`.
+    pub(crate) fn person_properties_pending(&self) -> bool {
+        matches!(self.person_property_state, PersonPropertyState::Pending)
     }
 
     pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
@@ -333,6 +343,7 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    membership_stamp_policy: MembershipStampPolicy,
     /// Cohort definitions preloaded from the flags hypercache.
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
     /// so the matcher skips the CohortCacheManager PG query entirely.
@@ -410,6 +421,7 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            membership_stamp_policy: MembershipStampPolicy::default(),
             preloaded_cohorts: None,
             detailed_analysis: false,
             only_use_override_person_properties: false,
@@ -450,6 +462,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
         self.enable_realtime_cohort_evaluation = enable;
+        self
+    }
+
+    pub fn with_membership_stamp_policy(mut self, policy: MembershipStampPolicy) -> Self {
+        self.membership_stamp_policy = policy;
         self
     }
 
@@ -700,14 +717,22 @@ impl FeatureFlagMatcher {
         // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
-        let database_for_reading = if writing_hash_key_override {
-            self.router.get_persons_writer().clone()
+        let (database_for_reading, pool_name) = if writing_hash_key_override {
+            (
+                self.router.get_persons_writer().clone(),
+                pool_names::PERSONS_WRITER,
+            )
         } else {
-            self.router.get_persons_reader().clone()
+            (
+                self.router.get_persons_reader().clone(),
+                pool_names::PERSONS_READER,
+            )
         };
 
         match get_feature_flag_hash_key_overrides(
             database_for_reading,
+            pool_name,
+            self.router.get_persons_writer().clone(),
             self.team_id,
             target_distinct_ids,
         )
@@ -1259,7 +1284,7 @@ impl FeatureFlagMatcher {
                     evaluation_tags: None,
                     bucketing_identifier: None,
                 };
-                (stub, Err(FlagError::BatchEvaluationPanicked))
+                (stub, Err(FlagError::batch_evaluation_panicked()))
             })
             .collect()
     }
@@ -1315,6 +1340,7 @@ impl FeatureFlagMatcher {
         let mut highest_match = FeatureFlagMatchReason::NoGroupType;
         let mut highest_index = None;
         let mut had_skipped_group_conditions = false;
+        let mut had_unevaluable_cohort_conditions = false;
 
         // Lazily compute properties per aggregation type. Person and group properties are
         // cached separately so conditions with different aggregation modes can share them.
@@ -1383,12 +1409,17 @@ impl FeatureFlagMatcher {
                         .as_ref()
                         .is_none_or(|device_id| device_id.is_empty())
                 {
+                    inc(
+                        FLAG_CONDITION_SKIPPED_COUNTER,
+                        &[("reason".to_string(), "missing_device_id".to_string())],
+                        1,
+                    );
                     with_canonical_log(|log| {
-                        tracing::warn!(
+                        tracing::debug!(
                             flag_key = %flag.key,
                             team_id = %flag.team_id,
                             condition_index = %index,
-                            lib = log.lib,
+                            lib = log.lib.as_deref(),
                             lib_version = log.lib_version.as_deref(),
                             "Person condition uses device_id bucketing but no device_id provided, skipping"
                         );
@@ -1425,7 +1456,12 @@ impl FeatureFlagMatcher {
                         _ => false,
                     });
                 if !has_group_key {
-                    warn!(
+                    inc(
+                        FLAG_CONDITION_SKIPPED_COUNTER,
+                        &[("reason".to_string(), "missing_group_type".to_string())],
+                        1,
+                    );
+                    debug!(
                         flag_key = %flag.key,
                         team_id = %flag.team_id,
                         condition_index = %index,
@@ -1485,6 +1521,10 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
                 request_hash_key_override,
             )?;
+
+            if reason == FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated {
+                had_unevaluable_cohort_conditions = true;
+            }
 
             // OutOfRolloutBound means the condition's property filters (if any) already
             // matched and only the rollout check failed, so re-evaluating later groups
@@ -1560,9 +1600,14 @@ impl FeatureFlagMatcher {
         // the reason to carry a richer description. The API code still serializes as
         // "no_condition_match" for backward compatibility, but the description tells the
         // caller about the skipped group conditions.
-        if highest_match == FeatureFlagMatchReason::NoConditionMatch && had_skipped_group_conditions
-        {
-            highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+        // A cohort that can't be fully evaluated takes precedence over a skipped group
+        // condition, because it reaches real flag traffic.
+        if highest_match == FeatureFlagMatchReason::NoConditionMatch {
+            if had_unevaluable_cohort_conditions {
+                highest_match = FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated;
+            } else if had_skipped_group_conditions {
+                highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+            }
         }
 
         // Return with the highest_match reason and index even if no conditions matched
@@ -1641,7 +1686,23 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    if !match_property(filter, props, false, self.timezone).unwrap_or(false) {
+                    // Person properties that were never fetched (DB prep didn't run for this
+                    // evaluation) must not be treated as "person has no properties", because
+                    // an absent key would then make negative operators (is_not, not_icontains,
+                    // ...) and is_not_set match by accident. partial_props makes match_property
+                    // error on a missing key instead of matching it; the unwrap_or(false) below
+                    // turns that error into no-match, so the condition fails closed. Only
+                    // Pending gets this: Skipped and Fetched property maps are authoritative,
+                    // so an absent key there genuinely means the person lacks the property.
+                    // This is defense in depth: in the batch flow a prep failure errors those
+                    // flags out before evaluation, so the guard protects any path that reaches
+                    // evaluation with the state still Pending. Cohort filters get the same
+                    // treatment below, refusing to evaluate outright since cohort membership
+                    // is unknowable under Pending.
+                    let partial_props = filter.prop_type != PropertyType::Group
+                        && self.flag_evaluation_state.person_properties_pending();
+                    if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
+                    {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
@@ -1649,6 +1710,31 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters using person properties (cohorts are person-level).
             if !cohort_filters.is_empty() {
+                // Cohort evaluation reads the same person-property map as direct filters, and
+                // both the property-level `negation` inside a cohort definition and cohort-level
+                // NOT_IN would turn a missing key into a match. Membership is unknowable under
+                // Pending either way, so refuse to evaluate rather than guess. Today no prep path
+                // loads cohorts without fetching person properties, so this should be unreachable
+                // — hence the error log, which flags a broken invariant rather than normal traffic.
+                if self.flag_evaluation_state.person_properties_pending() {
+                    inc(
+                        PROPERTY_CACHE_MISSES_COUNTER,
+                        &[
+                            ("type".to_string(), "cohort_filters".to_string()),
+                            ("reason".to_string(), "db_prep_never_ran".to_string()),
+                        ],
+                        1,
+                    );
+                    with_canonical_log(|log| {
+                        log.eval.property_cache_misses += 1;
+                        log.eval.person_properties_not_cached = true;
+                    });
+                    tracing::error!(
+                        "Cohort filters not evaluated — DB prep never ran, so the condition fails closed"
+                    );
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
+
                 let cohorts = match &self.flag_evaluation_state.cohorts {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
@@ -1656,8 +1742,22 @@ impl FeatureFlagMatcher {
                 let cohort_props = property_context
                     .person_properties
                     .unwrap_or(&*EMPTY_PROPERTY_MAP);
-                if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts)? {
-                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts.clone())? {
+                    // A non-match isn't trustworthy when a targeted cohort has a behavioral or
+                    // lifecycle leaf the dynamic path can't resolve, so flag it with a distinct reason.
+                    let cohort_membership_unresolved = cohort_filters.iter().any(|filter| {
+                        filter.get_cohort_id().is_some_and(|cohort_id| {
+                            cohorts
+                                .iter()
+                                .any(|c| c.id == cohort_id && c.has_behavioral_condition())
+                        })
+                    });
+                    let reason = if cohort_membership_unresolved {
+                        FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
+                    } else {
+                        FeatureFlagMatchReason::NoConditionMatch
+                    };
+                    return Ok((false, reason));
                 }
             }
         }
@@ -2043,7 +2143,7 @@ impl FeatureFlagMatcher {
         debug_assert!(
             !cohorts
                 .iter()
-                .any(|c| c.is_static && c.uses_realtime_membership()),
+                .any(|c| c.is_static && self.membership_stamp_policy.uses_realtime_membership(c)),
             "Cohort cannot be both static and realtime"
         );
         let static_cohort_ids: Vec<CohortId> = cohorts
@@ -2099,7 +2199,8 @@ impl FeatureFlagMatcher {
         let realtime_cohort_ids: Vec<CohortId> = if self.enable_realtime_cohort_evaluation {
             cohorts
                 .iter()
-                .filter(|c| c.uses_realtime_membership())
+                .inspect(|c| record_stamp_policy_divergence(c, self.membership_stamp_policy))
+                .filter(|c| self.membership_stamp_policy.uses_realtime_membership(c))
                 .map(|c| c.id)
                 .collect()
         } else {
@@ -2232,7 +2333,7 @@ impl FeatureFlagMatcher {
                 tracing::debug!(
                     "Person properties not in cache — DB prep was skipped (overrides cover all needed keys)"
                 );
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
             PersonPropertyState::Pending => {
                 inc(
@@ -2248,7 +2349,7 @@ impl FeatureFlagMatcher {
                     log.eval.person_properties_not_cached = true;
                 });
                 tracing::error!("Person properties not found — DB prep never ran");
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
         }
     }
@@ -2309,6 +2410,8 @@ impl FeatureFlagMatcher {
                     None => {
                         match get_feature_flag_hash_key_overrides(
                             self.router.get_persons_reader().clone(),
+                            pool_names::PERSONS_READER,
+                            self.router.get_persons_writer().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )
@@ -2491,19 +2594,37 @@ mod tests {
         assert_eq!(stub_a.key, "flag_a");
         assert_eq!(stub_a.id, 10);
         assert_eq!(stub_a.version, Some(3));
-        assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_a,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_b, err_b) = &results[1];
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
-        assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_b,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_c, err_c) = &results[2];
         assert_eq!(stub_c.key, "flag_c");
         assert_eq!(stub_c.id, 30);
         assert_eq!(stub_c.version, Some(1));
-        assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_c,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         for (stub, _) in &results {
             assert_eq!(stub.team_id, team_id);

@@ -12,12 +12,14 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
     _CONVEX_RETRY,
     ConvexResumeConfig,
     InvalidDeployUrlError,
     InvalidWindowError,
+    StreamingExportNotEnabledError,
     _convex_get,
     convex_source,
     document_deltas,
@@ -119,6 +121,17 @@ class TestValidateDeployUrl:
         assert err is None
         called_url = mock_get.return_value.get.call_args.args[0]
         assert called_url.startswith("https://swift-lemur-123.convex.cloud/api/")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_surfaces_streaming_export_message(self, mock_get):
+        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
+
+        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+
+        assert not ok
+        assert err == (
+            "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade."
+        )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_validate_credentials_does_not_leak_url_on_http_error(self, mock_get):
@@ -311,6 +324,7 @@ class TestConvexRetryPolicy:
             ("cf_522_connection_timed_out", 522, True),
             ("cf_523_origin_unreachable", 523, True),
             ("cf_524_timeout", 524, True),
+            ("cf_530_dns_error", 530, True),
             # Standard transient codes inherited from DEFAULT_RETRY must still be retried.
             ("rate_limited_429", 429, True),
             ("internal_500", 500, True),
@@ -513,10 +527,43 @@ class TestConvexNonRetryableErrors:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in error_msg for key in non_retryable_errors), error_msg
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_streaming_export_not_enabled_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
+        # get_schemas (schema discovery) calls get_json_schemas directly, unlike
+        # validate_credentials which already inspected the response body for this code. Without
+        # get_json_schemas surfacing the code itself, discovery only ever saw a bare HTTPError
+        # whose message never matches the "StreamingExportNotEnabled" non-retryable entry below.
+        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
+
+        with pytest.raises(StreamingExportNotEnabledError) as exc_info:
+            get_json_schemas("https://x.convex.cloud", "key")
+
+        error_msg = str(exc_info.value)
+        non_retryable_errors = ConvexSource().get_non_retryable_errors()
+        assert any(key in error_msg for key in non_retryable_errors), error_msg
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_get_json_schemas_400_with_unparseable_body_falls_through_to_http_error(self, mock_get: Mock) -> None:
+        # A 400 whose body isn't JSON (e.g. a proxy/edge error page) must not crash the
+        # body-parsing added for StreamingExportNotEnabled detection - it should fall through
+        # to the normal raise_for_status() error instead of raising an unhandled ValueError.
+        response = _make_response({}, status_code=400)
+        response.json.side_effect = ValueError("not JSON")
+        response.raise_for_status.side_effect = HTTPError(response=response)
+        mock_get.return_value.get.return_value = response
+
+        with pytest.raises(HTTPError):
+            get_json_schemas("https://x.convex.cloud", "key")
+
     @parameterized.expand(
         [
             ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
             ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
+            (
+                "missing_table_404",
+                "404 Client Error: Not Found for url: "
+                "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth",
+            ),
             (
                 "invalid_window",
                 "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
@@ -528,6 +575,24 @@ class TestConvexNonRetryableErrors:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
+    def test_missing_table_404_surfaces_actionable_message(self) -> None:
+        # A deleted table's 404 must stop retrying and tell the customer to turn off syncing for it,
+        # not store the raw driver text (which carries the deployment host). Mirror the finalizer's
+        # first-match selection (external_data_job.py), including its case-insensitive matching via
+        # `error_message_matches`, so a reorder that shadowed it with an earlier None key would be caught.
+        error_msg = (
+            "404 Client Error: Not Found for url: "
+            "https://x.convex.cloud/api/list_snapshot?tableName=verification&format=json&component=betterAuth"
+        )
+        matches = [
+            friendly
+            for key, friendly in ConvexSource().get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [key])
+        ]
+        assert matches, "a missing-table 404 must be classified non-retryable"
+        assert matches[0] is not None, "a missing-table 404 must surface an actionable message, not raw driver text"
+        assert "turn off syncing" in matches[0].lower()
+
     @parameterized.expand(
         [
             ("server_error", "500 Server Error for url: https://x.convex.cloud/api/document_deltas"),
@@ -537,3 +602,38 @@ class TestConvexNonRetryableErrors:
     def test_transient_errors_do_not_match(self, _name: str, observed_error: str) -> None:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable_errors)
+
+
+class TestConvexRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "500",
+                "500 Server Error: Internal Server Error for url: "
+                "https://x.convex.cloud/api/list_snapshot?tableName=events&format=json",
+            ),
+            ("502", "502 Server Error: Bad Gateway for url: https://x.convex.cloud/api/document_deltas"),
+            ("503", "503 Server Error: Service Unavailable for url: https://x.convex.cloud/api/list_snapshot"),
+            ("504", "504 Server Error: Gateway Timeout for url: https://x.convex.cloud/api/document_deltas"),
+            ("cloudflare_520", "520 Server Error: Unknown Error for url: https://x.convex.cloud/api/list_snapshot"),
+            ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/list_snapshot"),
+        ]
+    )
+    def test_transient_errors_are_recognized_as_retryable(self, _name: str, observed_error: str) -> None:
+        retryable_errors = ConvexSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors), observed_error
+
+    @parameterized.expand(
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
+            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
+            (
+                "invalid_window",
+                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
+                "Please trigger a full resync of this source.",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_do_not_match(self, _name: str, observed_error: str) -> None:
+        retryable_errors = ConvexSource().get_retryable_errors()
+        assert not any(key in observed_error for key in retryable_errors), observed_error

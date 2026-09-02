@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
@@ -81,6 +82,23 @@ export class PersonsStoreTransaction {
         return await this.store.deletePerson(person, distinctId, this.tx)
     }
 
+    async claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string
+    ): Promise<void> {
+        return await this.store.claimLifecycleMarks(opId, teamId, persons, distinctId, this.tx)
+    }
+
+    async releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void> {
+        return await this.store.releaseLifecycleMarks(opId, teamId, distinctId, this.tx)
+    }
+
+    async isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
+        return await this.store.isPersonLive(person, distinctId, this.tx)
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -100,6 +118,27 @@ export class PersonsStoreTransaction {
         return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx, batchId)
     }
 
+    async moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string,
+        batchId: number
+    ): Promise<MoveDistinctIdsResult> {
+        return await this.store.moveDistinctIdsFromPersons(sources, target, distinctId, this.tx, batchId)
+    }
+
+    async deletePersons(persons: InternalPerson[], distinctId: string): Promise<PersonMessage[]> {
+        return await this.store.deletePersons(persons, distinctId, this.tx)
+    }
+
+    async countDistinctIdsForPersons(
+        teamID: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string
+    ): Promise<Map<string, number>> {
+        return await this.store.countDistinctIdsForPersons(teamID, personIds, distinctId, this.tx)
+    }
+
     async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
@@ -115,8 +154,19 @@ export class PersonsStoreTransaction {
         )
     }
 
-    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, batchId: number): Promise<boolean> {
-        return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx, batchId)
+    async updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
+        distinctId: string
+    ): Promise<void> {
+        return await this.store.updateCohortsAndFeatureFlagsForMergeBatch(
+            teamID,
+            sourcePersonIDs,
+            targetPersonID,
+            distinctId,
+            this.tx
+        )
     }
 
     async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {

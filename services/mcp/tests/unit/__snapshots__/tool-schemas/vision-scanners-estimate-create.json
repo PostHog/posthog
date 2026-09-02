@@ -1,0 +1,75 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.",
+    "properties": {
+        "experiment_targeting": {
+            "anyOf": [
+                {
+                    "description": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
+                    "properties": {
+                        "experiment_id": {
+                            "description": "The experiment the scanner watches.",
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "variant": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 400,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Narrow to sessions of people exposed to this variant. Null means every variant."
+                        }
+                    },
+                    "required": ["experiment_id"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user."
+        },
+        "model": {
+            "default": "gemini-3-flash-preview",
+            "description": "Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.7-flash` - Gemini 3.7 Flash",
+            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"],
+            "type": "string"
+        },
+        "query": {
+            "description": "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings."
+        },
+        "sampling_mode": {
+            "default": "comprehensive",
+            "description": "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "enum": ["focused", "balanced", "comprehensive"],
+            "type": "string"
+        },
+        "sampling_rate": {
+            "default": 1,
+            "description": "0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+        },
+        "scanner_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+        }
+    },
+    "type": "object"
+}

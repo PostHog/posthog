@@ -5,6 +5,7 @@ import threading
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 
 from posthog.settings.base_variables import DEBUG, IS_INTERACTIVE_SHELL, TEST
 
@@ -49,6 +50,19 @@ def add_pid_and_tid(
     return event_dict
 
 
+def add_otel_trace_context(
+    logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
+) -> structlog.types.EventDict:
+    # Correlate log lines with the active OTel trace (parented off the incoming Envoy `traceparent`)
+    # so logs can be matched to their distributed trace. Read at emit time so nested spans get the
+    # right span_id; a clean no-op when no valid span is in scope (e.g. OTel disabled).
+    span_context = trace.get_current_span().get_span_context()
+    if span_context.is_valid:
+        event_dict["trace_id"] = format(span_context.trace_id, "032x")
+        event_dict["span_id"] = format(span_context.span_id, "016x")
+    return event_dict
+
+
 # To enable standard library logs to be formatted via structlog, we add this
 # `foreign_pre_chain` to both formatters.
 foreign_pre_chain: list[structlog.types.Processor] = [
@@ -57,6 +71,7 @@ foreign_pre_chain: list[structlog.types.Processor] = [
     structlog.stdlib.add_logger_name,
     structlog.stdlib.add_log_level,
     add_pid_and_tid,
+    add_otel_trace_context,
     structlog.stdlib.PositionalArgumentsFormatter(),
     structlog.processors.StackInfoRenderer(),
     structlog.processors.format_exc_info,
@@ -149,8 +164,19 @@ LOGGING: dict[str, Any] = {
             "handlers": ["console_stdout_info", "console_stderr_warning"],
             "propagate": False,
         },
+        # The web analytics warmer logs one line per shape per pass (up to the
+        # 400k selection cap) — keep the INFO burst off stderr for the same reason.
+        "products.web_analytics.dags.cache_warming": {
+            "level": "INFO",
+            "handlers": ["console_stdout_info", "console_stderr_warning"],
+            "propagate": False,
+        },
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # The posthoganalytics SDK claims the "posthog" logger name and clamps it to WARNING
+        # at client init, so the source-registry prewarm's INFO lifecycle logs need an
+        # explicit level to be visible.
+        "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],

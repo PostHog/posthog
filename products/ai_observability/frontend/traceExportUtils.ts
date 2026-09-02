@@ -1,3 +1,5 @@
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
@@ -118,7 +120,9 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
             output: event.properties.$ai_output_tokens || 0,
         }
     }
-    if (event.properties.$ai_total_cost_usd) {
+    // `!= null` keeps a genuine $0 cost, which ingestion now reports for a
+    // generation that priced to zero, rather than dropping it as falsy.
+    if (event.properties.$ai_total_cost_usd != null) {
         metrics.cost = event.properties.$ai_total_cost_usd
     }
 
@@ -150,8 +154,9 @@ export function buildMinimalTraceJSON(trace: LLMTrace, tree: EnrichedTraceTreeNo
         result.name = trace.traceName
     }
 
-    // Add total cost if available
-    if (trace.totalCost) {
+    // Add total cost if reported. `!= null` keeps a genuine $0, which the trace
+    // header now shows, so the export agrees with it.
+    if (trace.totalCost != null) {
         result.total_cost = trace.totalCost
     }
 
@@ -162,12 +167,55 @@ function buildTraceJSONString(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): s
     return JSON.stringify(buildMinimalTraceJSON(trace, tree), null, 2)
 }
 
+function pushEventFragments(event: MinimalEventExport, fragments: string[]): void {
+    const { children, ...eventWithoutChildren } = event
+    if (!children?.length) {
+        fragments.push(JSON.stringify(event))
+        return
+    }
+    // Drop the closing brace so the children array can be streamed into the same object.
+    fragments.push(`${JSON.stringify(eventWithoutChildren).slice(0, -1)},"children":[`)
+    children.forEach((child, index) => {
+        if (index > 0) {
+            fragments.push(',')
+        }
+        pushEventFragments(child, fragments)
+    })
+    fragments.push(']}')
+}
+
+/**
+ * Serializes a trace as JSON fragments, one per event, instead of a single string.
+ * A large trace exceeds V8's maximum string length, which `JSON.stringify` cannot
+ * produce at all. `Blob` concatenates the fragments natively, so only each event
+ * has to fit in a string.
+ */
+export function buildTraceJSONFragments(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): string[] {
+    const { events, ...traceMetadata } = buildMinimalTraceJSON(trace, tree)
+    const fragments = [`${JSON.stringify(traceMetadata).slice(0, -1)},"events":[`]
+    events.forEach((event, index) => {
+        if (index > 0) {
+            fragments.push(',')
+        }
+        pushEventFragments(event, fragments)
+    })
+    fragments.push(']}')
+    return fragments
+}
+
 export async function exportTraceToClipboard(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): Promise<void> {
-    await copyToClipboard(buildTraceJSONString(trace, tree), 'trace data')
+    let traceJSON: string
+    try {
+        traceJSON = buildTraceJSONString(trace, tree)
+    } catch {
+        lemonToast.error('This trace is too large to copy. Use "Download file" instead.')
+        return
+    }
+    await copyToClipboard(traceJSON, 'trace data')
 }
 
 export function exportTraceToFile(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): void {
     const filename = `${slugify(trace.id || 'trace')}.trace.json`
-    const file = new File([buildTraceJSONString(trace, tree)], filename, { type: 'application/json' })
+    const file = new File(buildTraceJSONFragments(trace, tree), filename, { type: 'application/json' })
     downloadFile(file)
 }

@@ -8,6 +8,7 @@ import { elapsedSecondsFrom } from 'lib/utils/datetime'
 import { activeCloudRunLogic, type CloudRunHandle } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import { installationProgressLogic } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { urls } from 'scenes/urls'
 
 import { installationStatusNavLogic, type NavInstallationPhase } from './installationStatusNavLogic'
 
@@ -80,7 +81,7 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
 }
 
 function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): JSX.Element | null {
-    const { shouldShow, isRunActive, phase: logicPhase, onboardingUrl } = useValues(installationStatusNavLogic)
+    const { shouldShow, isRunActive, phase: logicPhase } = useValues(installationStatusNavLogic)
     const { openDialog } = useActions(installationStatusNavLogic)
 
     // The detector must be mounted to run the cheap REST poll that surfaces local sessions.
@@ -122,7 +123,7 @@ function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): 
         if (isRunActive) {
             openDialog()
         } else {
-            window.location.href = onboardingUrl
+            window.location.href = urls.onboarding()
         }
     }
 

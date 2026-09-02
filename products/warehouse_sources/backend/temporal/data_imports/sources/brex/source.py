@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
     BREX_API_VERSION_V1,
     BREX_API_VERSION_V2,
@@ -21,7 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex 
     validate_credentials as validate_brex_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -42,6 +43,10 @@ class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
 
     supported_versions = (BREX_API_VERSION_V1, BREX_API_VERSION_V2)
     default_version = BREX_API_VERSION_V2
+    # Brex deprecated its Spend Limits v1 endpoints in favor of the v2 Budgets API; the vendor
+    # announced no sunset date. v1 stays supported so existing pins keep working, but carries the
+    # deprecation flag so the generic in-product warning fires.
+    deprecated_versions = (VersionDeprecation(version=BREX_API_VERSION_V1, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

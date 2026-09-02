@@ -41,7 +41,8 @@ export class FanOutParentRef {
 
 /**
  * The context type sub-elements carry: nothing but the correlation tag (plus
- * the base `PipelineContext` fields, with fresh per-sub arrays). Sub-pipelines
+ * the base `PipelineContext` fields, with fresh per-sub arrays and the
+ * parent's `debugContext` copied by reference for crash logs). Sub-pipelines
  * are context-agnostic — decoupled from the parent pipeline's context type, so
  * context-gated builder surface (`teamAware`, `messageAware`,
  * `handleIngestionWarnings`, `handleResults`) is uncallable inside them. Not
@@ -175,7 +176,19 @@ export class FanOutFanInChunkPipeline<
                 continue
             }
 
-            const subs = this.fanOutFn(element.result.value)
+            let subs: TSub[]
+            try {
+                subs = this.fanOutFn(element.result.value)
+            } catch (e) {
+                // The exception propagates and crashes the process; log the
+                // parent's origin while its context is still in scope.
+                logger.error('🔥', `Fan-out ${this.fanOutName} threw`, {
+                    error: e instanceof Error ? e.message : String(e),
+                    stack: e instanceof Error ? e.stack : undefined,
+                    debugContext: element.context.debugContext,
+                })
+                throw e
+            }
             if (subs.length === 0) {
                 settled.push(this.completeParent(element.result.value, element.context, []))
                 continue
@@ -200,6 +213,9 @@ export class FanOutFanInChunkPipeline<
             this.pendingParents.set(ref, parent)
             for (const sub of subs) {
                 const subContext: PipelineContext<FanOutSubContext> = {
+                    // The parent's origin, by reference, so sub crash logs
+                    // identify the message the sub-element came from.
+                    debugContext: element.context.debugContext,
                     sideEffects: [],
                     warnings: [],
                     [FAN_OUT_PARENT]: ref,
@@ -336,6 +352,19 @@ export class FanOutFanInChunkPipeline<
         // Same ownership invariant as in pullAndFanOut: the context is
         // uniquely held by this stage, so set lastStep in place.
         context.lastStep = this.fanInName
-        return { result: ok(this.fanInFn(original, collected)), context }
+        let merged: TMerged
+        try {
+            merged = this.fanInFn(original, collected)
+        } catch (e) {
+            // The exception propagates and crashes the process; log the
+            // parent's origin while its context is still in scope.
+            logger.error('🔥', `Fan-in ${this.fanInName} threw`, {
+                error: e instanceof Error ? e.message : String(e),
+                stack: e instanceof Error ? e.stack : undefined,
+                debugContext: context.debugContext,
+            })
+            throw e
+        }
+        return { result: ok(merged), context }
     }
 }

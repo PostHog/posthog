@@ -102,9 +102,9 @@ impl EvaluationMetadata {
 /// which places all flags in one evaluation stage with empty transitive deps.
 ///
 /// HYPERCACHE CONTRACT: These fields must match the top-level keys returned by
-/// `_get_feature_flags_for_service()` in posthog/models/feature_flag/flags_cache.py.
+/// `_get_feature_flags_for_service()` in products/feature_flags/backend/flags_cache.py.
 /// Field changes must follow the expand-and-contract pattern — see contract tests in
-/// posthog/models/feature_flag/test/test_flags_cache.py.
+/// products/feature_flags/backend/test/test_flags_cache.py.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,

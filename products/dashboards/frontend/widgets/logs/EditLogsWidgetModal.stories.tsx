@@ -36,7 +36,7 @@ function EditLogsWidgetModalStory({
 
 // Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof EditLogsWidgetModalStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Logs/Recent logs/Widget settings',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Logs/Recent logs/Widget settings',
     component: EditLogsWidgetModalStory,
     parameters: {
         layout: 'fullscreen',

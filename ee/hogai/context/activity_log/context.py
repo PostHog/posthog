@@ -5,7 +5,6 @@ from typing import Any, cast
 
 from django.db.models import QuerySet
 
-from posthog.api.advanced_activity_logs.utils import get_activity_log_lookback_restriction
 from posthog.api.advanced_activity_logs.viewset import apply_organization_scoped_filter
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
@@ -14,6 +13,7 @@ from posthog.models.activity_logging.activity_log import (
     apply_activity_visibility_restrictions,
     field_name_overrides,
 )
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.activity_log.prompts import (
@@ -34,6 +34,7 @@ SCOPE_DISPLAY_NAMES: dict[str, str] = {
     "HogFunction": "Data pipeline",
     "PersonalAPIKey": "Personal API key",
     "LLMTrace": "LLM trace",
+    "Ticket": "Support ticket",
 }
 
 

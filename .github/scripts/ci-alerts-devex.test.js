@@ -133,24 +133,44 @@ const commitsAt = (ageMins) => [
     },
 ]
 
-function run(github, { history = [], now = minutes(0), env = {} } = {}) {
+// Stand-in for the diagnosis webhook endpoint, one status per attempt.
+function makeWebhook(statuses = [200]) {
+    let call = 0
+    return recordingFn(() => {
+        const status = statuses[Math.min(call++, statuses.length - 1)]
+        return Promise.resolve({ ok: status >= 200 && status < 300, status })
+    })
+}
+
+function run(github, { history = [], now = minutes(0), env = {}, fetch: fetchImpl } = {}) {
     const outputs = {}
-    const core = { setOutput: (k, v) => (outputs[k] = v), info: () => {}, warning: () => {} }
+    const failures = []
+    const core = {
+        setOutput: (k, v) => (outputs[k] = v),
+        info: () => {},
+        warning: () => {},
+        setFailed: (m) => failures.push(m),
+        setSecret: () => {},
+    }
     const slack = makeSlack(history)
     Object.assign(process.env, {
         SLACK_CHANNEL: 'C0AS64N6DJL',
         GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml',
+        SCHEDULED_GATING_WORKFLOWS: '',
         WORKFLOW_FAILURE_STREAK_THRESHOLD: '5',
         // Reset to production defaults every run so a per-test override can't leak via process.env.
         WORKFLOW_FAILURE_MINUTES_THRESHOLD: '20',
+        SCHEDULED_FAILURE_STREAK_THRESHOLD: '2',
+        SCHEDULED_FAILURE_MINUTES_THRESHOLD: '150',
         ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
+        DIAGNOSIS_WEBHOOK_URL: '',
         ...env,
     })
     return ciAlertsDevex(
         { context: { repo: { owner: 'PostHog', repo: 'posthog' } }, github, core },
-        { now, slack, sleep: () => Promise.resolve() }
-    ).then(() => ({ slack, outputs }))
+        { now, slack, fetch: fetchImpl, sleep: () => Promise.resolve() }
+    ).then(() => ({ slack, outputs, failures }))
 }
 
 describe('ci-alerts-devex', () => {
@@ -180,7 +200,10 @@ describe('ci-alerts-devex', () => {
             assert.match(body, /Backend CI/)
             assert.match(body, /5 failed runs in a row/)
             // per-workflow link → engineering analytics workflow detail, scoped to master
-            assert.match(body, /engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Backend%20CI\?q=master/)
+            assert.match(
+                body,
+                /https:\/\/us\.posthog\.com\/project\/2\/engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Backend%20CI\?q=master/
+            )
             assert.equal(anchor.metadata.event_type, 'master_ci_incident')
             assert.equal(anchor.metadata.event_payload.status, 'active')
             assert.deepEqual(
@@ -194,6 +217,72 @@ describe('ci-alerts-devex', () => {
             assert.match(thread.text, /is now failing master/)
         })
     }
+
+    describe('diagnosis agent start', () => {
+        const webhookEnv = { DIAGNOSIS_WEBHOOK_URL: 'https://webhooks.test/start' }
+        const fiveFailures = () =>
+            createGithubMock({
+                'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            })
+
+        it('posts the incident and the anchor thread it must answer in', async () => {
+            const fetch = makeWebhook()
+            const { outputs, failures } = await run(fiveFailures(), { env: webhookEnv, fetch })
+
+            assert.equal(outputs.action, 'create')
+            assert.deepEqual(failures, [])
+            assert.equal(fetch.calls.length, 1)
+
+            const [url, init] = fetch.calls[0]
+            assert.equal(url, 'https://webhooks.test/start')
+            const body = JSON.parse(init.body)
+            assert.equal(body.event, 'master_ci_incident_opened')
+            assert.equal(body.properties.channel, 'C0AS64N6DJL')
+            assert.equal(body.properties.ts, '111.222') // the anchor, so the agent replies under it
+            assert.deepEqual(body.properties.workflows, ['Backend CI'])
+        })
+
+        it('retries a failed start rather than losing it', async () => {
+            const fetch = makeWebhook([502, 200])
+            const { failures } = await run(fiveFailures(), { env: webhookEnv, fetch })
+
+            assert.equal(fetch.calls.length, 2)
+            assert.deepEqual(failures, [])
+        })
+
+        it('fails the run when the start never lands', async () => {
+            const fetch = makeWebhook([500])
+            const { outputs, failures } = await run(fiveFailures(), { env: webhookEnv, fetch })
+
+            assert.equal(fetch.calls.length, 3)
+            assert.equal(failures.length, 1)
+            assert.match(failures[0], /HTTP 500/)
+            // The alert itself still posted; only the agent start is missing.
+            assert.equal(outputs.action, 'create')
+        })
+
+        it('stays quiet when no webhook is configured', async () => {
+            const fetch = makeWebhook()
+            const { outputs, failures } = await run(fiveFailures(), { fetch })
+
+            assert.equal(outputs.action, 'create')
+            assert.equal(fetch.calls.length, 0)
+            assert.deepEqual(failures, [])
+        })
+
+        it('does not start a second agent while the incident stays open', async () => {
+            const fetch = makeWebhook()
+            const github = createGithubMock({
+                'ci-backend.yml': runs('Backend CI', Array(8).fill('failure')),
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            })
+            const { outputs } = await run(github, { history: [activeAnchor()], env: webhookEnv, fetch })
+
+            assert.equal(outputs.action, 'update')
+            assert.equal(fetch.calls.length, 0)
+        })
+    })
 
     it('updates the existing anchor instead of posting a duplicate (regression)', async () => {
         const github = createGithubMock({
@@ -501,6 +590,7 @@ describe('ci-alerts-devex', () => {
         const result = await ciAlertsDevex.fetchWorkflowRuns(github, 'PostHog', 'posthog', 'ci-backend.yml', 40)
         // The root-cause guard: never request the eventually-consistent status=completed index.
         assert.equal(capturedParams.status, undefined)
+        assert.equal(capturedParams.event, 'push') // one lane per trigger event; push is the default
         // in_progress/queued/cancelled dropped; settled runs kept, newest-first order preserved.
         assert.deepEqual(
             result.map((r) => r.conclusion),
@@ -674,6 +764,96 @@ describe('ci-alerts-devex', () => {
             assert.equal(outputs.action, expected)
         })
     }
+
+    // --- Scheduled lanes ---
+
+    // Backend CI covers master through two lanes: its push run carries the per-commit checks and
+    // its hourly scheduled run carries the test matrices.
+    const scheduledEnv = { GATING_WORKFLOWS: 'ci-backend.yml', SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml' }
+
+    // listWorkflowRuns keyed by `<workflow file>:<event>`, so a lane that requests the wrong
+    // trigger reads an empty page instead of the other lane's runs.
+    const laneGithub = (laneRuns, commits) => ({
+        rest: {
+            actions: {
+                listWorkflowRuns: ({ workflow_id, event }) =>
+                    Promise.resolve({ data: { workflow_runs: laneRuns[`${workflow_id}:${event}`] || [] } }),
+            },
+            repos: { listCommits: () => Promise.resolve({ data: commits }) },
+        },
+    })
+
+    // (push conclusions, schedule conclusions) → action + the workflow names carried on the anchor.
+    for (const [scenario, { push, schedule }, expected] of [
+        [
+            'a red scheduled lane pages while its push lane is green',
+            { push: ['success'], schedule: ['failure', 'failure'] },
+            { action: 'create', blocking: ['Backend CI (scheduled)'] },
+        ],
+        [
+            'both lanes of one workflow report under their own names',
+            { push: Array(5).fill('failure'), schedule: ['failure', 'failure'] },
+            { action: 'create', blocking: ['Backend CI', 'Backend CI (scheduled)'] },
+        ],
+        [
+            'a single scheduled failure stays below the lane threshold',
+            { push: ['success'], schedule: ['failure', 'success'] },
+            { action: 'none', blocking: [] },
+        ],
+        ['a green scheduled lane stays quiet', { push: ['success'], schedule: ['success'] }, { action: 'none', blocking: [] }],
+    ]) {
+        it(`scheduled lane: ${scenario}`, async () => {
+            const github = laneGithub(
+                {
+                    'ci-backend.yml:push': runs('Backend CI', push),
+                    'ci-backend.yml:schedule': runs('Backend CI', schedule),
+                },
+                pushAt(minutes(-3).toISOString())
+            )
+            const { slack, outputs } = await run(github, { env: scheduledEnv })
+            assert.equal(outputs.action, expected.action)
+            assert.equal(outputs.blocking_count, String(expected.blocking.length))
+            const anchored = slack.postMessage.calls[0]?.[0]?.metadata?.event_payload?.workflows || []
+            assert.deepEqual(
+                anchored.map((w) => w.name).sort(),
+                expected.blocking
+            )
+        })
+    }
+
+    it('a red scheduled lane stays quiet while nobody is pushing (weekend gate)', async () => {
+        // A cron keeps producing runs through a quiet weekend, so unlike a push lane its run
+        // streak alone must not open an incident.
+        const github = laneGithub(
+            {
+                'ci-backend.yml:push': runs('Backend CI', ['success']),
+                'ci-backend.yml:schedule': runs('Backend CI', ['failure', 'failure']),
+            },
+            pushAt(minutes(-3000).toISOString())
+        )
+        const { slack, outputs } = await run(github, { env: scheduledEnv })
+        assert.equal(outputs.action, 'none')
+        assert.equal(slack.postMessage.calls.length, 0)
+    })
+
+    it('a scheduled lane trailing master by hours is still readable (regression)', async () => {
+        // The push freshness bound assumes a run per master commit. An hourly lane legitimately
+        // trails master's newest commit, and judging it by the push bound would read the matrices
+        // as unreadable, which drops them from detection and holds every open incident.
+        const github = laneGithub(
+            {
+                'ci-backend.yml:push': runs('Backend CI', ['success']),
+                'ci-backend.yml:schedule': [
+                    failureRun('Backend CI', 'sched1', minutes(-240).toISOString(), minutes(-215).toISOString()),
+                    failureRun('Backend CI', 'sched2', minutes(-300).toISOString(), minutes(-275).toISOString()),
+                ],
+            },
+            pushAt(minutes(-3).toISOString())
+        )
+        const { outputs } = await run(github, { env: scheduledEnv })
+        assert.equal(outputs.action, 'create')
+        assert.equal(outputs.blocking_count, '1')
+    })
 
     describe('formatDuration', () => {
         for (const [mins, expected] of [

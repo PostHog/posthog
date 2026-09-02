@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.asana import (
     AsanaResumeConfig,
     asana_source,
@@ -32,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asana import AsanaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -67,6 +64,8 @@ Grant these read scopes so every table can sync:
 - `tags:read`
 - `teams:read`
 - `custom_fields:read`
+
+The AI Studio usage tables (`ai_studio_runs`, `ai_studio_seats`) additionally need the `admin.ai_studio_usage:read` scope on an AI Studio-licensed organization. Skip them if you don't use AI Studio.
 """,
             iconPath="/static/services/asana.png",
             docsUrl="https://posthog.com/docs/cdp/sources/asana",

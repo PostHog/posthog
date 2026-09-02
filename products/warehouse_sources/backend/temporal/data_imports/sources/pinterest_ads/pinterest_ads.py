@@ -5,8 +5,8 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.settings import (
     ANALYTICS_COLUMNS,
     ANALYTICS_ENDPOINT_PATHS,
@@ -16,6 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
     ENTITY_ENDPOINT_PATHS,
     PAGE_SIZE,
     PINTEREST_ADS_CONFIG,
+    TARGETING_ANALYTICS_ENDPOINT_PATHS,
+    TARGETING_ANALYTICS_ID_COLUMNS,
+    TARGETING_TYPES,
     EndpointType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.utils import (
@@ -31,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
 
 ENTITY_RESUME_KIND = "entity"
 ANALYTICS_RESUME_KIND = "analytics"
+TARGETING_ANALYTICS_RESUME_KIND = "targeting_analytics"
 
 
 @dataclasses.dataclass
@@ -80,11 +84,25 @@ def pinterest_ads_source(
             db_incremental_field_last_value,
         )
 
+    def targeting_analytics_items() -> Iterator[list[dict[str, Any]]]:
+        session = build_session(access_token)
+        yield from _iter_targeting_analytics_rows(
+            session,
+            ad_account_id,
+            endpoint,
+            resumable_source_manager,
+            source_logger,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+
     items_fn: Callable[[], Iterator[list[dict[str, Any]]]]
     if endpoint_config.endpoint_type == EndpointType.ENTITY:
         items_fn = entity_items
     elif endpoint_config.endpoint_type == EndpointType.ANALYTICS:
         items_fn = analytics_items
+    elif endpoint_config.endpoint_type == EndpointType.TARGETING_ANALYTICS:
+        items_fn = targeting_analytics_items
     else:
         raise ValueError(f"Unknown endpoint type: {endpoint_config.endpoint_type}")
 
@@ -121,6 +139,15 @@ def _iter_entity_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     path = ENTITY_ENDPOINT_PATHS[endpoint].format(ad_account_id=ad_account_id)
     url = f"{BASE_URL}{path}"
+    endpoint_config = PINTEREST_ADS_CONFIG[endpoint]
+    supports_pagination = endpoint_config.supports_pagination
+
+    if endpoint_config.returns_single_object:
+        # The response is the resource itself, not an `items` list, so there's nothing to paginate.
+        data = _make_request(session, url, {})
+        if data:
+            yield [data]
+        return
 
     resume_config = _load_resume_config(resumable_source_manager, ENTITY_RESUME_KIND)
     bookmark: str | None = resume_config.bookmark if resume_config is not None else None
@@ -128,13 +155,15 @@ def _iter_entity_rows(
         source_logger.debug("pinterest_ads_resuming_entity", endpoint=endpoint)
 
     while True:
-        params: dict[str, Any] = {"page_size": PAGE_SIZE}
-        if bookmark:
-            params["bookmark"] = bookmark
+        params: dict[str, Any] = {}
+        if supports_pagination:
+            params["page_size"] = PAGE_SIZE
+            if bookmark:
+                params["bookmark"] = bookmark
 
         data = _make_request(session, url, params)
         items = data.get("items", [])
-        next_bookmark = data.get("bookmark")
+        next_bookmark = data.get("bookmark") if supports_pagination else None
 
         if items:
             yield items
@@ -146,6 +175,42 @@ def _iter_entity_rows(
         bookmark = next_bookmark
 
 
+def _parse_analytics_rows(data: Any) -> list[dict[str, Any]] | None:
+    """Rows from a totals analytics response, or None when the payload isn't the documented shape."""
+    if not isinstance(data, list):
+        return None
+    return [_normalize_row(row) for row in data]
+
+
+def _parse_targeting_analytics_rows(data: Any) -> list[dict[str, Any]] | None:
+    """Flatten a targeting analytics response into one row per (entity, day, breakdown value).
+
+    Pinterest nests the metrics under `data[].metrics` and keeps the breakdown it belongs to
+    alongside it, so the two have to be merged for the row to be self-describing.
+    """
+    if not isinstance(data, dict):
+        return None
+    items = data.get("data")
+    if not isinstance(items, list):
+        return None
+
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        metrics = item.get("metrics")
+        if not isinstance(metrics, dict):
+            continue
+        rows.append(
+            {
+                **_normalize_row(metrics),
+                "targeting_type": item.get("targeting_type"),
+                "targeting_value": item.get("targeting_value"),
+            }
+        )
+    return rows
+
+
 def _iter_analytics_rows(
     session: requests.Session,
     ad_account_id: str,
@@ -155,7 +220,67 @@ def _iter_analytics_rows(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[list[dict[str, Any]]]:
-    resume_config = _load_resume_config(resumable_source_manager, ANALYTICS_RESUME_KIND)
+    path = ANALYTICS_ENDPOINT_PATHS[endpoint].format(ad_account_id=ad_account_id)
+    yield from _iter_fanned_out_analytics(
+        session,
+        ad_account_id,
+        endpoint,
+        resumable_source_manager,
+        source_logger,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        resume_kind=ANALYTICS_RESUME_KIND,
+        url=f"{BASE_URL}{path}",
+        extra_params={"columns": ",".join(ANALYTICS_COLUMNS), "granularity": "DAY"},
+        parse_rows=_parse_analytics_rows,
+    )
+
+
+def _iter_targeting_analytics_rows(
+    session: requests.Session,
+    ad_account_id: str,
+    endpoint: str,
+    resumable_source_manager: ResumableSourceManager[PinterestAdsResumeConfig],
+    source_logger: FilteringBoundLogger,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[list[dict[str, Any]]]:
+    path = TARGETING_ANALYTICS_ENDPOINT_PATHS[endpoint].format(ad_account_id=ad_account_id)
+    id_column = TARGETING_ANALYTICS_ID_COLUMNS[endpoint]
+    yield from _iter_fanned_out_analytics(
+        session,
+        ad_account_id,
+        endpoint,
+        resumable_source_manager,
+        source_logger,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        resume_kind=TARGETING_ANALYTICS_RESUME_KIND,
+        url=f"{BASE_URL}{path}",
+        extra_params={
+            "columns": ",".join([id_column, *ANALYTICS_COLUMNS]),
+            "granularity": "DAY",
+            "targeting_types": ",".join(TARGETING_TYPES),
+        },
+        parse_rows=_parse_targeting_analytics_rows,
+    )
+
+
+def _iter_fanned_out_analytics(
+    session: requests.Session,
+    ad_account_id: str,
+    endpoint: str,
+    resumable_source_manager: ResumableSourceManager[PinterestAdsResumeConfig],
+    source_logger: FilteringBoundLogger,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    *,
+    resume_kind: str,
+    url: str,
+    extra_params: dict[str, Any],
+    parse_rows: Callable[[Any], list[dict[str, Any]] | None],
+) -> Iterator[list[dict[str, Any]]]:
+    resume_config = _load_resume_config(resumable_source_manager, resume_kind)
     start_batch_idx = resume_config.batch_index if resume_config is not None else 0
     start_chunk_idx = resume_config.date_chunk_index if resume_config is not None else 0
 
@@ -188,8 +313,6 @@ def _iter_analytics_rows(
             currency=currency,
         )
 
-    path = ANALYTICS_ENDPOINT_PATHS[endpoint].format(ad_account_id=ad_account_id)
-    url = f"{BASE_URL}{path}"
     id_param_name = ANALYTICS_ID_PARAM_NAMES[endpoint]
 
     date_chunks = _chunk_date_range(start_date, end_date)
@@ -205,32 +328,26 @@ def _iter_analytics_rows(
                 id_param_name: ",".join(batch),
                 "start_date": chunk_start,
                 "end_date": chunk_end,
-                "columns": ",".join(ANALYTICS_COLUMNS),
-                "granularity": "DAY",
+                **extra_params,
             }
 
             data = _make_request(session, url, params)
 
-            is_successful = isinstance(data, list)
-            if is_successful:
-                rows: list[dict[str, Any]] = []
-                for row in data:
-                    normalized = _normalize_row(row)
-                    if currency:
-                        normalized["currency"] = currency
-                    rows.append(normalized)
-                if rows:
-                    yield rows
-            else:
+            rows = parse_rows(data)
+            if rows is None:
                 source_logger.error(
                     "pinterest_ads_unexpected_analytics_response",
                     endpoint=endpoint,
                     response_type=type(data).__name__,
                 )
-
-            # Only advance the cursor on a successful response — a failed chunk must be retried on resume.
-            if not is_successful:
+                # Only advance the cursor on a successful response — a failed chunk must be retried on resume.
                 continue
+
+            if currency:
+                for row in rows:
+                    row["currency"] = currency
+            if rows:
+                yield rows
 
             next_batch_idx, next_chunk_idx = _advance_analytics_cursor(
                 batch_idx, chunk_idx, len(id_batches), len(date_chunks)

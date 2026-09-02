@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { dateFilterToText, getDefaultInterval } from 'lib/utils/dateFilters'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -12,11 +12,20 @@ import {
     MCPToolCategoryItem,
     MCPToolQualityDailyStatItem,
     MCPToolQualityRowItem,
+    MCPToolQualityRowsQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { buildBucketKeys, normalizeBucket } from './timeBuckets'
+import {
+    type IntervalOption,
+    buildBucketKeys,
+    intervalOptionsForWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from './timeBuckets'
 
 export interface CategoryCount {
     category: string
@@ -32,7 +41,7 @@ export interface ScopeShare {
 export type SortDirection = 'ASC' | 'DESC'
 
 export interface SortState {
-    column: string
+    column: ToolQualitySortColumn
     direction: SortDirection
 }
 
@@ -41,9 +50,14 @@ export interface DateFilter {
     dateTo: string | null
 }
 
-// Carry the selected window across navigation as date_from / date_to, mirroring the tab's
-// actionToUrl. Only set them when present so a cleared range stays out of the URL.
-export function mcpDateSearchParams(dateFilter: DateFilter): Record<string, string> {
+interface ToolRowsPage extends MCPToolQualityRowsQueryResponse {
+    pageIndex: number
+}
+
+// Carry the selected window across navigation as date_from / date_to, plus the grouping interval
+// when one is pinned, mirroring the tab's actionToUrl. Only set them when present so a cleared range
+// and an auto interval stay out of the URL.
+export function mcpDateSearchParams(dateFilter: DateFilter, interval?: IntervalType | null): Record<string, string> {
     const params: Record<string, string> = {}
     if (dateFilter.dateFrom) {
         params.date_from = dateFilter.dateFrom
@@ -51,33 +65,25 @@ export function mcpDateSearchParams(dateFilter: DateFilter): Record<string, stri
     if (dateFilter.dateTo) {
         params.date_to = dateFilter.dateTo
     }
+    if (interval) {
+        params.interval = interval
+    }
     return params
 }
 
-// Link from the Tool quality tab to an individual tool's report, keeping the date filter so
-// the tool page opens on the same window.
-export function mcpToolReportUrl(tool: string, dateFilter: DateFilter): string {
-    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter)).url
+// Link from the Tool quality tab to an individual tool's report, keeping the date filter and pinned
+// interval so the tool page opens on the same window and granularity.
+export function mcpToolReportUrl(tool: string, dateFilter: DateFilter, interval?: IntervalType | null): string {
+    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter, interval)).url
 }
 
-// Link back from a tool report to the Tool quality tab, restoring the date filter.
-export function mcpToolQualityUrlWithDates(dateFilter: DateFilter): string {
-    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter)).url
+// Link back from a tool report to the Tool quality tab, restoring the date filter and interval.
+export function mcpToolQualityUrlWithDates(dateFilter: DateFilter, interval?: IntervalType | null): string {
+    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter, interval)).url
 }
 
-export interface ToolQualityRow {
-    tool: string
-    total_calls: number
-    errors: number
-    error_rate_pct: number
-    p50_duration_ms: number
-    p95_duration_ms: number
-    p99_duration_ms: number
-    users: number
-    sessions: number
-    first_seen: string
-    last_seen: string
-}
+export type ToolQualityRow = MCPToolQualityRowItem
+export type ToolQualitySortColumn = Exclude<keyof ToolQualityRow, 'tool' | 'errors' | 'first_seen'>
 
 export interface DailyToolStat {
     day: string
@@ -100,6 +106,7 @@ export interface DailyChartData {
 
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 const DEFAULT_SORT: SortState = { column: 'total_calls', direction: 'DESC' }
+export const TOOL_QUALITY_PAGE_SIZE = 50
 
 // Pivot per-bucket rows onto the full set of interval buckets spanning the selected window:
 // ClickHouse only returns buckets that had events, so `bucketKeys` (built from the window at the
@@ -121,19 +128,6 @@ export function buildDailyChartData(dailyStats: DailyToolStat[], bucketKeys: str
     }
 }
 
-function sortToolRows(rows: ToolQualityRow[], sort: SortState): ToolQualityRow[] {
-    const direction = sort.direction === 'ASC' ? 1 : -1
-    const column = sort.column as keyof ToolQualityRow
-    return [...rows].sort((a, b) => {
-        const aValue = a[column]
-        const bValue = b[column]
-        if (typeof aValue === 'number' && typeof bValue === 'number') {
-            return (aValue - bValue) * direction
-        }
-        return String(aValue).localeCompare(String(bValue)) * direction
-    })
-}
-
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpAnalyticsToolQualityLogicValues {
     availableCategories: string[]
@@ -145,15 +139,21 @@ export interface mcpAnalyticsToolQualityLogicValues {
     dailyStatsLoading: boolean
     dateFilter: DateFilter
     dateRangeLabel: string
-    filteredRows: ToolQualityRow[]
+    incompleteTail: boolean
     interval: IntervalType
+    intervalOptions: IntervalOption[]
+    loadedToolQualityPageIndex: number
+    pinnedInterval: IntervalType | null
     scopeShare: ScopeShare
     searchTerm: string
     selectedCategories: string[]
     selectedTool: string | null
+    toolQualityPageIndex: number
     toolQualitySort: SortState
-    toolRows: ToolQualityRow[]
-    toolRowsLoading: boolean
+    toolRows: MCPToolQualityRowItem[]
+    toolRowsPage: ToolRowsPage | null
+    toolRowsPageLoading: boolean
+    toolRowsTotalCount: number
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -203,19 +203,19 @@ export interface mcpAnalyticsToolQualityLogicActions {
         dailyStats: DailyToolStat[]
         payload?: void
     }
-    loadToolRows: (_: void) => void
-    loadToolRowsFailure: (
+    loadToolRowsPage: (_: void) => void
+    loadToolRowsPageFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadToolRowsSuccess: (
-        toolRows: ToolQualityRow[],
+    loadToolRowsPageSuccess: (
+        toolRowsPage: ToolRowsPage,
         payload?: void
     ) => {
-        toolRows: ToolQualityRow[]
+        toolRowsPage: ToolRowsPage
         payload?: void
     }
     reloadAll: () => {
@@ -228,6 +228,9 @@ export interface mcpAnalyticsToolQualityLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setPinnedInterval: (interval: IntervalType | null) => {
+        interval: IntervalType | null
+    }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -237,11 +240,14 @@ export interface mcpAnalyticsToolQualityLogicActions {
     setSelectedTool: (tool: string | null) => {
         tool: string | null
     }
+    setToolQualityPageIndex: (pageIndex: number) => {
+        pageIndex: number
+    }
     setToolQualitySort: (
-        column: string,
+        column: ToolQualitySortColumn,
         direction: SortDirection
     ) => {
-        column: string
+        column: ToolQualitySortColumn
         direction: SortDirection
     }
 }
@@ -250,15 +256,19 @@ export interface mcpAnalyticsToolQualityLogicActions {
 export interface mcpAnalyticsToolQualityLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dateRangeLabel: (dateFilter: DateFilter) => string
-        interval: (dateFilter: DateFilter) => IntervalType
+        intervalOptions: (dateFilter: DateFilter, timezone: string) => IntervalOption[]
+        interval: (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string) => IntervalType
         scopeShare: (categoryCounts: CategoryCount[], selectedCategories: string[]) => ScopeShare
-        filteredRows: (toolRows: ToolQualityRow[], toolQualitySort: SortState, searchTerm: string) => ToolQualityRow[]
+        loadedToolQualityPageIndex: (toolRowsPage: ToolRowsPage | null) => number
+        toolRows: (toolRowsPage: ToolRowsPage | null) => MCPToolQualityRowItem[]
+        toolRowsTotalCount: (toolRowsPage: ToolRowsPage | null) => number
         dailyChartData: (
             dailyStats: DailyToolStat[],
             dateFilter: DateFilter,
             interval: IntervalType,
             timezone: string
         ) => DailyChartData
+        incompleteTail: (dailyChartData: DailyChartData, interval: IntervalType, timezone: string) => boolean
     }
 }
 
@@ -273,8 +283,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsToolQualityLogic']),
 
     actions({
-        setToolQualitySort: (column: string, direction: SortDirection) => ({ column, direction }),
+        setToolQualitySort: (column: ToolQualitySortColumn, direction: SortDirection) => ({ column, direction }),
+        setToolQualityPageIndex: (pageIndex: number) => ({ pageIndex }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setPinnedInterval: (interval: IntervalType | null) => ({ interval }),
         setSelectedCategories: (categories: string[]) => ({ categories }),
         setSelectedTool: (tool: string | null) => ({ tool }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -294,6 +306,15 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
             },
         ],
+        // The grouping the user picked, kept independent of the window: null means follow the
+        // auto-choice for the range. It survives date changes so switching windows doesn't quietly
+        // undo the pin — `interval` drops back to auto only when the pin no longer fits.
+        pinnedInterval: [
+            null as IntervalType | null,
+            {
+                setPinnedInterval: (_, { interval }): IntervalType | null => interval,
+            },
+        ],
         selectedCategories: [
             [] as string[],
             {
@@ -310,6 +331,12 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             '',
             {
                 setSearchTerm: (_, { searchTerm }): string => searchTerm,
+            },
+        ],
+        toolQualityPageIndex: [
+            0,
+            {
+                setToolQualityPageIndex: (_, { pageIndex }): number => Math.max(pageIndex, 0),
             },
         ],
     }),
@@ -340,31 +367,24 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 },
             },
         ],
-        toolRows: [
-            [] as ToolQualityRow[],
+        toolRowsPage: [
+            null as ToolRowsPage | null,
             {
-                loadToolRows: async (_: void, breakpoint): Promise<ToolQualityRow[]> => {
-                    await breakpoint(100)
-                    // Fixed server-side order (total_calls DESC); column sorting happens client-side.
+                loadToolRowsPage: async (_: void, breakpoint): Promise<ToolRowsPage> => {
+                    await breakpoint(300)
+                    const pageIndex = values.toolQualityPageIndex
                     const response = (await api.query({
                         kind: NodeKind.MCPToolQualityRowsQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
                         categories: values.selectedCategories,
-                    })) as { results?: MCPToolQualityRowItem[] }
+                        search: values.searchTerm,
+                        sortColumn: values.toolQualitySort.column,
+                        sortDirection: values.toolQualitySort.direction,
+                        limit: TOOL_QUALITY_PAGE_SIZE,
+                        offset: pageIndex * TOOL_QUALITY_PAGE_SIZE,
+                    })) as MCPToolQualityRowsQueryResponse
                     breakpoint()
-                    return (response.results ?? []).map((r) => ({
-                        tool: r.tool,
-                        total_calls: r.total_calls,
-                        errors: r.errors,
-                        error_rate_pct: r.error_rate_pct,
-                        p50_duration_ms: r.p50_duration_ms,
-                        p95_duration_ms: r.p95_duration_ms,
-                        p99_duration_ms: r.p99_duration_ms,
-                        users: r.users,
-                        sessions: r.sessions,
-                        first_seen: r.first_seen,
-                        last_seen: r.last_seen,
-                    }))
+                    return { ...response, pageIndex }
                 },
             },
         ],
@@ -402,11 +422,18 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             (dateFilter: DateFilter): string =>
                 dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ?? 'the selected range',
         ],
-        // Grouping interval for the daily chart — PostHog's standard auto-choice, so a sub-day window
-        // (e.g. last 12 hours) buckets hourly instead of collapsing to a single day point.
+        intervalOptions: [
+            (s) => [s.dateFilter, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, timezone: string): IntervalOption[] =>
+                intervalOptionsForWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone),
+        ],
+        // Grouping interval for the charts: the pinned choice, or PostHog's standard auto-choice when
+        // none is pinned, so a sub-day window (e.g. last 12 hours) still buckets hourly by default
+        // instead of collapsing to a single day point.
         interval: [
-            (s) => [s.dateFilter],
-            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
+            (s) => [s.dateFilter, s.pinnedInterval, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string): IntervalType =>
+                resolveInterval(dateFilter.dateFrom, dateFilter.dateTo, timezone, pinnedInterval),
         ],
         scopeShare: [
             (s) => [s.categoryCounts, s.selectedCategories],
@@ -419,13 +446,17 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 return { inScope, total, pct: total > 0 ? (inScope / total) * 100 : null }
             },
         ],
-        filteredRows: [
-            (s) => [s.toolRows, s.toolQualitySort, s.searchTerm],
-            (toolRows: ToolQualityRow[], sort: SortState, searchTerm: string): ToolQualityRow[] => {
-                const term = searchTerm.trim().toLowerCase()
-                const filtered = term ? toolRows.filter((row) => row.tool.toLowerCase().includes(term)) : toolRows
-                return sortToolRows(filtered, sort)
-            },
+        loadedToolQualityPageIndex: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.pageIndex ?? 0,
+        ],
+        toolRows: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): MCPToolQualityRowItem[] => toolRowsPage?.results ?? [],
+        ],
+        toolRowsTotalCount: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.totalCount ?? 0,
         ],
         dailyChartData: [
             (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
@@ -439,34 +470,67 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 return buildDailyChartData(dailyStats, bucketKeys)
             },
         ],
+        // The charts dash the final segment when it is the current, still-collecting interval, so a
+        // partial day doesn't read as a fall in calls or a latency improvement.
+        incompleteTail: [
+            (s) => [s.dailyChartData, s.interval, teamLogic.selectors.timezone],
+            (dailyChartData: DailyChartData, interval: IntervalType, timezone: string): boolean =>
+                lastBucketIsInProgress(dailyChartData.labels, timezone, interval),
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
-        // Both scope filters refetch the table and the charts; a date change also
-        // refreshes the category counts so the "share of MCP usage" headline tracks
-        // the same window.
-        setDateFilter: () => {
-            actions.reloadAll()
-            actions.loadCategoryCounts()
-        },
-        setSelectedCategories: () => {
-            actions.reloadAll()
-        },
-        reloadAll: () => {
-            actions.loadToolRows()
-            actions.loadDailyStats()
-        },
-        setSelectedTool: () => {
-            actions.loadDailyStats()
-        },
-        // A category or date change can reload rows that no longer include the
-        // selected tool — drop the selection instead of charting an empty scope
-        loadToolRowsSuccess: ({ toolRows }) => {
-            if (values.selectedTool && !toolRows.some((row) => row.tool === values.selectedTool)) {
-                actions.setSelectedTool(null)
+    listeners(({ actions, values }) => {
+        const loadFirstToolPage = (): void => {
+            if (values.toolQualityPageIndex === 0) {
+                actions.loadToolRowsPage()
+            } else {
+                actions.setToolQualityPageIndex(0)
             }
-        },
-    })),
+        }
+        const loadUnscopedDailyStats = (): void => {
+            if (values.selectedTool) {
+                actions.setSelectedTool(null)
+            } else {
+                actions.loadDailyStats()
+            }
+        }
+
+        return {
+            setDateFilter: () => {
+                loadFirstToolPage()
+                loadUnscopedDailyStats()
+                actions.loadCategoryCounts()
+            },
+            setSelectedCategories: () => {
+                loadFirstToolPage()
+                loadUnscopedDailyStats()
+            },
+            setToolQualitySort: () => {
+                loadFirstToolPage()
+            },
+            setSearchTerm: () => {
+                loadFirstToolPage()
+            },
+            setToolQualityPageIndex: () => {
+                actions.loadToolRowsPage()
+            },
+            setPinnedInterval: () => {
+                actions.loadDailyStats()
+            },
+            reloadAll: () => {
+                actions.loadToolRowsPage()
+                actions.loadDailyStats()
+            },
+            setSelectedTool: () => {
+                actions.loadDailyStats()
+            },
+            loadToolRowsPageSuccess: ({ toolRowsPage }) => {
+                if (values.toolQualityPageIndex > 0 && toolRowsPage.results.length === 0) {
+                    actions.setToolQualityPageIndex(0)
+                }
+            },
+        }
+    }),
 
     actionToUrl(({ values }) => {
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
@@ -492,11 +556,17 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             } else {
                 delete searchParams.date_to
             }
+            if (values.pinnedInterval) {
+                searchParams.interval = values.pinnedInterval
+            } else {
+                delete searchParams.interval
+            }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
             setSelectedTool: syncUrl,
             setDateFilter: syncUrl,
+            setPinnedInterval: syncUrl,
             setSelectedCategories: syncUrl,
         }
     }),
@@ -521,13 +591,17 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
                 actions.setDateFilter(dateFrom, dateTo)
             }
+            const interval = parseIntervalParam(searchParams.interval)
+            if (interval !== values.pinnedInterval) {
+                actions.setPinnedInterval(interval)
+            }
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadAvailableCategories()
         actions.loadCategoryCounts()
-        actions.loadToolRows()
+        actions.loadToolRowsPage()
         actions.loadDailyStats()
     }),
 ])

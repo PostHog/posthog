@@ -70,12 +70,25 @@ impl ServiceProcess {
         envs: &[(&str, String)],
         log_dir: &Path,
     ) -> Result<Self> {
+        Self::spawn_with_extra(name, binary, envs, &[], log_dir)
+    }
+
+    /// Like `spawn`, with caller-supplied environment appended after the
+    /// standard set so it can override any of it.
+    pub fn spawn_with_extra(
+        name: &str,
+        binary: &Path,
+        envs: &[(&str, String)],
+        extra: &[(String, String)],
+        log_dir: &Path,
+    ) -> Result<Self> {
         let spec = ServiceSpec {
             name: name.to_string(),
             binary: binary.to_path_buf(),
             envs: envs
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.clone()))
+                .chain(extra.iter().cloned())
                 .collect(),
             log_path: log_dir.join(format!("{name}.log")),
         };

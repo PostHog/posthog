@@ -1,11 +1,13 @@
+import hashlib
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     Endpoint,
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -15,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import TREMENDOUS_ENDPOINTS
 
 # Sandbox and production are separate hosts with separate API keys.
@@ -25,8 +28,8 @@ TREMENDOUS_BASE_URLS: dict[str, str] = {
 # Cheap authenticated probe used to confirm an API key is genuine. The key is organization-wide, so
 # one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/organizations"
-# Only /orders exposes a server-side timestamp filter; it is inclusive (`created_at[gte]`), so the
-# watermark row itself is re-fetched — merge dedupes it on the primary key.
+# Only /orders and /balance_transactions expose a server-side timestamp filter; it is inclusive
+# (`created_at[gte]`), so the watermark row itself is re-fetched — merge dedupes it on the primary key.
 INCREMENTAL_START_PARAM = "created_at[gte]"
 
 
@@ -40,6 +43,45 @@ class TremendousResumeConfig:
 
 def base_url_for_environment(environment: str) -> str:
     return TREMENDOUS_BASE_URLS.get(environment, TREMENDOUS_BASE_URLS["production"])
+
+
+# Identity fields for the synthesized /balance_transactions primary key. Only fields that never
+# change after the row is written: `balance` is excluded because the docs allow it to be backfilled
+# late (null first, populated later), and the nested order payload is excluded because
+# `order.payment.refund` appears once an order or reward is canceled — keying on either would
+# re-key the row on a later fetch and duplicate it. `order.id` (hashed separately below) is the
+# stable discriminator for order-driven rows.
+_BALANCE_TRANSACTION_ID_FIELDS = ("created_at", "amount", "currency_code", "action", "description")
+
+
+def _hash_part(value: Any) -> str:
+    if value is None:
+        return "\x00"
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        # JSON numbers can arrive as int or float depending on the serializer (100 vs 100.0);
+        # normalize so a representation change cannot re-key existing rows.
+        return str(float(value))
+    return str(value)
+
+
+def _balance_transaction_row_id(row: dict[str, Any]) -> dict[str, Any]:
+    """Synthesize a stable id for a /balance_transactions row — the API returns none.
+
+    Deterministic across fetches, so the inclusive `created_at[gte]` re-fetch of the watermark row
+    merges onto the existing row instead of duplicating it. Rows identical across every hashed
+    field collapse into one; the API offers nothing to tell such rows apart.
+    """
+    order = row.get("order") or {}
+    parts = [*(row.get(field) for field in _BALANCE_TRANSACTION_ID_FIELDS), order.get("id")]
+    joined = "|".join(_hash_part(part) for part in parts)
+    row["id"] = hashlib.sha256(joined.encode()).hexdigest()
+    return row
+
+
+# Per-endpoint row normalization applied after the data_selector, before the pipeline sees rows.
+ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "balance_transactions": _balance_transaction_row_id,
+}
 
 
 def _to_iso_datetime(value: Any) -> Optional[str]:
@@ -95,6 +137,11 @@ def tremendous_source(
         }
         incremental_value = db_incremental_field_last_value
 
+    endpoint_resource: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+    row_map = ROW_MAPS.get(endpoint)
+    if row_map is not None:
+        endpoint_resource["data_map"] = row_map
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": base_url_for_environment(environment),
@@ -105,12 +152,7 @@ def tremendous_source(
             "allow_redirects": False,
         },
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": endpoint_config,
-            }
-        ],
+        "resources": [endpoint_resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

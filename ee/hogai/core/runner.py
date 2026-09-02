@@ -34,10 +34,9 @@ from posthog.schema import (
 
 from posthog import event_usage
 from posthog.cloud_utils import is_cloud
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, report_user_action
 from posthog.models import Team, User
 from posthog.ph_client import get_client
-from posthog.settings.ingestion import DedicatedAIEndpointRollout
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
@@ -122,6 +121,7 @@ class BaseAgentRunner(ABC):
     _slack_thread_context: Optional["SlackThreadContext"]
     _is_agent_billable: bool
     _resume_payload: Optional[dict[str, Any]]
+    _event_source: EventSource
 
     def __init__(
         self,
@@ -147,10 +147,12 @@ class BaseAgentRunner(ABC):
         is_agent_billable: bool = True,
         is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
+        event_source: EventSource = EventSource.POSTHOG_AI,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
         self._user = user
+        self._event_source = event_source
         self._session_id = session_id
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
@@ -206,7 +208,6 @@ class BaseAgentRunner(ABC):
                     region,
                     flush_at=1,
                     before_send=ai_event_truncator,
-                    dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
                 )
 
             # Local deployment or hobby
@@ -526,6 +527,7 @@ class BaseAgentRunner(ABC):
                 "is_subagent": not self._use_checkpointer,
                 "slack_thread_context": self._slack_thread_context,
                 "is_agent_billable": self._is_agent_billable,
+                "event_source": self._event_source,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "tag": "max_ai",

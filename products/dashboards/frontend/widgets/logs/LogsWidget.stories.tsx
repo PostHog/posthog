@@ -83,7 +83,7 @@ function LogsWidgetTileStory({
 }
 
 const meta: Meta<typeof LogsWidgetTileStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Logs/Recent logs',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Logs/Recent logs',
     component: LogsWidgetTileStory,
     parameters: {
         layout: 'padded',

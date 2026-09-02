@@ -8,3 +8,6 @@ export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
 
 /** Which PostHog AI implementation the Max scene renders when the sandbox flag is on (see maxGlobalLogic). */
 export const PHAI_VIEW_MODE_KEY = 'posthog_ai_view_mode'
+
+/** Scene keys whose PostHog AI panel auto-open the user has dismissed (see sceneAgentPanelLogic). */
+export const PHAI_SCENE_AUTO_OPEN_DISMISSED_KEY = 'posthog_ai_scene_auto_open_dismissed'

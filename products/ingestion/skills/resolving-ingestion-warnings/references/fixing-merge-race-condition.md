@@ -17,7 +17,7 @@ A single user's identity operations should be rare — once per login/signup. Co
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with `type: merge_race_condition`. Sample details carry both sides (`sourcePersonDistinctId`, `targetPersonDistinctId`, the person UUIDs) and the triggering `event_uuid`.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'merge_race_condition' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. The `details` JSON carries both sides (`sourcePersonDistinctId`, `targetPersonDistinctId`, the person UUIDs) and the triggering `event_uuid`.
 2. **Check for a mega person first**: resolve the sampled distinct IDs to persons and count each person's distinct IDs (`posthog:persons-list`, or `posthog:execute-sql` against the person-distinct-ID mapping). A person with hundreds or thousands of distinct IDs is a merge magnet — the race warnings are a symptom, and the real bug is whatever shared value keeps getting passed to `identify` (look at the person's distinct ID list: an org slug, `"user"`, an email domain, a device model repeating tells you exactly which value leaked in).
 3. Measure the shape: a handful of scattered occurrences is benign concurrency; sustained counts or bursts around specific times point at a code path (deploy jobs, login storms, a sync cron).
 4. Find the caller: query the events table (`posthog:execute-sql`) for `$identify`/`$create_alias` events for the affected distinct IDs and look at their frequency and spacing — dozens of identifies per user per minute means an identify-per-request pattern; bursts at fixed times mean a batch job.
@@ -36,7 +36,7 @@ No PostHog-side setting needs changing — the protection is doing its job; the 
 
 ## Verify
 
-Re-run the flow, then re-query `posthog:ingestion-warnings-list` with a post-fix `since` — counts should drop to the occasional benign collision (multiple devices logging in simultaneously) or zero. Confirm previously-affected users resolve to a single person, and that no person's distinct ID count keeps climbing.
+Re-run the flow, then re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'merge_race_condition'`, `timestamp` after your fix) — counts should drop to the occasional benign collision (multiple devices logging in simultaneously) or zero. Confirm previously-affected users resolve to a single person, and that no person's distinct ID count keeps climbing.
 
 ## Related
 

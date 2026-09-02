@@ -2,7 +2,7 @@ import copy
 import hmac
 import hashlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Union
 from urllib.parse import quote, urlencode
 
@@ -19,6 +19,7 @@ import structlog
 from rest_framework import exceptions
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -41,6 +42,11 @@ from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 logger = structlog.get_logger(__name__)
 
 VercelItemType = Literal["flag", "experiment"]
+
+# Frameworks only expose an env var to client-side bundles if it carries their own prefix, so the
+# same values are injected under every prefix we support. NEXT_PUBLIC_ must stay first: it is the
+# original contract for already-installed users.
+CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
 
 class VercelSSOError(Exception):
@@ -81,9 +87,9 @@ class ResourceConfig:
     protocolSettings: dict[str, Any] | None = None
 
 
-@dataclass
+@frozen
 class InstallationCredentials:
-    access_token: str
+    access_token: str = field(repr=False)
     token_type: str
 
 
@@ -554,15 +560,14 @@ class VercelIntegration:
 
     @staticmethod
     def _build_secrets(team: Team) -> list[dict[str, str]]:
+        values = {
+            "POSTHOG_PROJECT_TOKEN": team.api_token,
+            "POSTHOG_HOST": absolute_uri(),
+        }
         return [
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-                "value": team.api_token,
-            },
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_HOST",
-                "value": absolute_uri(),
-            },
+            {"name": f"{prefix}{name}", "value": value}
+            for prefix in CLIENT_ENV_PREFIXES
+            for name, value in values.items()
         ]
 
     @staticmethod
@@ -608,12 +613,12 @@ class VercelIntegration:
     def _setup_vercel_client_for_team(team: Team) -> VercelSetupResult | None:
         resource = VercelIntegration._get_vercel_resource_for_team(team)
         if not resource:
-            logger.debug("Vercel resource not found for team", team_id=team.id, integration="vercel")
+            logger.info("Vercel resource not found for team", team_id=team.id, integration="vercel")
             return None
 
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
-            logger.debug(
+            logger.info(
                 "Vercel installation not found for organization",
                 team_id=team.pk,
                 organization_id=team.organization.pk,

@@ -9,6 +9,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
+from uuid import UUID
 
 from django.db import transaction
 from django.db.utils import IntegrityError
@@ -26,6 +27,7 @@ from posthog.slo.context import SloHandle, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async_pool
 
+from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     alert_internal_event_delivered,
     flush_alert_internal_events,
@@ -59,7 +61,12 @@ from products.logs.backend.alert_state_machine import (
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds, due_alerts_q
+from products.logs.backend.alert_utils import (
+    advance_next_check_at,
+    compute_shard_offset_seconds,
+    due_alerts_q,
+    next_allowed_check_at,
+)
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
@@ -286,6 +293,7 @@ class _DispatchedAlert:
     evaluation: _AlertEvaluation
     notification_failed: bool
     produce_result: ProduceResult | None = None
+    suppressed_by_quiet_hours: bool = False
 
     @property
     def committed_outcome(self) -> AlertCheckOutcome:
@@ -373,8 +381,11 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
             "check_interval_minutes",
             "filters",
             "next_check_at",
+            "schedule_restriction",
         )
     )
+    rescheduled_alert_ids = _reschedule_due_alerts_in_quiet_hours(rows, now)
+    rows = [row for row in rows if row["id"] not in rescheduled_alert_ids]
 
     _safe_record("alerts_active gauge", record_alerts_active, len(rows))
 
@@ -407,6 +418,39 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     # module-level env reads are non-deterministic on replay because Temporal's
     # sandbox re-imports the workflow module each time.
     return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
+
+
+def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -> set[UUID]:
+    alert_ids = [row["id"] for row in rows if row["schedule_restriction"]]
+    if not alert_ids:
+        return set()
+
+    rescheduled_alert_ids: set[UUID] = set()
+    with transaction.atomic():
+        alerts = _due_alerts_qs(now).select_for_update(of=("self",)).select_related("team").filter(id__in=alert_ids)
+        for alert in alerts:
+            try:
+                next_check_at = next_allowed_check_at(
+                    now,
+                    team_timezone=alert.team.timezone,
+                    schedule_restriction=alert.schedule_restriction,
+                )
+            except Exception as e:
+                logger.exception(
+                    "Skipping alert with invalid quiet-hours configuration",
+                    alert_id=str(alert.id),
+                    team_id=alert.team_id,
+                    error=str(e),
+                )
+                rescheduled_alert_ids.add(alert.id)
+                continue
+            if next_check_at <= now:
+                continue
+            alert.next_check_at = next_check_at
+            alert.save(update_fields=["next_check_at", "updated_at"])
+            rescheduled_alert_ids.add(alert.id)
+
+    return rescheduled_alert_ids
 
 
 def _detect_broken_filter_config(filters: object) -> str | None:
@@ -646,6 +690,25 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                         slo_handles[alert_id].fail(failure_phase="evaluation")
                         local_stats["errored"] += 1
 
+                delivery_slo_handles: dict[str, SloHandle] = {}
+                for evaluation in evaluations:
+                    delivery_action = evaluation.outcome.notification
+                    if delivery_action != NotificationAction.NONE:
+                        alert_id = str(evaluation.alert.id)
+                        delivery_slo_handles[alert_id] = slo_stack.enter_context(
+                            alert_delivery_slo(
+                                alert_type="logs",
+                                notification_action=delivery_action.value,
+                                distinct_id=alert_id,
+                                team_id=evaluation.alert.team_id,
+                                resource_id=alert_id,
+                                properties={
+                                    "check_interval_minutes": evaluation.alert.check_interval_minutes,
+                                    "window_minutes": evaluation.alert.window_minutes,
+                                },
+                            )
+                        )
+
                 dispatched_or_errors = await asyncio.gather(
                     *(dispatch_async(ev, now) for ev in evaluations),
                     return_exceptions=True,
@@ -663,7 +726,11 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                             exc_info=result,
                         )
                         slo_handles[alert_id].fail(failure_phase="dispatch")
+                        if delivery_slo := delivery_slo_handles.get(alert_id):
+                            delivery_slo.fail(failure_phase="dispatch")
                         local_stats["errored"] += 1
+                    elif result.suppressed_by_quiet_hours:
+                        continue
                     else:
                         dispatched.append(result)
                         elapsed_ms_per_alert.append(int((phase_2_end - eval_start) * 1000))
@@ -675,6 +742,14 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 # sparing quiet cohorts the thread hop.
                 if any(d.produce_result is not None for d in dispatched):
                     dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
+
+                for dispatched_alert in dispatched:
+                    alert_id = str(dispatched_alert.evaluation.alert.id)
+                    if delivery_slo := delivery_slo_handles.get(alert_id):
+                        if dispatched_alert.notification_failed:
+                            delivery_slo.fail(failure_phase="notification_delivery")
+                        else:
+                            delivery_slo.succeed()
 
                 try:
                     saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])
@@ -945,11 +1020,40 @@ def _dispatch_notification(
 
 
 def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _DispatchedAlert:
-    """Phase 2: dispatch the Kafka notification for one alert.
+    """Phase 2: defer blocked alerts or dispatch their Kafka notification."""
+    with transaction.atomic():
+        current_alert = (
+            LogsAlertConfiguration.objects.select_for_update(of=("self",))
+            .select_related("team")
+            .get(id=evaluation.alert.id)
+        )
+        try:
+            next_check_at = next_allowed_check_at(
+                now,
+                team_timezone=current_alert.team.timezone,
+                schedule_restriction=current_alert.schedule_restriction,
+            )
+        except Exception as e:
+            logger.exception(
+                "Skipping alert with invalid quiet-hours configuration",
+                alert_id=str(current_alert.id),
+                team_id=current_alert.team_id,
+                error=str(e),
+            )
+            return _DispatchedAlert(
+                evaluation=evaluation,
+                notification_failed=False,
+                suppressed_by_quiet_hours=True,
+            )
+        if next_check_at > now:
+            current_alert.next_check_at = next_check_at
+            current_alert.save(update_fields=["next_check_at", "updated_at"])
+            return _DispatchedAlert(
+                evaluation=evaluation,
+                notification_failed=False,
+                suppressed_by_quiet_hours=True,
+            )
 
-    Pure-effect (Kafka). The orchestrator updates `stats` serially after the
-    dispatch phase so concurrent gather'd dispatches can't race on the dict.
-    """
     produce_result = _dispatch_notification(
         evaluation.outcome,
         evaluation.alert,
@@ -1018,12 +1122,26 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
     # (the per-alert fallback's `alert.save()` would honour `auto_now`, but the
     # happy path is bulk_update).
     alert.updated_at = now
-    alert.next_check_at = advance_next_check_at(
+    next_check_at = advance_next_check_at(
         alert.next_check_at,
         alert.check_interval_minutes,
         now,
         shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
     )
+    try:
+        alert.next_check_at = next_allowed_check_at(
+            next_check_at,
+            team_timezone=alert.team.timezone,
+            schedule_restriction=alert.schedule_restriction,
+        )
+    except Exception as e:
+        logger.exception(
+            "Ignoring invalid quiet-hours configuration while saving alert",
+            alert_id=str(alert.id),
+            team_id=alert.team_id,
+            error=str(e),
+        )
+        alert.next_check_at = next_check_at
     update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
     if (
@@ -1080,25 +1198,29 @@ def _save_cohort_outcomes(
 
     save_start = time.perf_counter()
 
-    # Stage every alert exactly once: mutates the in-memory alert (apply_outcome,
-    # advance_next_check_at, etc.) and produces the (update_fields, event) tuple
-    # needed to write it. We keep the staged tuples so the IntegrityError
-    # fallback can save each alert individually without re-staging — calling
-    # `advance_next_check_at` twice would otherwise skip a cycle slot.
-    staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
-    for d in dispatched:
-        update_fields, event = _stage_alert_for_save(d, now)
-        staged.append((d, update_fields, event))
-
-    events = [event for _, _, event in staged if event is not None]
-    alerts = [d.evaluation.alert for d, _, _ in staged]
-
     event_insert_ms: int | None = None
     update_ms: int | None = None
     saved: list[_DispatchedAlert] = list(dispatched)
     failed: list[_DispatchedAlert] = []
     try:
         with transaction.atomic():
+            current_restrictions = dict(
+                LogsAlertConfiguration.objects.select_for_update()
+                .filter(id__in=[d.evaluation.alert.id for d in dispatched])
+                .values_list("id", "schedule_restriction")
+            )
+
+            # The worker can evaluate an alert while a user saves quiet hours. Locking
+            # before staging makes either write order safe: this worker uses the saved
+            # restriction, or the API waits and then reschedules after this check.
+            staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
+            for d in dispatched:
+                d.evaluation.alert.schedule_restriction = current_restrictions.get(d.evaluation.alert.id)
+                update_fields, event = _stage_alert_for_save(d, now)
+                staged.append((d, update_fields, event))
+
+            events = [event for _, _, event in staged if event is not None]
+            alerts = [d.evaluation.alert for d, _, _ in staged]
             if events:
                 event_insert_start = time.perf_counter()
                 LogsAlertEvent.objects.bulk_create(events)

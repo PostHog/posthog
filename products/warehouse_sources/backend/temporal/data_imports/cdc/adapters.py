@@ -40,6 +40,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader: ...
 
+    def position_to_seq(self, position_serialized: str) -> int:
+        """Convert an event's serialized position to the engine-neutral monotonic
+        integer used for `_ph_cdc_seq` and buffer-file position ranges (PG: the
+        LSN's 64-bit value). Must be strictly order-preserving within one source."""
+        ...
+
     @contextmanager
     def management_connection(self, source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[Any]: ...
 

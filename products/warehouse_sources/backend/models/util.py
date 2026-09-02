@@ -1,9 +1,10 @@
 import re
-import socket
 from collections.abc import Mapping
 from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, Union
 from urllib.parse import urlparse
+
+from django.conf import settings
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -20,6 +21,8 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
 )
+
+from posthog.security.url_validation import is_url_allowed
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -323,14 +326,21 @@ CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
     "Int16": "integer",
     "Int32": "integer",
     "Int64": "integer",
+    "Int128": "integer",
+    "UInt8": "integer",
+    "UInt16": "integer",
+    "UInt32": "integer",
     "UInt64": "integer",
+    "UInt128": "integer",
     "Float32": "float",
     "Float64": "float",
     "Bool": "boolean",
     "Date": "date",
+    "Date32": "date",
     "DateTime": "datetime",
     "DateTime64": "datetime",
     "String": "string",
+    "UUID": "string",
     "Decimal": "numeric",
 }
 
@@ -550,6 +560,127 @@ def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> di
     }
 
 
+def clickhouse_column_to_dwh_column(_column_name: str, clickhouse_type: str, nullable: bool) -> dict[str, Any]:
+    # The source is already ClickHouse, so the type string is a valid ClickHouse type — used verbatim.
+    # `system.columns.type` usually already encodes nullability, so only wrap when it doesn't.
+    ch_type = clickhouse_type.strip()
+    already_nullable = ch_type.startswith("Nullable(") or ch_type.startswith("LowCardinality(Nullable(")
+    if nullable and not already_nullable:
+        if ch_type.startswith("LowCardinality(") and ch_type.endswith(")"):
+            # LowCardinality must stay the outermost wrapper — ClickHouse rejects
+            # Nullable(LowCardinality(...)), so nest Nullable inside it instead.
+            inner = ch_type[len("LowCardinality(") : -1]
+            ch_type = f"LowCardinality(Nullable({inner}))"
+        else:
+            ch_type = f"Nullable({ch_type})"
+    raw_clickhouse_type = clean_type(ch_type)
+    return {
+        "clickhouse": ch_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def clickhouse_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: clickhouse_column_to_dwh_column(column_name, clickhouse_type, nullable)
+        for column_name, clickhouse_type, nullable in columns
+    }
+
+
+# DuckDB base type name (lowercased, parenthesized args stripped) -> ClickHouse type.
+# Anything absent maps to String, which round-trips every remaining DuckDB type
+# (JSON, INTERVAL, BLOB, ENUM, nested LIST/STRUCT/MAP/UNION renderings).
+DUCKDB_TO_CLICKHOUSE_TYPE: dict[str, str] = {
+    "tinyint": "Int8",
+    "smallint": "Int16",
+    "integer": "Int32",
+    "int": "Int32",
+    "bigint": "Int64",
+    "hugeint": "Int128",
+    "utinyint": "UInt8",
+    "usmallint": "UInt16",
+    "uinteger": "UInt32",
+    "ubigint": "UInt64",
+    "uhugeint": "UInt128",
+    "float": "Float32",
+    "real": "Float32",
+    "double": "Float64",
+    "decimal": "Decimal",
+    "numeric": "Decimal",
+    "boolean": "Bool",
+    "date": "Date32",
+    "timestamp": "DateTime64(6)",
+    "datetime": "DateTime64(6)",
+    "timestamp with time zone": "DateTime64(6, 'UTC')",
+    "timestamptz": "DateTime64(6, 'UTC')",
+    "timestamp_s": "DateTime64(0)",
+    "timestamp_ms": "DateTime64(3)",
+    "timestamp_ns": "DateTime64(9)",
+    "uuid": "UUID",
+}
+
+
+def normalize_duckdb_type(duckdb_type: str) -> str:
+    """Lowercased base type name: `DECIMAL(10,2)` -> `decimal`, `INTEGER[]` -> `integer[]`."""
+    base = duckdb_type.strip().lower()
+    if "(" in base and base.endswith(")"):
+        open_index = base.index("(")
+        close_index = base.rindex(")")
+        base = (base[:open_index] + base[close_index + 1 :]).strip()
+    return base
+
+
+def duckdb_to_clickhouse_type(duckdb_type: str) -> str:
+    normalized_type = normalize_duckdb_type(duckdb_type)
+    clickhouse_type = DUCKDB_TO_CLICKHOUSE_TYPE.get(normalized_type)
+    if clickhouse_type is not None:
+        return clickhouse_type
+    # Arrays keep their `[]` suffix through normalization, so check before the scalar
+    # prefix fallbacks below or `DECIMAL(18,3)[]` would come out as a scalar Decimal.
+    if normalized_type.endswith("]"):
+        return "String"
+    if normalized_type.startswith(("decimal", "numeric")):
+        return "Decimal"
+    if normalized_type.startswith("timestamp"):
+        return "DateTime64(6)"
+    # JSON/INTERVAL/BLOB/ENUM and nested LIST/STRUCT/MAP/UNION render as String.
+    return "String"
+
+
+def motherduck_column_to_dwh_column(_column_name: str, duckdb_type: str, nullable: bool) -> dict[str, Any]:
+    clickhouse_type = duckdb_to_clickhouse_type(duckdb_type)
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def motherduck_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: motherduck_column_to_dwh_column(column_name, duckdb_type, nullable)
+        for column_name, duckdb_type, nullable in columns
+    }
+
+
+def trino_column_to_dwh_column(column_name: str, trino_type: str, nullable: bool) -> dict[str, Any]:
+    return motherduck_column_to_dwh_column(column_name, trino_type, nullable)
+
+
+def trino_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: trino_column_to_dwh_column(column_name, trino_type, nullable)
+        for column_name, trino_type, nullable in columns
+    }
+
+
+# Used by mixins.resolve_host for direct SQL-source connections (its own IP-pinning check).
+# validate_warehouse_table_url_pattern below calls posthog.security.url_validation instead.
 def _is_safe_public_ip(host: str) -> bool:
     ip = ip_address(host)
 
@@ -565,6 +696,163 @@ def _is_safe_public_ip(host: str) -> bool:
     )
 
 
+# The AWS half matches the global, regional, dashed-regional, dualstack and accelerate endpoints,
+# because a bucket answers on all of them and each one resolves to the same objects.
+_STORAGE_ENDPOINT = r"(?:s3[.-][a-z0-9.-]*amazonaws\.com|storage\.googleapis\.com)"
+_PATH_STYLE_STORAGE_HOST = re.compile(rf"^{_STORAGE_ENDPOINT}$")
+_VIRTUAL_HOSTED_STORAGE_HOST = re.compile(rf"^(?P<bucket>.+?)\.{_STORAGE_ENDPOINT}$")
+
+# ClickHouse expands these in an s3() URL. They belong in the key, never in the bucket position.
+_GLOB_METACHARACTERS = frozenset("*?{}[]")
+
+_NOT_OUR_STORAGE = (
+    "This URL points to PostHog's internal storage and can't be used as a source. "
+    "Enter the location of your own bucket instead."
+)
+
+
+# Every Django setting naming a bucket the ClickHouse node role can read, so a table's
+# url_pattern must never resolve to one - see _posthog_owned_bucket_names below.
+# test_bucket_settings_are_all_triaged in test_util.py enumerates every "*_BUCKET" setting that
+# exists and fails if one isn't listed here or in _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE,
+# so a newly added "*_BUCKET" setting can't silently miss this check the way this one originally
+# did. BUCKET_PATH and BUCKET_URL are the two names here that don't follow that suffix, so they
+# have to stay listed by hand; the test can't discover either on its own. BUCKET_URL is the
+# warehouse pipelines' actual storage root (an `s3://bucket` URI, not a bare name - see the
+# s3:// handling in _posthog_owned_bucket_names) and is configured independently of
+# DATAWAREHOUSE_BUCKET/BUCKET_PATH, so a deployment that points it at a different bucket was
+# reachable through a table's url_pattern until this line was added.
+#
+# CLICKHOUSE_BACKUPS_BUCKET, DICTIONARY_STAGING_S3_BUCKET, IDENTITY_MATCHING_S3_BUCKET,
+# NOTEBOOKS_FRAME_STORE_S3_BUCKET, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET, and
+# QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here because each is read or written by ClickHouse's own
+# `s3(...)` / `BACKUP ... TO S3(...)` with no explicit access key in the query, the same credential-less
+# shape the original vulnerability exploited - not because a customer's url_pattern can reach them today.
+#
+# DICTIONARY_STAGING_S3_BUCKET and NOTEBOOKS_FRAME_STORE_S3_BUCKET both fall back to
+# OBJECT_STORAGE_BUCKET, so they widen this set only on a deployment that points either one at a
+# bucket of its own, which cloud does for frames. Both writers (posthog/dags/common/staged_dictionary.py
+# and notebooks' frame_materialize.py) omit credentials whenever their own endpoint setting is empty,
+# and it is empty on prod, so ClickHouse reaches the object through its node role.
+#
+# BATCH_EXPORT_INTERNAL_STAGING_BUCKET is the same shape: internal_stage.py's get_s3_function_call
+# omits credentials whenever _get_s3_credentials() returns None, which it does on every cloud
+# deployment (_uses_object_storage_endpoint() is false there) - "we omit credentials and ClickHouse
+# uses the default credential provider chain" per that function's own docstring. That every team's
+# batch-export data lands there under aioboto3 elsewhere doesn't change that ClickHouse itself
+# writes there keylessly first.
+_POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
+    "BATCH_EXPORT_INTERNAL_STAGING_BUCKET",
+    "BUCKET_PATH",
+    "BUCKET_URL",
+    "CLICKHOUSE_BACKUPS_BUCKET",
+    "DATAWAREHOUSE_BUCKET",
+    "DICTIONARY_STAGING_S3_BUCKET",
+    "IDENTITY_MATCHING_S3_BUCKET",
+    "NOTEBOOKS_FRAME_STORE_S3_BUCKET",
+    "OBJECT_STORAGE_BUCKET",
+    "OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET",
+    "QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET",
+    "SESSION_RECORDING_V2_S3_BUCKET",
+)
+
+# "*_BUCKET" settings checked and found to be read only through a Python process's own boto3/aioboto3
+# client (a different IAM identity than the ClickHouse node role) or to have no reader in this
+# codebase at all - never through ClickHouse's `s3(...)`/`BACKUP...S3(...)`, the credential-less
+# access pattern that makes a bucket reachable by the node role. Each reason names what was actually
+# checked; "no reader found" means exactly that, not a claim that none exists in a non-Python service.
+#
+# This registry can only ever cover buckets a Django setting names. A bucket the node role can read
+# but whose name comes from elsewhere - a database row, a control-plane API call - is invisible to
+# it by construction; posthog/dags/events_backfill_to_duckling.py resolves a per-organization bucket
+# that way, with the same "ClickHouse uses its EC2 instance role, no credentials needed" shape. The
+# load-bearing control against that class is TableSerializer requiring a credential whenever
+# url_pattern is set or changed (products/data_warehouse/backend/presentation/views/table.py), not
+# this list - this registry only backstops the credential-less-by-design tables PostHog's own code
+# creates (self-managed uploads, pipeline syncs), where the URL is known in advance.
+_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
+    "AGENT_BUNDLES_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+    "AI_BLOB_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by ai_observability/backend/api/ai_blob.py",
+    "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "written via a pre-signed URL over an assumed STS role, and read via aioboto3 - never by ClickHouse",
+    "BILLING_USAGE_REPORTS_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by posthog/temporal/usage_report/storage.py",
+    "DAGSTER_AI_EVALS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/posthog_ai/dags/utils.py",
+    "DAGSTER_FAVICONS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/web_analytics/dags/cache_favicons.py",
+    "DAGSTER_S3_BUCKET": "read via Dagster's own S3Resource (boto3), the pickle io-manager's storage",
+    "INBOX_RANKING_DATASET_S3_BUCKET": "read via boto3 by products/signals/dags/inbox_ranking/common.py",
+    "MANAGED_MIGRATIONS_TRIAL_S3_BUCKET": "read via boto3 by products/managed_migrations/backend/trial_storage.py",
+    "POSTHOG_JS_S3_BUCKET": "read via boto3 by posthog/models/js_snippet_versioning.py",
+    "QUERY_CACHE_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+    "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET": "no reader found in this codebase",
+    "VIDEO_SEGMENT_CLUSTERING_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+}
+
+
+def _posthog_owned_bucket_names() -> set[str]:
+    """Buckets PostHog owns, so a table must never be pointed at one.
+
+    A self-managed table reads through ClickHouse, which falls back to its node IAM role when the
+    table carries no credential. These are the buckets that role can reach, and they hold every
+    team's data, so reading one across the API would cross the tenant boundary.
+    """
+    owned: set[str] = set()
+    for setting_name in _POSTHOG_OWNED_BUCKET_SETTING_NAMES:
+        value = getattr(settings, setting_name, None)
+        if not value:
+            continue
+        value = str(value)
+        # BUCKET_URL is a full `s3://bucket` URI rather than a bare bucket name; the rest are
+        # sometimes configured as `bucket/prefix`, where only the leading segment is the bucket.
+        bucket = urlparse(value).netloc if value.startswith("s3://") else value.strip("/").split("/", 1)[0]
+        if bucket:
+            owned.add(bucket)
+    return owned
+
+
+def _validate_url_pattern_is_not_posthog_storage(
+    url_pattern: str, normalized_hostname: str, path: str
+) -> tuple[bool, str]:
+    """Reject a URL that addresses PostHog's own object storage, in any of the forms S3 accepts.
+
+    A bucket answers to both a virtual-hosted host (`<bucket>.s3.<region>.amazonaws.com`) and a
+    path-style one (`s3.<region>.amazonaws.com/<bucket>`), so a host check alone leaves the same
+    object reachable under a name that doesn't look like ours.
+    """
+    configured_domain = (settings.DATAWAREHOUSE_BUCKET_DOMAIN or "").lower().strip()
+    if configured_domain and configured_domain in url_pattern.lower():
+        return False, _NOT_OUR_STORAGE
+
+    owned_buckets = _posthog_owned_bucket_names()
+
+    virtual_hosted = _VIRTUAL_HOSTED_STORAGE_HOST.match(normalized_hostname)
+    if virtual_hosted:
+        if virtual_hosted.group("bucket") in owned_buckets:
+            return False, _NOT_OUR_STORAGE
+        return True, ""
+
+    if _PATH_STYLE_STORAGE_HOST.match(normalized_hostname):
+        segments = path.lstrip("/").split("/")
+        bucket = segments[0]
+        # A glob here expands across buckets rather than within one, so it can reach ours whatever
+        # it looks like. No source needs to pattern-match a bucket name.
+        if any(character in _GLOB_METACHARACTERS for character in bucket):
+            return False, "The bucket name in a URL pattern must be exact. Wildcards belong in the file path."
+        # A percent-encoded slash here would put a second path segment (potentially one of our own
+        # bucket names) after whatever the request client decodes it into, while this check still
+        # sees it as part of one opaque bucket segment. Reject the encoding outright rather than
+        # depend on this parser agreeing with ClickHouse's about where it splits.
+        if "%" in bucket:
+            return False, "The bucket name in a URL pattern can't contain percent-encoded characters."
+        # Same reasoning as the percent-encoding check: a literal "." or ".." segment is opaque to
+        # this parser (bucket is just the first segment), but would let a path-normalizing client
+        # resolve a different bucket than the one checked below. No object key legitimately needs one.
+        if any(segment in (".", "..") for segment in segments):
+            return False, "The path in a URL pattern can't contain '.' or '..' segments."
+        if bucket in owned_buckets:
+            return False, _NOT_OUR_STORAGE
+
+    return True, ""
+
+
 def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool, str]:
     if not url_pattern:
         return True, ""
@@ -577,24 +865,21 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
         return False, "URL pattern must include a valid hostname."
 
     normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
-    if normalized_hostname in {"localhost"}:
-        return False, "URL pattern hostname is not allowed."
 
-    # Block direct internal IP literals.
-    try:
-        if not _is_safe_public_ip(parsed.hostname):
-            return False, "URL pattern hostname must not resolve to internal IP ranges."
-    except ValueError:
-        pass
+    # Runs before the generic SSRF check below so a URL aimed at our own storage always reports
+    # that, rather than whatever the internal hostname happens to resolve to.
+    is_valid, error_message = _validate_url_pattern_is_not_posthog_storage(
+        url_pattern, normalized_hostname, parsed.path
+    )
+    if not is_valid:
+        return is_valid, error_message
 
-    # Resolve the hostname and block if any resolved IP is internal (catches DNS rebinding services).
-    try:
-        addrinfo = socket.getaddrinfo(normalized_hostname, None, proto=socket.IPPROTO_TCP)
-        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
-            resolved_ip = sockaddr[0]
-            if not _is_safe_public_ip(str(resolved_ip)):
-                return False, "URL pattern hostname must not resolve to internal IP ranges."
-    except socket.gaierror:
-        return False, "URL pattern hostname could not be resolved."
+    # is_url_allowed is the same SSRF guard used for outbound fetches elsewhere in the codebase
+    # (webhook destinations, integration probes, sibling warehouse_sources connectors): metadata
+    # IPs, loopback/internal-TLD hosts, the backslash/%5c authority-parsing mismatch between
+    # urlparse and the client that actually connects, and DNS resolution to a private IP.
+    allowed, reason = is_url_allowed(url_pattern)
+    if not allowed:
+        return False, reason or "URL pattern hostname is not allowed."
 
     return True, ""

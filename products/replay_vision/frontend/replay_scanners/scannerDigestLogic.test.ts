@@ -8,10 +8,11 @@ import { scannerDigestLogic } from './scannerDigestLogic'
 
 const DIGEST = {
     id: 'd1',
-    name: 'Daily digest: my-scanner',
+    name: 'Featured digest: my-scanner',
     scanner: 's1',
     enabled: true,
     is_scanner_digest: true,
+    mode: 'group_summary',
     trigger_config: { rrule: 'FREQ=DAILY;BYHOUR=8;BYMINUTE=0', timezone: 'UTC' },
     delivery_config: [],
 } as unknown as VisionActionApi
@@ -22,7 +23,19 @@ const OTHER_SUMMARY = {
     scanner: 's1',
     enabled: true,
     is_scanner_digest: false,
+    mode: 'group_summary',
     trigger_config: { rrule: 'FREQ=DAILY' },
+    delivery_config: [],
+} as unknown as VisionActionApi
+
+const ALERT = {
+    id: 'al1',
+    name: 'checkout alert',
+    scanner: 's1',
+    enabled: true,
+    is_scanner_digest: false,
+    mode: 'alert',
+    trigger_config: { rrule: 'FREQ=HOURLY' },
     delivery_config: [],
 } as unknown as VisionActionApi
 
@@ -99,7 +112,7 @@ describe('scannerDigestLogic', () => {
             .toDispatchActions(['createDigestSuccess', 'addAction', 'loadLatestRunSuccess'])
             .toFinishAllListeners()
         expect(body).toMatchObject({
-            name: 'Daily digest: my-scanner',
+            name: 'Featured digest: my-scanner',
             scanner: 's1',
             is_scanner_digest: true,
             trigger_config: { rrule: 'FREQ=DAILY;BYHOUR=8;BYMINUTE=0' },
@@ -108,6 +121,35 @@ describe('scannerDigestLogic', () => {
         // The card renders the created digest immediately (no null-rendering gap).
         expect(logic.values.digest?.id).toEqual('d-new')
         expect(logic.values.latestRunLoading).toEqual(false)
+    })
+
+    it('offers only non-digest group summaries as promotion candidates', async () => {
+        // Alerts don't produce a renderable summary, and the current digest isn't its own candidate.
+        useMocks(mocksFor([DIGEST, OTHER_SUMMARY, ALERT]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.promotableSummaries.map((a) => a.id)).toEqual(['a1'])
+    })
+
+    it('promoteDigest flags the chosen summary and reloads the list', async () => {
+        useMocks(mocksFor([OTHER_SUMMARY]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        let body: any = null
+        useMocks({
+            patch: {
+                '/api/projects/:team/vision/actions/:action/': async ({ request }) => {
+                    body = await request.json()
+                    return [200, { ...OTHER_SUMMARY, is_scanner_digest: true }]
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.promoteDigest('a1')
+        })
+            .toDispatchActions(['promoteDigestSuccess', 'loadActions'])
+            .toFinishAllListeners()
+        expect(body).toEqual({ is_scanner_digest: true })
     })
 
     it('runNow posts to the digest run endpoint and clears its loading state', async () => {

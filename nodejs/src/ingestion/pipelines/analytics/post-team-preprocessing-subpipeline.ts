@@ -23,11 +23,11 @@ import {
     createValidateEventSchemaStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
+import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
+import { prefetchHogFunctionsStep } from '~/ingestion/pipelines/analytics/steps/prefetchHogFunctionsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
-import { processPersonlessDistinctIdsChunkStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
@@ -53,10 +53,10 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
+    eventSchemasPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
-    flagCalledPersonlessDefaultTeams: string
     hogTransformer: HogTransformer
-    cdpHogWatcherSampleRate: number
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -64,8 +64,9 @@ export function createPostTeamPreprocessingSubpipeline<
     TInput extends PostTeamPreprocessingSubpipelineInput,
     TContext,
     R extends string = never,
+    D = unknown,
 >(
-    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R>,
+    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R, D>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
@@ -80,14 +81,23 @@ export function createPostTeamPreprocessingSubpipeline<
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         groupTypeManager,
-        flagCalledPersonlessDefaultTeams,
         hogTransformer,
-        cdpHogWatcherSampleRate,
     } = config
 
     return (
         builder
+            // Warm the schema cache with one batched load per chunk before the sequential chain
+            // below reads it one event at a time. The prefetch shares the enforcement flag,
+            // matching when the validation step reads the cache.
+            .pipeChunk(
+                prefetchEventSchemasStep(
+                    eventSchemaEnforcementManager,
+                    eventSchemasPrefetchEnabled && eventSchemaEnforcementEnabled
+                )
+            )
             // These validation steps are synchronous, so we can process events sequentially.
             .sequentially((b) =>
                 b
@@ -123,20 +133,9 @@ export function createPostTeamPreprocessingSubpipeline<
             // Same best-effort, fire-and-forget cache warming for groups: one
             // batched fetch for the chunk's $groupidentify group keys.
             .pipeChunk(prefetchGroupsStep(groupTypeManager, groupsPrefetchEnabled))
-            // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
-            // This step awaits its DB write, so retry transient persons-Postgres failures
-            // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeChunk(
-                processPersonlessDistinctIdsChunkStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
-                {
-                    retry: {
-                        tries: 5,
-                        sleepMs: 100,
-                        name: 'personless_distinct_ids',
-                    },
-                }
-            )
-            // Prefetch hog functions for all teams in the batch
-            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
+            // Warm the transformation hog-function cache last, after the drop steps above, so
+            // only teams with surviving events are loaded. The transformer runs much later in
+            // the event subpipeline, so the load still lands well ahead of its reads.
+            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, hogFunctionsPrefetchEnabled))
     )
 }

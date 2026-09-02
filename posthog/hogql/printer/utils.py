@@ -43,7 +43,6 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
 )
-from posthog.hogql.transforms.uuid_timestamp_bounds import apply_uuid_v7_timestamp_bounds
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -66,8 +65,13 @@ def to_printed_hogql(
     modifiers: "HogQLQueryModifiers | None" = None,
     *,
     bypass_warehouse_access_control: bool = False,
+    database: Database | None = None,
 ) -> str:
-    """Prints the HogQL query without mutating the node"""
+    """Prints the HogQL query without mutating the node.
+
+    Pass `database` to reuse an already-built schema instead of building a new one — building the
+    full database is the dominant cost of printing on teams with many warehouse tables.
+    """
     return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
@@ -76,6 +80,7 @@ def to_printed_hogql(
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
             bypass_warehouse_access_control=bypass_warehouse_access_control,
+            database=database,
         ),
         pretty=True,
     )[0]
@@ -143,31 +148,59 @@ def prepare_ast_for_printing(
                 user=context.user,
                 timings=context.timings,
                 bypass_warehouse_access_control=context.bypass_warehouse_access_control,
+                trigger="printer",
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
-    # Load property-level access control restrictions onto the context. They are enforced only on the ClickHouse path —
-    # the printer wraps the JSON blob in JSONDropKeys, and property resolution declines backing columns (and reads a
-    # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
-    # sources, which carry no restrictable event/person properties, so they need no enforcement here.
+    if dialect == "trino":
+        from posthog.hogql.transforms.trino.normalize import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            normalize_trino_ast,
+        )
+        from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_context,
+            validate_trino_source_ast,
+        )
+
+        with context.timings.measure("validate_trino_context"):
+            validate_trino_context(context)
+        with context.timings.measure("validate_trino_source_ast"):
+            validate_trino_source_ast(node)
+
+    # Load restrictions before type resolution because ClickHouse removes restricted fields while resolving properties.
+    # Trino rejects the entire compilation because partial masking could miss indirect reads through expanded queries.
+    # Postgres and DuckDB compile external warehouse sources, which do not contain restrictable event/person properties.
     if context.team_id is not None and context.restricted_properties is None:
         # Deferred: a Django-side load at the prepare boundary (same seam as Database.create_for and
         # load_property_metadata) — keeping it behind the call is what lets the printer package import
         # without django.setup().
         from products.access_control.backend.property_access_control import (  # noqa: PLC0415
-            get_restricted_properties_for_team,
+            get_restricted_properties_with_group_type_index_for_team,
         )
 
         with context.timings.measure("load_restricted_properties"):
             if context.team is not None and context.team.pk == context.team_id:
-                context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
+                context.restricted_properties = get_restricted_properties_with_group_type_index_for_team(
+                    user=context.user, team=context.team
+                )
             else:
-                context.restricted_properties = get_restricted_properties_for_team(
+                context.restricted_properties = get_restricted_properties_with_group_type_index_for_team(
                     user=context.user, team_id=context.team_id
                 )
+
+    if dialect == "trino" and context.restricted_properties:
+        from posthog.hogql.transforms.trino.errors import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            TrinoLoweringError,
+        )
+
+        raise TrinoLoweringError(
+            "TRINO_RESTRICTED_PROPERTIES_UNSUPPORTED",
+            "property-level access control",
+            node if isinstance(node, ast.Expr) else None,
+            detail="Trino compilation is unavailable when property-level access restrictions apply.",
+        )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
@@ -198,15 +231,11 @@ def prepare_ast_for_printing(
                 resolver_factory=resolver_factory,
             )
 
-    if context.enable_type_aware_cast_simplification:
+    # Modifier drives the production rollout (per-team override / staged default); the context flag
+    # remains as the direct opt-in for tests and internal callers.
+    if context.enable_type_aware_cast_simplification or context.modifiers.typeAwareCastSimplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
-
-    # ClickHouse only: must run before predicate pushdown so the bound lands in its
-    # pre-filtering subquery, and the HogQL dialect must echo the user's query unchanged.
-    if dialect == "clickhouse":
-        with context.timings.measure("uuid_v7_timestamp_bounds"):
-            node = apply_uuid_v7_timestamp_bounds(node)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
@@ -230,6 +259,19 @@ def prepare_ast_for_printing(
         # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
         # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
         context.cte_database_table_cache.clear()
+
+    if dialect == "trino":
+        with context.timings.measure("trino_structural_lowering"):
+            node = cast(_T_AST, normalize_trino_ast(node, context))
+        with context.timings.measure("resolve_types_after_trino_structural_lowering"):
+            node = clone_expr(node, clear_types=True)
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
 
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
@@ -262,6 +304,17 @@ def prepare_ast_for_printing(
 
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+        # Sibling aggregating LEFT JOINs over federated Postgres tables execute their scans
+        # sequentially; merging them into one UNION ALL join overlaps the per-scan latency.
+        if context.modifiers is not None and context.modifiers.mergeFederatedAggregateJoins:
+            with context.timings.measure("merge_federated_aggregate_joins"):
+                # Deferred: same module-level cycle as clickhouse_property_resolution below.
+                from posthog.hogql.transforms.federated_join_merge import (
+                    merge_federated_aggregate_joins,  # noqa: PLC0415
+                )
+
+                node = merge_federated_aggregate_joins(node, context, dialect, stack, resolver_factory=resolver_factory)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
@@ -326,6 +379,18 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
+    if dialect == "trino":
+        from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_ready_ast,
+        )
+
+        with context.timings.measure("finalize_trino_lowering"):
+            node = cast(_T_AST, normalize_trino_ast(node, context))
+        with context.timings.measure("finalize_trino_property_access"):
+            node = lower_property_access(node, context)
+        with context.timings.measure("validate_trino_ready_ast"):
+            validate_trino_ready_ast(node, context)
+
     # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
     if dialect == "clickhouse":
         with context.timings.measure("simplify_argmax_over_non_nullable"):
@@ -346,7 +411,14 @@ def print_prepared_ast(
     with context.timings.measure("printer"):
         printer_stack = cast(list[ast.AST], stack or [])
 
-        printer_class = PRINTER_CLASSES.get(dialect)
+        if dialect == "trino":
+            from posthog.hogql.printer.trino import (  # noqa: PLC0415 -- other dialects do not need the Trino backend
+                TrinoPrinter,
+            )
+
+            printer_class: type[BasePrinter] | None = TrinoPrinter
+        else:
+            printer_class = PRINTER_CLASSES.get(dialect)
         if printer_class is None:
             raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 

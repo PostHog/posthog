@@ -3,6 +3,7 @@ import typing
 import asyncio
 import secrets
 import datetime as dt
+import functools
 import contextlib
 import dataclasses
 import collections.abc
@@ -11,6 +12,8 @@ import pyarrow as pa
 import aioboto3
 import botocore.exceptions
 from aiobotocore.config import AioConfig
+from aiobotocore.credentials import AioRefreshableCredentials
+from aiobotocore.session import get_session
 from opentelemetry import trace
 
 if typing.TYPE_CHECKING:
@@ -20,15 +23,15 @@ if typing.TYPE_CHECKING:
 from django.conf import settings
 
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import (
-    AwsS3Integration,
-    AwsS3RoleBasedIntegration,
+    AWSS3Integration,
+    AWSS3RoleBasedIntegration,
     Integration,
+    IntegrationError,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -43,10 +46,10 @@ from products.batch_exports.backend.service import (
     S3BatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -66,7 +69,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_json_stream_transformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
@@ -93,7 +96,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
-    "S3CredentialIntegrationError",
+    "IntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -113,6 +116,8 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 TRACER = trace.get_tracer(__name__)
 SESSION = aioboto3.Session()
+
+RefreshCoroutine = typing.Callable[[], typing.Awaitable[AWSCredentials]]
 
 
 class UnsupportedFileFormatError(Exception):
@@ -138,12 +143,12 @@ class S3IntegrationNotFoundError(Exception):
 
 async def _get_s3_integration(
     integration_id: int, team_id: int
-) -> AwsS3RoleBasedIntegration | AwsS3Integration | S3CompatibleIntegration:
+) -> AWSS3RoleBasedIntegration | AWSS3Integration | S3CompatibleIntegration:
     """Fetch an S3-family integration from the database.
 
     The kind is validated on create by the batch export serializer, so the wrong-kind branch is
     purely defensive against an integration whose kind was changed out from under the export.
-    `AwsS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    `AWSS3Integration`/`S3CompatibleIntegration` themselves raise `IntegrationError` if
     the credentials are malformed.
     """
     try:
@@ -153,19 +158,19 @@ async def _get_s3_integration(
 
     if integration.kind == Integration.IntegrationKind.AWS_S3:
         if "aws_role_arn" in integration.config:
-            return AwsS3RoleBasedIntegration(integration)
-        return AwsS3Integration(integration)
+            return AWSS3RoleBasedIntegration(integration)
+        return AWSS3Integration(integration)
 
     if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
 
-    raise S3CredentialIntegrationError(
+    raise IntegrationError(
         f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
         f"(kind='{integration.kind}')"
     )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
 
@@ -180,8 +185,8 @@ class S3InsertInputs(BatchExportInsertInputs):
     # at run time; otherwise the inline credentials below are used (legacy path).
     integration_id: int | None = None
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    aws_session_token: str | None = None
+    aws_secret_access_key: str | None = dataclasses.field(default=None, repr=False)
+    aws_session_token: str | None = dataclasses.field(default=None, repr=False)
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
@@ -190,6 +195,8 @@ class S3InsertInputs(BatchExportInsertInputs):
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     use_virtual_style_addressing: bool = False
+    # Only usable when calling the activity as a function, Temporal cannot serialize this.
+    refresh_credentials: RefreshCoroutine | None = None
 
 
 def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
@@ -260,7 +267,6 @@ def s3_default_fields() -> list[BatchExportField]:
     """
     batch_export_fields = default_fields()
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
-    batch_export_fields.append({"expression": "person_properties", "alias": "person_properties"})
     batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 
     # Again, in contrast to other destinations, and for historical reasons, we do not include these fields.
@@ -295,16 +301,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -321,8 +325,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -333,8 +339,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=inputs.endpoint_url or None,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -369,7 +375,7 @@ class S3BatchExportResult(BatchExportResult):
 class PolicyStatement(typing.TypedDict):
     Effect: typing.Literal["Allow", "Deny"]
     Action: list[str]
-    Resource: str
+    Resource: list[str] | str
 
 
 async def get_credentials_using_user_aws_role(
@@ -489,23 +495,66 @@ async def get_credentials_using_user_aws_role(
         aws_access_key_id=second_response["Credentials"]["AccessKeyId"],
         aws_secret_access_key=second_response["Credentials"]["SecretAccessKey"],
         aws_session_token=second_response["Credentials"]["SessionToken"],
+        expiration=second_response["Credentials"]["Expiration"],
     )
+
+
+def make_refresh_credentials_as_metadata(
+    refresh_using: RefreshCoroutine,
+) -> typing.Callable[[], typing.Awaitable[dict[str, str]]]:
+    async def _refresh():
+        creds = await refresh_using()
+
+        assert creds.aws_session_token
+        assert creds.expiry_time
+
+        return {
+            "access_key": creds.aws_access_key_id,
+            "secret_key": creds.aws_secret_access_key,
+            "token": creds.aws_session_token,
+            "expiry_time": creds.expiry_time,
+        }
+
+    return _refresh
+
+
+def get_refreshable_session(credentials: AWSCredentials, refresh_using: RefreshCoroutine) -> aioboto3.Session:
+    wrapped = make_refresh_credentials_as_metadata(refresh_using)
+
+    assert credentials.aws_session_token
+    assert credentials.expiration
+
+    refreshable_credentials = AioRefreshableCredentials(
+        access_key=credentials.aws_access_key_id,
+        secret_key=credentials.aws_secret_access_key,
+        token=credentials.aws_session_token,
+        expiry_time=credentials.expiration,
+        refresh_using=wrapped,
+        method="sts-assume-role",
+    )
+
+    botocore_session = get_session()
+    botocore_session._credentials = refreshable_credentials  # type: ignore[attr-defined]
+
+    return aioboto3.Session(botocore_session=botocore_session)
 
 
 @contextlib.asynccontextmanager
 async def s3_client(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: str | None,
+    aws_credentials: AWSCredentials,
     region: str,
     use_virtual_style_addressing: bool = False,
     endpoint_url: str | None = None,
+    refresh_using: RefreshCoroutine | None = None,
 ) -> collections.abc.AsyncIterator["S3Client"]:
-    session = aioboto3.Session(
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
-        aws_session_token=aws_session_token,
-    )
+    if refresh_using is not None:
+        session = get_refreshable_session(aws_credentials, refresh_using)
+    else:
+        session = aioboto3.Session(
+            aws_access_key_id=aws_credentials.aws_access_key_id,
+            aws_secret_access_key=aws_credentials.aws_secret_access_key,
+            aws_session_token=aws_credentials.aws_session_token,
+        )
 
     config: dict[str, typing.Any] = {
         # Increase connection pool, so to ensure we're not limited by this
@@ -561,19 +610,19 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
     async with Heartbeater():
         # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
         # TODO: require integration
-        aws_access_key_id = inputs.aws_access_key_id
-        aws_secret_access_key = inputs.aws_secret_access_key
-        aws_session_token = inputs.aws_session_token
         endpoint_url = inputs.endpoint_url
+        refresh_credentials = inputs.refresh_credentials
 
         if inputs.integration_id is not None:
             integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
 
-            if isinstance(integration, AwsS3Integration):
-                aws_access_key_id = integration.aws_access_key_id
-                aws_secret_access_key = integration.aws_secret_access_key
+            if isinstance(integration, AWSS3Integration):
+                credentials = AWSCredentials(
+                    aws_access_key_id=integration.aws_access_key_id,
+                    aws_secret_access_key=integration.aws_secret_access_key,
+                )
 
-            if isinstance(integration, AwsS3RoleBasedIntegration):
+            if isinstance(integration, AWSS3RoleBasedIntegration):
                 team = await Team.objects.aget(id=inputs.team_id)
                 external_id = f"posthog-{team.organization_id}"
 
@@ -620,27 +669,33 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                         )
                     )
 
-                credentials = await get_credentials_using_user_aws_role(
+                refresh_credentials = functools.partial(
+                    get_credentials_using_user_aws_role,
                     integration.aws_role_arn,
                     external_id,
                     session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
                     policy_statements=policy_statements,
                 )
-                aws_access_key_id, aws_secret_access_key, aws_session_token = (
-                    credentials.aws_access_key_id,
-                    credentials.aws_secret_access_key,
-                    credentials.aws_session_token,
-                )
+                credentials = await refresh_credentials()
 
             if isinstance(integration, S3CompatibleIntegration):
-                aws_access_key_id = integration.aws_access_key_id
-                aws_secret_access_key = integration.aws_secret_access_key
+                credentials = AWSCredentials(
+                    aws_access_key_id=integration.aws_access_key_id,
+                    aws_secret_access_key=integration.aws_secret_access_key,
+                )
                 endpoint_url = integration.endpoint_url
 
-        if not aws_access_key_id or not aws_secret_access_key:
-            # At these point these need to be defined: either by us assuming a new
-            # role, by an integration, or by the inputs.
-            raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
+        else:
+            if refresh_credentials is not None:
+                credentials = await refresh_credentials()
+            else:
+                if not inputs.aws_access_key_id or not inputs.aws_secret_access_key:
+                    raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
+                credentials = AWSCredentials(
+                    aws_access_key_id=inputs.aws_access_key_id,
+                    aws_secret_access_key=inputs.aws_secret_access_key,
+                    aws_session_token=inputs.aws_session_token,
+                )
 
         external_logger = EXTERNAL_LOGGER.bind()
         external_logger.info(
@@ -696,18 +751,18 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             )
 
         async with s3_client(
-            aws_access_key_id,
-            aws_secret_access_key,
-            aws_session_token,
+            credentials,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
             region=inputs.region,
             endpoint_url=endpoint_url,
+            refresh_using=refresh_credentials,
         ) as client:
             consumer = ConcurrentS3Consumer.from_inputs(
                 s3_client=client,
                 s3_inputs=inputs,
                 part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+                checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
             )
 
             result = await run_consumer_from_stage(
@@ -735,7 +790,7 @@ class ConcurrentS3Consumer(Consumer):
     concurrent uploads and the memory buffer.
     """
 
-    UPLOAD_PART_MAX_ATTEMPTS: int = 5
+    UPLOAD_PART_MAX_ATTEMPTS: int = 10
     MAX_RETRY_DELAY: float = 32.0
     INITIAL_RETRY_DELAY: float = 1.0
     EXPONENTIAL_BACKOFF_COEFFICIENT: float = 2.0
@@ -750,11 +805,11 @@ class ConcurrentS3Consumer(Consumer):
         data_interval_end: str,
         batch_export_model: BatchExportModel | None,
         file_format: str,
+        checksum_algorithm: str | None = None,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
         encryption: str | None = None,
-        endpoint_url: str | None = None,
         use_virtual_style_addressing: bool = False,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
@@ -769,6 +824,8 @@ class ConcurrentS3Consumer(Consumer):
         self.data_interval_end = data_interval_end
         self.batch_export_model = batch_export_model
 
+        self.checksum_algorithm = checksum_algorithm
+
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
@@ -778,7 +835,6 @@ class ConcurrentS3Consumer(Consumer):
         self.max_file_size_mb = max_file_size_mb
 
         self.kms_key_id = kms_key_id
-        self.endpoint_url = endpoint_url
         self.use_virtual_style_addressing = use_virtual_style_addressing
 
         self.part_size = part_size
@@ -810,6 +866,7 @@ class ConcurrentS3Consumer(Consumer):
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
+        checksum_algorithm: str | None = None,
     ):
         return cls(
             s3_client=s3_client,
@@ -819,12 +876,12 @@ class ConcurrentS3Consumer(Consumer):
             data_interval_start=s3_inputs.data_interval_start,
             data_interval_end=s3_inputs.data_interval_end,
             batch_export_model=s3_inputs.batch_export_model,
+            checksum_algorithm=checksum_algorithm,
             file_format=s3_inputs.file_format,
             compression=s3_inputs.compression,
             encryption=s3_inputs.encryption,
             max_file_size_mb=s3_inputs.max_file_size_mb,
             kms_key_id=s3_inputs.kms_key_id,
-            endpoint_url=s3_inputs.endpoint_url,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
@@ -913,8 +970,8 @@ class ConcurrentS3Consumer(Consumer):
             raise NoUploadInProgressError()
 
         optional_kwargs = {}
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         try:
             self.logger.debug(
@@ -1104,8 +1161,8 @@ class ConcurrentS3Consumer(Consumer):
             optional_kwargs["ServerSideEncryption"] = self.encryption
         if self.kms_key_id:
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         current_key = self._get_current_key()
         with TRACER.start_as_current_span(
@@ -1158,8 +1215,8 @@ class ConcurrentS3Consumer(Consumer):
         manifest_key: str,
     ):
         optional_kwargs = {}
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         with TRACER.start_as_current_span("batch_export.s3.upload_manifest"):
             await self.s3_client.put_object(

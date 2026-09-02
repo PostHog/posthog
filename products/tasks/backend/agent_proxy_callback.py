@@ -14,7 +14,7 @@ from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackResponseSerializer,
     TaskRunErrorResponseSerializer,
 )
-from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
     summary="Agent-proxy side-effect callback",
     description=(
         "Internal endpoint called by the standalone Node agent-proxy after accepting an ingest event "
-        "that requires a Django-side side effect. Dispatches a Temporal heartbeat signal or an "
-        "awaiting-input mobile push notification depending on `kind`. "
+        "that requires a Django-side side effect. Dispatches a Temporal heartbeat, a boot milestone, "
+        "or an awaiting-input mobile push notification depending on `kind`. "
         "Authenticated with the forwarded sandbox event ingest JWT plus the X-Agent-Proxy-Secret "
         "shared secret (required outside local dev/test) — no session or API key involved. "
         "Best-effort: always returns 200 when auth passes; side-effect failures are logged, not surfaced."
@@ -124,6 +124,18 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
         except Exception:
             logger.exception("agent_proxy_callback.heartbeat_failed", extra={"run_id": run_id})
 
+    elif kind in {"command_dispatched", "agent_activity"}:
+        try:
+            task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
+            if kind == "command_dispatched":
+                dispatched = task_run.signal_agent_boot_milestone("agent_command_dispatched")
+            else:
+                dispatched = task_run.signal_agent_boot_milestone("agent_activity_observed")
+        except TaskRun.DoesNotExist:
+            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+        except Exception:
+            logger.exception("agent_proxy_callback.milestone_failed", extra={"run_id": run_id, "kind": kind})
+
     elif kind == "awaiting_input":
         try:
             # The push dispatcher reads task.created_by; prefetch it so the dispatch stays one query.
@@ -131,7 +143,7 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
                 id=run_id, task_id=task_id, team_id=team_id
             )
             if task_run.mode == "interactive":
-                notify_task_run_awaiting_input(task_run)
+                notify_task_run_turn_completed(task_run)
                 dispatched = True
         except TaskRun.DoesNotExist:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})

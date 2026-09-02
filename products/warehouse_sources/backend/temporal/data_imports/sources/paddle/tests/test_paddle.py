@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
     paddle_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.source import PaddleSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -27,8 +26,18 @@ PADDLE_SESSION_PATCH = (
 )
 
 
-def _response(items: list[dict[str, Any]] | None, *, next_url: str | None = None, drop_data: bool = False) -> Response:
-    body: dict[str, Any] = {"meta": {"pagination": {"per_page": 200, "next": next_url}}}
+def _response(
+    items: list[dict[str, Any]] | None,
+    *,
+    next_url: str | None = None,
+    has_more: bool | None = None,
+    drop_data: bool = False,
+) -> Response:
+    # Real Paddle bodies always carry has_more; default it from next_url so fixture
+    # pages terminate the way real responses do (via has_more, not a null next).
+    if has_more is None:
+        has_more = next_url is not None
+    body: dict[str, Any] = {"meta": {"pagination": {"per_page": 200, "next": next_url, "has_more": has_more}}}
     if not drop_data:
         body["data"] = items or []
     resp = Response()
@@ -107,6 +116,27 @@ class TestPagination:
 
         assert [r["id"] for r in rows] == ["a", "b"]
         assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_terminates_when_last_page_repeats_next_url(self, MockSession) -> None:
+        # Real Paddle populates `next` on every page, including the last, where it
+        # points back at the page just fetched; has_more is the only stop signal.
+        # Following `next` alone refetches the final page forever.
+        session = MockSession.return_value
+        last_url = f"{PADDLE_BASE_URL}/customers?after=c_1"
+        _wire(
+            session,
+            [
+                _response([{"id": "c_1"}], next_url=last_url, has_more=True),
+                _response([{"id": "c_2"}], next_url=last_url, has_more=False),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("customers", manager))
+
+        assert [r["id"] for r in rows] == ["c_1", "c_2"]
+        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
@@ -192,6 +222,23 @@ class TestResume:
         assert params[0] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoint_saved_on_last_page_terminates_on_resume(self, MockSession) -> None:
+        # A checkpoint saved while looping on the final page points at that page.
+        # The resumed fetch sees has_more=false, completes, and writes the empty
+        # terminal marker instead of re-saving the same URL.
+        session = MockSession.return_value
+        saved_url = f"{PADDLE_BASE_URL}/customers?after=c_9"
+        _wire(session, [_response([], next_url=saved_url, has_more=False)])
+
+        manager = _make_manager(PaddleResumeConfig(next_url=saved_url))
+        rows = _rows(_source("customers", manager))
+
+        assert rows == []
+        assert session.send.call_count == 1
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [PaddleResumeConfig(next_url="")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_saved_url_starts_fresh(self, MockSession) -> None:
         session = MockSession.return_value
         params, urls = _wire(session, [_response([{"id": "c_1"}], next_url=None)])
@@ -268,22 +315,3 @@ class TestFormatDatetimeQueryValue:
     )
     def test_normalizes_to_utc_z(self, value: Any, expected: str) -> None:
         assert _format_paddle_datetime_query_value(value) == expected
-
-
-class TestGetSchemas:
-    @pytest.mark.parametrize(
-        "endpoint, expected_incremental",
-        [
-            ("transactions", True),
-            ("customers", False),
-            ("discounts", False),
-            ("prices", False),
-            ("products", False),
-            ("subscriptions", False),
-            ("adjustments", False),
-        ],
-    )
-    def test_incremental_flag_per_endpoint(self, endpoint: str, expected_incremental: bool) -> None:
-        schemas = {schema.name: schema for schema in PaddleSource().get_schemas(config=mock.MagicMock(), team_id=1)}
-        assert schemas[endpoint].supports_incremental is expected_incremental
-        assert schemas[endpoint].supports_append is expected_incremental

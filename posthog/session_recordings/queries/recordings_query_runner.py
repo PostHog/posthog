@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from posthog.schema import (
     CachedRecordingsQueryResponse,
@@ -13,10 +13,25 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.utils import gate_surfacing_score_order
 
+if TYPE_CHECKING:
+    from posthog.models.user import User
+
 
 class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
     query: RecordingsQuery
     cached_response: CachedRecordingsQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        # The generic query endpoint serves cached responses without rebuilding the query, so
+        # the construction-time check in SessionRecordingListFromQuery never runs on a cache
+        # hit; this hook is what keeps a denied viewer from reading a cached list.
+        if self.query.experiment_exposure is None:
+            return True
+        # Deferred: the experiments facade package imports posthog.api on init, which circles
+        # back into this module's imports through the replay-deletion temporal activities.
+        from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+        return validate_experiment_exposure_access(self.team, user, self.query.experiment_exposure.experiment_id)
 
     def _listing(self) -> SessionRecordingListFromQuery:
         # `surfacing_score` ordering is flag-gated; gate here so every path that materializes the query
@@ -26,6 +41,7 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
             team=self.team,
             query=self.query,
             hogql_query_modifiers=self.modifiers,
+            user=self.user,
         )
 
     def _calculate(self) -> RecordingsQueryResponse:

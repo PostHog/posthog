@@ -140,8 +140,7 @@ LIMIT 20
 ```
 
 The `(issue_id = ... OR properties.$exception_issue_id = ...)` pattern
-mirrors the canonical `build_issue_where` clause from
-`products/error_tracking/backend/api/query_utils.py`. `issue_id` is the
+covers both ways an event links to its issue. `issue_id` is the
 resolved virtual field on `events` (it follows fingerprint overrides so
 merged/split issues route correctly); `properties.$exception_issue_id` is
 the raw event property captured at ingestion. Filtering on only the property
@@ -351,7 +350,7 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 
 - The canonical join key from events to an issue is the resolved `issue_id`
   virtual field, with `properties.$exception_issue_id` as fallback — see Step 3
-  for the reason and the `build_issue_where` pattern.
+  for the reason.
 - For a "what version introduced this?" breakdown, prefer `$app_version` (the
   user's deployed app version, auto-captured on iOS / React Native and
   manually set on web / server) or `$exception_releases` when populated. Avoid
@@ -366,3 +365,10 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 - If `query-error-tracking-issue` returns an `external_issues` array, the issue
   is already linked to a Linear / Jira / GitHub ticket. Mention the link in the
   synthesis so the user doesn't open a duplicate.
+
+## Related skills
+
+- **`triaging-error-issues`** — step back from one issue to ranking which open issues deserve attention
+- **`finding-replay-for-issue`** — watch session recordings linked to this issue's exceptions
+- **`grouping-noisy-errors`** — when the issue is polluted by wrongly-grouped fingerprints, or its events are sprayed across duplicates
+- **`authoring-error-tracking-alerts`** — get notified when this kind of issue is created, reopens, or spikes

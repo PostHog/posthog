@@ -4,43 +4,57 @@
             "configSchemaExport": "activityEventsWidgetConfigSchema",
             "configTypeExport": "ActivityEventsWidgetConfig",
             "formSchemaExport": "activityEventsWidgetFormSchema",
-            "formFields": ["limit", "dateRange", "filterTestAccounts"]
+            "formFields": ["limit", "dateRange", "filterTestAccounts"],
+            "live": false
+        },
+        "conversations_recent_tickets": {
+            "configSchemaExport": "conversationsRecentTicketsWidgetConfigSchema",
+            "configTypeExport": "ConversationsRecentTicketsWidgetConfig",
+            "formSchemaExport": "conversationsRecentTicketsWidgetFormSchema",
+            "formFields": ["limit"],
+            "live": false
         },
         "error_tracking_list": {
             "configSchemaExport": "errorTrackingWidgetConfigSchema",
             "configTypeExport": "ErrorTrackingWidgetConfig",
             "formSchemaExport": "errorTrackingWidgetFormSchema",
-            "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts", "status"]
+            "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts", "status"],
+            "live": false
         },
         "experiment_results": {
             "configSchemaExport": "experimentResultsWidgetConfigSchema",
             "configTypeExport": "ExperimentResultsWidgetConfig",
             "formSchemaExport": "experimentResultsWidgetFormSchema",
-            "formFields": ["experimentId"]
+            "formFields": ["experimentId"],
+            "live": false
         },
         "experiments_list": {
             "configSchemaExport": "experimentsWidgetConfigSchema",
             "configTypeExport": "ExperimentsWidgetConfig",
             "formSchemaExport": "experimentsWidgetFormSchema",
-            "formFields": ["limit", "orderBy", "orderDirection", "status", "createdBy"]
+            "formFields": ["limit", "orderBy", "orderDirection", "status", "createdBy"],
+            "live": false
         },
         "logs_list": {
             "configSchemaExport": "logsWidgetConfigSchema",
             "configTypeExport": "LogsWidgetConfig",
             "formSchemaExport": "logsWidgetFormSchema",
-            "formFields": ["limit", "dateRange", "wrapLines", "timezone"]
+            "formFields": ["limit", "dateRange", "wrapLines", "timezone"],
+            "live": false
         },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",
             "configTypeExport": "SessionReplayWidgetConfig",
             "formSchemaExport": "sessionReplayWidgetFormSchema",
-            "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"]
+            "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"],
+            "live": false
         },
         "survey_results": {
             "configSchemaExport": "surveyResultsWidgetConfigSchema",
             "configTypeExport": "SurveyResultsWidgetConfig",
             "formSchemaExport": "surveyResultsWidgetFormSchema",
-            "formFields": ["surveyId", "limit", "dateRange"]
+            "formFields": ["surveyId", "limit", "dateRange"],
+            "live": false
         }
     }
 }

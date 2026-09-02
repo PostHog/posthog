@@ -3,7 +3,7 @@
 # people's OCDs ^_^
 .cache
 .planning
-.pr-review-diff.patch
+.pr-review-diff*.patch
 .qa-frontend/
 __emails__
 __pycache__/
@@ -46,6 +46,7 @@ common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
 common/replay-headless/dist
+common/storybook/.workers
 common/storybook/dist
 coverage-*.xml
 debug.log
@@ -104,9 +105,6 @@ gen/
 # Vite-specific assets (we copy public assets to src/assets) just for development
 .typegen
 frontend/src/assets
-
-# Flox.dev lockfile (will differ slightly per local dev env, even with consistent pinning in TOML file)
-.flox/env/manifest.lock
 
 # Playwright cache + reports
 playwright-report/
@@ -226,3 +224,16 @@ rust/cohort-stream-processor/cohort-store/
 
 # Local TLS certs (e.g. mkcert) — never commit private keys
 *.pem
+
+# Redis persistence snapshot dropped by a locally running redis-server
+dump.rdb
+
+# Log corpora captured for the pattern replay harness. These hold real log bodies —
+# addresses, hostnames, request ids, user agents — and this repository is public.
+corpora/
+.gstack/
+
+# pytest-split timing data. CI restores it from the Actions cache or the timing
+# workflow's artifact; it is never committed.
+.test_durations
+.test_durations.*

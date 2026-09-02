@@ -497,7 +497,12 @@ const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSou
  */
 export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
-    options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
+    options: {
+        featureFlagKey: string
+        featureFlagVariants: MultivariateFlagVariant[]
+        /** The experiment's server-resolved default exposure event, see `resolvedExposureEvent`. */
+        resolvedExposureEvent?: string
+    }
 ): EventsNode => {
     const exposure_step_name = 'Experiment exposure'
     if (exposureConfig && exposureConfig.event !== EXPOSURE_DEFAULT_EVENT) {
@@ -521,7 +526,7 @@ export const getExposureConfigEventsNode = (
     return {
         kind: NodeKind.EventsNode,
         custom_name: exposure_step_name,
-        event: EXPOSURE_DEFAULT_EVENT,
+        event: options.resolvedExposureEvent ?? EXPOSURE_DEFAULT_EVENT,
         properties: [
             {
                 key: EXPOSURE_FEATURE_FLAG_PROPERTY,

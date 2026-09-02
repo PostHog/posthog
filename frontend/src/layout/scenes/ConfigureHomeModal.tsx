@@ -4,14 +4,11 @@ import { useEffect, useState } from 'react'
 
 import { LemonSearchableSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { quickstartHomepageTab } from '~/scenes/quickstart/quickstartHomepage'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
@@ -23,19 +20,15 @@ export interface ConfigureHomeModalProps {
     onClose: () => void
 }
 
-type HomepageMode = 'launchpad' | 'quickstart' | 'search' | 'default_dashboard'
+type HomepageMode = 'launchpad' | 'search' | 'default_dashboard'
 
 function getHomepageMode(
     isUsingProjectDefault: boolean,
-    isUsingQuickstart: boolean,
     isUsingNewTabHomepage: boolean,
     isUsingDefaultDashboard: boolean
 ): HomepageMode | null {
     if (isUsingProjectDefault) {
         return 'launchpad'
-    }
-    if (isUsingQuickstart) {
-        return 'quickstart'
     }
     if (isUsingNewTabHomepage) {
         return 'search'
@@ -52,13 +45,8 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { setHomepage } = useActions(sceneLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const isUsingProjectDefault = !homepage
-    const isUsingQuickstart = homepage?.sceneId === Scene.Quickstart
-    // Keep the option visible for anyone whose homepage already points at Quickstart,
-    // even after their flag enrollment ends, so the selection isn't orphaned
-    const quickstartEnabled = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE] === 'test' || isUsingQuickstart
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
     const isUsingDefaultDashboard =
         homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')
@@ -67,12 +55,7 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     // when no `primary_dashboard` is set yet — otherwise the picker is hidden behind
     // a disabled tile, and the only place to set it is the same hidden picker.
     const [pendingMode, setPendingMode] = useState<HomepageMode | null>(null)
-    const currentMode = getHomepageMode(
-        isUsingProjectDefault,
-        isUsingQuickstart,
-        isUsingNewTabHomepage,
-        isUsingDefaultDashboard
-    )
+    const currentMode = getHomepageMode(isUsingProjectDefault, isUsingNewTabHomepage, isUsingDefaultDashboard)
     useEffect(() => setPendingMode(null), [currentMode])
     const activeMode = pendingMode ?? currentMode
     const showDashboardPicker = activeMode === 'default_dashboard'
@@ -141,9 +124,6 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                 if (newValue === 'launchpad') {
                                     setPendingMode(null)
                                     setHomepage(null)
-                                } else if (newValue === 'quickstart') {
-                                    setPendingMode(null)
-                                    setHomepage(quickstartHomepageTab())
                                 } else if (newValue === 'search') {
                                     setPendingMode(null)
                                     setHomepage(newTabHomepage)
@@ -183,16 +163,6 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                     'data-attr': 'configure-home-modal-set-launchpad',
                                     tooltip: 'An AI-powered home with quick actions and recent items',
                                 },
-                                ...(quickstartEnabled
-                                    ? [
-                                          {
-                                              value: 'quickstart' as const,
-                                              label: 'Quickstart',
-                                              'data-attr': 'configure-home-modal-set-quickstart',
-                                              tooltip: 'A getting-started hub with setup status and all tools',
-                                          },
-                                      ]
-                                    : []),
                                 {
                                     value: 'search' as const,
                                     label: 'Search',

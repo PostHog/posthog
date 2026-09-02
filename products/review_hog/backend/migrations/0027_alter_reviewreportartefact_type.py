@@ -1,0 +1,31 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("review_hog", "0026_reviewreport_review_initial_permission_mode_and_more"),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name="reviewreportartefact",
+            name="type",
+            field=models.CharField(
+                choices=[
+                    ("issue_finding", "Issue Finding"),
+                    ("validation_verdict", "Validation Verdict"),
+                    ("finding_outcome", "Finding Outcome"),
+                    ("thread_verdict", "Thread Verdict"),
+                    ("task_run", "Task Run"),
+                    ("commit", "Commit"),
+                    ("code_reference", "Code Reference"),
+                    ("note", "Note"),
+                    ("chunk_set", "Chunk Set"),
+                    ("perspective_selection", "Perspective Selection"),
+                    ("perspective_result", "Perspective Result"),
+                    ("pr_snapshot", "Pr Snapshot"),
+                ],
+                max_length=100,
+            ),
+        ),
+    ]

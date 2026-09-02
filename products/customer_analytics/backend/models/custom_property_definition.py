@@ -8,6 +8,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 class DisplayType(StrEnum):
     TEXT = "text"
+    LINK = "link"
     NUMBER = "number"
     CURRENCY = "currency"
     PERCENT = "percent"
@@ -32,6 +33,7 @@ class DataType(StrEnum):
 
 DATA_TYPE_BY_DISPLAY_TYPE: dict[DisplayType, DataType] = {
     DisplayType.TEXT: DataType.STRING,
+    DisplayType.LINK: DataType.STRING,
     DisplayType.NUMBER: DataType.NUMERIC,
     DisplayType.CURRENCY: DataType.NUMERIC,
     DisplayType.PERCENT: DataType.NUMERIC,
@@ -44,6 +46,13 @@ DATA_TYPE_BY_DISPLAY_TYPE: dict[DisplayType, DataType] = {
 NUMERIC_DISPLAY_TYPES = [
     display_type.value for display_type, data_type in DATA_TYPE_BY_DISPLAY_TYPE.items() if data_type == DataType.NUMERIC
 ]
+
+
+CANONICAL_LAST_SLACK_MESSAGE_AT = "Last Slack message at"
+
+CANONICAL_DISPLAY_TYPE_BY_NAME: dict[str, DisplayType] = {
+    CANONICAL_LAST_SLACK_MESSAGE_AT: DisplayType.DATETIME,
+}
 
 
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):

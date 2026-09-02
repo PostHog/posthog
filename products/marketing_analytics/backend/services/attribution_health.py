@@ -18,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -63,7 +64,7 @@ class UnmatchedUtmSample:
     suggested_integration: NativeIntegration | None
 
 
-@dataclass
+@frozen
 class AttributionHealthEntry:
     integration_key: NativeIntegration
     display_name: str
@@ -73,6 +74,11 @@ class AttributionHealthEntry:
     last_event_with_matching_utm_at: datetime | None
     matched_pct: float
     sample_unmatched_utm_sources: list[UnmatchedUtmSample] = field(default_factory=list)
+    # Of the matched events, how many look paid, and how many carry any utm_medium.
+    # `paid == 0 and tagged > 0` is positive evidence the traffic is organic; both
+    # zero only means the team doesn't tag medium, which says nothing either way.
+    events_matched_paid_last_7d: int = 0
+    events_matched_tagged_medium_last_7d: int = 0
 
 
 @dataclass
@@ -169,6 +175,10 @@ async def get_attribution_health(
             acc = per_integration.get(matched_key)
             if acc is not None:
                 acc.matched_count += count
+                acc.paid_count += row.paid_event_count
+                if matched_key == "google_ads":
+                    acc.paid_count += row.google_click_id_count
+                acc.tagged_medium_count += row.tagged_medium_count
                 candidates = [d for d in (acc.last_matched_at, last_at) if d is not None]
                 acc.last_matched_at = max(candidates) if candidates else None
             continue
@@ -203,17 +213,30 @@ async def get_attribution_health(
     )
 
 
-@dataclass
+@frozen
 class _UtmRow:
     raw_utm_source: str
     event_count: int
     last_seen_at: datetime | None
+    # A cost-bearing utm_medium, per PostHog's own channel-type rule
+    # (posthog.com/docs/data/channel-type). Platform-agnostic: any source can be paid.
+    paid_event_count: int = 0
+    # Counted apart from the medium, because `gclid` and `gad_source` name Google Ads
+    # specifically. They ride along on whatever URL carries them, so a link shared with a
+    # stale gclid would otherwise mark LinkedIn traffic as paid LinkedIn.
+    google_click_id_count: int = 0
+    # Events carrying any utm_medium at all. Separates "tagged, and organic" from
+    # "not tagged", which are different answers to "is this paid?".
+    tagged_medium_count: int = 0
 
 
-@dataclass
+# Mutable by design: one instance per integration, summed across the utm rows.
+@dataclass(frozen=False)
 class _IntegrationAccumulator:
     key: NativeIntegration
     matched_count: int = 0
+    paid_count: int = 0
+    tagged_medium_count: int = 0
     likely_yours_count: int = 0
     last_matched_at: datetime | None = None
     likely_yours_samples: list[UnmatchedUtmSample] = field(default_factory=list)
@@ -235,6 +258,8 @@ class _IntegrationAccumulator:
             last_event_with_matching_utm_at=self.last_matched_at,
             matched_pct=matched_pct,
             sample_unmatched_utm_sources=self.likely_yours_samples[:MAX_SAMPLE_UNMATCHED],
+            events_matched_paid_last_7d=self.paid_count,
+            events_matched_tagged_medium_last_7d=self.tagged_medium_count,
         )
 
 
@@ -259,7 +284,16 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
         SELECT
             lower(trim(properties.utm_source)) AS raw_utm_source,
             count() AS event_count,
-            max(timestamp) AS last_seen_at
+            max(timestamp) AS last_seen_at,
+            countIf(
+                lower(trim(properties.utm_medium)) IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')
+                OR startsWith(lower(trim(properties.utm_medium)), 'paid')
+            ) AS paid_event_count,
+            countIf(
+                (properties.gclid IS NOT NULL AND properties.gclid != '')
+                OR (properties.gad_source IS NOT NULL AND properties.gad_source != '')
+            ) AS google_click_id_count,
+            countIf(properties.utm_medium IS NOT NULL AND trim(properties.utm_medium) != '') AS tagged_medium_count
         FROM events
         WHERE
             timestamp >= {since}
@@ -280,7 +314,14 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
         )
     rows: list[_UtmRow] = []
     for row in result.results or []:
-        raw, count, last_at = row[0], row[1], row[2]
+        raw, count, last_at, paid_count, click_id_count, tagged_count = (
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+        )
         if not raw:
             continue
         rows.append(
@@ -288,6 +329,9 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
                 raw_utm_source=cast(str, raw),
                 event_count=int(count or 0),
                 last_seen_at=last_at if isinstance(last_at, datetime) else None,
+                paid_event_count=int(paid_count or 0),
+                google_click_id_count=int(click_id_count or 0),
+                tagged_medium_count=int(tagged_count or 0),
             )
         )
     return rows

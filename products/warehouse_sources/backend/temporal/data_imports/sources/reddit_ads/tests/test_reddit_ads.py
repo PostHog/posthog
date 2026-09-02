@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 from typing import Any, Optional
 
@@ -5,6 +6,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
+from requests import Request, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -16,14 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
     get_resource,
     list_business_ad_accounts,
     list_businesses,
+    reddit_ads_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 
 
 class TestRedditAdsHelperFunctions:
     """Test helper functions in reddit_ads.py."""
 
     def test_get_incremental_date_range_with_datetime(self):
-        """Test getting date range with datetime incremental value."""
         last_value = dt.datetime(2024, 3, 15, 14, 30, 0)
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -31,7 +34,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_with_date(self):
-        """Test getting date range with date incremental value."""
         last_value = dt.date(2024, 3, 15)
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -39,7 +41,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_with_string(self):
-        """Test getting date range with string incremental value."""
         last_value = "2024-03-15T14:30:00Z"
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -47,7 +48,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_with_invalid_string(self):
-        """Test getting date range with invalid string falls back to initial datetime."""
         last_value = "invalid-date"
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -56,7 +56,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_no_incremental(self):
-        """Test getting date range without incremental field."""
         starts_at, ends_at = _get_incremental_date_range(False)
 
         # Should use initial_datetime
@@ -64,7 +63,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_none_value(self):
-        """Test getting date range with None incremental value."""
         starts_at, ends_at = _get_incremental_date_range(True, None)
 
         # Should use initial_datetime
@@ -76,7 +74,6 @@ class TestGetResource:
     """Test get_resource function."""
 
     def test_get_resource_campaigns(self):
-        """Test getting campaigns resource configuration."""
         resource = get_resource("campaigns", "test_account", False)
 
         assert resource["name"] == "campaigns"
@@ -88,7 +85,6 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
 
     def test_get_resource_campaigns_incremental(self):
-        """Test getting campaigns resource with incremental configuration."""
         resource = get_resource("campaigns", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
 
         assert isinstance(resource["write_disposition"], dict)
@@ -101,7 +97,6 @@ class TestGetResource:
         assert "modified_at[after]" in endpoint_params
 
     def test_get_resource_campaign_report_incremental(self):
-        """Test getting campaign report resource with incremental configuration."""
         resource = get_resource("campaign_report", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
 
         assert isinstance(resource["write_disposition"], dict)
@@ -116,29 +111,100 @@ class TestGetResource:
         assert endpoint_json["data"]["ends_at"].endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_resource_unknown_endpoint(self):
-        """Test getting unknown endpoint raises ValueError."""
         with pytest.raises(ValueError, match="Unknown endpoint: unknown_endpoint"):
             get_resource("unknown_endpoint", "test_account", False)
 
     def test_get_resource_invalid_endpoint_type(self):
-        """Test getting resource with invalid endpoint type raises ValueError."""
         # This would require mocking REDDIT_ADS_CONFIG to have invalid endpoint
         # For now, we'll test the happy path since the config is properly structured
         resource = get_resource("campaigns", "test_account", False)
         assert isinstance(resource["endpoint"], dict)
+
+    @parameterized.expand(
+        [
+            ("ad_account", "/ad_accounts/test_account"),
+            ("custom_audiences", "/ad_accounts/test_account/custom_audiences"),
+            ("saved_audiences", "/ad_accounts/test_account/saved_audiences"),
+            ("pixels", "/ad_accounts/test_account/pixels"),
+            ("funding_instruments", "/ad_accounts/test_account/funding_instruments"),
+            ("lead_gen_forms", "/ad_accounts/test_account/lead_gen_forms"),
+            ("profiles", "/ad_accounts/test_account/profiles"),
+        ]
+    )
+    def test_account_scoped_list_endpoints_bind_the_account_id(self, endpoint: str, expected_path: str) -> None:
+        resource = get_resource(endpoint, "test_account", False)
+
+        assert isinstance(resource["endpoint"], dict)
+        assert resource["endpoint"]["path"] == expected_path
+        assert resource["endpoint"]["method"] == "GET"
+
+
+class TestBreakdownReportEndpoints:
+    """Reddit returns breakdowns as extra dimensions on the same report request, so each dimension is
+    its own table. The request body has two hard constraints these tests pin down."""
+
+    BREAKDOWN_TABLES = [
+        ("campaign_country_report", "COUNTRY", "country"),
+        ("campaign_gender_report", "GENDER", "gender"),
+        ("campaign_placement_report", "PLACEMENT", "placement"),
+        ("campaign_community_report", "COMMUNITY", "community"),
+        ("campaign_os_type_report", "OS_TYPE", "os_type"),
+        ("campaign_keyword_report", "KEYWORD", "keyword"),
+    ]
+
+    @parameterized.expand(BREAKDOWN_TABLES)
+    def test_breakdowns_stay_within_reddits_three_dimension_cap(
+        self, endpoint: str, breakdown: str, column: str
+    ) -> None:
+        resource = get_resource(endpoint, "test_account", False)
+
+        assert isinstance(resource["endpoint"], dict)
+        body = resource["endpoint"]["json"]
+        assert body is not None
+        assert body["data"]["breakdowns"] == ["CAMPAIGN_ID", "DATE", breakdown]
+
+    @parameterized.expand(BREAKDOWN_TABLES)
+    def test_breakdown_column_is_part_of_the_primary_key(self, endpoint: str, breakdown: str, column: str) -> None:
+        # Rows only differ by the breakdown value, so leaving it out collapses every dimension value
+        # for a campaign-day onto one row.
+        assert REDDIT_ADS_CONFIG[endpoint].resource["primary_key"] == ["campaign_id", "date", column]
+
+    @parameterized.expand(
+        [
+            # Dimensions Reddit accepts in both `breakdowns` and `fields` must be requested as a field,
+            # otherwise the response carries no column to key the row on.
+            ("campaign_country_report", "COUNTRY", True),
+            ("campaign_gender_report", "GENDER", True),
+            ("campaign_placement_report", "PLACEMENT", True),
+            ("campaign_community_report", "COMMUNITY", True),
+            # `OS_TYPE` is a valid breakdown but is not a member of Reddit's `fields` enum — asking for
+            # it as a field is rejected and fails the whole report request.
+            ("campaign_os_type_report", "OS_TYPE", False),
+            # `KEYWORD`'s membership of the `fields` enum is unconfirmed, so it is requested as a
+            # breakdown only rather than risking a rejected report request.
+            ("campaign_keyword_report", "KEYWORD", False),
+        ]
+    )
+    def test_dimension_is_requested_as_a_field_only_when_reddit_allows_it(
+        self, endpoint: str, breakdown: str, expected_in_fields: bool
+    ) -> None:
+        resource = get_resource(endpoint, "test_account", False)
+
+        assert isinstance(resource["endpoint"], dict)
+        body = resource["endpoint"]["json"]
+        assert body is not None
+        assert (breakdown in body["data"]["fields"]) is expected_in_fields
 
 
 class TestRedditAdsPaginator:
     """Test RedditAdsPaginator class."""
 
     def test_paginator_init(self):
-        """Test paginator initialization."""
         paginator = RedditAdsPaginator()
         assert paginator._next_url is None
         assert paginator._has_next_page is False
 
     def test_update_state_with_pagination(self):
-        """Test updating state with pagination data."""
         paginator = RedditAdsPaginator()
 
         mock_response = mock.MagicMock()
@@ -150,7 +216,6 @@ class TestRedditAdsPaginator:
         assert paginator._has_next_page is True
 
     def test_update_state_without_pagination(self):
-        """Test updating state without pagination data."""
         paginator = RedditAdsPaginator()
 
         mock_response = mock.MagicMock()
@@ -162,7 +227,6 @@ class TestRedditAdsPaginator:
         assert paginator._has_next_page is False
 
     def test_update_state_invalid_json(self):
-        """Test updating state with invalid JSON."""
         paginator = RedditAdsPaginator()
 
         mock_response = mock.MagicMock()
@@ -174,7 +238,6 @@ class TestRedditAdsPaginator:
         assert paginator._has_next_page is False
 
     def test_update_request_with_next_url(self):
-        """Test updating request with next URL."""
         paginator = RedditAdsPaginator()
         paginator._next_url = "https://api.reddit.com/next-page"
 
@@ -184,7 +247,6 @@ class TestRedditAdsPaginator:
         assert mock_request.url == "https://api.reddit.com/next-page"
 
     def test_update_request_without_next_url(self):
-        """Test updating request without next URL."""
         paginator = RedditAdsPaginator()
 
         mock_request = mock.MagicMock()
@@ -223,6 +285,30 @@ class TestRedditAdsPaginator:
 
         assert paginator.has_next_page is True
         assert paginator.get_resume_state() == {"next_url": "https://api.reddit.com/page-5"}
+
+    def test_redirect_to_next_url_stops_the_url_from_growing(self) -> None:
+        """The prepared URL must not grow as pages advance.
+
+        The REST client reuses one `Request` across pages and seeds `page.size` in its params.
+        Reddit's `next_url` already carries `page.size`, so without clearing the params `requests`
+        appends `page.size` again on every page and the URL grows until Reddit returns 414.
+        """
+        session = Session()
+        base_url = "https://ads-api.reddit.com/api/v3/ad_accounts/a1/reports"
+        request = Request(method="GET", url=base_url, params={"page.size": 100})
+
+        paginator = RedditAdsPaginator()
+        paginator.init_request(request)
+
+        prepared_urls = [session.prepare_request(request).url or ""]
+        for page in range(2, 6):
+            paginator._next_url = f"{base_url}?page={page}&page.size=100"
+            paginator.update_request(request)
+            prepared_urls.append(session.prepare_request(request).url or "")
+
+        # Each redirect swaps in the next self-contained URL, so `page.size` appears once per page.
+        for url in prepared_urls:
+            assert url.count("page.size") == 1
 
     @parameterized.expand(
         [
@@ -337,3 +423,72 @@ class TestListBusinessesAndAdAccounts:
 
         assert [business["id"] for business in businesses] == ["b1", "b2"]
         assert session.get.call_args_list[1][0][0] == "https://ads-api.reddit.com/api/v3/me/businesses?page=2"
+
+
+def _http_response(body: Any) -> Response:
+    response = Response()
+    response.status_code = 200
+    response._content = json.dumps(body).encode()
+    response.headers["Content-Type"] = "application/json"
+    return response
+
+
+class TestRedditAdsListEndpointTransport:
+    """Behaviour of the endpoints added on top of the original six, driven through a mocked session."""
+
+    SESSION_PATH = (
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source."
+        "rest_client.make_tracked_session"
+    )
+
+    def _run(self, endpoint: str, responses: list[Response]) -> tuple[list[Any], mock.MagicMock]:
+        with mock.patch(self.SESSION_PATH) as MockSession:
+            session = MockSession.return_value
+            session.headers = {}
+            session.prepare_request.side_effect = lambda req: req
+            session.send.side_effect = responses
+
+            source = reddit_ads_source(
+                account_id="789",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                access_token="test_token",
+                db_incremental_field_last_value=None,
+                resumable_source_manager=mock.MagicMock(can_resume=mock.MagicMock(return_value=False)),
+                should_use_incremental_field=False,
+            )
+            pages = list(source.items())
+            return [row for page in pages for row in page], session
+
+    def test_single_object_ad_account_response_yields_one_row(self):
+        # `GET /ad_accounts/{id}` returns one object rather than a list, and the pipeline must still
+        # see a row rather than choking on the unwrapped dict.
+        rows, session = self._run(
+            "ad_account",
+            [_http_response({"data": {"id": "a2_789", "currency": "USD", "time_zone_id": "America/Los_Angeles"}})],
+        )
+
+        assert rows == [{"id": "a2_789", "currency": "USD", "time_zone_id": "America/Los_Angeles"}]
+        assert session.send.call_args_list[0].args[0].url == "https://ads-api.reddit.com/api/v3/ad_accounts/789"
+
+    def test_structured_posts_are_fanned_out_over_every_profile(self):
+        # Reddit hangs creatives off profiles, not off the ad account, so this is the only endpoint
+        # that has to walk a parent list first.
+        rows, session = self._run(
+            "structured_posts",
+            [
+                _http_response({"data": [{"id": "t2_p1"}, {"id": "t2_p2"}], "pagination": {}}),
+                _http_response({"data": [{"id": "post-1", "profile_id": None}], "pagination": {}}),
+                _http_response({"data": [{"id": "post-2", "profile_id": None}], "pagination": {}}),
+            ],
+        )
+
+        requested = [call.args[0].url for call in session.send.call_args_list]
+        assert requested[0].startswith("https://ads-api.reddit.com/api/v3/ad_accounts/789/profiles")
+        assert "/profiles/t2_p1/structured_posts" in requested[1]
+        assert "/profiles/t2_p2/structured_posts" in requested[2]
+
+        # The parent id is authoritative: post rows carry a nullable `profile_id`, but the primary key
+        # is (profile_id, id), so an unpopulated one would collapse posts across profiles.
+        assert [(row["profile_id"], row["id"]) for row in rows] == [("t2_p1", "post-1"), ("t2_p2", "post-2")]

@@ -30,6 +30,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isString } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
 import {
+    getAccountCustomPropertyDefinitionIcon,
+    getAccountFieldDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPersonPropertyDefinitionIcon,
@@ -37,7 +39,6 @@ import {
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import {
     getProductEventFilterOptions,
@@ -72,6 +73,7 @@ import {
 } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from '../InlineHogQLEditor'
@@ -197,8 +199,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
     // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
-    // filters/query/groups JSON the picker never reads). Gated by a flag so the
-    // smaller response shape can be rolled out and rolled back independently.
+    // query/groups/last_error_message/experiment_set fields the picker never reads;
+    // `filters` is kept). Gated by a flag so the smaller response shape can be rolled
+    // out and rolled back independently.
     const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
@@ -485,15 +488,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     name: value,
                     value,
                     group: TaxonomicFilterGroupType.EventProperties,
+                    propertyFilterType: PropertyFilterType.Event,
                 })),
                 ...(currentTeam?.person_display_name_properties
                     ? currentTeam.person_display_name_properties.map((property) => ({
                           name: property,
                           value: property,
                           group: TaxonomicFilterGroupType.PersonProperties,
+                          propertyFilterType: PropertyFilterType.Person,
                       }))
                     : []),
             ],
+            getName: (option) => option.name,
+            getValue: (option) => option.value,
             getIcon: getPropertyDefinitionIcon,
             getPopoverHeader: () => 'Exception properties',
         },
@@ -530,13 +537,32 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getPopoverHeader: () => 'Revenue analytics properties',
         },
         {
-            name: 'Custom properties',
-            searchPlaceholder: 'custom properties',
+            name: 'Account fields',
+            searchPlaceholder: 'account fields',
+            type: TaxonomicFilterGroupType.AccountFields,
+            getIcon: getAccountFieldDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Account field',
+        },
+        {
+            name: 'Account relationships',
+            searchPlaceholder: 'account relationships',
+            type: TaxonomicFilterGroupType.AccountRelationships,
+            getIcon: getAccountFieldDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Account relationship',
+        },
+        {
+            name: 'Account custom properties',
+            searchPlaceholder: 'account custom properties',
             type: TaxonomicFilterGroupType.AccountCustomProperties,
             // Mirrors the legacy taxonomicFilterLogic group: account custom property definitions
             // are per-team API data, so the options come from the consumer via `optionsFromProp` —
-            // items carry `{ id, name, property_type }` with the definition id as the value.
-            getIcon: getPropertyDefinitionIcon,
+            // items carry `{ id, name, description, is_canonical, property_type }` with the
+            // definition id as the value.
+            getIcon: getAccountCustomPropertyDefinitionIcon,
             getName: (option: PropertyDefinition) => option.name,
             getValue: (option: PropertyDefinition) => option.id,
             valuesEndpoint: (key) =>

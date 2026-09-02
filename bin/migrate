@@ -26,12 +26,6 @@ fi
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
     if run_scope "cyclotron"; then
-        bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
-        if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-cyclotron, exiting."
-            exit 1
-        fi
-
         bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron-node
         if [ $? -ne 0 ]; then
             echo "Error in rust/bin/migrate-cyclotron-node, exiting."
@@ -223,6 +217,15 @@ if [ -n "$CLICKHOUSE_PID" ]; then
     if [ "$CH_STATUS" != "0" ] || [ $CLICKHOUSE_WAIT_STATUS -ne 0 ]; then
         echo "Error in ClickHouse migrations, exiting."
         exit 1
+    fi
+fi
+
+# OAuth applications task sandboxes mint their agent tokens under. Idempotent, and a no-op
+# in the production regions, so it is safe to run on every deploy.
+if run_scope "tasks-oauth"; then
+    if [ "${DEPLOYMENT:-}" != "hobby" ]; then
+        echo "Setting up task sandbox OAuth applications..."
+        python manage.py setup_tasks_oauth || { echo "Error in setup_tasks_oauth, exiting."; exit 1; }
     fi
 fi
 

@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
@@ -14,7 +15,7 @@ import { HogFunctionTypeType, LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
-import { hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
+import { hogFlowsInvocationsCancelCreate, hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
 
 export const HOG_INVOCATIONS_PAGE_SIZE = 100
 
@@ -22,7 +23,7 @@ export const HOG_INVOCATIONS_PAGE_SIZE = 100
  * `HOG_INVOCATION_RERUN_MAX_COUNT` env var (Django serializer + Node CDP config). */
 export const HOG_INVOCATIONS_RERUN_MAX_COUNT = 10000
 
-export type RunStatus = 'running' | 'succeeded' | 'failed'
+export type RunStatus = 'running' | 'succeeded' | 'failed' | 'canceled'
 
 export type HogInvocationsFunctionKind = 'hog_function' | 'hog_flow'
 
@@ -179,7 +180,9 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     }
     const status = searchParams[URL_PARAMS.status]
     if (status) {
-        next.status = status.split(',').filter((s): s is RunStatus => ['running', 'succeeded', 'failed'].includes(s))
+        next.status = status
+            .split(',')
+            .filter((s): s is RunStatus => ['running', 'succeeded', 'failed', 'canceled'].includes(s))
     }
     const errorKind = searchParams[URL_PARAMS.error_kind]
     if (errorKind) {
@@ -296,21 +299,41 @@ const parseRelativeHours = (value: string | undefined): number | null => {
 }
 
 /**
+ * Timezone every HogQL date expression here resolves in: HogQL wraps DateTime
+ * fields in `toTimeZone(field, team_tz)`, so both the window literals and the
+ * sparkline's bucket boundaries have to be built in the team's zone, not UTC.
+ *
+ * App context is the second source because `teamLogic` fills `currentTeam` from it
+ * synchronously on mount but falls back to a fetch when it is absent. Guessing UTC
+ * during that fetch would bucket every boundary on the wrong grid and empty the chart.
+ */
+export const projectTimezoneOf = (currentTeam?: { timezone?: string } | null): string =>
+    currentTeam?.timezone ?? getAppContext()?.current_team?.timezone ?? 'UTC'
+
+const teamTimezone = (): string => projectTimezoneOf(teamLogic.findMounted()?.values.currentTeam)
+
+/**
  * Resolve the filter's date range to concrete dayjs endpoints. Centralizing
  * this so the sparkline's bucket sizing AND its boundary generation see the
  * same window (otherwise the chart's x-axis can drift away from the actual
  * filter the table is using).
+ *
+ * A picked date carries no offset, so it resolves in the project timezone: "1 August" has to mean
+ * that calendar day for the project, not a window starting the previous evening. Range values the
+ * chart's own selection emits carry an offset, which dayjs honors over this argument, so those
+ * still round-trip to the instant that was selected.
  */
 export const resolveDateRange = (filters: {
     date_from?: string
     date_to?: string
 }): { start: dayjs.Dayjs; end: dayjs.Dayjs } => {
-    const end = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
+    const timezone = teamTimezone()
+    const end = filters.date_to ? (dateStringToDayJs(filters.date_to, timezone) ?? dayjs()) : dayjs()
     const relHours = parseRelativeHours(filters.date_from)
     if (relHours !== null) {
         return { start: end.subtract(relHours, 'hour'), end }
     }
-    const start = dateStringToDayJs(filters.date_from ?? null) ?? end.subtract(24, 'hour')
+    const start = dateStringToDayJs(filters.date_from ?? null, timezone) ?? end.subtract(24, 'hour')
     return { start, end }
 }
 
@@ -322,12 +345,9 @@ export const resolveDateRange = (filters: {
  */
 export const dateClauseFor = (filters: HogInvocationsFilters): ReturnType<typeof hogql.raw> => {
     const { start, end } = resolveDateRange(filters)
-    // HogQL interprets bare datetime literals in the *team* timezone (DateTime
-    // fields are compared as toTimeZone(field, team_tz)), so format the window
-    // bounds in the team tz — NOT UTC — or the filter is shifted by the team's
-    // offset for any non-UTC project. Mirrors `toAbsoluteClickhouseTimestamp`.
-    const teamTimezone = teamLogic.findMounted()?.values.currentTeam?.timezone ?? 'UTC'
-    const fmt = (d: dayjs.Dayjs): string => d.tz(teamTimezone).format('YYYY-MM-DD HH:mm:ss.SSS')
+    // Format the window bounds in the team tz — NOT UTC — or the filter is shifted
+    // by the team's offset for any non-UTC project. Mirrors `toAbsoluteClickhouseTimestamp`.
+    const fmt = (d: dayjs.Dayjs): string => d.tz(teamTimezone()).format('YYYY-MM-DD HH:mm:ss.SSS')
     return hogql.raw(`AND scheduled_at >= '${fmt(start)}' AND scheduled_at < '${fmt(end)}'`)
 }
 
@@ -424,57 +444,113 @@ export const buildSearchClause = (
 
 /**
  * Tier selection for the sparkline. Each tier carries both the HogQL bucket
- * expression and the equivalent client-side interval (in ms) so we can
- * generate every bucket boundary in the filter range, not just the ones CH
- * returned data for. Tiers (by total range): <24h minutely, ≤4d 15-min,
- * ≤7d hourly, otherwise daily.
+ * expression and its client-side step, so we can generate every bucket boundary
+ * in the filter range, not just the ones CH returned data for. Tiers (by total
+ * range): <24h minutely, ≤4d 15-min, ≤7d hourly, otherwise daily.
  */
+type SparklineStepUnit = 'minute' | 'hour' | 'day'
 interface SparklineTier {
-    intervalMs: number
+    stepAmount: number
+    stepUnit: SparklineStepUnit
     bucketExpr: string
 }
 const pickSparklineTier = (filters: HogInvocationsFilters): SparklineTier => {
     const { start, end } = resolveDateRange(filters)
     const hours = end.diff(start, 'hour')
     if (hours < 24) {
-        return { intervalMs: 60_000, bucketExpr: 'toStartOfMinute(first_scheduled)' }
+        return { stepAmount: 1, stepUnit: 'minute', bucketExpr: 'toStartOfMinute(first_scheduled)' }
     }
     if (hours <= 4 * 24) {
         return {
-            intervalMs: 15 * 60_000,
+            stepAmount: 15,
+            stepUnit: 'minute',
             bucketExpr: 'toStartOfInterval(first_scheduled, INTERVAL 15 MINUTE)',
         }
     }
     if (hours <= 7 * 24) {
-        return { intervalMs: 60 * 60_000, bucketExpr: 'toStartOfHour(first_scheduled)' }
+        return { stepAmount: 1, stepUnit: 'hour', bucketExpr: 'toStartOfHour(first_scheduled)' }
     }
-    return { intervalMs: 24 * 60 * 60_000, bucketExpr: 'toStartOfDay(first_scheduled)' }
+    return { stepAmount: 1, stepUnit: 'day', bucketExpr: 'toStartOfDay(first_scheduled)' }
 }
 
 /**
- * Walk the filter range and emit every bucket boundary as an ISO string.
- * Snaps to interval-aligned ms (matching CH's epoch-aligned
- * `toStartOfInterval` / `toStartOfMinute` etc.), so the keys we use to look
- * up CH counts line up regardless of timezone formatting.
+ * Snap an instant down to a bucket boundary the way the tier's `toStartOf*`
+ * does, i.e. in the *team* timezone. Snapping on the UTC epoch grid instead
+ * silently loses every bucket for a non-UTC project: `toStartOfDay` returns
+ * local midnight, so nothing matches a UTC midnight key and the whole chart
+ * reads as empty.
  */
-const generateSparklineBuckets = (filters: HogInvocationsFilters, intervalMs: number): string[] => {
-    const { start, end } = resolveDateRange(filters)
-    const snap = (t: dayjs.Dayjs): number => Math.floor(t.valueOf() / intervalMs) * intervalMs
-    const out: string[] = []
-    for (let ms = snap(start); ms < end.valueOf(); ms += intervalMs) {
-        out.push(dayjs(ms).toISOString())
+const snapToBucket = (t: dayjs.Dayjs, { stepAmount, stepUnit }: SparklineTier): dayjs.Dayjs => {
+    const local = t.tz(teamTimezone())
+    if (stepUnit === 'minute' && stepAmount > 1) {
+        return local.startOf('hour').add(Math.floor(local.minute() / stepAmount) * stepAmount, 'minute')
     }
-    return out
+    return local.startOf(stepUnit)
+}
+
+/**
+ * Bucket key format, matching what ClickHouse renders a bucketed DateTime as. Buckets join on the
+ * project's wall clock rather than on an instant: `toStartOfDay` returns local midnight, and the
+ * offset it is stamped with is a rendering detail, not a second piece of data. Mirrors
+ * `products/mcp_analytics/frontend/timeBuckets.ts`, which solves the same problem for its charts.
+ */
+const BUCKET_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+/** Enough for the widest tier (a minutely day is 1440); caps an absolute range picked far apart. */
+const MAX_SPARKLINE_BUCKETS = 5000
+
+/**
+ * Normalize a bucket from the query to `BUCKET_FORMAT`. The value carries the project-tz wall clock
+ * however ClickHouse rendered it: naive, `Z`-stamped, or offset-stamped like
+ * `2026-08-04T00:00:00-07:00`. Strip the zone designator before parsing so those digits survive
+ * verbatim; honoring the offset re-converts a wall clock that was never an instant, and every
+ * bucket lands off the axis, which is what emptied this chart for non-UTC projects.
+ */
+const normalizeBucket = (raw: unknown): string => {
+    const value = String(raw ?? '')
+    return value ? dayjs.utc(value.replace(/(?:Z|[+-]\d{2}:?\d{2})$/, '')).format(BUCKET_FORMAT) : ''
+}
+
+/**
+ * Every bucket key across the filter range, so the chart spans the whole window rather than
+ * clipping to the buckets that had runs.
+ *
+ * Each key is re-anchored on the window start instead of accumulated on a cursor: dayjs carries the
+ * original offset through `add`, so a range crossing a DST transition would drift off the boundary
+ * ClickHouse bucketed to. A wall clock a spring-forward skips is dropped, since no run can hold it,
+ * and a fall-back hour repeats one wall clock, which collapses to a single bucket holding both
+ * passes.
+ */
+const generateSparklineBuckets = (filters: HogInvocationsFilters, tier: SparklineTier): string[] => {
+    const { start, end } = resolveDateRange(filters)
+    const timezone = teamTimezone()
+    const first = snapToBucket(start, tier)
+    const keys: string[] = []
+    const seen = new Set<string>()
+    for (let i = 0; i < MAX_SPARKLINE_BUCKETS; i++) {
+        const key = first.add(i * tier.stepAmount, tier.stepUnit).format(BUCKET_FORMAT)
+        const instant = dayjs.tz(key, timezone)
+        if (instant.valueOf() >= end.valueOf()) {
+            break
+        }
+        if (instant.format(BUCKET_FORMAT) !== key || seen.has(key)) {
+            continue
+        }
+        seen.add(key)
+        keys.push(key)
+    }
+    return keys
 }
 
 const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
     running: 'warning',
     succeeded: 'success',
     failed: 'danger',
+    canceled: 'muted',
 }
 
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
-    const { intervalMs, bucketExpr } = pickSparklineTier(filters)
+    const tier = pickSparklineTier(filters)
+    const { bucketExpr } = tier
 
     // Filters reference the SELECT aliases (status / error_kind) so we don't
     // re-wrap in argMax inline — that would collide with the alias and
@@ -536,25 +612,27 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         }
     )
 
-    // Pivot CH results keyed on bucket-as-ms so the lookup is tolerant of
-    // string-format differences between CH's serialization and dayjs's
-    // ISO output.
-    const cellsByMs: Record<number, Record<RunStatus, number>> = {}
+    // Pivot on the normalized bucket key, so a row joins on the project's wall clock however
+    // ClickHouse rendered it. Counts accumulate: the hour a fall-back repeats comes back as two
+    // rows carrying one wall clock, and the chart shows that hour once.
+    const cellsByBucket: Record<string, Record<RunStatus, number>> = {}
     for (const row of response.results ?? []) {
         const [bucket, status, n] = row as unknown as [string, RunStatus, number]
-        if (!bucket) {
+        const key = normalizeBucket(bucket)
+        if (!key) {
             continue
         }
-        const ms = dayjs(bucket).valueOf()
-        cellsByMs[ms] = cellsByMs[ms] ?? { running: 0, succeeded: 0, failed: 0 }
-        cellsByMs[ms][status] = Number(n ?? 0)
+        const cell = (cellsByBucket[key] = cellsByBucket[key] ?? { running: 0, succeeded: 0, failed: 0, canceled: 0 })
+        cell[status] = (cell[status] ?? 0) + Number(n ?? 0)
     }
     // Walk every bucket in the filter range — not just the ones CH returned
     // data for — so the chart's x-axis spans the user's selected window even
     // when activity is concentrated in a tiny slice of it.
-    const dates = generateSparklineBuckets(filters, intervalMs)
-    const buildValues = (status: RunStatus): number[] => dates.map((d) => cellsByMs[dayjs(d).valueOf()]?.[status] ?? 0)
-    const series: SparklineSeries[] = (['failed', 'running', 'succeeded'] as RunStatus[]).map((status) => ({
+    const buckets = generateSparklineBuckets(filters, tier)
+    const timezone = teamTimezone()
+    const dates = buckets.map((key) => dayjs.tz(key, timezone).toISOString())
+    const buildValues = (status: RunStatus): number[] => buckets.map((key) => cellsByBucket[key]?.[status] ?? 0)
+    const series: SparklineSeries[] = (['failed', 'running', 'succeeded', 'canceled'] as RunStatus[]).map((status) => ({
         name: status,
         color: SPARKLINE_STATUS_COLORS[status],
         values: buildValues(status),
@@ -709,25 +787,37 @@ async function fetchRunsPage(
  */
 async function fetchProblemLevels(
     props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters,
     ids: string[]
 ): Promise<Record<string, 'warn' | 'error'>> {
     if (ids.length === 0) {
         return {}
     }
     const idClause = hogql.raw(`instance_id IN (${ids.map(escapeHogQLString).join(',')})`)
+    // Lower-bound only: async failures (e.g. SES bounces) log after the invocation
+    // finishes, so an upper bound could hide late problems. The lower bound keeps the
+    // query off old log_entries partitions (older data is tiered to object storage) —
+    // logs can't predate the invocations on the page, which are >= date_from.
     const severityQuery = hogql`
         SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
+          AND timestamp >= {filters.dateRange.from}
           AND ${idClause}
         GROUP BY instance_id
         HAVING sev > 0
     `
-    const severityResponse = await api.queryHogQL(severityQuery, {
-        scene: 'HogInvocations',
-        productKey: 'pipeline_destinations',
-    })
+    const severityResponse = await api.queryHogQL(
+        severityQuery,
+        {
+            scene: 'HogInvocations',
+            productKey: 'pipeline_destinations',
+        },
+        {
+            filtersOverride: { date_from: filters.date_from },
+        }
+    )
     const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
     for (const severityRow of severityResponse.results ?? []) {
         const [instanceId, sev] = severityRow as unknown as [string, number]
@@ -739,6 +829,8 @@ async function fetchProblemLevels(
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface hogInvocationsLogicValues {
     canBulkRerun: boolean
+    cancellingAll: boolean
+    cancellingInvocationIds: string[]
     expandedIds: Record<string, boolean>
     filters: HogInvocationsFilters
     hasLoadedOnce: boolean
@@ -771,6 +863,18 @@ export interface hogInvocationsLogicValues {
 export interface hogInvocationsLogicActions {
     bulkRerun: (params: BulkRerunParams) => {
         params: BulkRerunParams
+    }
+    cancelAllInvocations: () => {
+        value: true
+    }
+    cancelAllInvocationsComplete: () => {
+        value: true
+    }
+    cancelInvocations: (invocationIds: string[]) => {
+        invocationIds: string[]
+    }
+    cancelInvocationsComplete: (invocationIds: string[]) => {
+        invocationIds: string[]
     }
     clearSelected: () => {
         value: true
@@ -962,6 +1066,10 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         hydratePeople: (personIds: string[]) => ({ personIds }),
         setExpanded: (invocationId: string, expanded: boolean) => ({ invocationId, expanded }),
         rerunInvocations: (invocationIds: string[]) => ({ invocationIds }),
+        cancelInvocations: (invocationIds: string[]) => ({ invocationIds }),
+        cancelInvocationsComplete: (invocationIds: string[]) => ({ invocationIds }),
+        cancelAllInvocations: true,
+        cancelAllInvocationsComplete: true,
         bulkRerun: (params: BulkRerunParams) => ({ params }),
         setHasMore: (hasMore: boolean) => ({ hasMore }),
         // Person filter picker: user picks a person from the typeahead → chip stays in the
@@ -1039,6 +1147,26 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     resetFilters: () => null,
                 },
             ],
+            // Guard the Cancel buttons against a second request while the first is in flight: a run
+            // stays 'running' until the worker terminates it and the reload lands, so the trigger
+            // stays clickable. Track per invocation id and clear when the request settles.
+            cancellingInvocationIds: [
+                [] as string[],
+                {
+                    cancelInvocations: (state: string[], { invocationIds }: { invocationIds: string[] }) => [
+                        ...new Set([...state, ...invocationIds]),
+                    ],
+                    cancelInvocationsComplete: (state: string[], { invocationIds }: { invocationIds: string[] }) =>
+                        state.filter((id) => !invocationIds.includes(id)),
+                },
+            ],
+            cancellingAll: [
+                false,
+                {
+                    cancelAllInvocations: () => true,
+                    cancelAllInvocationsComplete: () => false,
+                },
+            ],
         }
     }),
 
@@ -1081,7 +1209,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     }
                     let levelByInvocationId: Record<string, 'warn' | 'error'>
                     try {
-                        levelByInvocationId = await fetchProblemLevels(props, ids)
+                        levelByInvocationId = await fetchProblemLevels(props, values.filters, ids)
                     } catch {
                         // Leave levels as-is — the run statuses are still accurate.
                         return values.runs
@@ -1177,7 +1305,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         statusCounts: [
             (s) => [s.runs],
             (runs: HogInvocationRow[]): Record<RunStatus, number> => {
-                const counts: Record<RunStatus, number> = { running: 0, succeeded: 0, failed: 0 }
+                const counts: Record<RunStatus, number> = { running: 0, succeeded: 0, failed: 0, canceled: 0 }
                 for (const r of runs) {
                     counts[r.status] = (counts[r.status] ?? 0) + 1
                 }
@@ -1313,7 +1441,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     // defaults a missing status to ['failed'], which would silently drop
                     // succeeded rows the user explicitly selected. The ID restriction
                     // alone determines what gets rerun (the worker still skips in-flight).
-                    status: ['running', 'succeeded', 'failed'] as HogInvocationRerunFilterStatusEnumApi[],
+                    status: ['running', 'succeeded', 'failed', 'canceled'] as HogInvocationRerunFilterStatusEnumApi[],
                 },
             }
 
@@ -1331,6 +1459,68 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue rerun: ${e?.detail ?? e?.message ?? String(e)}`)
+            }
+        },
+        cancelInvocations: async ({ invocationIds }) => {
+            if (props.functionKind !== 'hog_flow' || invocationIds.length === 0) {
+                actions.cancelInvocationsComplete(invocationIds)
+                return
+            }
+
+            const teamId = ApiConfig.getCurrentTeamId()
+            try {
+                const response = await hogFlowsInvocationsCancelCreate(String(teamId), props.id, {
+                    invocation_ids: invocationIds,
+                })
+                const marked = response.marked ?? 0
+                if (marked > 0) {
+                    lemonToast.success(
+                        `Cancellation requested for ${marked} ${marked === 1 ? 'run' : 'runs'}. Parked runs stop within moments. Runs mid-step stop at their next step.`
+                    )
+                } else {
+                    lemonToast.info('Nothing to cancel. The runs may have finished or are already being canceled.')
+                }
+                // Canceled rows flip once the worker terminates them, so poll briefly and the
+                // status change surfaces without a manual refresh.
+                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
+                actions.loadRuns(null)
+            } catch (e: any) {
+                lemonToast.error(`Failed to cancel: ${e?.detail ?? e?.message ?? String(e)}`)
+            } finally {
+                actions.cancelInvocationsComplete(invocationIds)
+            }
+        },
+        cancelAllInvocations: async () => {
+            if (props.functionKind !== 'hog_flow') {
+                actions.cancelAllInvocationsComplete()
+                return
+            }
+
+            const teamId = ApiConfig.getCurrentTeamId()
+            try {
+                const response = await hogFlowsInvocationsCancelCreate(String(teamId), props.id, { all: true })
+                const marked = response.marked ?? 0
+                if (!response.done) {
+                    // One request sweeps a bounded batch of runs, so a very large or still-enrolling
+                    // workflow leaves some unflagged. Prompt another pass instead of reporting a clean stop.
+                    lemonToast.warning(
+                        `Cancellation requested for ${marked} ${marked === 1 ? 'run' : 'runs'}, but more are still in flight. Run "Cancel in-flight runs" again to catch the rest.`
+                    )
+                } else if (marked > 0) {
+                    lemonToast.success(
+                        `Cancellation requested for ${marked} in-flight ${marked === 1 ? 'run' : 'runs'}. Parked runs stop within moments. Runs mid-step stop at their next step.`
+                    )
+                } else {
+                    lemonToast.info('No runs are in flight for this workflow.')
+                }
+                // Canceled rows flip once the worker terminates them, so poll briefly and the
+                // status change surfaces without a manual refresh.
+                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
+                actions.loadRuns(null)
+            } catch (e: any) {
+                lemonToast.error(`Failed to cancel: ${e?.detail ?? e?.message ?? String(e)}`)
+            } finally {
+                actions.cancelAllInvocationsComplete()
             }
         },
         bulkRerun: async ({ params }) => {

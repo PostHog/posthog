@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -6,13 +7,12 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
-    MarketstackResumeConfig,
+    MARKETSTACK_API_VERSION_V1,
+    MARKETSTACK_API_VERSION_V2,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _TIME_SERIES = {"eod", "intraday", "splits", "dividends"}
 _REFERENCE = {"tickers", "exchanges", "currencies", "timezones"}
@@ -26,9 +26,6 @@ def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> Any:
 
 
 class TestMarketstackSource:
-    def test_source_type(self) -> None:
-        assert MarketstackSource().source_type == ExternalDataSourceType.MARKETSTACK
-
     def test_source_config_fields(self) -> None:
         config = MarketstackSource().get_source_config
         assert [f.name for f in config.fields] == ["access_key", "symbols"]
@@ -45,11 +42,6 @@ class TestMarketstackSource:
         # Symbols are only needed for the time-series tables, so the field is optional.
         assert symbols_field.required is False
         assert symbols_field.secret is False
-
-    def test_source_config_stays_unreleased_alpha(self) -> None:
-        config = MarketstackSource().get_source_config
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/marketstack"
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = MarketstackSource().get_schemas(_make_config(), team_id=1)
@@ -82,17 +74,12 @@ class TestMarketstackSource:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source.validate_marketstack_credentials",
             return_value=probe_result,
-        ):
+        ) as probe:
             ok, message = MarketstackSource().validate_credentials(_make_config(), team_id=1)
         assert ok is expected_ok
         assert message == expected_message
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = MarketstackSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MarketstackResumeConfig
+        # A pre-creation probe (no pin) resolves to the default version the new row is stamped with.
+        assert probe.call_args.args[1] == MARKETSTACK_API_VERSION_V2
 
     def test_source_for_pipeline_plumbs_symbols_and_keys(self) -> None:
         inputs = MagicMock()
@@ -100,6 +87,7 @@ class TestMarketstackSource:
         inputs.logger = MagicMock()
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2021-04-09"
+        inputs.api_version = MARKETSTACK_API_VERSION_V2
 
         response = MarketstackSource().source_for_pipeline(_make_config("abc", "AAPL,MSFT"), MagicMock(), inputs)
 
@@ -112,6 +100,7 @@ class TestMarketstackSource:
         inputs.logger = MagicMock()
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = "should-be-ignored"
+        inputs.api_version = MARKETSTACK_API_VERSION_V2
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source.marketstack_source"
@@ -119,6 +108,37 @@ class TestMarketstackSource:
             MarketstackSource().source_for_pipeline(_make_config(), MagicMock(), inputs)
         # A full-refresh run must never forward a stale watermark to the transport.
         assert mocked.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @parameterized.expand(
+        [
+            ("no_pin_resolves_to_default", None, MARKETSTACK_API_VERSION_V2),
+            ("legacy_pin_honored", MARKETSTACK_API_VERSION_V1, MARKETSTACK_API_VERSION_V1),
+            ("new_pin_honored", MARKETSTACK_API_VERSION_V2, MARKETSTACK_API_VERSION_V2),
+        ]
+    )
+    def test_source_for_pipeline_threads_resolved_version(self, _name: str, pin: str | None, expected: str) -> None:
+        inputs = MagicMock()
+        inputs.schema_name = "eod"
+        inputs.logger = MagicMock()
+        inputs.should_use_incremental_field = False
+        inputs.api_version = pin
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source.marketstack_source"
+        ) as mocked:
+            MarketstackSource().source_for_pipeline(_make_config(), MagicMock(), inputs)
+        assert mocked.call_args.kwargs["api_version"] == expected
+
+    def test_version_metadata_declares_v1_deprecation(self) -> None:
+        source = MarketstackSource()
+        assert source.supported_versions == (MARKETSTACK_API_VERSION_V1, MARKETSTACK_API_VERSION_V2)
+        assert source.default_version == MARKETSTACK_API_VERSION_V2
+        # The deprecated v1 carries the vendor's announced sunset date; the generic banner reads it.
+        deprecation = source.get_version_deprecation(MARKETSTACK_API_VERSION_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at == date(2025, 6, 30)
+        # The current default must never be flagged deprecated.
+        assert source.get_version_deprecation(MARKETSTACK_API_VERSION_V2) is None
 
     @parameterized.expand(
         [

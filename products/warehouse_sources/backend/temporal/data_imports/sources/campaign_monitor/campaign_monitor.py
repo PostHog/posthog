@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from requests.auth import HTTPBasicAuth
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.settings import (
     CAMPAIGN_MONITOR_ENDPOINTS,
     CampaignMonitorEndpointConfig,
@@ -26,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CAMPAIGN_MONITOR_BASE_URL = "https://api.createsend.com/api/v3.3"
 DEFAULT_PAGE_SIZE = 1000  # Campaign Monitor's documented maximum page size.
@@ -157,15 +157,30 @@ def _fan_out_resource(
     """Fan a list-/campaign-scoped endpoint out over every parent via a dependent resource: the
     framework fetches the client's lists (or sent campaigns), pages each parent's child endpoint,
     and injects the parent id into every row."""
+    parent_endpoint: Endpoint
     if config.fan_out_over_lists:
         parent_name = "lists"
         parent_path = f"clients/{client_id}/lists.json"
         resolve_param, parent_id_field = "list_id", "ListID"
+        # The subscriber-lists endpoint returns a bare JSON array.
+        parent_endpoint = {
+            "path": parent_path,
+            "paginator": SinglePagePaginator(),
+            "data_selector_required": True,
+        }
     else:
-        # Only sent campaigns have reports, which is exactly what campaigns.json returns.
+        # Only sent campaigns have reports, which is exactly what campaigns.json returns —
+        # in the standard paged envelope (`{"Results": [...], "NumberOfPages": N, ...}`), not a
+        # bare array like the draft/scheduled campaign endpoints.
         parent_name = "campaigns"
         parent_path = f"clients/{client_id}/campaigns.json"
         resolve_param, parent_id_field = "campaign_id", "CampaignID"
+        parent_endpoint = {
+            "path": parent_path,
+            "params": {"pagesize": DEFAULT_PAGE_SIZE},
+            "paginator": _paginator(),
+            "data_selector": "Results",
+        }
 
     child_params: dict[str, Any] = {
         resolve_param: {"type": "resolve", "resource": parent_name, "field": parent_id_field},
@@ -193,11 +208,7 @@ def _fan_out_resource(
         "resources": [
             {
                 "name": parent_name,
-                "endpoint": {
-                    "path": parent_path,
-                    "paginator": SinglePagePaginator(),
-                    "data_selector_required": True,
-                },
+                "endpoint": parent_endpoint,
             },
             {
                 "name": config.name,

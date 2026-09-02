@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import subprocess
 
 # Add the project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,6 +17,7 @@ with open(filename, "w") as json_file:
     }
     json.dump(with_comment, json_file, indent=4, sort_keys=True)
 
-subprocess.run(
-    ["pnpm", "exec", "oxfmt", filename],
-)
+# Do not add a formatter pass here. json.dump is the only writer, so the output stays
+# byte-stable and the taxonomy drift check in ci-python.yml cannot flap. The other half
+# of that guarantee is the ignorePatterns entry in .oxfmtrc.json, which keeps
+# lint-staged's `bin/hogli format:yaml` (oxfmt) off this file. Keep both.

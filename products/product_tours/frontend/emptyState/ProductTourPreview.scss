@@ -1,0 +1,355 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.TourPreview {
+    --tour-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden step state. Direct children of .TourPreview so `:checked ~` reaches all cards.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__app,
+    &__spark {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 1fr auto auto auto;
+        gap: 0.625rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__row--hero {
+        background: color-mix(in oklab, var(--tour-preview-accent) 7%, transparent);
+    }
+
+    &__name {
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    // Mini kind tag, mimicking the list's type column.
+    &__kind {
+        padding: 0 0.375rem;
+        font-size: 0.625rem;
+        font-weight: 700;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    &__kind--tour {
+        background: color-mix(in oklab, var(--tour-preview-accent) 12%, transparent);
+
+        @include preview-accent-text(var(--tour-preview-accent));
+    }
+
+    &__steps {
+        min-width: 3.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__status {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        min-width: 4.25rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__status--running {
+        font-weight: 600;
+
+        @include preview-accent-text(var(--tour-preview-accent));
+    }
+
+    &__status-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--tour-preview-accent);
+        border-radius: 50%;
+        animation: TourPreview__pulse 2s ease-in-out infinite;
+    }
+
+    // Browser chrome for the mini app.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // The tooltips are positioned against this box, so it anchors the whole scene.
+    &__screen {
+        position: relative;
+        display: grid;
+        grid-template-columns: 6.5rem 1fr;
+        gap: 0.75rem;
+        min-height: 9rem;
+        padding: 0.875rem;
+    }
+
+    &__sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding-right: 0.625rem;
+        border-right: 1px solid var(--color-border-primary);
+    }
+
+    &__nav {
+        position: relative;
+        padding: 0.25rem 0.375rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        border-radius: var(--radius);
+    }
+
+    &__main {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
+    }
+
+    &__skel {
+        display: block;
+        width: var(--w, 100%);
+        height: 8px;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    &__button {
+        position: relative;
+        padding: 0.25rem 0.625rem;
+        margin-top: 0.25rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        background: var(--color-fill-secondary);
+        border-radius: var(--radius);
+    }
+
+    // The tour's highlight ring and beacon, moving with the active step.
+    &__nav--target1,
+    &__button--target2 {
+        transition: box-shadow 250ms ease;
+    }
+
+    &__beacon {
+        position: absolute;
+        top: -3px;
+        right: -3px;
+        width: 8px;
+        height: 8px;
+        background: var(--tour-preview-accent);
+        border-radius: 50%;
+        opacity: 0;
+        transition: opacity 250ms ease;
+    }
+
+    // Tour tooltip, one per step, crossfaded in place (no layout shift).
+    &__tip {
+        position: absolute;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        width: 11rem;
+        padding: 0.5rem 0.625rem;
+        pointer-events: none;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid color-mix(in oklab, var(--tour-preview-accent) 45%, var(--color-border-primary));
+        border-radius: var(--radius);
+        box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+
+        @include preview-swap-hidden;
+    }
+
+    &__tip--1 {
+        top: 1.375rem;
+        left: 7.5rem;
+    }
+
+    &__tip--2 {
+        right: 0.875rem;
+        bottom: 0.75rem;
+    }
+
+    &__tip-text {
+        font-size: 0.6875rem;
+        color: var(--color-text-primary);
+    }
+
+    &__tip-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    &__tip-count {
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__tip-btn {
+        padding: 0.125rem 0.5rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-bg-surface-primary);
+        cursor: pointer;
+        user-select: none;
+        background: var(--tour-preview-accent);
+        border-radius: var(--radius);
+    }
+
+    &__tip-btn--back {
+        color: var(--color-text-secondary);
+        background: var(--color-fill-secondary);
+    }
+
+    // Completion stat card.
+    &__spark {
+        padding: 0.75rem 0.875rem 0.875rem;
+    }
+
+    &__spark-delta {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-green-500);
+    }
+
+    &__spark-chart {
+        margin-top: 0.5rem;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--tour-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--tour-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--tour-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: TourPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// Per-step state: each radio lights up its own tooltip, beacon, and highlight ring.
+
+.TourPreview__radio--1:checked ~ .TourPreview__app .TourPreview__tip--1,
+.TourPreview__radio--2:checked ~ .TourPreview__app .TourPreview__tip--2 {
+    pointer-events: auto;
+
+    @include preview-swap-visible;
+}
+
+.TourPreview__radio--1:checked ~ .TourPreview__app .TourPreview__beacon--1,
+.TourPreview__radio--2:checked ~ .TourPreview__app .TourPreview__beacon--2 {
+    opacity: 1;
+    animation: TourPreview__pulse 2s ease-in-out infinite;
+}
+
+.TourPreview__radio--1:checked ~ .TourPreview__app .TourPreview__nav--target1,
+.TourPreview__radio--2:checked ~ .TourPreview__app .TourPreview__button--target2 {
+    box-shadow:
+        0 0 0 2px var(--tour-preview-accent),
+        0 0 0 5px color-mix(in oklab, var(--tour-preview-accent) 22%, transparent);
+}
+
+// The radios stay keyboard-focusable while visually hidden. Focus follows the
+// checked radio, whose tooltip is the visible one, so its button gets the
+// visible focus indicator (WCAG 2.4.7).
+.TourPreview__radio--1:focus-visible ~ .TourPreview__app .TourPreview__tip--1 .TourPreview__tip-btn,
+.TourPreview__radio--2:focus-visible ~ .TourPreview__app .TourPreview__tip--2 .TourPreview__tip-btn--back {
+    outline: 2px solid var(--tour-preview-accent);
+    outline-offset: 1px;
+}
+
+@keyframes TourPreview__pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--tour-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--tour-preview-accent) 15%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes TourPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking Next
+// still steps the tour (transitions only).
+@include preview-motion-guards('TourPreview');

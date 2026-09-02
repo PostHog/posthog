@@ -2,7 +2,7 @@ import os
 import json
 from contextlib import suppress
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -84,7 +84,9 @@ else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES: dict[str, dict] = {"default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))}
+    DATABASES: dict[str, dict[str, Any]] = {
+        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+    }
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -159,7 +161,7 @@ PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 # through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
 # connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
 # sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
-# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+# PRODUCT_DB_<PRODUCT>_SSL_MODE); unset for local dev/test (plain Postgres).
 def _apply_product_db_ssl_options(db: str, options: dict) -> None:
     ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
     ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
@@ -301,6 +303,12 @@ CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKH
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
+# Path to a file holding the live password. When set, it is read fresh per pool checkout so a
+# rotated short-lived token is used without a restart. CLICKHOUSE_PASSWORD is the fallback when
+# the file is missing or empty. Per-user files use CLICKHOUSE_<USER>_PASSWORD_FILE.
+# Unset by default, and left unset on purpose: the deployment sets it per user only when that user
+# is migrated to token auth, so native pools keep using the static password until then.
+CLICKHOUSE_PASSWORD_FILE: str | None = os.getenv("CLICKHOUSE_PASSWORD_FILE", None)
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
@@ -316,6 +324,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# The cluster the native-JSON events tables are rolled out on. Named here so the deletion
+# registry can say where a storage table lives; whether a given deployment can reach it is
+# decided by probing the hosts, not by comparing this against the handle's cluster.
+CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
@@ -363,6 +375,10 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
 )
 
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
+# The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
+# table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
+# defaults to CLICKHOUSE_LOGS_CLUSTER; the local multinode stack does not, and sets this explicitly.
+CLICKHOUSE_LOGS_WRITE_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_WRITE_CLUSTER", CLICKHOUSE_LOGS_CLUSTER)
 CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
@@ -419,6 +435,12 @@ API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
+# Fleet-wide, unlike ClickHouse's per-node max_concurrent_queries_for_user, so keep it at or below
+# that user's per-node value for the bound to mean anything.
+CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES: int = get_from_env(
+    "CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES", 8, type_cast=int
+)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -547,6 +569,49 @@ WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the workflows cancel routes (invocations/cancel and batch_jobs/:id/cancel).
+# Web mints, the plugin server's cancel routes verify. A dedicated key per the scoped-JWT rule
+# (one key per caller/callee surface), so cancel from the web tier never carries the reschedule
+# sweep's key, and a leak of one can't forge the other. Comma-separated, newest first: the first
+# key signs, the plugin server verifies against all. Empty outside dev/test, so the cancel routes
+# fail closed until provisioned. The dev/test value must match the plugin server's default
+# (nodejs/src/cdp/config.ts).
+WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
+# must match the plugin server's minting default so local workflows work with no setup.
+TASKS_CREATE_JWT_SECRETS = get_list(
+    get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Run scout" action calls back with. Its own key rather than
+# TASKS_CREATE_JWT_SECRETS — see products/workflows/backend/service_jwt.py for why. The dev/test
+# value must match the plugin server's minting default.
+WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
+)
+
+# Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
+# ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
+# Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
+# request until the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
+    get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
+)
+
+# Verifies the scoped JWTs the CDP worker's customer analytics account actions send to the
+# internal account routes (the worker mints, Django verifies;
+# products/customer_analytics/backend/presentation/views/internal.py). Comma-separated,
+# newest first. Empty outside dev/test, so the internal routes reject every request until
+# the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS = get_list(
+    get_from_env(
+        "CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET", "local-dev-customer-analytics-accounts-jwt" if DEBUG or TEST else ""
+    )
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
@@ -559,7 +624,7 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
-# published where the gateway reads it — zero config for the agent-platform e2e
+# published where the gateway reads it — zero config for the gateway e2e
 # (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
@@ -612,6 +677,13 @@ CACHES = {
         },
         "KEY_PREFIX": "posthog",
     }
+}
+
+# Authorization cache reads must use the writer. Reading membership versions and values from
+# different replicas can otherwise make a revoked membership appear valid after invalidation.
+CACHES["organization_access"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -676,6 +748,7 @@ else:
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
     CACHES["query_cache"] = CACHES["default"]
+    CACHES["organization_access"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

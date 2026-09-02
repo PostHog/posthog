@@ -34,8 +34,16 @@ export const PersonsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
+
+export const personsDeletePropertyCreateBodyUnsetTwoMax = 1000
+
 export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
-    $unset: zod.string().describe('The property key to remove from this person.'),
+    $unset: zod
+        .union([
+            zod.string().min(1),
+            zod.array(zod.string().min(1)).min(1).max(personsDeletePropertyCreateBodyUnsetTwoMax),
+        ])
+        .describe('A property key, or a list of property keys, to remove from this person.'),
 })
 
 /**

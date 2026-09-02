@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
     INTERCOM_API_BASE,
+    IntercomPagesPaginator,
     IntercomSearchPaginator,
     _build_paginator,
     _build_search_body,
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _iter_companies,
     _make_intercom_session,
     _rate_limit_backoff_seconds,
+    _substream_items,
     get_resource,
     intercom_source,
     validate_credentials,
@@ -171,6 +173,7 @@ class TestBuildPaginator:
             ("search", IntercomSearchPaginator),
             ("cursor", JSONResponseCursorPaginator),
             ("next_url", JSONResponsePaginator),
+            ("pages", IntercomPagesPaginator),
             ("single", SinglePagePaginator),
         ],
     )
@@ -178,6 +181,87 @@ class TestBuildPaginator:
         cfg = mock.MagicMock()
         cfg.paginator_kind = kind
         assert isinstance(_build_paginator(cfg), expected_type)
+
+
+PAGES_ENDPOINTS = [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.paginator_kind == "pages"]
+
+
+class TestPagesPaginator:
+    # Intercom's OpenAPI description types `pages.next` on the Help Center and News lists
+    # as a `{"starting_after": ...}` object, but the live Help Center endpoints return a
+    # plain next-page URL there. Guessing wrong either way is a real failure: treating a
+    # cursor object as a URL puts a dict on `request.url`, and treating a URL as a cursor
+    # silently truncates the table to its first page.
+    def test_follows_next_url_when_next_is_a_string(self):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response({"pages": {"next": "https://api.intercom.io/x?page=2"}}))
+
+        request = Request(method="GET", url=f"{INTERCOM_API_BASE}/x", params={"per_page": 150})
+        paginator.update_request(request)
+
+        assert paginator.has_next_page is True
+        assert request.url == "https://api.intercom.io/x?page=2"
+        assert request.params == {}
+
+    def test_sends_starting_after_when_next_is_a_cursor_object(self):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response({"pages": {"next": {"starting_after": "cursor-1"}}}))
+
+        request = Request(method="GET", url=f"{INTERCOM_API_BASE}/x", params={"per_page": 150})
+        paginator.update_request(request)
+
+        assert paginator.has_next_page is True
+        assert request.url == f"{INTERCOM_API_BASE}/x"
+        assert request.params == {"per_page": 150, "starting_after": "cursor-1"}
+
+    def test_cursor_page_does_not_reuse_a_previous_next_url(self):
+        # An endpoint that switches shapes mid-walk must not keep pointing at the URL
+        # from the earlier page, which would refetch it forever.
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response({"pages": {"next": "https://api.intercom.io/x?page=2"}}))
+        paginator.update_state(_make_response({"pages": {"next": {"starting_after": "cursor-2"}}}))
+
+        request = Request(method="GET", url=f"{INTERCOM_API_BASE}/x", params={})
+        paginator.update_request(request)
+
+        assert request.url == f"{INTERCOM_API_BASE}/x"
+        assert request.params == {"starting_after": "cursor-2"}
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # Last page of a paginated endpoint.
+            {"pages": {"next": None}},
+            {"pages": {"next": {"starting_after": None}}},
+            {"pages": {"page": 1, "total_pages": 1}},
+            # Endpoints that return no pagination block at all.
+            {"pages": None},
+            {"data": []},
+        ],
+    )
+    def test_terminates_without_a_next_page(self, body: Any):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response(body))
+
+        assert paginator.has_next_page is False
+
+    def test_terminates_on_non_json_body(self):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response(None, text="<html>bad gateway</html>"))
+
+        assert paginator.has_next_page is False
+
+    def test_stops_when_the_cursor_stops_advancing(self):
+        # A repeated cursor would refetch the same page until the Temporal activity
+        # times out, which for these tables is a very long time to spend on one page.
+        paginator = IntercomPagesPaginator()
+        body = {"pages": {"next": {"starting_after": "cursor-1"}}}
+
+        paginator.update_state(_make_response(body))
+        assert paginator.has_next_page is True
+
+        paginator.update_state(_make_response(body))
+        assert paginator.has_next_page is False
 
 
 NON_SUBSTREAM_ENDPOINTS = [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.paginator_kind != "substream"]
@@ -242,6 +326,25 @@ class TestGetResource:
 
         assert _endpoint(resource)["params"] == {"model": expected_model}
 
+    @pytest.mark.parametrize("name", PAGES_ENDPOINTS)
+    def test_pages_endpoints_stay_full_refresh(self, name: str):
+        # These endpoints expose no server-side timestamp filter, so they declare no
+        # incremental fields. Even if the pipeline were to pass an incremental field
+        # through, they must keep paging with plain `per_page` and stay on `replace` —
+        # merge-upserting a table with no cursor would silently freeze deletions.
+        resource = get_resource(
+            name,
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value="1700000000",
+        )
+
+        assert resource["write_disposition"] == "replace"
+        endpoint = _endpoint(resource)
+        assert endpoint["params"] == {"per_page": INTERCOM_ENDPOINTS[name].page_size}
+        assert "json" not in endpoint
+        assert isinstance(endpoint["paginator"], IntercomPagesPaginator)
+
     def test_single_endpoint_without_params(self):
         resource = get_resource(
             "admins", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
@@ -257,6 +360,48 @@ class TestGetResource:
         assert resource["name"] == name
         assert resource["table_name"] == name
         assert resource["table_format"] == "delta"
+
+
+class TestNoSourceLevelTypeCoercion:
+    # Type flips (Intercom returning a field as an int on some rows and a string on others)
+    # are stabilized generically when batches are built, not by naming fields per endpoint.
+    # These guard against a per-field allowlist creeping back in.
+
+    @pytest.mark.parametrize("name", NON_SUBSTREAM_ENDPOINTS)
+    def test_no_endpoint_declares_a_data_map(self, name: str):
+        resource = get_resource(
+            name, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        assert "data_map" not in resource
+
+    def test_substream_rows_pass_through_untouched(self):
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"conversations": [{"id": "c1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(
+                {
+                    "conversation_parts": {
+                        "conversation_parts": [
+                            {"id": "p1", "waiting_since": 1700000000},
+                            {"id": "p2", "waiting_since": "1700000001"},
+                            {"id": "p3", "waiting_since": None},
+                        ]
+                    }
+                }
+            ),
+        ]
+
+        parts = list(_substream_items(mock_session, "conversation_parts", "updated_at", None))
+
+        assert [p["waiting_since"] for p in parts] == [1700000000, "1700000001", None]
+
+    def test_unknown_substream_endpoint_raises(self):
+        # Adding a substream endpoint config without wiring it into _substream_items
+        # must fail loud, not silently yield nothing.
+        with pytest.raises(ValueError):
+            list(_substream_items(mock.MagicMock(), "not_a_real_endpoint", None, None))
 
 
 class TestSubstreamGenerators:

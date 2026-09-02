@@ -15,7 +15,7 @@ import type {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
-import { getExposureEventAndProperty } from '~/scenes/experiments/exposureContract'
+import { getExposureEventAndProperty, resolvedExposureEvent } from '~/scenes/experiments/exposureContract'
 import {
     addExposureToMetric,
     compose,
@@ -156,6 +156,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                     {
                         featureFlagKey: experiment.feature_flag_key,
                         featureFlagVariants: getExperimentVariants(experiment),
+                        resolvedExposureEvent: resolvedExposureEvent(experiment),
                     }
                 )
 

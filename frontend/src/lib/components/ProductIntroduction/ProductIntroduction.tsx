@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
-import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -44,6 +44,7 @@ export type ProductIntroductionProps = {
     actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
+    hogClassName?: string
     className?: string
     /**
      * Default hides the hog below `md`. Use `responsive` to keep the hog visible on small screens with a vertical
@@ -93,6 +94,7 @@ export const ProductIntroduction = ({
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
+    hogClassName,
     className,
     hogLayout = 'default',
     useMainContentContainerQueries = false,
@@ -125,8 +127,9 @@ export const ProductIntroduction = ({
             )}
             data-attr={`product-introduction-${thingName}`}
         >
+            {/* Below md the copy starts in the top-right corner (no hog beside it), so only pull it up under the dismiss button from md on. */}
             {!isEmpty && (
-                <div className="flex justify-end -mb-6 -mt-2 -mr-2 relative z-10">
+                <div className="flex justify-end md:-mb-6 -mt-2 -mr-2 relative z-10">
                     <div>
                         <LemonButton
                             icon={<IconX />}
@@ -168,7 +171,8 @@ export const ProductIntroduction = ({
                                   ? useMainContentContainerQueries
                                       ? 'block w-56 sm:w-60 lg:w-70 mb-4 @min-[48rem]/main-content:mb-0'
                                       : 'block w-56 sm:w-60 lg:w-70 mb-4 md:mb-0'
-                                  : 'w-60 lg:w-70 mb-4 hidden md:block'
+                                  : 'w-60 lg:w-70 mb-4 hidden md:block',
+                            hogClassName
                         )}
                     >
                         <HogComponent className="w-full h-full" />

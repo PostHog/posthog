@@ -2,8 +2,14 @@ import posthog from 'posthog-js'
 
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { formatCurrency } from 'lib/utils/currency'
-import { humanFriendlyDuration } from 'lib/utils/durations'
-import { compactNumber, humanFriendlyCurrency, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { formatDurationMilliseconds } from 'lib/utils/durations'
+import {
+    compactNumber,
+    humanFriendlyCurrency,
+    humanFriendlyNumber,
+    percentage,
+    significantDecimalPlaces,
+} from 'lib/utils/numbers'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
@@ -59,7 +65,7 @@ const formatNanoseconds = (value: number): string => {
     if (absoluteValue < 1_000_000) {
         return `${humanFriendlyNumber(value / 1_000)}µs`
     }
-    return humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+    return formatDurationMilliseconds(value / 1_000_000)
 }
 
 // this function needs to support a trendsFilter as part of an insight query and
@@ -84,23 +90,33 @@ export const formatAggregationAxisValue = (
     const aggregationAxisPostfix =
         (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
-    let formattedValue = humanFriendlyNumber(value, maxDecimalPlaces, minDecimalPlaces)
+    let formattedValue = humanFriendlyNumber(
+        value,
+        maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces),
+        minDecimalPlaces
+    )
     if (aggregationAxisFormat) {
         switch (aggregationAxisFormat) {
             case 'duration':
-                formattedValue = humanFriendlyDuration(value)
+                formattedValue = formatDurationMilliseconds(value * 1000)
                 break
             case 'duration_ms':
-                formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
+                formattedValue = formatDurationMilliseconds(value)
                 break
             case 'duration_ns':
                 formattedValue = formatNanoseconds(value)
                 break
             case 'percentage':
-                formattedValue = percentage(value / 100, maxDecimalPlaces)
+                formattedValue = percentage(
+                    value / 100,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces)
+                )
                 break
             case 'percentage_scaled':
-                formattedValue = percentage(value, maxDecimalPlaces)
+                formattedValue = percentage(
+                    value,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value * 100, minDecimalPlaces)
+                )
                 break
             case 'currency':
                 // In the rare case where we get an error because we have an invalid currency code

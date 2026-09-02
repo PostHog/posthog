@@ -1,3 +1,5 @@
+import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 
 import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
@@ -5,6 +7,7 @@ import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBa
 import {
     dashboardToSaveableTemplate,
     getDashboardTileDisplayName,
+    getInsightWithRetry,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
     parseURLVariables,
@@ -129,6 +132,41 @@ describe('parseURLFilters', () => {
         }
         expect(parseURLFilters(searchParams)).toEqual({})
         consoleSpy.mockRestore()
+    })
+})
+
+describe('getInsightWithRetry', () => {
+    const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as QueryBasedInsightModel
+    const MAX_ATTEMPTS = 3
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    it.each<[string, number, number | undefined]>([
+        ['a deterministic 400 (e.g. query validation error)', 1, 400],
+        ['a 429 (rate limited)', MAX_ATTEMPTS, 429],
+        ['a 500 (transient server error)', MAX_ATTEMPTS, 500],
+        ['a network failure without a status', MAX_ATTEMPTS, undefined],
+    ])('on %s, requests %i time(s) before throwing', async (_, expectedAttempts, status) => {
+        const getResponseSpy = jest.spyOn(api, 'getResponse').mockRejectedValue(new ApiError('some error', status))
+
+        await expect(
+            getInsightWithRetry(
+                1,
+                insight,
+                60,
+                'query-id',
+                'blocking',
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                MAX_ATTEMPTS,
+                1
+            )
+        ).rejects.toThrow('some error')
+        expect(getResponseSpy).toHaveBeenCalledTimes(expectedAttempts)
     })
 })
 

@@ -11,7 +11,6 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestImaggaSource:
@@ -19,9 +18,6 @@ class TestImaggaSource:
         self.source = ImaggaSource()
         self.team_id = 123
         self.config = ImaggaSourceConfig(api_key="acc_test", api_secret="secret_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.IMAGGA
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -93,19 +89,3 @@ class TestImaggaSource:
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid
         mock_validate.assert_called_once_with("acc_test", "secret_test")
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source.imagga_source")
-    def test_source_for_pipeline_plumbs_credentials_and_endpoint(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "daily_usage"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "acc_test"
-        assert kwargs["api_secret"] == "secret_test"
-        assert kwargs["endpoint"] == "daily_usage"
-
-    def test_canonical_descriptions_cover_all_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)

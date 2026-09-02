@@ -53,6 +53,7 @@ class TestGetRows:
         monkeypatch: Any,
         pages: Mapping[str, Any],
         endpoint: str,
+        api_version: str = mention.API_VERSION_1_19,
     ) -> list[dict]:
         def fake_fetch(session: Any, url: str, logger: Any) -> dict[str, Any]:
             assert url in pages, f"unexpected request to {url}"
@@ -67,6 +68,7 @@ class TestGetRows:
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
+            api_version=api_version,
         ):
             rows.extend(batch)
         return rows
@@ -167,6 +169,58 @@ class TestGetRows:
     def test_unknown_endpoint_raises(self, monkeypatch: Any) -> None:
         with pytest.raises(ValueError, match="Unknown Mention endpoint 'nope'"):
             self._collect(_FakeResumableManager(), monkeypatch, {}, "nope")
+
+
+class TestApiVersioning:
+    @staticmethod
+    def _run(pages: Mapping[str, Any], endpoint: str, api_version: str) -> tuple[dict[str, str], list[str]]:
+        requested_urls: list[str] = []
+        captured: dict[str, dict[str, str]] = {}
+
+        def fake_fetch(session: Any, url: str, logger: Any) -> dict[str, Any]:
+            requested_urls.append(url)
+            assert url in pages, f"unexpected request to {url}"
+            return pages[url]
+
+        def fake_session(**kwargs: Any) -> MagicMock:
+            captured["headers"] = kwargs["headers"]
+            return MagicMock()
+
+        with (
+            patch.object(mention, "_fetch_page", fake_fetch),
+            patch.object(mention, "make_tracked_session", fake_session),
+        ):
+            for _ in get_rows(
+                access_token="tok",
+                endpoint=endpoint,
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                api_version=api_version,
+            ):
+                pass
+        return captured["headers"], requested_urls
+
+    @parameterized.expand([(v,) for v in mention.SUPPORTED_API_VERSIONS])
+    def test_pinned_version_reaches_accept_version_header(self, api_version: str) -> None:
+        # A pinned source must send its version; otherwise the sync silently tracks the app's
+        # configured version — the drift the pinning framework exists to prevent.
+        headers, _ = self._run({ME_URL: ME_PAYLOAD}, "accounts", api_version)
+        assert headers["Accept-Version"] == api_version
+
+    @parameterized.expand(
+        [
+            (mention.API_VERSION_1_19, f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"),
+            (
+                mention.API_VERSION_1_21,
+                f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100&stats={mention.ALERT_STATS_PARAM}",
+            ),
+        ]
+    )
+    def test_alerts_request_asks_for_stats_only_from_1_21(self, api_version: str, alerts_url: str) -> None:
+        # 1.21 empties the alert `stats` field unless the counters are requested explicitly; 1.19
+        # returns them by default, so only the newer version appends the `stats` query parameter.
+        _, requested_urls = self._run({ME_URL: ME_PAYLOAD, alerts_url: {"alerts": [{"id": 1}]}}, "alerts", api_version)
+        assert requested_urls[-1] == alerts_url
 
 
 class TestFetchPage:
@@ -297,6 +351,7 @@ class TestMentionSourceResponse:
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
+            api_version=mention.DEFAULT_API_VERSION,
         )
         assert response.name == endpoint
         assert response.primary_keys == MENTION_ENDPOINTS[endpoint].primary_keys

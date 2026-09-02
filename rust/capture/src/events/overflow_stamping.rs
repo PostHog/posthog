@@ -61,8 +61,9 @@ use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 /// * If the lane's limiter is `Some`, `is_limited(event.key())` is consulted
 ///   and the resulting [`OverflowReason`] is stamped, plus the matching
 ///   counter. `ForceLimited` additionally sets `skip_person_processing =
-///   true` so the sink's generic skip-person branch picks up the
-///   `force_disable_person_processing` header without a separate code path.
+///   true` for pipeline-level readers of the flag; the sink derives the
+///   `force_disable_person_processing` header from the reason itself, so
+///   the header does not depend on this stamp.
 ///
 /// Counter labels are intentionally identical to the pre-refactor sink so
 /// existing dashboards (filtering on `capture_events_rerouted_overflow`'s
@@ -101,13 +102,11 @@ pub fn stamp_overflow_reason(
                 )
                 .increment(1);
                 event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-                // Self-describing metadata: ForceLimited implies person
-                // processing is skipped. Pre-refactor the sink inferred this
-                // from the limiter result; now we stamp it alongside the
-                // reason so the sink's generic skip-person path handles it
-                // uniformly. Kafka output is byte-identical — the sink's
-                // ForceLimited arm still sets the header redundantly as
-                // defense against a future caller stamping reason-only.
+                // ForceLimited implies person processing is skipped; the sink
+                // derives that from the reason itself
+                // (`person_processing_disabled`). The flag is stamped
+                // alongside so pipeline-level readers of the flag see the
+                // same truth.
                 event.metadata.skip_person_processing = true;
             }
             OverflowLimiterResult::Limited => {
@@ -166,6 +165,7 @@ mod tests {
             redirect_to_topic: None,
             skip_heatmap_processing: false,
             overflow_reason: None,
+            distinct_id_truncated_from: None,
         };
 
         ProcessedEvent { event, metadata }

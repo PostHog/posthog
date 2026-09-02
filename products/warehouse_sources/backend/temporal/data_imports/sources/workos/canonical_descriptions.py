@@ -18,8 +18,17 @@ _COMMON_COLUMNS = {
 }
 
 
-def _columns(**overrides: str) -> dict[str, str]:
-    return {**_COMMON_COLUMNS, **overrides}
+# PostHog adds these columns to the tables that can sync by webhook, because a webhook delete
+# merges on `id` and can only mark a row, never remove it. WorkOS itself does not send them.
+# The tables that get them are the keys of WEBHOOK_EVENTS_BY_SCHEMA in `settings.py`.
+_TOMBSTONE_COLUMNS = {
+    "workos_deleted": "Whether WorkOS reported this record as deleted. Added by PostHog, not a WorkOS field.",
+    "workos_deleted_at": "Time at which WorkOS reported the delete. Null while the record still exists.",
+}
+
+
+def _columns(*, webhook_synced: bool = False, **overrides: str) -> dict[str, str]:
+    return {**_COMMON_COLUMNS, **(_TOMBSTONE_COLUMNS if webhook_synced else {}), **overrides}
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -27,6 +36,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "An organization (a tenant/company) in WorkOS that users and connections belong to.",
         "docs_url": "https://workos.com/docs/reference/organization",
         "columns": _columns(
+            webhook_synced=True,
             name="The organization's display name.",
             domains="Verified domains associated with the organization.",
             allow_profiles_outside_organization="Whether users outside the organization's domains may sign in.",
@@ -36,6 +46,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A user managed by WorkOS User Management (AuthKit).",
         "docs_url": "https://workos.com/docs/reference/user-management/user",
         "columns": _columns(
+            webhook_synced=True,
             email="The user's email address.",
             first_name="The user's first name.",
             last_name="The user's last name.",
@@ -69,6 +80,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A user synced from an organization's directory via Directory Sync.",
         "docs_url": "https://workos.com/docs/reference/directory-sync/directory-user",
         "columns": _columns(
+            webhook_synced=True,
             directory_id="ID of the directory the user was synced from.",
             organization_id="ID of the organization the directory belongs to.",
             email="The user's primary email address.",
@@ -83,6 +95,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A group synced from an organization's directory via Directory Sync.",
         "docs_url": "https://workos.com/docs/reference/directory-sync/directory-group",
         "columns": _columns(
+            webhook_synced=True,
             directory_id="ID of the directory the group was synced from.",
             organization_id="ID of the organization the directory belongs to.",
             name="The group's name.",

@@ -93,8 +93,13 @@ def _snapshot_key(src: str) -> str:
     return f"{safe}-{digest}" if safe else digest
 
 
-def parser_test_factory(backend: HogQLParserBackend):
-    base_classes = (MemoryLeakTestMixin, BaseTest)
+def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
+    # 102 re-parses per test to measure leaks is expensive at this suite's scale.
+    # The backends are separate parser implementations, so a leak is per-backend:
+    # keep the matrix on rust-py only, the production primary (PyO3-built objects
+    # are also the most binding-leak-prone path). cpp-json and rust-json run once
+    # per test — the shared snapshot still proves parity on all three.
+    base_classes = (MemoryLeakTestMixin, BaseTest) if leak_check else (BaseTest,)
 
     class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
@@ -124,10 +129,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             kwargs: dict[str, Any] = {"backend": backend}
             if placeholders is not None:
                 kwargs["placeholders"] = placeholders
-            # Parse on every rerun so the leak mixin still exercises the parser 102x and a real
-            # per-parse leak is caught. Only COMPARE on the first run: syrupy / pretty_dataclasses
-            # allocate per call, so comparing on every rerun would trip the leak check with
-            # test-machinery growth that isn't a parser leak.
+            # Leak-checking backends parse on every mixin rerun so a real per-parse leak is
+            # caught. Only COMPARE on the first run: syrupy / pretty_dataclasses allocate per
+            # call, so comparing on every rerun would trip the leak check with test-machinery
+            # growth that isn't a parser leak.
             parsed = parse_fn(src, **kwargs)
             if getattr(self, "_memory_leak_run_index", 0) != 0:
                 return
@@ -326,6 +331,18 @@ def parser_test_factory(backend: HogQLParserBackend):
             # The catch-all only fires outside string literals — a
             # zero-width character is ordinary content within a string.
             self._program("let x := 'a​b'")
+
+        @parameterized.expand(
+            [
+                ("latin_small_e_acute", "let x := a<é", "U+00E9"),
+                ("cjk_unified", "let x := a<中", "U+4E2D"),
+                ("supplementary_plane_emoji", "let x := a<\U0001f600", "U+1F600"),
+            ]
+        )
+        def test_non_ascii_after_lt_rejected(self, _name: str, program: str, code_point: str):
+            with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
+                self._program(program)
+            self.assertIn(code_point, str(caught.exception))
 
         @parameterized.expand(
             [
@@ -2911,14 +2928,13 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertIn("synthetic post_init failure", str(caught.exception))
 
         def test_deeply_nested_input_does_not_stack_overflow(self):
-            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp has its own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
-            if backend not in ("rust-json", "rust-py"):
-                self.skipTest("rust-specific recursion cap")
+            # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. Both recursion shapes are covered: bracket nesting (parens / subqueries / blocks) and prefix-operator chains (`- - - …`), which recurse on their operand without any bracket. Rust caps live descent at `MAX_RECURSION_DEPTH = 1000`; cpp rejects via a crash-safe pre-parse token scan at `MAX_PARSER_DEPTH` (a parse-tree listener can't help — ALL(*) prediction runs the bracket case away before the tree exists). Both mirror ClickHouse's `max_parser_depth`. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
             parse_fns = {"expr": parse_expr, "select": parse_select, "program": parse_program}
             cases = (
                 ("expr", "(" * 1500 + "1" + ")" * 1500),
                 ("select", "(" * 1500 + "select 1" + ")" * 1500),
                 ("program", "{" * 1500 + "}" * 1500),
+                ("expr", "- " * 1500 + "1"),
             )
             for rule, src in cases:
                 with self.assertRaises(SyntaxError, msg=rule) as cm:
@@ -3010,15 +3026,45 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(
                 self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end"),
                 ast.Call(
-                    name="transform",
+                    name="_caseWithExpression",
                     args=[
                         ast.Constant(value=0),
-                        ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=3)]),
-                        ast.Array(exprs=[ast.Constant(value=2), ast.Constant(value=4)]),
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                        ast.Constant(value=4),
                         ast.Constant(value=5),
                     ],
                 ),
             )
+
+        @parameterized.expand(
+            [
+                (
+                    "searched_case",
+                    "case when 1 then 2 end",
+                    ast.Call(
+                        name="if",
+                        args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=None)],
+                    ),
+                ),
+                (
+                    "simple_case",
+                    "case 0 when 1 then 2 end",
+                    ast.Call(
+                        name="_caseWithExpression",
+                        args=[
+                            ast.Constant(value=0),
+                            ast.Constant(value=1),
+                            ast.Constant(value=2),
+                            ast.Constant(value=None),
+                        ],
+                    ),
+                ),
+            ]
+        )
+        def test_case_without_else(self, _name: str, expression: str, expected: ast.Call):
+            self.assertEqual(self._expr(expression), expected)
 
         def test_window_functions(self):
             query = "SELECT person.id, min(timestamp) over (PARTITION by person.id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS timestamp FROM events"

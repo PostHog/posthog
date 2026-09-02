@@ -38,7 +38,8 @@ def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanne
     descriptor = describe_output(output)
     explanation = output.get("reasoning") or output.get("summary")
     if not isinstance(explanation, str) or not explanation.strip():
-        explanation = output.get("intent") or output.get("outcome") or ""
+        fallback = output.get("intent") or output.get("outcome")
+        explanation = fallback if isinstance(fallback, str) else ""
     clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", explanation)).strip()[:SEARCH_SNIPPET_LIMIT]
 
     prefix = f"{obs.created_at:%Y-%m-%d}"

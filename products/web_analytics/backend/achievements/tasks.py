@@ -252,8 +252,12 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
                 body=f"You reached {stage_name} on the {track.display_name} track in Web analytics.",
                 target_type=target_type,
                 target_id=target_id,
+                resource_type="web_analytics",
+                # Keyed per track so unlocks on different tracks stay separate rows in the inbox
+                # instead of collapsing into one grouped row (see `groupKey` on the client).
+                resource_id=str(track.key),
                 priority=Priority.NORMAL,
-                source_url=f"/project/{ctx.team.id}/web",
+                source_url=f"/project/{ctx.team.id}/web?openAchievements={track.key.value}",
             )
         )
     except Exception as e:

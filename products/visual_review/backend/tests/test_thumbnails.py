@@ -82,7 +82,7 @@ def _make_compare_result(thumbnail: bytes = b"fake-webp") -> CompareResult:
 
 @pytest.mark.django_db(databases=list(PRODUCT_DATABASES))
 class TestStoreThumbnail:
-    @patch("products.visual_review.backend.logic.write_artifact_bytes")
+    @patch("products.visual_review.backend.logic.artifact_store.write_artifact_bytes")
     def test_stores_thumbnail_and_links_to_artifact(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
@@ -103,7 +103,7 @@ class TestStoreThumbnail:
         artifact.refresh_from_db()
         assert artifact.thumbnail == thumb_artifact
 
-    @patch("products.visual_review.backend.logic.write_artifact_bytes")
+    @patch("products.visual_review.backend.logic.artifact_store.write_artifact_bytes")
     def test_skips_when_thumbnail_already_exists(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
@@ -118,7 +118,7 @@ class TestStoreThumbnail:
 
         mock_write.assert_not_called()
 
-    @patch("products.visual_review.backend.logic.write_artifact_bytes")
+    @patch("products.visual_review.backend.logic.artifact_store.write_artifact_bytes")
     def test_skips_when_no_thumbnail_in_result(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)

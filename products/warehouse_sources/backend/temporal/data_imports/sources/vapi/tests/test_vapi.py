@@ -7,8 +7,12 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi import vapi
+from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
+    VAPI_VERSION_V1,
+    VAPI_VERSION_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.vapi import (
     VapiResumeConfig,
     _format_datetime_param,
@@ -77,12 +81,15 @@ def _patch_fetch(monkeypatch: Any, pages: dict[str, Any]) -> list[str]:
     return fetched
 
 
-def _collect(monkeypatch: Any, manager: _FakeResumableManager, **kwargs: Any) -> list[dict]:
+def _collect(
+    monkeypatch: Any, manager: _FakeResumableManager, api_version: str = VAPI_VERSION_V1, **kwargs: Any
+) -> list[dict]:
     monkeypatch.setattr(vapi, "Batcher", _FakeBatcher)
     monkeypatch.setattr(vapi, "DEFAULT_PAGE_LIMIT", 2)
     rows: list[dict] = []
     for table in get_rows(
         api_key="key",
+        api_version=api_version,
         logger=MagicMock(),
         resumable_source_manager=manager,  # type: ignore[arg-type]
         **kwargs,
@@ -286,20 +293,65 @@ class TestUnpaginatedEndpoints:
         assert manager.saved == []
 
 
+class TestPhoneNumbersVersionDispatch:
+    """phone_numbers is the only resource whose wire contract differs between versions: v1 serves a
+    bare createdAt-descending array at /phone-number, v2 a page-numbered envelope at /v2/phone-number."""
+
+    def test_v1_walks_created_at_descending_array(self, monkeypatch: Any) -> None:
+        pages = {
+            "https://api.vapi.ai/phone-number?limit=2": [
+                {"id": "2", "createdAt": "2026-01-02T00:00:00.000Z"},
+                {"id": "1", "createdAt": "2026-01-01T00:00:00.000Z"},
+            ],
+            "https://api.vapi.ai/phone-number?limit=2&createdAtLt=2026-01-01T00%3A00%3A00.000Z": [],
+        }
+        fetched = _patch_fetch(monkeypatch, pages)
+        rows = _collect(monkeypatch, _FakeResumableManager(), api_version=VAPI_VERSION_V1, endpoint="phone_numbers")
+
+        assert [r["id"] for r in rows] == ["2", "1"]
+        assert fetched == list(pages)
+
+    def test_v2_walks_ascending_pages_at_v2_path(self, monkeypatch: Any) -> None:
+        pages = {
+            "https://api.vapi.ai/v2/phone-number?limit=2&page=1&sortOrder=ASC&sortBy=createdAt": {
+                "results": [
+                    {"id": "1", "createdAt": "2026-01-01T00:00:00.000Z"},
+                    {"id": "2", "createdAt": "2026-01-02T00:00:00.000Z"},
+                ],
+                "metadata": {"hasNextPage": False},
+            },
+        }
+        fetched = _patch_fetch(monkeypatch, pages)
+        rows = _collect(monkeypatch, _FakeResumableManager(), api_version=VAPI_VERSION_V2, endpoint="phone_numbers")
+
+        assert [r["id"] for r in rows] == ["1", "2"]
+        assert fetched == list(pages)
+
+
 class TestVapiSourceResponse:
     @parameterized.expand(
         [
-            ("calls_descending", "calls", "desc", ["createdAt"]),
-            ("chats_ascending", "chats", "asc", ["createdAt"]),
-            ("files_unpartitioned", "files", "asc", None),
+            ("calls_descending", "calls", VAPI_VERSION_V1, "desc", ["createdAt"]),
+            ("chats_ascending", "chats", VAPI_VERSION_V1, "asc", ["createdAt"]),
+            ("files_unpartitioned", "files", VAPI_VERSION_V1, "asc", None),
+            # phone_numbers flips from a descending cursor (v1) to ascending pages (v2), so the
+            # pipeline's watermark direction must follow the pinned version.
+            ("phone_numbers_v1_descending", "phone_numbers", VAPI_VERSION_V1, "desc", ["createdAt"]),
+            ("phone_numbers_v2_ascending", "phone_numbers", VAPI_VERSION_V2, "asc", ["createdAt"]),
         ]
     )
     def test_sort_mode_and_partitioning(
-        self, _name: str, endpoint: str, expected_sort_mode: str, expected_partition_keys: list[str] | None
+        self,
+        _name: str,
+        endpoint: str,
+        api_version: str,
+        expected_sort_mode: str,
+        expected_partition_keys: list[str] | None,
     ) -> None:
         response = vapi_source(
             api_key="key",
             endpoint=endpoint,
+            api_version=api_version,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
         )

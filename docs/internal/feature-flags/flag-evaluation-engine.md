@@ -1,6 +1,6 @@
 # Flag evaluation engine
 
-The Rust feature flags service evaluates flags using a deterministic, hash-based algorithm. This document covers the full evaluation pipeline: dependency resolution, condition matching, rollout hashing, variant selection, super groups, holdout groups, and experience continuity.
+The Rust feature flags service evaluates flags using a deterministic, hash-based algorithm. This document covers the full evaluation pipeline: dependency resolution, condition matching, rollout hashing, variant selection, feature enrollment, holdout groups, and experience continuity.
 
 ## Architecture overview
 
@@ -68,7 +68,7 @@ pub struct FlagFilters {
     pub multivariate: Option<MultivariateFlagOptions>,   // variant definitions
     pub aggregation_group_type_index: Option<i32>,       // None=person, 0=project, 1=org, etc.
     pub payloads: Option<serde_json::Value>,             // variant key -> payload map
-    pub super_groups: Option<Vec<FlagPropertyGroup>>,    // early access feature gate
+    pub feature_enrollment: Option<bool>,                // early access feature gate
     pub holdout_groups: Option<Vec<FlagPropertyGroup>>,  // holdout/control conditions
 }
 ```
@@ -115,10 +115,10 @@ pub enum CompiledRegex {
 
 Regex patterns are compiled once per request rather than on every `match_property()` call.
 
-**Entry point:** `FeatureFlagList::prepare_regexes()` is called in `fetch_and_filter()` (in `handler/flags.rs`) immediately after flag list construction, before any evaluation begins.
+**Entry point:** `FeatureFlagList::prepare_regexes_in_place()` is called in `PreparedFlags::seal()` (in `flags/feature_flag_list.rs`) when the flag list is constructed, before any evaluation begins.
 
 - `PropertyFilter::prepare_regex()` — compiles the filter's value as a regex with `backtrack_limit(10_000)` for `Regex`/`NotRegex` operators. No-op for other operators or when `compiled_regex` is already `Some` (idempotent). Stores `CompiledRegex::Compiled` on success or `CompiledRegex::InvalidPattern` on failure. If `value` is `None`, leaves `compiled_regex` as `None` (fallback path).
-- `FeatureFlagList::prepare_regexes()` — walks all flags → `filters.groups` and `filters.super_groups` → property filters, calling `prepare_regex()` on each.
+- `FeatureFlagList::prepare_regexes_in_place()` — walks all flags → `filters.groups` → property filters, calling `prepare_regex()` on each.
 
 The fallback on-the-fly compilation path (`compiled_regex: None`) is retained for cohort property filters (constructed dynamically in `cohort_operations.rs`, not from the flag cache) and for test code that constructs `PropertyFilter` directly.
 
@@ -147,10 +147,10 @@ The `get_match` function in `rust/feature-flags/src/flags/flag_matching.rs` eval
                │ No
                ▼
 ┌────────────────────────────┐
-│  Evaluate super_groups     │──── Match ──▶ return result (SuperConditionValue)
+│  Evaluate feature_enrollment│──── Has property ──▶ return result (SuperConditionValue)
 │  (early access gate)       │
 └────────────────────────────┘
-               │ No match / not applicable
+               │ No property / not applicable
                ▼
 ┌────────────────────────────┐
 │  Evaluate holdout_groups   │──── In holdout ──▶ true + holdout variant
@@ -280,18 +280,20 @@ A condition group can specify a `variant` field that overrides the computed vari
 
 Each variant (or `"true"` for boolean flags) can have a JSON payload stored in `filters.payloads`. The payload is included in the evaluation result.
 
-## Super groups (early access features)
+## Feature enrollment (early access features)
 
-Super groups act as a gate for early access enrollment. Defined in `filters.super_groups`.
+Feature enrollment acts as a gate for early access opt-in. Enabled by the boolean `filters.feature_enrollment`.
 
 ### Evaluation
 
-1. Only the first super group is evaluated
-2. Checks if the person has any property mentioned in the super condition (typically `$feature_enrollment/{flag_key}`)
-3. If the person has the property, the super condition is evaluated and its result is returned immediately (reason: `SuperConditionValue`)
+1. Only runs when `filters.feature_enrollment` is `true`
+2. Derives the enrollment key `$feature_enrollment/{flag_key}` and reads it from the person properties (request overrides first, then the database)
+3. If the person has the property, the result is returned immediately (reason: `SuperConditionValue`): `true` when the value means enrolled, `false` otherwise
 4. If the person does not have the property, evaluation falls through to normal conditions
 
-Super groups take the highest priority in match reasons (score: 6).
+Feature enrollment takes the highest priority in match reasons (score: 6). The reason keeps the legacy name `SuperConditionValue`.
+
+See [feature-enrollment.md](feature-enrollment.md) for the full design, including the removed `super_groups` representation.
 
 ## Holdout groups
 
@@ -304,7 +306,7 @@ Holdout groups exclude users from experiments to serve as a baseline. Defined in
 3. If the user's hash falls within the holdout percentage, they are in the holdout and the flag returns `true` with a holdout variant (default: `"holdout"`)
 4. If the user is outside the holdout, normal condition evaluation proceeds
 
-Holdout evaluation happens after super groups but before normal conditions.
+Holdout evaluation happens after feature enrollment but before normal conditions.
 
 ## Flag dependencies
 
@@ -428,7 +430,7 @@ Each evaluation result includes a reason explaining why the flag matched or didn
 
 | Reason                  | Score | Meaning                                           |
 | ----------------------- | ----- | ------------------------------------------------- |
-| `SuperConditionValue`   | 6     | Matched via super group (early access)            |
+| `SuperConditionValue`   | 6     | Matched via feature enrollment (early access)     |
 | `HoldoutConditionValue` | 5     | In holdout group                                  |
 | `ConditionMatch`        | 4     | Matched a condition group + rollout               |
 | `NoGroupType`           | 3     | Group flag but no group key provided              |
@@ -455,6 +457,8 @@ pub struct FlagEvaluationState {
 ```
 
 Property overrides from the request body are merged on top of DB-fetched properties. Request overrides take precedence.
+GeoIP-derived `$geoip_*` properties follow the same rule. They are added to the request overrides before evaluation, but only fill keys the request didn't supply.
+See [GeoIP enrichment of `person_properties`](rust-service-overview.md#geoip-enrichment-of-person_properties).
 
 ## Data fetching strategy
 

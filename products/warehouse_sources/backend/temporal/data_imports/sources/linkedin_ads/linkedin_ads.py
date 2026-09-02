@@ -13,20 +13,27 @@ from structlog.types import FilteringBoundLogger
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 from .client import API_VERSION, LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
-from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
+from .schemas import (
+    EPOCH_MS_VIRTUAL_COLUMNS,
+    FLOAT_FIELDS,
+    INT_FIELDS,
+    RESOURCE_SCHEMAS,
+    URN_COLUMNS,
+    VIRTUAL_COLUMN_URN_MAPPING,
+)
 
 module_logger = structlog.get_logger(__name__)
 
@@ -67,6 +74,9 @@ class LinkedinAdsSchema:
     is_stats: bool
     partition_size: int
     filter_field_names: list[tuple[str, IncrementalFieldType]] | None = None
+    pivot_value_column: str | None = None
+    initial_lookback_days: int | None = None
+    should_sync_default: bool = True
 
 
 def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]]:
@@ -114,6 +124,9 @@ def get_schemas() -> dict[str, LinkedinAdsSchema]:
             is_stats=is_stats,
             filter_field_names=filter_field_names,
             partition_size=partition_size,
+            pivot_value_column=resource_contents.get("pivot_value_column", None),
+            initial_lookback_days=resource_contents.get("initial_lookback_days", None),
+            should_sync_default=resource_contents.get("should_sync_default", True),
         )
 
         schemas[resource_name] = schema
@@ -211,7 +224,8 @@ def linkedin_ads_source(
         now = dt.datetime.now()
         date_start = None
         date_end = now.strftime("%Y-%m-%d")
-        default_start = (now - dt.timedelta(days=INITIAL_ANALYTICS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+        lookback_days = schema.initial_lookback_days or INITIAL_ANALYTICS_LOOKBACK_DAYS
+        default_start = (now - dt.timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
         if should_use_incremental_field and schema.filter_field_names:
             if incremental_field is None or incremental_field_type is None:
@@ -317,6 +331,38 @@ def _convert_timestamp_to_date(last_modified: dict[str, int] | None) -> dt.date 
     return transformed_date
 
 
+def _coerce_metric(value: typing.Any, field_name: str, resource_name: str, *, as_int: bool) -> int | float:
+    """Coerce an adAnalytics metric to a stable python type. Always returns a number — never None,
+    never raises.
+
+    Two reasons this has to be total. LinkedIn omits a metric when its value is zero, so leaving it
+    as None means a batch where every row omitted it infers as arrow `null`, gets rewritten to
+    `string` by the Delta-compat cast, and then fails to merge with a batch that had values. And a
+    bare `float(value)` raises on the first non-numeric cell, killing an entire multi-year backfill
+    over one bad row. Absent/blank is genuinely zero here, so 0 is also the honest value.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return 0 if as_int else 0.0
+
+    # Take genuine ints as-is; float() would lose precision past its 53-bit mantissa.
+    if as_int and isinstance(value, int):
+        return int(value)
+
+    # Everything else routes through float, since `int()` rejects "3.0".
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        module_logger.warning(
+            "linkedin_ads.unparseable_metric",
+            resource=resource_name,
+            field=field_name,
+            raw_value=repr(value)[:100],
+        )
+        return 0 if as_int else 0.0
+
+    return round(numeric) if as_int else numeric
+
+
 def _flatten_linkedin_record(
     record: dict[str, typing.Any],
     schema: LinkedinAdsSchema,
@@ -352,13 +398,24 @@ def _flatten_linkedin_record(
             flattened["created_time"] = created_time
             flattened["last_modified_time"] = last_modified_time
 
-        elif field_name in ("createdAt", "lastModifiedAt"):
+        elif field_name in EPOCH_MS_VIRTUAL_COLUMNS:
             timestamp_ms = record.get(field_name)
-            virtual_name = "created_time" if field_name == "createdAt" else "last_modified_time"
+            virtual_name = EPOCH_MS_VIRTUAL_COLUMNS[field_name]
             if isinstance(timestamp_ms, int):
                 flattened[virtual_name] = dt.datetime.fromtimestamp(timestamp_ms / 1000, tz=dt.UTC).date()
             else:
                 flattened[virtual_name] = None
+
+        elif field_name == "value":
+            # Conversion value arrives as {"amount": "10", "currencyCode": "USD"}; split it so the
+            # amount is queryable without unpacking a struct.
+            conversion_value = record.get("value")
+            if isinstance(conversion_value, dict):
+                flattened["value_amount"] = conversion_value.get("amount")
+                flattened["value_currency_code"] = conversion_value.get("currencyCode")
+            else:
+                flattened["value_amount"] = None
+                flattened["value_currency_code"] = None
 
         elif field_name in URN_COLUMNS:
             urn_value = record.get(field_name)
@@ -376,6 +433,15 @@ def _flatten_linkedin_record(
 
         # Handle virtual columns that derive from pivot values
         if field_name == "pivotValues":
+            if schema.pivot_value_column:
+                # Professional demographic pivots return URNs we have no local table to join
+                # against (`urn:li:industry:96`), and MEMBER_COMPANY_SIZE returns a named bucket
+                # rather than a numeric id, so keep the value verbatim.
+                flattened[schema.pivot_value_column] = next(
+                    (value for value in record.get("pivotValues", []) if isinstance(value, str) and value),
+                    None,
+                )
+
             for pivot_value in record.get("pivotValues", []):
                 if isinstance(pivot_value, str):
                     pivot_result = _extract_type_and_id_from_urn(pivot_value)
@@ -389,22 +455,38 @@ def _flatten_linkedin_record(
 
         value = record.get(field_name)
 
-        # Convert based on field type
-        if value is not None:
-            if field_name in FLOAT_FIELDS:
-                value = float(value)
-            # Extract the int from creative `id` URN so it joins with `creative_id` in creative_stats.
-            elif field_name == "id" and isinstance(value, str) and value.startswith("urn:li:"):
-                urn_result = _extract_type_and_id_from_urn(value)
-                if urn_result is None:
-                    module_logger.warning(
-                        "linkedin_ads.malformed_pk_urn",
-                        resource=schema.name,
-                        raw_id=value,
-                    )
-                    return None
-                _, value = urn_result
+        # Convert based on field type. The metric branches deliberately run even when `value` is
+        # None — an absent metric means zero, and leaving it None is what lets an all-null column
+        # form and break the cross-batch schema merge.
+        if field_name in INT_FIELDS:
+            value = _coerce_metric(value, field_name, schema.name, as_int=True)
+        elif field_name in FLOAT_FIELDS:
+            value = _coerce_metric(value, field_name, schema.name, as_int=False)
+        # Extract the int from creative `id` URN so it joins with `creative_id` in creative_stats.
+        elif value is not None and field_name == "id" and isinstance(value, str) and value.startswith("urn:li:"):
+            urn_result = _extract_type_and_id_from_urn(value)
+            if urn_result is None:
+                module_logger.warning(
+                    "linkedin_ads.malformed_pk_urn",
+                    resource=schema.name,
+                    raw_id=value,
+                )
+                return None
+            _, value = urn_result
 
         flattened[field_name] = value
+
+    # `date_start` is both the primary key and the partition key for the stats resources, and it has
+    # the same all-null exposure as the metrics. A stats row without one is unusable, so drop it
+    # rather than let it destabilize the column type.
+    if schema.is_stats and "dateRange" in schema.field_names and flattened.get("date_start") is None:
+        module_logger.warning("linkedin_ads.missing_stats_date_range", resource=schema.name)
+        return None
+
+    # Same exposure for the demographic pivot column: it's the third primary key component, and a
+    # row without it can't identify which demographic value the metrics belong to.
+    if schema.pivot_value_column and flattened.get(schema.pivot_value_column) is None:
+        module_logger.warning("linkedin_ads.missing_pivot_value", resource=schema.name)
+        return None
 
     return flattened

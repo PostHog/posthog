@@ -1,6 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonCheckbox, LemonDivider, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -49,6 +58,7 @@ function SlackChannelSection(): JSX.Element {
         slackNotifyOnLeave,
         slackAlertChannelId,
         slackNudgeEnabled,
+        slackNeedsReconnect,
         currentTeamLoading,
     } = useValues(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -91,6 +101,20 @@ function SlackChannelSection(): JSX.Element {
                     >
                         Add SupportHog to Slack
                     </LemonButton>
+                )}
+                {slackNeedsReconnect && (
+                    <LemonBanner
+                        type="warning"
+                        className="mt-2"
+                        action={{
+                            children: 'Reconnect',
+                            disabledReason: adminRestrictionReason,
+                            onClick: () => connectSlack(window.location.pathname),
+                        }}
+                    >
+                        Files sent in Slack won't appear on tickets, and images you send from PostHog arrive as links
+                        instead of attachments. Reconnect SupportHog to give it access to files.
+                    </LemonBanner>
                 )}
             </div>
             {slackConnected && (

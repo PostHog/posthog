@@ -7,13 +7,20 @@ Authorization header. The bulk account list instead authenticates via a project
 secret API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
 
+The team token deliberately grants single-account writes (create, tags,
+relationships, custom property values) without per-user ``account`` scope checks:
+workflow executions have no acting user to authorize, and the token is only
+readable by members of the project whose accounts it writes. Security reviewers
+periodically flag this as a write-permission bypass — it is the accepted model
+for this surface, matching the resource-level scoping note in the product's
+CLAUDE.md.
+
 The view holds only HTTP concerns — Bearer auth, throttles, the feature-flag gate,
 request validation, and mapping facade results to responses. Data access, the
 transactional write, org-membership resolution, tag application, and exception
 capture live behind ``facade.api``.
 """
 
-import uuid
 import hashlib
 from typing import Any, cast
 from uuid import UUID
@@ -24,7 +31,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -38,11 +45,17 @@ from posthog.models import Team
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.customer_analytics.backend.facade import (
-    api as facade,
-    contracts,
-)
+from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
+from products.customer_analytics.backend.presentation.views.account_actions import (
+    ACCOUNT_ACTION_AUTH_COUNTER,
+    ExternalAccountCreateSerializer,
+    ExternalAccountCustomPropertiesSerializer,
+    handle_account_create,
+    handle_account_get,
+    handle_account_set_properties,
+    handle_account_update,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -111,25 +124,6 @@ class ExternalAccountListAuthentication(ProjectSecretAPIKeyAuthentication):
         return result
 
 
-HOG_FLOW_ID_HEADER = "X-PostHog-Hog-Flow-Id"
-
-
-def _workflow_id_from_request(request: Request) -> str | None:
-    """The originating HogFlow workflow id, when the request comes from a workflow step.
-
-    The header is caller-supplied, so only a well-formed UUID is accepted; worst case is a
-    token holder attributing a write to another workflow id within its own team.
-    """
-    hog_flow_id = request.headers.get(HOG_FLOW_ID_HEADER)
-    if not hog_flow_id:
-        return None
-    try:
-        uuid.UUID(hog_flow_id)
-    except (ValueError, TypeError):
-        return None
-    return hog_flow_id
-
-
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against a team."""
     auth_header = request.headers.get("Authorization", "")
@@ -177,95 +171,54 @@ def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None,
     return psak.team, None
 
 
-def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]:
-    return {
-        "id": account.id,
-        "external_id": account.external_id,
-        "name": account.name,
-        "properties": account.properties,
-        "tags": account.tags,
-        "relationships": account.relationships,
-        "custom_properties": account.custom_properties,
-    }
+class ExternalAccountAssignmentSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
+    email = serializers.CharField(help_text="Email address of the assigned user.")
 
 
-_UPDATE_ERROR_RESPONSES = {
-    contracts.ExternalAccountUpdateError.NOT_FOUND: ("Account not found", status.HTTP_404_NOT_FOUND),
-    contracts.ExternalAccountUpdateError.INVALID_PROPERTIES: (
-        "Invalid account properties",
-        status.HTTP_400_BAD_REQUEST,
-    ),
-    contracts.ExternalAccountUpdateError.UPDATE_FAILED: ("Failed to update account", status.HTTP_400_BAD_REQUEST),
-}
-
-
-def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Response:
-    if result.error == contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION:
-        return Response(
-            {"error": f"{result.error_field}: user is not a member of this organization"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    if result.error == contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND:
-        return Response(
-            {"error": f"{result.error_field}: no relationship definition with this ID"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    assert result.error is not None
-    message, code = _UPDATE_ERROR_RESPONSES[result.error]
-    return Response({"error": message}, status=code)
-
-
-class ExternalAccountUpdateSerializer(serializers.Serializer):
-    external_id = serializers.CharField(max_length=400, help_text="External ID (group key) of the account to update.")
-    # Each value accepts a `posthog_assignee` object `{type, id}`, or `null` to end the
-    # active assignment. Roles (RBAC) are rejected — accounts assign users only.
-    # `validate` normalizes a provided assignment down to the user id; the facade resolves
-    # it against an org membership so assignees are always trusted.
-    relationships = serializers.DictField(
-        child=serializers.JSONField(allow_null=True),
-        required=False,
-        help_text=(
-            "Relationship assignments keyed by definition UUID. Each value is an assignee object "
-            "`{type: 'user', id}` or null to end the active assignment. Only the supplied "
-            "definitions are changed."
-        ),
+class ExternalAccountSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Account UUID.")
+    external_id = serializers.CharField(
+        allow_null=True, help_text="External account key — the group key the account is linked to."
+    )
+    name = serializers.CharField(help_text="Human-readable account name.")
+    churned_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the account churned, or null if it has not churned.",
+    )
+    ignored_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When Track Rules ignored the account, or null if it is tracked.",
+    )
+    properties = serializers.DictField(
+        child=serializers.JSONField(help_text="Property value: a string or null."),
+        help_text="Typed account properties: external-system ids. Role assignments live under `relationships`.",
     )
     tags = serializers.ListField(
-        child=serializers.CharField(max_length=200),
-        required=False,
-        max_length=100,
-        help_text="Tag names to apply, per tags_mode.",
+        child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."
     )
-    tags_mode = serializers.ChoiceField(
-        choices=["add", "set", "remove"],
-        required=False,
-        default="add",
-        help_text="How to apply tags: add to, replace, or remove from the existing set.",
+    relationships = serializers.DictField(
+        child=ExternalAccountAssignmentSerializer(many=True),
+        help_text=(
+            "Active relationship assignments keyed by definition name (e.g. 'CSM'). "
+            "Definitions with no active assignment are omitted."
+        ),
+    )
+    custom_properties = serializers.DictField(
+        child=serializers.JSONField(help_text="The property's active scalar value, or null when unset."),
+        help_text="Every team custom property definition keyed by name, with the account's active value or null.",
     )
 
-    def validate_relationships(self, value: dict[str, Any]) -> dict[str, int | None]:
-        return {name: self._normalize_assignee(name, assignee) for name, assignee in value.items()}
 
-    def _normalize_assignee(self, field: str, value: Any) -> int | None:
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            raise serializers.ValidationError({field: "Must be an assignee object or null"})
-        if value.get("type") != "user":
-            raise serializers.ValidationError({field: "Accounts can only be assigned to users, not roles"})
-        raw_id = value.get("id")
-        if not isinstance(raw_id, (int, str)):
-            raise serializers.ValidationError({field: "Assignee id must be a user id"})
-        try:
-            return int(raw_id)
-        except (TypeError, ValueError):
-            raise serializers.ValidationError({field: "Assignee id must be a user id"})
+class ExternalAccountErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="What went wrong with the request.")
 
 
 class ExternalAccountView(APIView):
     """
     GET /api/customer_analytics/external/account?external_id=<external_id> — Fetch account data
-    PATCH /api/customer_analytics/external/account — Update an account's role contacts and tags
+    POST /api/customer_analytics/external/account — Create an account (no-op if it already exists)
+    PATCH /api/customer_analytics/external/account — Update an account's relationships, tags, and churn state
 
     Authenticated via Bearer token (team secret_api_token) in Authorization header.
     """
@@ -280,16 +233,35 @@ class ExternalAccountView(APIView):
             return error
 
         assert team is not None
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="get").inc()
 
         external_id = request.query_params.get("external_id", "").strip()
         if not external_id:
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        account = facade.get_external_account(team.id, external_id)
-        if account is None:
-            return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
+        return handle_account_get(team, external_id)
 
-        return Response(_external_account_body(account))
+    @extend_schema(
+        request=ExternalAccountCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=ExternalAccountSerializer, description="Account created."),
+            200: OpenApiResponse(
+                response=ExternalAccountSerializer, description="Account already existed — creation skipped."
+            ),
+            400: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Invalid request body."),
+            401: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="Missing or invalid Bearer token."
+            ),
+        },
+    )
+    def post(self, request: Request) -> Response:
+        team, error = _authenticate_team(request)
+        if error:
+            return error
+
+        assert team is not None
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="post").inc()
+        return handle_account_create(request, team)
 
     def patch(self, request: Request) -> Response:
         team, error = _authenticate_team(request)
@@ -297,28 +269,8 @@ class ExternalAccountView(APIView):
             return error
 
         assert team is not None
-
-        serializer = ExternalAccountUpdateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-        data = serializer.validated_data
-
-        external_id = data["external_id"].strip()
-        if not external_id:
-            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        result = facade.update_external_account(
-            team.id,
-            external_id,
-            relationship_assignments=data.get("relationships") or {},
-            tags=data["tags"] if "tags" in data else None,
-            tags_mode=data.get("tags_mode", "add"),
-            workflow_id=_workflow_id_from_request(request),
-        )
-        if result.account is None:
-            return _update_error_response(result)
-
-        return Response(_external_account_body(result.account))
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        return handle_account_update(request, team)
 
 
 class ExternalAccountListQuerySerializer(serializers.Serializer):
@@ -342,6 +294,11 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
             "When true, return only accounts with at least one active relationship assignment "
             "to a current member of the project's organization."
         ),
+    )
+    include_ignored = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include ignored accounts. Ignored accounts are hidden by default.",
     )
 
     def validate_limit(self, value: int) -> int:
@@ -369,6 +326,14 @@ class ExternalAccountListAssignmentSerializer(serializers.Serializer):
 class ExternalAccountListItemSerializer(serializers.Serializer):
     external_id = serializers.CharField(help_text="External account key used by downstream systems.")
     name = serializers.CharField(help_text="Human-readable account name.")
+    churned_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the account churned, or null if it has not churned.",
+    )
+    ignored_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When Track Rules ignored the account, or null if it is tracked.",
+    )
     relationships = serializers.DictField(
         child=ExternalAccountListAssignmentSerializer(many=True),
         help_text=(
@@ -437,8 +402,9 @@ class ExternalAccountListView(APIView):
         },
         summary="List external customer analytics accounts",
         description=(
-            "List accounts with external IDs and their active relationship assignments. "
-            "Requires a project secret API key with the `account:read` scope."
+            "List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. "
+            "Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the "
+            "`account:read` scope."
         ),
     )
     def get(self, request: Request) -> Response:
@@ -459,66 +425,9 @@ class ExternalAccountListView(APIView):
             cursor=query_data.get("cursor"),
             limit=query_data["limit"],
             assigned_only=query_data["assigned_only"],
+            include_ignored=query_data["include_ignored"],
         )
         return Response(ExternalAccountListPageSerializer(page).data)
-
-
-@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
-class _CustomPropertyScalarField(serializers.Field):
-    """A custom property value sent over the external API — a JSON scalar.
-
-    Objects, arrays, and null are rejected here; the concrete type each property accepts is set by
-    its definition and validated server-side when the value is coerced.
-    """
-
-    def to_internal_value(self, data: Any) -> Any:
-        if data is None or isinstance(data, dict | list):
-            raise serializers.ValidationError("Value must be a string, number, or boolean.")
-        return data
-
-
-class ExternalAccountCustomPropertiesSerializer(serializers.Serializer):
-    external_id = serializers.CharField(
-        max_length=400,
-        help_text="External ID of the account whose custom property values to set — the group key it is linked to.",
-    )
-    properties = serializers.DictField(
-        child=_CustomPropertyScalarField(),
-        help_text="Map of custom property definition UUID to the value to set for this account.",
-    )
-
-
-_CUSTOM_PROPERTIES_ERROR_RESPONSES = {
-    contracts.ExternalAccountCustomPropertiesError.ACCOUNT_NOT_FOUND: ("Account not found", status.HTTP_404_NOT_FOUND),
-    contracts.ExternalAccountCustomPropertiesError.DEFINITION_NOT_FOUND: (
-        "Custom property definition not found",
-        status.HTTP_400_BAD_REQUEST,
-    ),
-    contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE: (
-        "Invalid custom property value",
-        status.HTTP_400_BAD_REQUEST,
-    ),
-    contracts.ExternalAccountCustomPropertiesError.CONFLICT: (
-        "A concurrent write set this property — retry",
-        status.HTTP_409_CONFLICT,
-    ),
-    contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED: (
-        "Failed to update custom properties",
-        status.HTTP_500_INTERNAL_SERVER_ERROR,
-    ),
-    contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED: (
-        "This custom property is managed by a data warehouse source and can't be set manually",
-        status.HTTP_400_BAD_REQUEST,
-    ),
-}
-
-
-def _custom_properties_error_response(result: contracts.ExternalAccountCustomPropertiesResult) -> Response:
-    assert result.error is not None
-    message, code = _CUSTOM_PROPERTIES_ERROR_RESPONSES[result.error]
-    if result.error_field:
-        message = f"{result.error_field}: {message}"
-    return Response({"error": message}, status=code)
 
 
 class ExternalAccountCustomPropertiesView(APIView):
@@ -540,23 +449,5 @@ class ExternalAccountCustomPropertiesView(APIView):
             return error
 
         assert team is not None
-
-        serializer = ExternalAccountCustomPropertiesSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-        data = serializer.validated_data
-
-        external_id = data["external_id"].strip()
-        if not external_id:
-            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        result = facade.set_external_account_custom_properties(team.id, external_id, properties=data["properties"])
-        if result.values is None:
-            return _custom_properties_error_response(result)
-
-        return Response(
-            {
-                "external_id": external_id,
-                "values": [{"definition_id": str(v.definition_id), "value": v.value} for v in result.values],
-            }
-        )
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        return handle_account_set_properties(request, team)

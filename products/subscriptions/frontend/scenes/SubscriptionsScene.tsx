@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -21,6 +23,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { subscriptionLogic } from '../components/Subscriptions/subscriptionLogic'
+import { SubscriptionWizard } from '../components/Subscriptions/SubscriptionWizard'
+import { requestSubscriptionWizardCancellation } from '../components/Subscriptions/utils'
 import { EditSubscription } from '../components/Subscriptions/views/EditSubscription'
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
 import {
@@ -33,14 +38,28 @@ import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneL
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
+function SubscriptionEnabledSwitch({ sub }: { sub: SubscriptionApi }): JSX.Element {
+    const { setSubscriptionEnabled } = useActions(subscriptionsSceneLogic)
+    const { togglingEnabledIds } = useValues(subscriptionsSceneLogic)
+    const enabled = isSubscriptionEnabled(sub)
+    return (
+        <LemonSwitch
+            checked={enabled}
+            onChange={(newEnabled) => setSubscriptionEnabled(sub.id, newEnabled)}
+            loading={Boolean(togglingEnabledIds[sub.id])}
+            aria-label={`${enabled ? 'Disable' : 'Enable'} ${subscriptionName(sub)}`}
+            data-attr="subscription-row-toggle-enabled"
+        />
+    )
+}
+
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { deleteSubscriptionSuccess, deliverSubscription, setSubscriptionEnabled } =
-        useActions(subscriptionsSceneLogic)
-    const { deliveringSubscriptionId, togglingEnabledId } = useValues(subscriptionsSceneLogic)
+    const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
+    const { deliveringSubscriptionId, togglingEnabledIds } = useValues(subscriptionsSceneLogic)
     const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
-    const isToggling = togglingEnabledId === sub.id
+    const isToggling = Boolean(togglingEnabledIds[sub.id])
     const enabled = isSubscriptionEnabled(sub)
 
     return (
@@ -54,12 +73,6 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                           },
                       ]
                     : []),
-                {
-                    label: enabled ? 'Disable subscription' : 'Enable subscription',
-                    'data-attr': 'subscription-list-item-toggle-enabled',
-                    disabledReason: isToggling ? 'Updating…' : null,
-                    onClick: () => setSubscriptionEnabled(sub.id, !enabled),
-                },
                 ...(enabled
                     ? [
                           {
@@ -109,6 +122,21 @@ export function SubscriptionsScene(): JSX.Element {
         subscriptionModalId,
         aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
+    const subscriptionWizardExperimentEnabled = useFeatureFlag('SUBSCRIPTION_CREATION_WIZARD', 'test')
+    const isWizard = subscriptionModalId === 'new' && subscriptionWizardExperimentEnabled
+    const cancelWizard = (): void => router.actions.push(urls.subscriptions())
+    const requestWizardCancel = (): void => {
+        const wizardForm = subscriptionLogic.findMounted({ id: 'new', creationSource: 'wizard' })
+        if (!wizardForm) {
+            cancelWizard()
+            return
+        }
+        requestSubscriptionWizardCancellation({
+            onCancel: cancelWizard,
+            resetSubscription: () => wizardForm.actions.resetSubscription(),
+            subscriptionChanged: wizardForm.values.subscriptionChanged,
+        })
+    }
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
 
     const isFiltered =
@@ -191,17 +219,23 @@ export function SubscriptionsScene(): JSX.Element {
                             sorting={subscriptionsSorting}
                             onSort={setSubscriptionsSorting}
                             renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
+                            renderEnabledToggle={(sub) => <SubscriptionEnabledSwitch sub={sub} />}
                         />
                     </>
                 )}
             </div>
             {subscriptionModalId !== null && (
-                <LemonModal isOpen onClose={() => router.actions.push(urls.subscriptions())} simple={false} width={650}>
-                    <EditSubscription
-                        id={subscriptionModalId}
-                        onCancel={() => router.actions.push(urls.subscriptions())}
-                        onDelete={() => router.actions.push(urls.subscriptions())}
-                    />
+                <LemonModal
+                    isOpen
+                    onClose={isWizard ? requestWizardCancel : cancelWizard}
+                    simple={isWizard}
+                    width={isWizard ? 720 : 650}
+                >
+                    {isWizard ? (
+                        <SubscriptionWizard onCancel={cancelWizard} />
+                    ) : (
+                        <EditSubscription id={subscriptionModalId} onCancel={cancelWizard} onDelete={cancelWizard} />
+                    )}
                 </LemonModal>
             )}
         </SceneContent>

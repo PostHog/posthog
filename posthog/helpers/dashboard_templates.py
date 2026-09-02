@@ -15,10 +15,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -523,6 +523,7 @@ def create_from_template(
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
+                tags=template_tile.get("tags"),
                 user=user,
             )
         elif tile_type == "TEXT":
@@ -655,6 +656,7 @@ def _create_tile_for_insight(
     layouts: dict,
     color: Optional[str],
     query: Optional[dict] = None,
+    tags: Optional[list[str]] = None,
     user=None,
 ) -> None:
     insight = Insight.objects.create(
@@ -666,6 +668,14 @@ def _create_tile_for_insight(
         created_by=user,
         last_modified_by=user,
     )
+    for tag_name in tags or []:
+        tag, _ = Tag.objects.get_or_create(
+            name=tag_name,
+            team_id=dashboard.team_id,
+            defaults={"team_id": dashboard.team_id},
+        )
+        insight.tagged_items.create(tag_id=tag.id)
+
     DashboardTile.objects.create(
         insight=insight,
         dashboard=dashboard,
@@ -702,7 +712,14 @@ def create_dashboard_from_template(
 
 
 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
-FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
+# The unique-calls name embeds the pluralized aggregation entity, so only its ends are fixed.
+FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX = "Feature Flag calls made by unique "
+FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX = " per variant"
+FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = (
+    f"{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX}users{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX}"
+)
+FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME = f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume"
+FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME = "Feature Interaction Total Volume"
 
 
 def _get_aggregation_entity_labels(feature_flag) -> tuple[str | None, str | None]:
@@ -776,9 +793,11 @@ def _get_feature_flag_unique_calls_insight_name(feature_flag) -> str:
     _, plural = _get_aggregation_entity_labels(feature_flag)
     if plural is None:
         return FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME
-    return f"Feature Flag calls made by unique {plural} per variant"
+    return f"{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX}{plural}{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX}"
 
 
+# The feature flag Usage tab renders these same charts inline for flags without a usage dashboard —
+# keep frontend/src/scenes/feature-flags/featureFlagUsageQueries.ts in sync with this template.
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     tag, _ = Tag.objects.get_or_create(
@@ -1191,11 +1210,13 @@ def _update_tile_with_new_key(
         insight.save()
 
 
+# The feature flag Usage tab renders these same charts inline for flags without a usage dashboard —
+# keep frontend/src/scenes/feature-flags/featureFlagUsageQueries.ts in sync with this template.
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     # 1 row
     _create_tile_for_insight(
         dashboard,
-        name=f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume",
+        name=FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
         description="Shows the total number of times this feature was viewed and interacted with",
         query={
             "kind": "InsightVizNode",
@@ -1243,7 +1264,7 @@ def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Das
 
     _create_tile_for_insight(
         dashboard,
-        name="Feature Interaction Total Volume",
+        name=FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
         description="Shows the total number of times this feature was viewed and interacted with",
         query={
             "kind": "InsightVizNode",

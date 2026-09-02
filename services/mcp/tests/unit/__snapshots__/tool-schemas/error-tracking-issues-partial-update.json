@@ -26,6 +26,18 @@
             ],
             "description": "Optional issue display name."
         },
+        "severity": {
+            "anyOf": [
+                {
+                    "enum": ["low", "medium", "high", "critical"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Issue severity to set, or null to remove the assigned severity."
+        },
         "status": {
             "description": "Issue status to set. Deprecated archived and pending_release values are rejected.\n\n* `active` - active\n* `resolved` - resolved\n* `suppressed` - suppressed",
             "enum": ["active", "resolved", "suppressed"],

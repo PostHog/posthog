@@ -1,0 +1,280 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_current_version_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Required optimistic-concurrency guard: the current_version_id the operations are based on (null when the canvas has no layout versions yet). A moved head is rejected with 409 version_conflict — patches cannot apply unguarded."
+        },
+        "id": {
+            "description": "ID of the grid canvas whose layout to patch.",
+            "type": "string"
+        },
+        "operations": {
+            "description": "Operations applied in order to the canvas's current layout, at most 64.",
+            "items": {
+                "description": "One surgical layout operation.",
+                "properties": {
+                    "changes": {
+                        "description": "For update_placement: the fields to merge into the placement.",
+                        "properties": {
+                            "component": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Id of the component canvas this placement renders. Required once the placement is live."
+                            },
+                            "config": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Per-placement settings, validated against the component's configSchema."
+                            },
+                            "generationTaskId": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Id of the agent task currently filling this placement, when one is running."
+                            },
+                            "h": {
+                                "description": "Height, in grid rows.",
+                                "minimum": 1,
+                                "type": "number"
+                            },
+                            "prompt": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 10000,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For pending/generating/failed placements: what the user asked this box to become."
+                            },
+                            "status": {
+                                "description": "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).\n\n* `pending` - pending\n* `generating` - generating\n* `live` - live\n* `failed` - failed",
+                                "enum": ["pending", "generating", "live", "failed"],
+                                "type": "string"
+                            },
+                            "version": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id."
+                            },
+                            "w": {
+                                "description": "Width, in grid columns.",
+                                "minimum": 1,
+                                "type": "number"
+                            },
+                            "x": {
+                                "description": "Left edge, in grid columns (0-based).",
+                                "minimum": 0,
+                                "type": "number"
+                            },
+                            "y": {
+                                "description": "Top edge, in grid rows (0-based).",
+                                "minimum": 0,
+                                "type": "number"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "grid": {
+                        "description": "For set_grid: the new grid definition.",
+                        "properties": {
+                            "columns": {
+                                "anyOf": [
+                                    {
+                                        "const": 4,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 6,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 8,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 10,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 12,
+                                        "type": "number"
+                                    }
+                                ],
+                                "description": "Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n* `4` - 4\n* `6` - 6\n* `8` - 8\n* `10` - 10\n* `12` - 12"
+                            },
+                            "gap": {
+                                "description": "Gap between placements, in pixels.",
+                                "maximum": 48,
+                                "minimum": 0,
+                                "type": "number"
+                            },
+                            "rowHeight": {
+                                "description": "Height of one grid row, in pixels.",
+                                "maximum": 400,
+                                "minimum": 24,
+                                "type": "number"
+                            }
+                        },
+                        "required": ["columns", "rowHeight", "gap"],
+                        "type": "object"
+                    },
+                    "id": {
+                        "description": "For update_placement/remove_placement: the target placement id.",
+                        "maxLength": 64,
+                        "type": "string"
+                    },
+                    "op": {
+                        "description": "The operation to apply.\n\n* `set_grid` - set_grid\n* `add_placement` - add_placement\n* `update_placement` - update_placement\n* `remove_placement` - remove_placement",
+                        "enum": ["set_grid", "add_placement", "update_placement", "remove_placement"],
+                        "type": "string"
+                    },
+                    "placement": {
+                        "description": "For add_placement: the placement to add.",
+                        "properties": {
+                            "component": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Id of the component canvas this placement renders. Required once the placement is live."
+                            },
+                            "config": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Per-placement settings, validated against the component's configSchema."
+                            },
+                            "generationTaskId": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Id of the agent task currently filling this placement, when one is running."
+                            },
+                            "h": {
+                                "description": "Height, in grid rows.",
+                                "minimum": 1,
+                                "type": "number"
+                            },
+                            "id": {
+                                "description": "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
+                                "maxLength": 64,
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$",
+                                "type": "string"
+                            },
+                            "prompt": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 10000,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For pending/generating/failed placements: what the user asked this box to become."
+                            },
+                            "status": {
+                                "description": "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).\n\n* `pending` - pending\n* `generating` - generating\n* `live` - live\n* `failed` - failed",
+                                "enum": ["pending", "generating", "live", "failed"],
+                                "type": "string"
+                            },
+                            "version": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Component version to render: \"latest\" (the default — follows the component's published build) or a pinned source version id."
+                            },
+                            "w": {
+                                "description": "Width, in grid columns.",
+                                "minimum": 1,
+                                "type": "number"
+                            },
+                            "x": {
+                                "description": "Left edge, in grid columns (0-based).",
+                                "minimum": 0,
+                                "type": "number"
+                            },
+                            "y": {
+                                "description": "Top edge, in grid rows (0-based).",
+                                "minimum": 0,
+                                "type": "number"
+                            }
+                        },
+                        "required": ["id", "status", "x", "y", "w", "h"],
+                        "type": "object"
+                    }
+                },
+                "required": ["op"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "prompt": {
+            "description": "Short description of the change, stored on the appended version history entry.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "operations", "expected_current_version_id"],
+    "type": "object"
+}

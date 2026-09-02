@@ -10,25 +10,24 @@ export type ComponentPanelCacheEntry = {
 }
 
 export const DEFAULT_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
-    filters: true,
+    filters: false,
+    results: true,
+}
+
+// Read-only canvases (customer profiles) show results with filters tucked away behind the
+// pencil, matching the legacy profile layout.
+export const CANVAS_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
+    filters: false,
     results: true,
 }
 
 export const INSERTED_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
-    filters: true,
-    results: true,
-}
-
-export const INSERTED_QUERY_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
     filters: false,
     results: true,
 }
 
 export function getInsertedComponentPanelVisibility(node: NotebookComponentBlockNode): ComponentPanelVisibility {
-    return getComponentPanelVisibility(
-        node,
-        node.tagName === 'Query' ? INSERTED_QUERY_COMPONENT_PANEL_VISIBILITY : INSERTED_COMPONENT_PANEL_VISIBILITY
-    )
+    return getComponentPanelVisibility(node, INSERTED_COMPONENT_PANEL_VISIBILITY)
 }
 
 export function getComponentPanelVisibility(
@@ -36,17 +35,15 @@ export function getComponentPanelVisibility(
     fallbackPanels: ComponentPanelVisibility
 ): ComponentPanelVisibility {
     const legacyViewPanelVisible = typeof node.props.view === 'boolean' ? node.props.view : undefined
-    const legacyEditPanelVisible = typeof node.props.edit === 'boolean' ? node.props.edit : undefined
 
     return {
-        filters:
-            typeof node.props.hideFilters === 'boolean'
-                ? !node.props.hideFilters
-                : (legacyEditPanelVisible ?? fallbackPanels.filters),
+        filters: node.props.showFilters === true,
         results:
-            typeof node.props.hideResults === 'boolean'
-                ? !node.props.hideResults
-                : (legacyViewPanelVisible ?? fallbackPanels.results),
+            typeof node.props.showResults === 'boolean'
+                ? node.props.showResults
+                : node.props.hideResults === true
+                  ? false
+                  : (legacyViewPanelVisible ?? fallbackPanels.results),
     }
 }
 
@@ -77,14 +74,21 @@ export function getComponentPropsWithPanelVisibility(
     panels: ComponentPanelVisibility
 ): NotebookComponentProps {
     const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
+        ) {
             accumulator[key] = value
         }
         return accumulator
     }, {})
 
-    if (!panels.filters) {
-        nextProps.hideFilters = true
+    if (panels.filters) {
+        nextProps.showFilters = true
     }
     if (!panels.results) {
         nextProps.hideResults = true

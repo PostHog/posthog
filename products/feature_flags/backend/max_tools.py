@@ -9,10 +9,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import FeatureFlagGroupType
 
 from posthog.exceptions_capture import capture_exception
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -74,7 +74,7 @@ FEATURE_FLAG_CREATION_TOOL_DESCRIPTION = dedent("""
     - The user wants to create a new feature flag
     - The user wants to roll out a feature to a percentage of users
     - The user wants to target specific users by properties (email, country, etc.)
-    - The user wants to create an A/B test or experiment with multiple variants
+    - The user wants a multivariate flag to back an A/B test (to create and run the actual experiment, follow up with the `create_experiment` tool)
 
     # Flag Types
 
@@ -267,7 +267,6 @@ class CreateFeatureFlagTool(MaxTool):
                 "active": flag_schema.active,
                 "filters": filters,
                 "tags": flag_schema.tags,
-                "_should_create_usage_dashboard": False,
             }
 
             # Unspecified (None) falls back to the project defaults; an explicit empty list is left as-is.

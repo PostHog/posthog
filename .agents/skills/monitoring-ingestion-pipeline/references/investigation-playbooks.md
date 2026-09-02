@@ -7,7 +7,7 @@ construct PromQL live using the discovery workflow from the main skill doc.
 ## 1. "Is ingestion healthy?" — quick health check
 
 Start by pulling up the main dashboard:
-`get_dashboard_by_uid` with uid `"ingestion-general"`.
+`get_dashboard_by_uid` with uid `"ingestion-health"`.
 
 Then verify these signals in order:
 
@@ -195,7 +195,7 @@ Then check infrastructure health:
 
 ## 9. "Session replay ingestion issues" — replay pipeline
 
-1. **Replay-specific dashboard** — `get_dashboard_by_uid` with uid `"ingestion-session-recordings"`.
+1. **Replay-specific dashboard** — `get_dashboard_by_uid` with uid `"ingestion-sessionreplay"`.
 2. **Consumer lag** — `kminion_kafka_consumer_group_topic_lag_seconds{group_id="session-recordings-blob-v2"}`.
 3. **Replay metrics** — `list_prometheus_metric_names` regex `"recording_blob_ingestion_v2_.*"`.
    Key: batch size, S3 upload latency, session manager operations.
@@ -226,7 +226,7 @@ ClickHouse lag means users see stale data even if ingestion workers are healthy.
 4. **Part count growth** — `ClickHouseAsyncMetrics_MaxPartCountForPartition{type="events"}`.
    Rising steadily = merge thread can't keep up with insert rate.
    CH hard-limits at 300 parts per partition — approaching this causes insert rejects.
-   Dashboard: `ef7h2todfg4xsd` (merge overview).
+   Dashboard: `fe469e59-e10a-465a-9dac-ac8f6f82dc9a` (stuck merge loop investigation).
 
 5. **Merge pressure** — `ClickHouseMetrics_BackgroundMergesAndMutationsPoolTask{type="events"}`.
    Compare to pool size. Also `ClickHouseProfileEvents_MergedRows` rate.
@@ -243,7 +243,7 @@ ClickHouse lag means users see stale data even if ingestion workers are healthy.
    and `ducklake_errant_record_count` for DLQ'd records.
    Dashboard: `cdzv7o1635n9ca` (Kafka Connect).
 
-9. **CH ingestion pod resources** — dashboard `8aa35a4a-091a-4645-ac8f-ae46901f0060`.
+9. **CH ingestion pod resources** — dashboard `clickhouse-ingestion-overview-20260615`.
    CPU throttling, memory pressure, disk usage on `chi-ingestion-*` pods in the
    `clickhouse` namespace.
 
@@ -323,9 +323,10 @@ For cross-environment comparison:
 
 1. **Same queries, different Grafana** — run the same PromQL against both environments
    by switching the Grafana MCP connection (requires a new session).
-2. **Dashboard UIDs are synced** — all dashboards above exist in both environments
-   with the same UIDs (deployed from shared `Synced` folder).
-   Exception: `deoz13wy08wsga` (ClickHouse disk capacity EU ONLY).
+2. **Dashboard UIDs are mostly synced** — boards from the shared `Synced` folder carry the
+   same UID in both environments. The exceptions are boards that live in a personal or
+   team folder: `pl-ingestion-slas`, `8e93b023-a544-4a3b-8fac-123459d4eb84` and
+   `ws-coarse-lag-explore` are US only, `fdrcd04np3hfkf` is EU only.
 3. **Label values are identical** — `ingestion_pipeline`, `ingestion_lane`, ClickHouse `type`
    values are the same across envs.
 4. **CloudWatch cluster IDs differ** — use the env-specific names from the topology sections:

@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
@@ -179,13 +180,28 @@ async def emit_action_ready_activity(inputs: EmitActionReadyInputs) -> None:
 
 
 def _emit(inputs: EmitActionReadyInputs) -> None:
-    run = VisionActionRun.objects.for_team(inputs.team_id).select_related("vision_action", "team").get(pk=inputs.run_id)
+    run = (
+        VisionActionRun.objects.for_team(inputs.team_id)
+        .select_related("vision_action", "vision_action__scanner", "team")
+        .get(pk=inputs.run_id)
+    )
     action = run.vision_action
     team = run.team
 
     if not action.delivery_config:
         # Nothing to deliver to; the run row (synthesized_markdown) is the in-app artifact.
         return
+
+    output = run.output if isinstance(run.output, dict) else {}
+    # An alert's recovery bookend rides output.recovered; group summaries never set it. The event_kind
+    # lets a webhook consumer route on `replay_vision.{kind}` without parsing the report text.
+    is_recovery = bool(output.get("recovered"))
+    if action.mode != ActionMode.ALERT:
+        event_kind = "digest"
+    elif is_recovery:
+        event_kind = "alert_recovered"
+    else:
+        event_kind = "alert_fired"
 
     # Private internal event (cdp_internal_events topic), NOT the public capture pipeline — an
     # internal_destination HogFunction filtered on vision_action_id delivers it. This is non-forgeable
@@ -201,10 +217,24 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
                 "vision_action_id": str(action.id),
                 "scanner_id": str(action.scanner_id) if action.scanner_id else None,
                 "vision_action_run_id": str(run.id),
-                "slack_text": run.output.get("slack", ""),
+                "slack_text": output.get("slack", ""),
                 # Pre-split section blocks so the full report renders as ONE Slack message; None (not
                 # []) when absent so Slack falls back to slack_text rather than rejecting empty blocks.
-                "slack_blocks": run.output.get("slack_blocks") or None,
+                "slack_blocks": output.get("slack_blocks") or None,
+                # Structured fields the webhook body references, so consumers get clean JSON rather than
+                # the Slack-formatted text. The report is the canonical markdown, not the mrkdwn variant.
+                "event_kind": event_kind,
+                "is_recovery": is_recovery,
+                "action_name": action.name,
+                "scanner_name": action.scanner.name if action.scanner_id else None,
+                "observation_count": run.observation_count,
+                "report_markdown": run.synthesized_markdown,
+                "run_url": _run_url(team.id, str(action.id), str(run.id)),
+                "emitted_at": (run.scheduled_at or run.created_at).isoformat(),
             },
         ),
     )
+
+
+def _run_url(team_id: int, action_id: str, run_id: str) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/replay-vision/actions/{action_id}/runs/{run_id}"

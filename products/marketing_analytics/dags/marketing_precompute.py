@@ -55,6 +55,7 @@ from posthog.settings import TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
@@ -65,7 +66,7 @@ from products.marketing_analytics.backend.hogql_queries.conversion_goal_processo
     build_touchpoints_precompute_query,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner import (
-    COSTS_PRECOMPUTE_TTL_SECONDS,
+    costs_precompute_ttl_schedule,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
@@ -145,7 +146,7 @@ def _ensure_chunks(
     team: Team,
     table: LazyComputationTable,
     build_insert_query: Callable[[], ast.SelectQuery | None],
-    ttl_seconds: dict[str, int],
+    ttl_seconds: dict[str, int] | TtlSchedule,
     start: datetime,
     end: datetime,
     chunk_days: int,
@@ -293,7 +294,7 @@ def _ensure_costs_for_team(
                 team,
                 LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
                 partial(adapter.build_materialization_query, source_id),
-                COSTS_PRECOMPUTE_TTL_SECONDS,
+                costs_precompute_ttl_schedule(team),
                 start,
                 end,
                 chunk_days,

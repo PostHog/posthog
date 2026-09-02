@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, cast
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -12,6 +13,7 @@ from products.streamlit_apps.backend.facade.contracts import (
     AppSandboxContract,
     AppVersionContract,
     CreateAppInput,
+    CreateVersionFromSourceInput,
     StreamlitAppUserInfo,
     UpdateAppInput,
 )
@@ -42,6 +44,9 @@ class StreamlitAppSandboxSerializer(DataclassSerializer):
         dataclass = AppSandboxContract
 
 
+# Shares AppContract with StreamlitAppSerializer, so without its own component name the two
+# collapse into one schema and the fuller one loses active_version/sandbox.
+@extend_schema_serializer(component_name="AppSummaryContract")
 class StreamlitAppMinimalSerializer(DataclassSerializer):
     created_by = StreamlitAppUserSerializer(allow_null=True, required=False, help_text="User who created this app.")
 
@@ -84,6 +89,32 @@ class UpdateAppInputSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = UpdateAppInput
+
+
+class CreateVersionFromSourceInputSerializer(DataclassSerializer):
+    # "source" is the natural API field name; it shadows DRF's Field.source attribute
+    # only in the eyes of mypy — DRF handles same-named declared fields fine.
+    source = serializers.CharField(  # type: ignore[assignment]
+        trim_whitespace=False,
+        # Bounds the JSON body before any zip is built; the multipart path gets the
+        # same protection from the declared-size check against MAX_ZIP_SIZE.
+        max_length=1024 * 1024,
+        help_text=(
+            "Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). "
+            "Becomes a new version and is set as the active version."
+        ),
+    )
+
+    def validate_source(self, value: str) -> str:
+        # allow_blank already rejects "", but trim_whitespace=False (needed to preserve
+        # indentation) would otherwise let whitespace-only source through and serve a
+        # blank app with no error anywhere.
+        if not value.strip():
+            raise serializers.ValidationError("Source cannot be empty.")
+        return value
+
+    class Meta:
+        dataclass = CreateVersionFromSourceInput
 
 
 class StreamlitAppStatusSerializer(serializers.Serializer):

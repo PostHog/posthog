@@ -232,9 +232,13 @@ export const BillingProductPricingTable = ({
         })
     }
 
+    const shouldShowPricingTable =
+        !!tableTierData &&
+        (product.tiered || product.tiers?.some((tier) => parseFloat(tier.unit_amount_usd || '0') > 0))
+
     return (
         <div className="pl-16 pb-8">
-            {product.tiered && tableTierData ? (
+            {shouldShowPricingTable ? (
                 <>
                     <LemonTable
                         stealth
@@ -250,9 +254,11 @@ export const BillingProductPricingTable = ({
                             rowExpandable: (row) => !!row.subrows?.rows?.length,
                         }}
                     />
-                    <LemonBanner type="warning" className="text-sm pt-2 mt-2">
-                        Tier breakdowns are updated once daily and may differ from the gauge above.
-                    </LemonBanner>
+                    {product.tiered && (
+                        <LemonBanner type="warning" className="text-sm pt-2 mt-2">
+                            Tier breakdowns are updated once daily and may differ from the gauge above.
+                        </LemonBanner>
+                    )}
                 </>
             ) : parseFloat(product.unit_amount_usd || '0') > 0 ? (
                 <LemonTable

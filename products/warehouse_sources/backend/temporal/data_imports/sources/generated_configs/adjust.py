@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class AdjustSourceConfig(config.Config):
-    pass
+    api_token: str
+    app_tokens: str | None = None

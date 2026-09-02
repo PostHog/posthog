@@ -1,19 +1,14 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.insightly import (
     InsightlySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.insightly import InsightlyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import (
     ENDPOINTS,
     INSIGHTLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source import InsightlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Derived from settings so a new endpoint is automatically covered by the parametrized tests below.
 INCREMENTAL_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if cfg.supports_incremental}
@@ -25,27 +20,6 @@ class TestInsightlySource:
         self.source = InsightlySource()
         self.team_id = 123
         self.config = InsightlySourceConfig(pod="na1", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INSIGHTLY
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Insightly"
-        assert config.label == "Insightly"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/insightly"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["pod", "api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     def test_pod_is_connection_host_field(self) -> None:
         assert self.source.connection_host_fields == ["pod"]
@@ -134,12 +108,6 @@ class TestInsightlySource:
         )
         assert ok is False
         assert "Invalid Insightly pod" in (message or "")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is InsightlyResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.insightly_source")
     def test_source_for_pipeline_passes_normalized_pod_and_cursor(self, mock_source: mock.MagicMock) -> None:

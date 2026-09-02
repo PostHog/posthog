@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger, serializeError } from '~/common/utils/logger'
@@ -17,8 +18,12 @@ import {
 } from '../services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobInvocation } from '../types'
-import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals, logEntry } from '../utils'
+import { CyclotronJobInvocationHogFlow } from '../types'
+import {
+    convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals,
+    convertBatchHogFlowRequestToHogFunctionInvocationGlobals,
+    logEntry,
+} from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
@@ -40,7 +45,7 @@ const counterBatchHogFlowResolverPagesProcessed = new Counter({
 const counterBatchHogFlowResolverJobs = new Counter({
     name: 'cdp_batch_hog_flow_resolver_jobs',
     help: 'Batch hog flow resolver jobs by lifecycle outcome',
-    labelNames: ['outcome'], // started | completed | failed
+    labelNames: ['outcome'], // started | completed | failed | canceled
 })
 
 /**
@@ -91,6 +96,14 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     private async processResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
+        // Checked before state deserialization so a cancel lands even on a job whose state
+        // this deploy can no longer parse. `parentRunId` carries the batch job id
+        // independently of state, so the log still keys to the run.
+        if (job.cancelRequestedAt) {
+            await this.cancelResolverJob(job)
+            return
+        }
+
         let state: BatchResolverState
         try {
             state = deserializeResolverState(job.state)
@@ -157,12 +170,49 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             // transitionToFailedTerminal) would otherwise wait for a later terminal
             // dequeue — under multi-replica that's a different worker, and under a
             // restart it's gone entirely.
-            await this.hogFunctionMonitoringService.flush().catch((err) => {
+            await Promise.all([
+                this.hogFunctionMonitoringService.flush(),
+                this.invocationResultsService.invocationResultsRowsService.flush(),
+            ]).catch((err) => {
                 logger.warn('⚠️', `${this.name} - failed to flush monitoring after resolver dequeue`, {
                     error: serializeError(err),
                 })
             })
         }
+    }
+
+    /**
+     * Terminate a cancel-flagged resolver job: no further pages, and no terminal status
+     * PUT — Django flips the batch job's status itself as part of the cancel request, and
+     * the internal status endpoint absorbs terminal states, so a racing completion still
+     * resolves consistently. The log lands on the batch run's log stream so the stop is
+     * visible next to its runs. Flushes monitoring itself because the cancel paths return
+     * before processResolverJob's finally-flush.
+     */
+    private async cancelResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
+        counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled' }).inc()
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: job.teamId,
+                    log_source: 'hog_flow',
+                    log_source_id: job.parentRunId ?? job.functionId ?? '',
+                    instance_id: job.parentRunId ?? job.id,
+                    ...logEntry('info', 'Batch run canceled. The remaining audience will not receive this workflow.'),
+                },
+            ],
+            'hog_flow'
+        )
+        await this.hogFunctionMonitoringService.flush().catch((err) => {
+            logger.warn('⚠️', `${this.name} - failed to flush monitoring after resolver cancel`, {
+                error: serializeError(err),
+            })
+        })
+        await job.cancel()
+        logger.info('🛑', `${this.name} - resolver job canceled`, {
+            jobId: job.id,
+            parentRunId: job.parentRunId,
+        })
     }
 
     /**
@@ -187,17 +237,33 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        let page
+        const isAccountAudience = state.filters.audience_type === 'accounts'
+
+        // Normalized page shape so budget/truncation/state logic below stays single-path.
+        let page: { ids: string[]; cursor: string | null; has_more: boolean; accountGroupType?: string }
         try {
-            page = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
-                this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
-                    team,
-                    state.filters,
-                    state.groupTypeIndex,
-                    state.cursor,
-                    state.dedupeKey
+            if (isAccountAudience) {
+                const accountPage = await instrumentFn('cdpBatchResolve.getAccountAudiencePage', () =>
+                    this.hogFlowBatchPersonQueryService.getAccountAudiencePage(team, state.filters, state.cursor)
                 )
-            )
+                page = {
+                    ids: accountPage.accounts,
+                    cursor: accountPage.cursor,
+                    has_more: accountPage.has_more,
+                    accountGroupType: accountPage.group_type,
+                }
+            } else {
+                const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
+                    this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
+                        team,
+                        state.filters,
+                        state.groupTypeIndex,
+                        state.cursor,
+                        state.dedupeKey
+                    )
+                )
+                page = { ids: personsPage.users_affected, cursor: personsPage.cursor, has_more: personsPage.has_more }
+            }
         } catch (err) {
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()
             const nextAttempts = state.attempts + 1
@@ -239,27 +305,53 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // up to one full page's worth of children before the next dequeue
         // notices and stops.
         const remainingBudget = Math.max(0, state.maxAudienceSize - state.totalEnqueued)
-        const eligibleUsers = page.users_affected.slice(0, remainingBudget)
-        const pageTruncated = eligibleUsers.length < page.users_affected.length
+        const eligibleIds = page.ids.slice(0, remainingBudget)
+        const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const children: CyclotronV2JobInit[] = eligibleUsers.map((personId) =>
-            invocationToV2JobInit(
-                buildHogFlowInvocation({
-                    siteUrl: this.config.SITE_URL,
-                    parentRunId: state.batchJobId,
-                    team,
-                    hogFlowId: hogFlow.id,
-                    personId,
-                    defaultVariables,
-                })
-            )
+        const builtInvocations: CyclotronJobInvocationHogFlow[] = eligibleIds.map((id) =>
+            isAccountAudience
+                ? buildAccountHogFlowInvocation({
+                      siteUrl: this.config.SITE_URL,
+                      parentRunId: state.batchJobId,
+                      team,
+                      hogFlow,
+                      externalId: id,
+                      groupType: page.accountGroupType ?? '',
+                      defaultVariables,
+                  })
+                : buildHogFlowInvocation({
+                      siteUrl: this.config.SITE_URL,
+                      parentRunId: state.batchJobId,
+                      team,
+                      hogFlow,
+                      personId: id,
+                      defaultVariables,
+                  })
         )
+
+        // Batch-built invocations skip the event-triggered pipeline entirely, so
+        // trigger_masking has to be applied here explicitly — otherwise a workflow
+        // with a masking TTL re-enrolls the same audience on every scheduled run.
+        const { masked, notMasked, release } = await this.hogMasker.filterByMasking(builtInvocations)
+
+        // Only the unmasked runs get a lifecycle row: a masked one is never enqueued, so a
+        // `running` row for it would sit in the invocations list forever with no terminal row.
+        //
+        // Queued before serializing, because queueLifecycleRow stamps `state.firstScheduledAt`
+        // on the invocation and the terminal row written after the run wakes has to inherit it —
+        // otherwise that row records the wake time and wins the ReplacingMergeTree collapse,
+        // mislabeling when the run started.
+        for (const invocation of notMasked) {
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+        }
+
+        const children: CyclotronV2JobInit[] = notMasked.map((invocation) => invocationToV2JobInit(invocation))
 
         const newState: BatchResolverState = {
             ...state,
             cursor: page.cursor,
-            totalEnqueued: state.totalEnqueued + children.length,
+            totalEnqueued: state.totalEnqueued + eligibleIds.length,
             pagesProcessed: state.pagesProcessed + 1,
             attempts: 0, // reset on successful page commit
         }
@@ -267,14 +359,75 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             newState.pendingTerminal = 'completed'
         }
 
-        await job.bulkCreateAndCheckIn({
-            newJobs: children,
-            selfDisposition: {
-                kind: 'reschedule',
-                scheduledAt: new Date(),
-                state: serializeResolverState(newState),
-            },
-        })
+        let checkIn: { newJobIds: string[]; cancelRequested?: boolean }
+        try {
+            checkIn = await job.bulkCreateAndCheckIn({
+                newJobs: children,
+                selfDisposition: {
+                    kind: 'reschedule',
+                    scheduledAt: new Date(),
+                    state: serializeResolverState(newState),
+                },
+            })
+        } catch (err) {
+            // The mask claims are already in Redis, but the page didn't commit — the
+            // stall-recovery replay of this cursor would see the whole page as masked
+            // and silently drop it. Undo the claims so the replay re-enrolls cleanly.
+            await release()
+            // Same reasoning for the lifecycle rows queued above: the replay re-queues them,
+            // so leaving these would write each run's `running` row twice.
+            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
+                notMasked.map((invocation) => invocation.id)
+            )
+            throw err
+        }
+
+        if (checkIn.cancelRequested) {
+            // A cancel flag landed while this page was being built, so the check-in was
+            // refused and nothing committed. Undo the mask claims and queued `running`
+            // rows exactly like the failure path — these children will never run — then
+            // terminate the resolver instead of scheduling another page.
+            await release()
+            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
+                notMasked.map((invocation) => invocation.id)
+            )
+            await this.cancelResolverJob(job)
+            return
+        }
+
+        // Queued only after a successful commit: a failed page is replayed, so metrics
+        // emitted for it would double-count once the replay re-evaluates masking.
+        if (masked.length) {
+            this.hogFunctionMonitoringService.queueAppMetrics(
+                masked.map((item) => ({
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
+                    metric_kind: 'other',
+                    metric_name: 'masked',
+                    count: 1,
+                    app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
+                })),
+                'hog_flow'
+            )
+        }
+
+        // Mirrors the `triggered` metric the realtime trigger path emits per invocation, so
+        // batch runs count towards "workflows started" (and the derived in-progress count).
+        // Masked runs are excluded: counting one as started would leave it in progress forever,
+        // since it never runs and so never records a terminal `succeeded`.
+        // Keyed on the batch job id like every other metric a batch run emits; `instance_id`
+        // is left unset because this is a run-level, not a step-level, metric.
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            notMasked.map((invocation) => ({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                metric_kind: 'other' as const,
+                metric_name: 'triggered' as const,
+                count: 1,
+                app_source_version: { id: hogFlow.id, version: hogFlow.version },
+            })),
+            'hog_flow'
+        )
 
         if (pageTruncated) {
             this.emitTruncationLog(newState)
@@ -284,7 +437,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
         logger.info(
             '📝',
-            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} persons (${newState.totalEnqueued} total, ${newState.pagesProcessed} pages)`
+            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
         )
     }
 
@@ -434,16 +587,63 @@ function mergeDefaultVariables(
     return { ...defaults, ...runOverrides }
 }
 
+// Mirrors buildHogFlowInvocation for an account audience: the invocation carries the
+// account's group key (via $groups and distinct_id) and no person at all — the hogflow
+// worker skips person resolution for account audiences.
+export function buildAccountHogFlowInvocation(params: {
+    siteUrl: string
+    parentRunId: string
+    team: Team
+    hogFlow: HogFlow
+    externalId: string
+    groupType: string
+    defaultVariables: Record<string, unknown>
+}): CyclotronJobInvocationHogFlow {
+    const invocationGlobals = convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals({
+        team: params.team,
+        externalId: params.externalId,
+        groupType: params.groupType,
+        siteUrl: params.siteUrl,
+    })
+
+    const filterGlobals = convertToHogFunctionFilterGlobal(invocationGlobals)
+
+    return {
+        id: new UUIDT().toString(),
+        state: {
+            event: invocationGlobals.event,
+            accountAudience: true,
+            actionStepCount: 0,
+            variables: params.defaultVariables,
+            // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
+            // the send, so they attribute to the version that sent, not the one live by then.
+            flowVersion: params.hogFlow.version,
+        },
+        teamId: params.team.id,
+        functionId: params.hogFlow.id,
+        // In-memory only (persistence serializes just `state`), but load-bearing for
+        // monitoring: the invocation-results service classifies by shape (`'hogFlow' in
+        // invocation`), and a row not classified as hog_flow never shows up in the
+        // workflow invocations list.
+        hogFlow: params.hogFlow,
+        parentRunId: params.parentRunId,
+        filterGlobals,
+        queue: 'hogflow' as const,
+        queuePriority: 1,
+        queueScheduledAt: DateTime.now(),
+    }
+}
+
 // Mirrors `createHogFlowInvocation` from the legacy Kafka consumer so children
 // land in cyclotron_jobs looking the same regardless of dispatch path.
 function buildHogFlowInvocation(params: {
     siteUrl: string
     parentRunId: string
     team: Team
-    hogFlowId: string
+    hogFlow: HogFlow
     personId: string
     defaultVariables: Record<string, unknown>
-}): CyclotronJobInvocation {
+}): CyclotronJobInvocationHogFlow {
     const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
         team: params.team,
         personId: params.personId,
@@ -459,14 +659,20 @@ function buildHogFlowInvocation(params: {
             personId: params.personId,
             actionStepCount: 0,
             variables: params.defaultVariables,
-        } as any,
+            // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
+            // the send, so they have to attribute to the version that sent, not the one live then.
+            flowVersion: params.hogFlow.version,
+        },
         teamId: params.team.id,
-        functionId: params.hogFlowId,
+        functionId: params.hogFlow.id,
+        // See buildAccountHogFlowInvocation: in-memory only, but drives the shape-based
+        // hog_flow classification of the `running` lifecycle rows.
+        hogFlow: params.hogFlow,
         parentRunId: params.parentRunId,
-        person: invocationGlobals.person as any,
+        person: invocationGlobals.person,
         filterGlobals,
         queue: 'hogflow' as const,
         queuePriority: 1,
         queueScheduledAt: DateTime.now(),
-    } as CyclotronJobInvocation
+    }
 }

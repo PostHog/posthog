@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
@@ -11,10 +11,13 @@ import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_CONNECTION_AUDIENCE,
+    SANDBOX_EVENT_INGEST_AUDIENCE,
     SANDBOX_JWT_STATE_KID_KEY,
+    STREAM_READ_AUDIENCE,
     _compute_kid,
     _derive_public_key_pem,
     create_sandbox_connection_token,
@@ -44,7 +47,7 @@ KEY_B = _generate_private_key_pem()
 KID_A = _compute_kid(_derive_public_key_pem(KEY_A))
 
 
-def _fake_run(state: dict | None = None) -> TaskRun:
+def _fake_run(state: dict | None = None, origin_product: str = "user_created") -> TaskRun:
     # Only the attributes the token helpers read are needed, so a lightweight stand-in
     # avoids the DB; cast keeps the call sites type-correct.
     return cast(
@@ -54,7 +57,8 @@ def _fake_run(state: dict | None = None) -> TaskRun:
             task_id=uuid.uuid4(),
             team_id=1,
             mode="background",
-            state=state if state is not None else {},
+            state={"sandbox_id": "sandbox-1", **(state or {})},
+            task=SimpleNamespace(origin_product=origin_product),
         ),
     )
 
@@ -111,6 +115,90 @@ class TestSandboxJwtRotation(SimpleTestCase):
         self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
         payload = validate_sandbox_event_ingest_token(token)
         self.assertEqual(payload.team_id, 1)
+        self.assertEqual(payload.sandbox_id, "sandbox-1")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_ingest_token_uses_explicit_sandbox_identity(self) -> None:
+        reset_sandbox_jwt_key_cache()
+
+        token = create_sandbox_event_ingest_token(
+            _fake_run({"sandbox_id": None}),
+            sandbox_id="sandbox-explicit",
+        )
+
+        payload = validate_sandbox_event_ingest_token(token)
+        self.assertEqual(payload.sandbox_id, "sandbox-explicit")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_legacy_ingest_token_without_sandbox_id_remains_valid(self) -> None:
+        reset_sandbox_jwt_key_cache()
+        run = _fake_run()
+        now = datetime.now(tz=UTC)
+        token = jwt.encode(
+            {
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "iat": now,
+                "exp": now + timedelta(minutes=5),
+                "aud": SANDBOX_EVENT_INGEST_AUDIENCE,
+            },
+            KEY_A,
+            algorithm="RS256",
+            headers={"kid": KID_A},
+        )
+
+        payload = validate_sandbox_event_ingest_token(token)
+
+        self.assertEqual(payload.run_id, str(run.id))
+        self.assertIsNone(payload.sandbox_id)
+        self.assertIs(payload.presence_gated, False)
+        self.assertIsNone(payload.origin_product)
+
+    @parameterized.expand([(True,), (False,)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_ingest_token_carries_pinned_presence_gating(self, gated: bool) -> None:
+        reset_sandbox_jwt_key_cache()
+        token = create_sandbox_event_ingest_token(_fake_run({"stream_presence_gated": gated}, "signals_scout"))
+
+        payload = validate_sandbox_event_ingest_token(token)
+        self.assertIs(payload.presence_gated, gated)
+        self.assertEqual(payload.origin_product, "signals_scout")
+
+    @parameterized.expand([(True,), (False,)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_stream_read_token_carries_pinned_presence_gating(self, gated: bool) -> None:
+        reset_sandbox_jwt_key_cache()
+        token = create_stream_read_token(_fake_run({"stream_presence_gated": gated}, "signals_scout"))
+
+        payload = validate_stream_read_token(token)
+        self.assertIs(payload.presence_gated, gated)
+        self.assertEqual(payload.origin_product, "signals_scout")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_legacy_stream_read_token_without_presence_claim_remains_valid(self) -> None:
+        reset_sandbox_jwt_key_cache()
+        run = _fake_run()
+        now = datetime.now(tz=UTC)
+        token = jwt.encode(
+            {
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "iat": now,
+                "exp": now + timedelta(minutes=5),
+                "aud": STREAM_READ_AUDIENCE,
+            },
+            KEY_A,
+            algorithm="RS256",
+            headers={"kid": KID_A},
+        )
+
+        payload = validate_stream_read_token(token)
+
+        self.assertEqual(payload.run_id, str(run.id))
+        self.assertIs(payload.presence_gated, False)
+        self.assertIsNone(payload.origin_product)
 
     def test_ingest_token_validates_after_primary_rotation(self) -> None:
         # Ingest is rotation-safe: a token signed under the old primary keeps validating after the
@@ -179,8 +267,17 @@ _RUN_ID = "11111111-1111-1111-1111-111111111111"
 _TASK_ID = "22222222-2222-2222-2222-222222222222"
 
 
-def _fake_task_run() -> TaskRun:
-    return cast(TaskRun, SimpleNamespace(id=_RUN_ID, task_id=_TASK_ID, team_id=7, state={}))
+def _fake_task_run(origin_product: str = "user_created") -> TaskRun:
+    return cast(
+        TaskRun,
+        SimpleNamespace(
+            id=_RUN_ID,
+            task_id=_TASK_ID,
+            team_id=7,
+            state={"sandbox_id": "sandbox-1"},
+            task=SimpleNamespace(origin_product=origin_product),
+        ),
+    )
 
 
 @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY, SANDBOX_JWT_PUBLIC_KEY=None)

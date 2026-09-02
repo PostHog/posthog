@@ -36,6 +36,10 @@
                                                             "is_not",
                                                             "icontains",
                                                             "not_icontains",
+                                                            "starts_with",
+                                                            "not_starts_with",
+                                                            "ends_with",
+                                                            "not_ends_with",
                                                             "regex",
                                                             "not_regex",
                                                             "gt",
@@ -138,6 +142,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -234,6 +242,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -331,6 +343,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -426,6 +442,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -521,6 +541,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -630,6 +654,10 @@
                                                             "is_not",
                                                             "icontains",
                                                             "not_icontains",
+                                                            "starts_with",
+                                                            "not_starts_with",
+                                                            "ends_with",
+                                                            "not_ends_with",
                                                             "regex",
                                                             "not_regex",
                                                             "gt",
@@ -710,6 +738,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -805,6 +837,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -926,6 +962,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1021,6 +1061,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1226,6 +1270,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1321,6 +1369,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1416,6 +1468,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1511,6 +1567,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1605,6 +1665,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1700,6 +1764,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1794,6 +1862,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1889,6 +1961,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -1985,6 +2061,10 @@
                                                     "is_not",
                                                     "icontains",
                                                     "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
                                                     "regex",
                                                     "not_regex",
                                                     "gt",
@@ -2057,6 +2137,640 @@
                                             }
                                         },
                                         "required": ["key", "operator"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "event_filters": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "properties": {
+                                                                        "key": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "label": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "operator": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "enum": [
+                                                                                        "exact",
+                                                                                        "is_not",
+                                                                                        "icontains",
+                                                                                        "not_icontains",
+                                                                                        "starts_with",
+                                                                                        "not_starts_with",
+                                                                                        "ends_with",
+                                                                                        "not_ends_with",
+                                                                                        "regex",
+                                                                                        "not_regex",
+                                                                                        "gt",
+                                                                                        "gte",
+                                                                                        "lt",
+                                                                                        "lte",
+                                                                                        "is_set",
+                                                                                        "is_not_set",
+                                                                                        "is_date_exact",
+                                                                                        "is_date_before",
+                                                                                        "is_date_after",
+                                                                                        "between",
+                                                                                        "not_between",
+                                                                                        "min",
+                                                                                        "max",
+                                                                                        "in",
+                                                                                        "not_in",
+                                                                                        "is_cleaned_path_exact",
+                                                                                        "flag_evaluates_to",
+                                                                                        "semver_eq",
+                                                                                        "semver_neq",
+                                                                                        "semver_gt",
+                                                                                        "semver_gte",
+                                                                                        "semver_lt",
+                                                                                        "semver_lte",
+                                                                                        "semver_tilde",
+                                                                                        "semver_caret",
+                                                                                        "semver_wildcard",
+                                                                                        "icontains_multi",
+                                                                                        "not_icontains_multi"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ],
+                                                                            "default": "exact"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "event",
+                                                                            "default": "event",
+                                                                            "description": "Event properties",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "value": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "items": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "boolean"
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    "type": "array"
+                                                                                },
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "type": "boolean"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        }
+                                                                    },
+                                                                    "required": ["key"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "key": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "label": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "operator": {
+                                                                            "enum": [
+                                                                                "exact",
+                                                                                "is_not",
+                                                                                "icontains",
+                                                                                "not_icontains",
+                                                                                "starts_with",
+                                                                                "not_starts_with",
+                                                                                "ends_with",
+                                                                                "not_ends_with",
+                                                                                "regex",
+                                                                                "not_regex",
+                                                                                "gt",
+                                                                                "gte",
+                                                                                "lt",
+                                                                                "lte",
+                                                                                "is_set",
+                                                                                "is_not_set",
+                                                                                "is_date_exact",
+                                                                                "is_date_before",
+                                                                                "is_date_after",
+                                                                                "between",
+                                                                                "not_between",
+                                                                                "min",
+                                                                                "max",
+                                                                                "in",
+                                                                                "not_in",
+                                                                                "is_cleaned_path_exact",
+                                                                                "flag_evaluates_to",
+                                                                                "semver_eq",
+                                                                                "semver_neq",
+                                                                                "semver_gt",
+                                                                                "semver_gte",
+                                                                                "semver_lt",
+                                                                                "semver_lte",
+                                                                                "semver_tilde",
+                                                                                "semver_caret",
+                                                                                "semver_wildcard",
+                                                                                "icontains_multi",
+                                                                                "not_icontains_multi"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "person",
+                                                                            "default": "person",
+                                                                            "description": "Person properties",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "value": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "items": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "boolean"
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    "type": "array"
+                                                                                },
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "type": "boolean"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        }
+                                                                    },
+                                                                    "required": ["key", "operator"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "key": {
+                                                                            "enum": [
+                                                                                "tag_name",
+                                                                                "text",
+                                                                                "href",
+                                                                                "selector"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        "label": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "operator": {
+                                                                            "enum": [
+                                                                                "exact",
+                                                                                "is_not",
+                                                                                "icontains",
+                                                                                "not_icontains",
+                                                                                "starts_with",
+                                                                                "not_starts_with",
+                                                                                "ends_with",
+                                                                                "not_ends_with",
+                                                                                "regex",
+                                                                                "not_regex",
+                                                                                "gt",
+                                                                                "gte",
+                                                                                "lt",
+                                                                                "lte",
+                                                                                "is_set",
+                                                                                "is_not_set",
+                                                                                "is_date_exact",
+                                                                                "is_date_before",
+                                                                                "is_date_after",
+                                                                                "between",
+                                                                                "not_between",
+                                                                                "min",
+                                                                                "max",
+                                                                                "in",
+                                                                                "not_in",
+                                                                                "is_cleaned_path_exact",
+                                                                                "flag_evaluates_to",
+                                                                                "semver_eq",
+                                                                                "semver_neq",
+                                                                                "semver_gt",
+                                                                                "semver_gte",
+                                                                                "semver_lt",
+                                                                                "semver_lte",
+                                                                                "semver_tilde",
+                                                                                "semver_caret",
+                                                                                "semver_wildcard",
+                                                                                "icontains_multi",
+                                                                                "not_icontains_multi"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "element",
+                                                                            "default": "element",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "value": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "items": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "boolean"
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    "type": "array"
+                                                                                },
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "type": "boolean"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        }
+                                                                    },
+                                                                    "required": ["key", "operator"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "key": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "label": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "operator": {
+                                                                            "enum": [
+                                                                                "exact",
+                                                                                "is_not",
+                                                                                "icontains",
+                                                                                "not_icontains",
+                                                                                "starts_with",
+                                                                                "not_starts_with",
+                                                                                "ends_with",
+                                                                                "not_ends_with",
+                                                                                "regex",
+                                                                                "not_regex",
+                                                                                "gt",
+                                                                                "gte",
+                                                                                "lt",
+                                                                                "lte",
+                                                                                "is_set",
+                                                                                "is_not_set",
+                                                                                "is_date_exact",
+                                                                                "is_date_before",
+                                                                                "is_date_after",
+                                                                                "between",
+                                                                                "not_between",
+                                                                                "min",
+                                                                                "max",
+                                                                                "in",
+                                                                                "not_in",
+                                                                                "is_cleaned_path_exact",
+                                                                                "flag_evaluates_to",
+                                                                                "semver_eq",
+                                                                                "semver_neq",
+                                                                                "semver_gt",
+                                                                                "semver_gte",
+                                                                                "semver_lt",
+                                                                                "semver_lte",
+                                                                                "semver_tilde",
+                                                                                "semver_caret",
+                                                                                "semver_wildcard",
+                                                                                "icontains_multi",
+                                                                                "not_icontains_multi"
+                                                                            ],
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "feature",
+                                                                            "default": "feature",
+                                                                            "description": "Event property with \"$feature/\" prepended",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "value": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "items": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "boolean"
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    "type": "array"
+                                                                                },
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "type": "boolean"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        }
+                                                                    },
+                                                                    "required": ["key", "operator"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "key": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "label": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "hogql",
+                                                                            "default": "hogql",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "value": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "items": {
+                                                                                        "anyOf": [
+                                                                                            {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "number"
+                                                                                            },
+                                                                                            {
+                                                                                                "type": "boolean"
+                                                                                            }
+                                                                                        ]
+                                                                                    },
+                                                                                    "type": "array"
+                                                                                },
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "type": "boolean"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        }
+                                                                    },
+                                                                    "required": ["key"],
+                                                                    "type": "object"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups"
+                                            },
+                                            "event_type": {
+                                                "enum": ["events", "actions"],
+                                                "type": "string"
+                                            },
+                                            "explicit_datetime": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval"
+                                            },
+                                            "explicit_datetime_to": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "key": {
+                                                "description": "Event name, or action id when event_type is 'actions'",
+                                                "type": "string"
+                                            },
+                                            "label": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "negation": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "boolean"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators"
+                                            },
+                                            "operator": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": [
+                                                            "exact",
+                                                            "is_not",
+                                                            "icontains",
+                                                            "not_icontains",
+                                                            "starts_with",
+                                                            "not_starts_with",
+                                                            "ends_with",
+                                                            "not_ends_with",
+                                                            "regex",
+                                                            "not_regex",
+                                                            "gt",
+                                                            "gte",
+                                                            "lt",
+                                                            "lte",
+                                                            "is_set",
+                                                            "is_not_set",
+                                                            "is_date_exact",
+                                                            "is_date_before",
+                                                            "is_date_after",
+                                                            "between",
+                                                            "not_between",
+                                                            "min",
+                                                            "max",
+                                                            "in",
+                                                            "not_in",
+                                                            "is_cleaned_path_exact",
+                                                            "flag_evaluates_to",
+                                                            "semver_eq",
+                                                            "semver_neq",
+                                                            "semver_gt",
+                                                            "semver_gte",
+                                                            "semver_lt",
+                                                            "semver_lte",
+                                                            "semver_tilde",
+                                                            "semver_caret",
+                                                            "semver_wildcard",
+                                                            "icontains_multi",
+                                                            "not_icontains_multi"
+                                                        ],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Count comparison for performed_event_multiple, defaults to exact"
+                                            },
+                                            "operator_value": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Count threshold for performed_event_multiple"
+                                            },
+                                            "time_interval": {
+                                                "anyOf": [
+                                                    {
+                                                        "enum": ["day", "week", "month", "year"],
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "time_value": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Relative time window size, paired with time_interval"
+                                            },
+                                            "type": {
+                                                "const": "behavioral",
+                                                "default": "behavioral",
+                                                "description": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                                                "type": "string"
+                                            },
+                                            "value": {
+                                                "enum": ["performed_event", "performed_event_multiple"],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["event_type", "key", "value"],
                                         "type": "object"
                                     }
                                 ]

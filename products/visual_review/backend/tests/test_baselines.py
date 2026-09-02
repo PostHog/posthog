@@ -456,7 +456,7 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry.baseline_change_count == 0
 
     def test_truncation_at_cap(self):
-        # Use a tiny cap for speed. logic.get_baselines_overview imports the
+        # Use a tiny cap for speed. baseline_overview.get_baselines_overview imports the
         # constant lazily, so patching contracts is enough.
         run = _mk_run(self.repo)
         for i in range(7):

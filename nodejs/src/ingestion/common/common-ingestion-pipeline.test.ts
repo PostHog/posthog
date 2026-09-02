@@ -9,11 +9,13 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { TopHogRegistry, countResult } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestTeam } from '~/tests/helpers/team'
+import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 import { CommonIngestionPipelineConfig, newCommonIngestionPipeline } from './common-ingestion-pipeline'
@@ -61,6 +63,8 @@ describe('CommonIngestionPipelineBuilder', () => {
     let mockTeamManager: jest.Mocked<TeamManager>
     let promiseScheduler: PromiseScheduler
     let config: CommonIngestionPipelineConfig<TestRedirectOutput>
+    let topHog: TopHogRegistry
+    let topHogRecords: Map<string, RecordedTopHogMetric[]>
 
     const team = createTestTeam({ id: 42, api_token: 'token-42' })
 
@@ -88,13 +92,13 @@ describe('CommonIngestionPipelineBuilder', () => {
     // so no batch result may ever surface any to the driver.
     const runPipeline = async (
         pipeline: {
-            feed: (batch: any[]) => Promise<{ ok: boolean }>
+            feed: (batch: any[], batchContext: Record<never, never>) => Promise<{ ok: boolean }>
             next: () => Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] } | null>
         },
         messages: Message[]
     ): Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] }[]> => {
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        const feedResult = await pipeline.feed(batch)
+        const feedResult = await pipeline.feed(batch, {})
         expect(feedResult.ok).toBe(true)
 
         const batches = []
@@ -177,8 +181,13 @@ describe('CommonIngestionPipelineBuilder', () => {
 
         promiseScheduler = new PromiseScheduler()
 
+        const recording = createRecordingTopHog()
+        topHog = recording.registry
+        topHogRecords = recording.records
+
         config = {
             teamManager: mockTeamManager,
+            topHog,
             outputs: new IngestionOutputs({
                 [DLQ_OUTPUT]: new SingleIngestionOutput(DLQ_OUTPUT, DLQ_TOPIC, mockKafkaProducer, 'test'),
                 [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
@@ -737,19 +746,18 @@ describe('CommonIngestionPipelineBuilder', () => {
         expect(parseJSON(warnings[0].details).marker).toBe('sub-step')
     })
 
-    it('applies the resolveTeam wrap decorator around team resolution', async () => {
-        const wrapObserved: string[] = []
+    it('records resolveTeam topHog metrics around team resolution', async () => {
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
             .parseMessage()
             .resolveTeam({
-                wrap: (step) => async (input) => {
-                    const result = await step(input)
-                    wrapObserved.push(
-                        isOkResult(result) ? `ok:${result.value.team.id}` : `miss:${input.headers.distinct_id}`
-                    )
-                    return result
-                },
+                topHog: [
+                    countResult('teams_resolved', (result, input) =>
+                        isOkResult(result)
+                            ? { outcome: `ok:${result.value.team.id}` }
+                            : { outcome: `miss:${input.headers.distinct_id}` }
+                    ),
+                ],
             })
             .build()
 
@@ -758,10 +766,29 @@ describe('CommonIngestionPipelineBuilder', () => {
             createMessage('user-1', 'test_event', 'unknown-token'),
         ])
 
-        expect(wrapObserved).toEqual(['ok:42', 'miss:user-1'])
+        expect((topHogRecords.get('teams_resolved') ?? []).map((r) => r.key)).toEqual([
+            { outcome: 'ok:42' },
+            { outcome: 'miss:user-1' },
+        ])
         const elements = batches.flatMap((batch) => batch.elements)
         expect(isOkResult(elements[0].result)).toBe(true)
         expect(isDropResult(elements[1].result)).toBe(true)
+    })
+
+    it('records parse timing and message sizes for every parsed message', async () => {
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0')])
+
+        const sizes = topHogRecords.get('message_size_by_token') ?? []
+        expect(sizes).toHaveLength(1)
+        expect(sizes[0].key).toEqual({ token: team.api_token })
+        expect(sizes[0].value).toBeGreaterThan(0)
+        expect(topHogRecords.get('parse_time_ms_by_token')).toHaveLength(1)
     })
 
     it('passes retry options through to chunk steps', async () => {

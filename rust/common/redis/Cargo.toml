@@ -7,6 +7,8 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+arc-swap = { workspace = true }
+tokio = { workspace = true }
 async-trait = { workspace = true }
 # `futures-timer` (not `tokio::time::sleep`) lets the mock module simulate
 # blocking pipeline calls without making `tokio` a runtime dependency of every

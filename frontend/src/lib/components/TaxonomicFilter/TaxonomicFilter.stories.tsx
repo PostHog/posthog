@@ -603,6 +603,42 @@ export const RenamedSeriesSelectedPill: Story = {
     },
 }
 
+export const FailedFetchOffersRetry: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('user_signed_up'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-failed-fetch',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': () => [500, { detail: 'server error' }],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="taxonomic-retry-remote-items"]' },
+        docs: {
+            description: {
+                story: 'When the search request fails, the list says so and offers a retry, rather than showing the same "No results" as a genuine empty search.',
+            },
+        },
+    },
+}
+
 export const EmptyEventsWithStaleToggle: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)

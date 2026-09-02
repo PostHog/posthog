@@ -3,6 +3,7 @@ import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_AI,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '~/common/config/kafka-topics'
@@ -18,10 +19,12 @@ import { HogTransformerComponent } from '~/common/hog-transformations/hog-transf
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
@@ -33,7 +36,7 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createAiConsumer } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
@@ -68,7 +71,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * This is the union of:
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - IngestionConsumerConfig: ingestion pipeline, person/group processing, overflow, cookieless, etc.
- * - HogTransformerServiceConfig: CDP keys needed by the hog transformer running in-process
+ * - HogTransformerServiceConfig: the transformation-only keys the in-process hog transformer reads.
+ *   No CDP delivery config (Redis, watcher, SES, fetch) - transformations run the synchronous
+ *   Hog core alone, so those keys are deliberately absent rather than inherited.
  * - Infrastructure configs: Kafka broker, Postgres, Redis, consumer tuning
  * - Remaining CommonConfig picks: server mode, services, observability
  *
@@ -85,11 +90,13 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -188,7 +195,7 @@ export class IngestionGeneralServer implements NodeServer {
                     // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
                     // transient failure can surface as an unhandled rejection and restart the worker.
                     new TeamManagerComponent(container.postgres, {
-                        loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
+                        loaderRetry: DEFAULT_LOADER_RETRY,
                     })
                 )
                 .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
@@ -215,6 +222,8 @@ export class IngestionGeneralServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -237,7 +246,12 @@ export class IngestionGeneralServer implements NodeServer {
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
 
         // 3. Ingestion-specific services
-        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+        // Same rationale as the team manager's loaderRetry above: group-type loads run
+        // detached in the LazyLoader buffer, so an un-retried transient failure can
+        // surface as an unhandled rejection and restart the worker.
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
@@ -258,7 +272,6 @@ export class IngestionGeneralServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
 
         const ingestionDeps: IngestionConsumerDeps = {
@@ -273,7 +286,6 @@ export class IngestionGeneralServer implements NodeServer {
             personRepository,
             cookielessManager,
             hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-            aiSubpipelineFactory: createAiEventSubpipeline,
         }
 
         const startClientWarnings = (override?: { topic: string; groupId: string }) => {
@@ -367,15 +379,20 @@ export class IngestionGeneralServer implements NodeServer {
                 topic: 'heatmaps_ingestion',
                 groupId: 'heatmaps_ingestion',
             })
+
+            // Capture routes $ai_* events to the dedicated AI topic on every
+            // deployment shape, so combined mode needs the AI consumer too.
+            startAi({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_AI,
+                groupId: 'clickhouse-ingestion-ai',
+            })
         } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
             startClientWarnings()
         } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
             startHeatmaps()
         } else if (this.config.INGESTION_PIPELINE === 'ai') {
-            // Dedicated AI pipeline deployment. Not started in combined mode: the
-            // combined analytics consumers already process AI events on the shared
-            // topic, so running this in parallel there would double-process them.
-            // Switchover to this pipeline is driven by capture-side routing.
+            // Dedicated AI pipeline deployment, consuming the topic capture's
+            // AI routing produces to (config-provided in production).
             startAi()
         } else {
             // Production ingestion-v2: single consumer using config-provided topic

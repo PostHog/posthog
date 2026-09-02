@@ -305,8 +305,19 @@
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
         const maxLoad = Math.max(1, ...s.workers.map((w) => w.in_flight_messages));
+        // Stable order — slice members first, then by IP. Sorting by load made
+        // rows jump around on every poll.
+        const workerSortKey = (url) => {
+          const host = (url.match(/^[a-z]+:\/\/([^:/]+)/i) || [])[1] || url;
+          // Zero-pad IPv4 octets so "10.2.30.1" sorts numerically, not lexically.
+          return /^\d+(\.\d+){3}$/.test(host)
+            ? host.split(".").map((octet) => octet.padStart(3, "0")).join(".")
+            : host;
+        };
         $("workers").innerHTML = s.workers.length
-          ? s.workers.sort((a, b) => b.in_flight_messages - a.in_flight_messages).map((w) => {
+          ? s.workers.sort((a, b) =>
+              (sliceSet.has(b.url) - sliceSet.has(a.url)) ||
+              workerSortKey(a.url).localeCompare(workerSortKey(b.url))).map((w) => {
               const cls = w.draining ? "draining" : w.state;
               const label = w.draining ? "draining" : w.state;
               const pct = Math.round((w.in_flight_messages / maxLoad) * 100);
@@ -338,7 +349,7 @@
         let b = batches[id];
         if (!b) {
           b = { id, ts: null, messages: 0, distinct_ids: 0, partitions: [],
-                assigned: [], flushed: [], deferred: [], retries: [], exhausted: [],
+                assigned: [], flushed: [], deferred: [], retries: [], exhausted: [], splits: [],
                 committed: null, events: [] };
           batches[id] = b;
           batchOrder.push(id);
@@ -361,6 +372,7 @@
             case "Deferred": b.deferred.push({ reason: ev.reason, groups: ev.groups, ts: ev.ts_ms }); break;
             case "DeferredFlushed": ev.sub_batches.forEach((s) => b.flushed.push({ ...s, ts: ev.ts_ms })); break;
             case "SendRetry": b.retries.push({ worker: ev.worker, attempt: ev.attempt, reason: ev.reason, ts: ev.ts_ms }); break;
+            case "SendSplit": b.splits.push({ worker: ev.worker, reason: ev.reason, chunks: ev.chunks, messages: ev.messages, ts: ev.ts_ms }); break;
             case "SendExhausted": b.exhausted.push({ worker: ev.worker, error: ev.error, ts: ev.ts_ms }); break;
             case "BatchCommitted":
               b.committed = { accepted: ev.accepted, duration_ms: ev.duration_ms, partitions: ev.partitions, ts: ev.ts_ms };
@@ -419,6 +431,7 @@
           case "BatchCommitted": return ["good", `✓ committed batch <code>${shortId(ev.batch_id)}</code> — ${ev.accepted} msgs in ${ev.duration_ms}ms`];
           case "BatchFailed": return ["error", `✗ batch failed — ${ev.error}`];
           case "SendRetry": return ["warn", `↻ retry #${ev.attempt} [${ev.reason}] — ${shortWorker(ev.worker)}, batch <code>${shortId(ev.batch_id)}</code>`];
+          case "SendSplit": return ["warn", `✂ split [${ev.reason}] — ${ev.messages} msgs → ${ev.chunks} chunk(s), ${shortWorker(ev.worker)}, batch <code>${shortId(ev.batch_id)}</code>`];
           case "SendExhausted": return ["error", `✗ send exhausted — ${shortWorker(ev.worker)}: ${ev.error}`];
           case "WorkerStateChanged": return [ev.to === "unhealthy" ? "error" : ev.to === "healthy" ? "good" : "warn", `worker ${shortWorker(ev.worker)} ${ev.from} → ${ev.to}`];
           case "WorkerMembership": return ["accent", `worker ${shortWorker(ev.worker)} ${ev.action}`];
@@ -464,10 +477,11 @@
 
       function workerAgg(b) {
         const m = {};
-        const touch = (w) => (m[w] = m[w] || { worker: w, messages: 0, assignedMsgs: 0, flushedMsgs: 0, flushCount: 0, retries: 0, flushed: false, exhausted: false });
+        const touch = (w) => (m[w] = m[w] || { worker: w, messages: 0, assignedMsgs: 0, flushedMsgs: 0, flushCount: 0, retries: 0, splits: 0, flushed: false, exhausted: false });
         b.assigned.forEach((s) => { const x = touch(s.worker); x.messages += s.messages; x.assignedMsgs += s.messages; });
         b.flushed.forEach((s) => { const x = touch(s.worker); x.messages += s.messages; x.flushedMsgs += s.messages; x.flushed = true; x.flushCount += 1; });
         b.retries.forEach((r) => (touch(r.worker).retries += 1));
+        b.splits.forEach((s) => (touch(s.worker).splits += 1));
         b.exhausted.forEach((e) => (touch(e.worker).exhausted = true));
         return Object.values(m);
       }
@@ -492,6 +506,7 @@
           badges.push(`<span class="badge-min">${workers.length}w</span>`);
           const retries = b.retries.length;
           if (retries) badges.push(`<span class="badge-min warn">↻${retries}</span>`);
+          if (b.splits.length) badges.push(`<span class="badge-min warn">✂${b.splits.length}</span>`);
           if (b.deferred.length) badges.push(`<span class="badge-min warn">⏸${b.deferred.length}</span>`);
           if (b.exhausted.length) badges.push(`<span class="badge-min error">✗${b.exhausted.length}</span>`);
           return `<div class="brow" data-id="${id}">
@@ -516,6 +531,7 @@
           ["distinct_ids", b.distinct_ids],
           ["workers", workers.length],
           ["retries", b.retries.length],
+          ["splits", b.splits.length],
           ["stashed", b.deferred.reduce((a, d) => a + d.groups, 0)],
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
@@ -590,6 +606,7 @@
           const primary = w.assignedMsgs > 0 ? w.assignedMsgs : w.flushedMsgs;
           const badges = [];
           if (w.retries) badges.push(`<span class="badge-min warn">↻${w.retries}</span>`);
+          if (w.splits) badges.push(`<span class="badge-min warn">✂×${w.splits}</span>`);
           if (w.flushCount) badges.push(`<span class="badge-min warn">re-routed ×${w.flushCount}</span>`);
           if (w.exhausted) badges.push(`<span class="badge-min error">exhausted</span>`);
           if (!w.exhausted && b.committed) badges.push(`<span class="badge-min">✓ acked</span>`);

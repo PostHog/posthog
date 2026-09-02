@@ -7,11 +7,14 @@ use chrono::{DateTime, Duration, Utc};
 use moka::future::{Cache, CacheBuilder};
 use sha2::{Digest, Sha512};
 use sqlx::PgPool;
-use tracing::{error, info, warn};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::{
     core::analytics::{capture_symbol_set_deleted, capture_symbol_set_saved},
+    core::write_attribution::{
+        record_symbol_set_write, PostgresMutation, SymbolSetWriteOutcome, SymbolSetWritePurpose,
+    },
     error::{FrameError, ResolveError, UnhandledError},
     metric_consts::{
         FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
@@ -23,7 +26,7 @@ use crate::{
 
 use super::{Fetcher, Parser};
 
-const MAX_REF_BYTES: usize = 2048;
+pub(crate) const MAX_REF_BYTES: usize = 2048;
 
 // Total byte budget for the in-memory negative cache. Refs and failure reasons are
 // event-controlled (a JS frame's ref is its source URL, and a `NoSourcemap` failure embeds that
@@ -34,7 +37,7 @@ const NEGATIVE_CACHE_MAX_WEIGHT: u64 = 64 * 1024 * 1024;
 
 // We truncate the reference to resolve an issue with the maximum size in a BTRee index on Postgres
 // TODO: update model to use a hash of the reference instead
-fn truncate_ref(s: &str) -> &str {
+pub(crate) fn truncate_ref(s: &str) -> &str {
     if s.len() <= MAX_REF_BYTES {
         return s;
     }
@@ -130,7 +133,7 @@ impl<F> Saving<F> {
         set_ref: String,
         data: Bytes,
     ) -> Result<String, UnhandledError> {
-        info!("Saving symbol set data for {}", set_ref);
+        debug!(team_id, set_ref = %set_ref, "saving symbol set data");
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
         // Generate a new opaque key, prepending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
@@ -159,14 +162,18 @@ impl<F> Saving<F> {
             .invalidate(&Self::negative_cache_key(team_id, &record.set_ref))
             .await;
         if !wrote_new_data {
-            warn!(
-                "Not overwriting existing symbol set data for {} after dynamic fetch",
-                record.set_ref
+            // Expected race: a concurrent fetch or upload for the same ref won; not a fault.
+            debug!(
+                team_id,
+                set_ref = %record.set_ref,
+                "not overwriting existing symbol set data after dynamic fetch"
             );
             if let Err(err) = self.s3_client.delete(&self.bucket, &key).await {
                 warn!(
+                    team_id,
                     "Failed to clean up unused symbol set data at {} after skipped DB update: {:?}",
-                    key, err
+                    key,
+                    err
                 );
             }
             start.label("outcome", "skipped_existing_data").fin();
@@ -174,18 +181,39 @@ impl<F> Saving<F> {
         }
         // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
         // so delete them
-        let deleted: u64 = sqlx::query_scalar!(
+        let deleted_result = sqlx::query_scalar!(
             r#"WITH deleted AS (DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1 RETURNING *) SELECT count(*) from deleted"#,
             record.id // The call to save() above ensures that this id is correct
         )
         .fetch_one(&self.pool)
-        .await.expect("Got at least one row back").map_or(0, |v| {
-            v.max(0) as u64
-        });
+        .await;
+        if deleted_result.is_err() {
+            record_symbol_set_write(
+                SymbolSetWritePurpose::Invalidation,
+                SymbolSetWriteOutcome::Error,
+                PostgresMutation::Delete,
+                0,
+            );
+        }
+        let deleted: u64 = deleted_result
+            .expect("Got at least one row back")
+            .map_or(0, |v| v.max(0) as u64);
+        record_symbol_set_write(
+            SymbolSetWritePurpose::Invalidation,
+            if deleted > 0 {
+                SymbolSetWriteOutcome::Written
+            } else {
+                SymbolSetWriteOutcome::Skipped
+            },
+            PostgresMutation::Delete,
+            deleted,
+        );
 
-        info!(
-            "Deleted {} stack frames for symbol set {}",
-            deleted, record.id
+        debug!(
+            team_id,
+            symbol_set_id = %record.id,
+            deleted,
+            "deleted stack frames for re-saved symbol set"
         );
         metrics::counter!(FRAME_RESOLUTION_RESULTS_DELETED).increment(deleted);
 
@@ -201,7 +229,7 @@ impl<F> Saving<F> {
         set_ref: String,
         reason: &FrameError,
     ) -> Result<(), UnhandledError> {
-        info!("Saving symbol set error for {}", set_ref);
+        debug!(team_id, set_ref = %set_ref, "saving symbol set error");
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "false");
         let failure_reason = serde_json::to_string(&reason)?;
         let mut record = SymbolSetRecord {
@@ -294,7 +322,7 @@ where
                 return Err(error);
             }
 
-            info!("Fetching symbol set data for {}", lookup_ref);
+            debug!(team_id, lookup_ref = %lookup_ref, "fetching symbol set data");
             let Some(mut record) = SymbolSetRecord::load(&self.pool, team_id, lookup_ref).await?
             else {
                 continue;
@@ -305,12 +333,16 @@ where
             }
 
             if let Some(storage_ptr) = record.storage_ptr.clone() {
-                info!("Found s3 saved symbol set data for {}", lookup_ref);
+                debug!(team_id, lookup_ref = %lookup_ref, "found s3 saved symbol set data");
                 record.set_last_used(&self.pool).await?;
                 let data = match self.s3_client.get(&self.bucket, &storage_ptr).await {
                     Ok(Some(data)) => data,
                     Ok(None) => {
-                        warn!("Storage pointer points to a record that doesn't exist");
+                        warn!(
+                            team_id,
+                            lookup_ref = %lookup_ref,
+                            "Storage pointer points to a record that doesn't exist"
+                        );
                         record.delete(&self.pool).await?;
                         return Err(FrameError::MissingChunkIdData(lookup_ref.clone()).into());
                     }
@@ -330,14 +362,17 @@ where
                 .last_used
                 .is_some_and(|l| Utc::now() - l < chrono::Duration::days(1))
             {
-                info!("Found recent symbol set error for {}", lookup_ref);
+                debug!(team_id, lookup_ref = %lookup_ref, "found recent symbol set error");
                 // We tried less than a day ago to get the set data, and failed, so bail out
                 // with the stored error. We unwrap here because we should never store a "no set"
                 // row without also storing the error, and if we do, we want to panic, but we
                 // also want to log an error
                 metrics::counter!(SAVED_SYMBOL_SET_ERROR_RETURNED).increment(1);
                 let Some(failure_reason) = record.failure_reason.clone() else {
-                    error!("Found a record with no data and no error: {:?}", record);
+                    error!(
+                        team_id,
+                        "Found a record with no data and no error: {:?}", record
+                    );
                     panic!("Found a record with no data and no error");
                 };
                 // Cache this known-recent failure so subsequent lookups for the same ref skip
@@ -356,7 +391,7 @@ where
                 return Err(ResolveError::ResolutionError(error));
             }
 
-            info!("Found stale symbol set error for {}", lookup_ref);
+            debug!(team_id, lookup_ref = %lookup_ref, "found stale symbol set error");
             // We last tried to get the symbol set more than a day ago, so we should try again
             metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
@@ -366,7 +401,7 @@ where
         match self.inner.fetch(team_id, r).await {
             // NOTE: We don't save the data here, because we want to save it only after parsing
             Ok(data) => {
-                info!("Inner fetched symbol set data");
+                debug!(team_id, "inner fetched symbol set data");
                 Ok(Saveable {
                     data,
                     storage_ptr: None,
@@ -417,7 +452,7 @@ where
 
         match self.inner.parse(bytes).await {
             Ok(s) => {
-                info!("Parsed symbol set data");
+                debug!(team_id, "parsed symbol set data");
                 if let (Some(bytes_to_save), Some(save_ref)) = (bytes_to_save, &save_ref) {
                     self.save_data(team_id, save_ref.clone(), bytes_to_save)
                         .await?;
@@ -425,7 +460,7 @@ where
                 Ok(s)
             }
             Err(ResolveError::ResolutionError(e)) => {
-                info!("Failed to parse symbol set data");
+                debug!(team_id, "failed to parse symbol set data");
                 if storage_ptr.is_none() {
                     if let Some(save_ref) = save_ref {
                         // Save fresh parse failures to prevent refetching for a day, but never
@@ -477,18 +512,48 @@ impl SymbolSetRecord {
             .map(|l| Utc::now() - l < Duration::hours(12))
             .unwrap_or_default()
         {
+            record_symbol_set_write(
+                SymbolSetWritePurpose::LastUsed,
+                SymbolSetWriteOutcome::Skipped,
+                PostgresMutation::Update,
+                0,
+            );
             return Ok(());
         }
 
         let now = Utc::now();
 
-        sqlx::query!(
+        let result = sqlx::query!(
             r#"UPDATE posthog_errortrackingsymbolset SET last_used = $2 WHERE id = $1"#,
             self.id,
             now
         )
         .execute(e)
-        .await?;
+        .await;
+
+        let rows_affected = match result {
+            Ok(result) => result.rows_affected(),
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::LastUsed,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Update,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
+
+        record_symbol_set_write(
+            SymbolSetWritePurpose::LastUsed,
+            if rows_affected > 0 {
+                SymbolSetWriteOutcome::Written
+            } else {
+                SymbolSetWriteOutcome::Skipped
+            },
+            PostgresMutation::Update,
+            rows_affected,
+        );
 
         self.last_used = Some(now);
 
@@ -552,13 +617,39 @@ impl SymbolSetRecord {
         .bind(&self.content_hash)
         .bind(self.last_used)
         .fetch_optional(e)
-        .await?;
+        .await;
+
+        let id = match id {
+            Ok(id) => id,
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::Data,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
 
         if let Some(id) = id {
             self.id = id;
             metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+            record_symbol_set_write(
+                SymbolSetWritePurpose::Data,
+                SymbolSetWriteOutcome::Written,
+                PostgresMutation::Upsert,
+                1,
+            );
             return Ok(true);
         }
+
+        record_symbol_set_write(
+            SymbolSetWritePurpose::Data,
+            SymbolSetWriteOutcome::Skipped,
+            PostgresMutation::Upsert,
+            0,
+        );
 
         Ok(false)
     }
@@ -573,7 +664,7 @@ impl SymbolSetRecord {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let truncated_ref = truncate_ref(&self.set_ref);
-        if let Some(id) = sqlx::query_scalar::<_, Uuid>(
+        let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
             VALUES ($1, $2, $3, NULL, $4, $5, NULL, $6)
@@ -590,12 +681,39 @@ impl SymbolSetRecord {
         .bind(self.created_at)
         .bind(self.last_used)
         .fetch_optional(e)
-        .await?
-        {
+        .await;
+
+        let id = match id {
+            Ok(id) => id,
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::AutomaticFailure,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
+
+        if let Some(id) = id {
             self.id = id;
             metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+            record_symbol_set_write(
+                SymbolSetWritePurpose::AutomaticFailure,
+                SymbolSetWriteOutcome::Written,
+                PostgresMutation::Upsert,
+                1,
+            );
             return Ok(true);
         }
+
+        record_symbol_set_write(
+            SymbolSetWritePurpose::AutomaticFailure,
+            SymbolSetWriteOutcome::Skipped,
+            PostgresMutation::Upsert,
+            0,
+        );
 
         Ok(false)
     }
@@ -604,7 +722,7 @@ impl SymbolSetRecord {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let _ignored = sqlx::query!(
+        let result = sqlx::query!(
             r#"
             DELETE FROM posthog_errortrackingsymbolset WHERE id = $1
             "#,
@@ -612,6 +730,28 @@ impl SymbolSetRecord {
         )
         .execute(e)
         .await; // We don't really care if this fails, since it's a robustness thing anyway
+
+        match result {
+            Ok(result) => {
+                let rows_affected = result.rows_affected();
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::Cleanup,
+                    if rows_affected > 0 {
+                        SymbolSetWriteOutcome::Written
+                    } else {
+                        SymbolSetWriteOutcome::Skipped
+                    },
+                    PostgresMutation::Delete,
+                    rows_affected,
+                );
+            }
+            Err(_) => record_symbol_set_write(
+                SymbolSetWritePurpose::Cleanup,
+                SymbolSetWriteOutcome::Error,
+                PostgresMutation::Delete,
+                0,
+            ),
+        }
 
         capture_symbol_set_deleted(self.team_id, &self.set_ref, self.storage_ptr.as_deref());
 

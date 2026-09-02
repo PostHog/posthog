@@ -3,7 +3,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import { DateRange, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType, HogQLMathType, IntervalType } from '~/types'
 
 export interface InsightQueryFilters {
     properties: AnyPropertyFilter[]
@@ -35,6 +35,38 @@ export function buildExceptionVolumeQuery(
                     kind: NodeKind.EventsNode,
                     event: '$exception',
                     custom_name: 'Exceptions',
+                },
+            ],
+            interval,
+            dateRange,
+            trendsFilter: { display: ChartDisplayType.ActionsBar },
+            filterTestAccounts,
+            properties,
+            tags: { productKey: ProductKey.ERROR_TRACKING },
+        },
+        showHeader: false,
+        showTable: false,
+    }
+}
+
+export function buildIssuesCreatedQuery(
+    dateRange: DateRange,
+    { properties, filterTestAccounts }: InsightQueryFilters
+): InsightVizNode<TrendsQuery> {
+    const interval = getInterval(dateRange.date_from, dateRange.date_to)
+    return {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$exception',
+                    custom_name: 'Issues created',
+                    math: HogQLMathType.HogQL,
+                    // Cymbal stores issue_first_seen from the same event timestamp when it creates the fingerprint,
+                    // so equality selects the event that created the issue rather than its later occurrences.
+                    math_hogql: 'uniqIf(issue_id, timestamp = issue_first_seen)',
                 },
             ],
             interval,

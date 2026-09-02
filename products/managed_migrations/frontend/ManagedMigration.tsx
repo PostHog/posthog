@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconSort } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +14,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -78,9 +80,69 @@ function AmplitudeImportOptions({
     )
 }
 
+function IamRoleSetupInstructions({
+    managedMigration,
+}: {
+    managedMigration: ManagedMigrationForm
+}): JSX.Element | null {
+    const { awsIamSetup } = useValues(managedMigrationLogic)
+
+    if (!awsIamSetup?.available) {
+        return null
+    }
+
+    const bucket = managedMigration.s3_bucket
+    const prefix = managedMigration.s3_prefix
+    const permissionPolicy = awsIamSetup.permission_policy_template
+        .replaceAll('YOUR_BUCKET', bucket || '<YOUR_BUCKET>')
+        .replaceAll('YOUR_PREFIX', prefix || '')
+
+    return (
+        <div className="border rounded p-4 space-y-3 bg-surface-secondary">
+            <div className="font-semibold">Set up an IAM role for PostHog</div>
+            <ol className="list-decimal list-inside space-y-3 text-sm">
+                <li>
+                    In the AWS console, create an IAM role with the following trust policy (it lets PostHog's import
+                    role read from your bucket, and no one else):
+                    <CodeSnippet language={Language.JSON} compact>
+                        {awsIamSetup.trust_policy}
+                    </CodeSnippet>
+                    <div className="text-muted mt-1">
+                        The external ID <code>{awsIamSetup.external_id}</code> is unique to this project and must appear
+                        in the trust policy exactly as shown.
+                    </div>
+                </li>
+                <li>
+                    Attach this permission policy to the role. It fills in automatically from the bucket and prefix
+                    entered above:
+                    <CodeSnippet language={Language.JSON} compact>
+                        {permissionPolicy}
+                    </CodeSnippet>
+                    <div className="text-muted mt-1">
+                        {!bucket
+                            ? 'Enter your bucket above to replace <YOUR_BUCKET> in the policy.'
+                            : prefix
+                              ? `This grants read access to objects under ${prefix} only - nothing else in the bucket.`
+                              : 'No prefix is set, so this grants read access to the whole bucket. Set a prefix above to narrow what PostHog can read.'}
+                    </div>
+                </li>
+                <li>
+                    Paste the new role's ARN:
+                    <LemonField name="role_arn" className="mt-1">
+                        <LemonInput placeholder="arn:aws:iam::123456789012:role/posthog-import" />
+                    </LemonField>
+                </li>
+            </ol>
+        </div>
+    )
+}
+
 export function ManagedMigration(): JSX.Element {
-    const { managedMigration, isManagedMigrationSubmitting } = useValues(managedMigrationLogic)
+    const { managedMigration, isManagedMigrationSubmitting, awsIamSetup } = useValues(managedMigrationLogic)
     const { setManagedMigrationValue } = useActions(managedMigrationLogic)
+
+    const isS3Source = managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip'
+    const usesIamRole = isS3Source && managedMigration.s3_auth_method === 'iam_role' && !!awsIamSetup?.available
 
     return (
         <Form logic={managedMigrationLogic} formKey="managedMigration" enableFormOnSubmit className="space-y-4">
@@ -171,23 +233,57 @@ export function ManagedMigration(): JSX.Element {
                             </LemonField>
                         </div>
 
-                        <LemonField name="s3_prefix" label="S3 Prefix (optional)">
-                            <LemonInput placeholder="path/to/files/" />
-                        </LemonField>
-
                         <LemonField
-                            name="endpoint_url"
-                            label="Endpoint URL"
-                            showOptional
-                            info={
+                            name="s3_prefix"
+                            label="S3 Prefix (optional)"
+                            help={
                                 <>
-                                    Only required for S3-compatible storage like Cloudflare R2 or MinIO. For R2, use
-                                    https://ACCOUNT_ID.r2.cloudflarestorage.com and set region to "auto".
+                                    Matched as a plain string prefix: <code>exports</code> also matches keys under{' '}
+                                    <code>exports-old/</code>. End with <code>/</code> to match a single folder.
+                                    {usesIamRole && (
+                                        <>
+                                            {' '}
+                                            Must exactly match the prefix in your IAM role's permission policy,
+                                            including any trailing slash.
+                                        </>
+                                    )}
                                 </>
                             }
                         >
-                            <LemonInput placeholder="https://ACCOUNT_ID.r2.cloudflarestorage.com" />
+                            <LemonInput placeholder="path/to/files/" />
                         </LemonField>
+
+                        {awsIamSetup?.available && (
+                            <LemonField name="s3_auth_method" label="Authentication">
+                                <LemonSegmentedButton
+                                    value={managedMigration.s3_auth_method}
+                                    onChange={(value) => setManagedMigrationValue('s3_auth_method', value)}
+                                    options={[
+                                        { value: 'iam_role', label: 'IAM role (recommended)' },
+                                        { value: 'access_keys', label: 'Access keys' },
+                                    ]}
+                                    size="small"
+                                />
+                            </LemonField>
+                        )}
+
+                        {usesIamRole ? (
+                            <IamRoleSetupInstructions managedMigration={managedMigration} />
+                        ) : (
+                            <LemonField
+                                name="endpoint_url"
+                                label="Endpoint URL"
+                                showOptional
+                                info={
+                                    <>
+                                        Only required for S3-compatible storage like Cloudflare R2 or MinIO. For R2, use
+                                        https://ACCOUNT_ID.r2.cloudflarestorage.com and set region to "auto".
+                                    </>
+                                }
+                            >
+                                <LemonInput placeholder="https://ACCOUNT_ID.r2.cloudflarestorage.com" />
+                            </LemonField>
+                        )}
                     </>
                 )}
                 {(managedMigration.source_type === 'mixpanel' || managedMigration.source_type === 'amplitude') && (
@@ -239,7 +335,7 @@ export function ManagedMigration(): JSX.Element {
                         />
                     )}
 
-                {managedMigration.source_type === 'mixpanel' ? (
+                {usesIamRole ? null : managedMigration.source_type === 'mixpanel' ? (
                     <LemonField
                         name="secret_key"
                         label="Project secret"

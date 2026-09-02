@@ -12,6 +12,7 @@ import type {
     AlertApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
+    AlertTestDeliveryResponseApi,
     AlertsListParams,
     AlertsRetrieveParams,
     InsightsThresholdsListParams,
@@ -154,6 +155,24 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     return apiMutator<void>(getAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAlertsTestDeliveryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/test-delivery/`
+}
+
+/**
+ * Send a synthetic test notification to subscribed users and every active destination on this alert.
+ */
+export const alertsTestDeliveryCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AlertTestDeliveryResponseApi> => {
+    return apiMutator<AlertTestDeliveryResponseApi>(getAlertsTestDeliveryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

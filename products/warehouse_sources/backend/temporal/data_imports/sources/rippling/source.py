@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
     RipplingSourceConfig,
 )
@@ -40,8 +37,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]):
+    # Rippling versions its REST API through a dated `Rippling-Api-Version` header and, when no
+    # header is sent, serves the version bound to the API token account-side (chosen when the
+    # customer mints the token) — never a moving "latest". We send the token as-is with no version
+    # header, so every pin issues byte-for-byte identical requests; the pin only records which tier
+    # a source targets, and adding a header would override the customer's token version — the silent
+    # move this framework prevents. New sources default to v2, Rippling's current REST API tier.
+    supported_versions = ("v1", "v2")
+    default_version = "v2"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://developer.rippling.com/"
+    api_docs_url = "https://developer.rippling.com/documentation/rest-api/guides/versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

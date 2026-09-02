@@ -23,6 +23,8 @@ from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
+from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
+
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
 # metrics are aggregated into a single /metrics endpoint.  Without it,
@@ -54,7 +56,7 @@ CELERY_TASK_SUCCESS_COUNTER = Counter(
 
 CELERY_TASK_FAILURE_COUNTER = Counter(
     "posthog_celery_task_failure",
-    "task failure signal is dispatched when a task succeeds.",
+    "task failure signal is dispatched when a task fails.",
     labelnames=["task_name"],
 )
 
@@ -98,7 +100,30 @@ task_timings: dict[str, float] = {}
 
 
 def _initialize_worker_metrics() -> None:
-    """Initialize metrics that need to survive pod restarts."""
+    """Initialize metrics that need to survive pod restarts.
+
+    Each initializer runs unconditionally and carries its own worker-type gate, so
+    adding one here cannot be silently skipped by another's early return.
+    """
+    _initialize_liveness_alerted_task_series()
+    _initialize_cohort_backlog_metric()
+
+
+def _initialize_liveness_alerted_task_series() -> None:
+    # Counter series are created lazily on a task's first prerun/success/failure event,
+    # so a task that stops running vanishes from the metrics once its pods are replaced
+    # (vmalert reads an empty result as resolved) instead of freezing at zero, where the
+    # `increase(...) == 0` liveness alerts pinning these names can see it.
+    signal_counters = (CELERY_TASK_PRE_RUN_COUNTER, CELERY_TASK_SUCCESS_COUNTER, CELERY_TASK_FAILURE_COUNTER)
+    try:
+        for task_name in LIVENESS_ALERTED_TASK_NAMES:
+            for counter in signal_counters:
+                counter.labels(task_name=task_name)
+    except Exception:
+        logger.warning("failed_to_initialize_task_metric_series", exc_info=True)
+
+
+def _initialize_cohort_backlog_metric() -> None:
     # Only initialize cohort metrics on long-running workers that handle cohort calculations
     if not _is_longrunning_worker():
         return

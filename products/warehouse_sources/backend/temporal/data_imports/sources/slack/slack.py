@@ -14,8 +14,9 @@ from asgiref.sync import async_to_sync
 from requests import Request, Response
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.egress.slack.transport import slack_request
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.settings import (
     ENDPOINTS,
@@ -63,7 +65,15 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
-    response = make_tracked_session().get(url, **kwargs)
+    response = slack_request(
+        "GET",
+        url,
+        source="warehouse",
+        endpoint=url.rsplit("/", 1)[-1],
+        app_id="warehouse_source",
+        session=make_tracked_session(),
+        **kwargs,
+    )
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
@@ -82,7 +92,15 @@ def _slack_get(url: str, **kwargs: Any) -> requests.Response:
     reraise=True,
 )
 def _slack_post(url: str, **kwargs: Any) -> requests.Response:
-    response = make_tracked_session().post(url, **kwargs)
+    response = slack_request(
+        "POST",
+        url,
+        source="warehouse",
+        endpoint=url.rsplit("/", 1)[-1],
+        app_id="warehouse_source",
+        session=make_tracked_session(),
+        **kwargs,
+    )
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
@@ -558,7 +576,15 @@ def slack_source(
     )
 
 
-def validate_credentials(access_token: str) -> bool:
+def validate_credentials(access_token: str) -> tuple[bool, str | None]:
+    """Check a Slack token via ``auth.test``.
+
+    Returns ``(is_valid, error_code)``. On rejection ``error_code`` is Slack's own error
+    (for example ``invalid_auth`` or ``missing_scope``) so the caller can explain the exact
+    problem instead of a generic "invalid credentials". It is ``None`` when the check couldn't
+    complete (network error or an exhausted rate-limit/5xx retry), letting the caller tell a
+    rejected token apart from an unreachable Slack.
+    """
     url = "https://slack.com/api/auth.test"
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -566,6 +592,9 @@ def validate_credentials(access_token: str) -> bool:
         response = _slack_get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
-        return data.get("ok", False)
     except Exception:
-        return False
+        return False, None
+
+    if data.get("ok", False):
+        return True, None
+    return False, data.get("error") or None

@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 import orjson as json
 import structlog
@@ -18,6 +18,8 @@ from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.constants import AvailableFeature
+from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -26,6 +28,7 @@ from posthog.renderers import SafeJSONRenderer
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
     from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -178,6 +181,33 @@ class QueryStatusManager:
         self.redis_client.hdel(self.running_queries_key, cache_key)
 
 
+def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Optional["User"]:
+    """Rebuild the anonymous viewer of a public share so an async recalculation runs as the same
+    principal the request did. None if the share was disabled, expired, or deleted, or the
+    organization turned off public sharing, in the meantime - the query then runs userless and is
+    denied, which is the correct outcome for a revoked share."""
+    from posthog.models.sharing_configuration import SharingConfiguration  # noqa: PLC0415
+    from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
+
+    # Same predicate as SharingViewerPageViewSet._is_blocked_by_public_sharing_setting: the org-level
+    # kill switch must also cover recalculations enqueued just before it was flipped.
+    organization = team.organization
+    if (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    ):
+        return None
+
+    sharing_configuration = SharingConfiguration.objects.filter(
+        SharingConfiguration.tokens_active_q(), pk=sharing_configuration_id, team_id=team.id
+    ).first()
+    if sharing_configuration is None:
+        return None
+    # The query stack types its principal as Optional[User] but accepts the anonymous shared-link
+    # viewer at runtime, so cast at the boundary the same way SharingViewerPageViewSet does.
+    return cast("User", SharedLinkUser(sharing_configuration))
+
+
 def execute_process_query(
     team_id: int,
     user_id: Optional[int],
@@ -186,6 +216,7 @@ def execute_process_query(
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -197,15 +228,27 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
     is_staff_user = False
 
-    user = None
+    user: Optional[User] = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
+    elif sharing_configuration_id:
+        # A shared-link viewer has no user row, so the identity has to be rebuilt from the share it
+        # came in on. Without it the run is userless, which fails closed on every warehouse table
+        # ("You don't have access to table `X`.") and fingerprints the cache differently than the
+        # request that enqueued it.
+        user = _shared_link_user_for(sharing_configuration_id, team)
 
     query_status = manager.get_query_status()
 
     if query_status.complete:
         return
+
+    if query_status.task_id:
+        try:
+            tag_queries(celery_task_id=uuid.UUID(query_status.task_id))
+        except ValueError:
+            logger.warning("Async query has a non-UUID task id", query_id=query_id)
 
     query_status.pickup_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
@@ -253,7 +296,7 @@ def execute_process_query(
         query_status.error = False
         raise
     except Exception as err:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         query_status.results = None  # Clear results in case they are faulty
         is_user_safe_error = isinstance(
@@ -296,6 +339,7 @@ def enqueue_process_query_task(
     dashboard_id: Optional[int] = None,
     query_id: Optional[str] = None,
     cache_key: Optional[str] = None,
+    labels: list[str] | None = None,
     # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
     force: bool = False,
@@ -303,6 +347,7 @@ def enqueue_process_query_task(
     is_query_service: bool = False,
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -349,6 +394,7 @@ def enqueue_process_query_task(
         start_time=datetime.datetime.now(datetime.UTC),
         insight_id=insight_id,
         dashboard_id=dashboard_id,
+        labels=labels,
     )
     query_tags = get_query_tags().model_dump()
     manager.store_query_status(query_status)
@@ -364,6 +410,10 @@ def enqueue_process_query_task(
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
+    # Attached only when set: during a rolling deploy a worker still on the old task signature
+    # rejects unknown kwargs, so an always-present kwarg would fail every async query, not just
+    # shared-link ones.
+    shared_kwargs = {"sharing_configuration_id": sharing_configuration_id} if sharing_configuration_id else {}
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -373,6 +423,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
+        **shared_kwargs,
     )
 
     if _test_only_bypass_celery:
@@ -408,6 +459,15 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str
 
         if query_status.complete:
             return "Query already complete"
+
+        if not dequeue_only and query_status.task_id:
+            try:
+                request_direct_query_cancellation(
+                    team_id,
+                    build_direct_query_cancellation_token(query_id, query_status.task_id),
+                )
+            except Exception:
+                logger.exception("Failed to request direct query cancellation", team_id=team_id, query_id=query_id)
 
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)

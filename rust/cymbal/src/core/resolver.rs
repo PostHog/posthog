@@ -48,8 +48,8 @@ pub async fn build_symbol_resolver(
 }
 
 /// Build the symbol-store [`Catalog`] from already-constructed S3 and PG
-/// handles. Shared by [`crate::app_context::AppContext::new`] and
-/// [`build_symbol_resolver`] so the provider wiring doesn't drift.
+/// handles. Kept alongside [`build_symbol_resolver`] so provider wiring stays
+/// in one place.
 pub fn build_catalog(
     config: &ResolverConfig,
     s3_client: Arc<dyn BlobClient>,

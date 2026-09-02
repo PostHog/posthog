@@ -90,6 +90,24 @@ pub const AVRO_SCHEMA: &str = r#"
     "name": "bytes_uncompressed",
     "type": ["null", "long"],
     "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
+    },
+    {
+    "name": "retention_days",
+    "type": ["null", "int"],
+    "default": null,
+    "doc": "Per-row retention in days, stamped by the Node consumer from team retention rules. Null when unset — ClickHouse then falls back to the batch `retention-days` header. capture-logs always writes null; it does not evaluate team rules."
+    },
+    {
+    "name": "pattern",
+    "type": ["null", "string"],
+    "default": null,
+    "doc": "Masked log body, stamped by the Node consumer. Identifiers are replaced with placeholders, so two lines differing only by a request id share one pattern. capture-logs always writes null; it does not mask."
+    },
+    {
+    "name": "pattern_version",
+    "type": ["null", "int"],
+    "default": null,
+    "doc": "Masking rule set that produced `pattern`. A rule change re-masks every line, so the detector compares within a version and treats a change as a cold start. Null reads as version 0 in ClickHouse, marking a row written before masking. capture-logs always writes null."
     }
 ]
 }"#;

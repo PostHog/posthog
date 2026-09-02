@@ -46,6 +46,14 @@ Hence the explicit separation between the data and view layers.
   - Props for both logics and components are PascalCase and end with `Props` (`DashboardLogicProps` & `DashboardMenuProps`)
   - Name the `.ts` file according to its main export: `DashboardMenu.ts` or `DashboardMenu.tsx` or `dashboardLogic.ts` or `Dashboard.scss`. Pay attention to the case.
   - Avoid `index.ts`, `styles.css`, and other generic names, even if this is the only file in a directory.
+- Component structure & reuse
+  - One component per file — a file exports the component its name promises. Avoid re-export shims and barrel files: every symbol should have exactly one import path, and moving a symbol means updating its consumers, not leaving a compatibility stub.
+  - Reach for an existing design-system component (Lemon/quill) before hand-rolling markup — reuse is how new UI stays on-brand. When you genuinely need a custom component, build it from the system's tokens and primitives and match the surrounding scene's density; avoid the generic AI-generated look (purple gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion).
+  - Before building new UI, read a few comparable scenes or components and model yours on the ones that follow these conventions. The codebase contains legacy that predates them — an existing violation is not license to repeat it. Conventions outrank precedent, and compliant precedent outranks invention.
+  - Extract a shared component once the same shape appears in several places and the call sites read as content, not markup. Keep new generics next to the feature that uses them, and promote to `lib/` only when a second feature needs them. Don't build wrappers with a single consumer, and don't add boolean variant props so one caller can switch half the component off — that's two components.
+  - Interactive elements are real `<button>`/`<a>` elements (`LemonButton` renders one) — never `onClick` on a `<div>`.
+  - Loading, empty, and error are three different screens. Never show an empty state from data that hasn't resolved yet — branch on the loading state first.
+  - When renaming a feature, sweep code symbols completely — but analytics-facing strings (event names, property names and values, `data-attr` values) and persisted keys are a frozen API: leave them as-is, with a comment noting they're pinned.
 - Scenes
   - Our app is built of _scenes_, managed through a scene router in `sceneLogic`.
   - A scene is the smallest unit in the router and for code splitting. Usually we split scenes by resource type (dashboard, insight) and function (edit, index).
@@ -80,6 +88,15 @@ Hence the explicit separation between the data and view layers.
 ### Coding standards
 
 - Always place imports at the top of the file (module level), never inside functions or methods (local imports)
+
+### Dataclasses
+
+- Prefer a small dataclass over a tuple when returning or passing multiple values: always when two or more elements share a type (callers can silently swap them, e.g. `(start, end)`), and when there are roughly 3+ elements, where positional access hurts readability
+- Use `@frozen` from `posthog.dataclasses` (applies `frozen=True`, `kw_only=True`, `slots=True`; every flag overridable, e.g. `@frozen(slots=False)` for `functools.cached_property`)
+- Consume results with dot notation (`result.field`), never by unpacking into positional locals
+- Name dataclasses after the domain concept (`BillingPeriod`), never `*Info`/`*Data`/`*Tuple`
+- Mark secret fields with `field(repr=False)`
+- A bare `@dataclass` without an explicit `frozen=` choice fails the `posthog/test/repo_invariants/test_dataclass_defaults.py` ratchet and is flagged by the `prefer-frozen-dataclasses` semgrep rule
 
 ### Logging
 

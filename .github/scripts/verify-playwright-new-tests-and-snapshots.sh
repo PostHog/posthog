@@ -108,7 +108,11 @@ while IFS= read -r test_file; do
     # Can't analyze (no detectable tests, or no changed lines) → re-run the whole file.
     if ((total_file_tests == 0)) || ((${#changed_lines[@]} == 0)); then
         targets+=("$pw_file")
-        num_targeted_tests=$((num_targeted_tests + (total_file_tests > 0 ? total_file_tests : 1)))
+        if ((total_file_tests > 0)); then
+            num_targeted_tests=$((num_targeted_tests + total_file_tests))
+        else
+            num_targeted_tests=$((num_targeted_tests + 1))
+        fi
         continue
     fi
 
@@ -156,7 +160,8 @@ fi
 # signal), skip verification entirely. ~40 serial test-runs (~5 min) fits the slack left after
 # the main suite.
 MAX_TOTAL_TEST_RUNS=40
-if ((num_targeted_tests * REPEAT_COUNT > MAX_TOTAL_TEST_RUNS)); then
+total_test_runs=$((num_targeted_tests * REPEAT_COUNT))
+if ((total_test_runs > MAX_TOTAL_TEST_RUNS)); then
     echo "Skipping flake verification: $num_targeted_tests targeted test(s) × --repeat-each=$REPEAT_COUNT exceeds the ~${MAX_TOTAL_TEST_RUNS}-run time budget (broad change or a shared-scope edit in a large spec)"
     exit 0
 fi

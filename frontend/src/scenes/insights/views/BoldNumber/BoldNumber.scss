@@ -10,7 +10,8 @@
     width: 100%;
     padding: 2rem 3rem 3rem;
 
-    .InsightCard & {
+    .InsightCard &,
+    .MarkdownNotebook__real-node & {
         padding: 1rem;
     }
 
@@ -27,7 +28,8 @@
     @include screen($md) {
         padding: 3rem 5rem 5rem;
 
-        .InsightCard & {
+        .InsightCard &,
+        .MarkdownNotebook__real-node & {
             padding: 2rem;
         }
     }

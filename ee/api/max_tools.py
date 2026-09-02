@@ -13,6 +13,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.event_usage import get_event_source
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
@@ -69,6 +70,10 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             is_new_conversation=False,  # we don't care about the conversation id being sent back to the client
             initial_state=serializer.validated_data["state"],
             is_agent_billable=False,
+            # This endpoint has no session auth, so it is never the web assistant — it is reached
+            # only by an agent through the MCP server. Resolving from the request rather than
+            # pinning `mcp` keeps the surface that wrapped MCP (desktop, Slack, the CLI) visible.
+            event_source=get_event_source(request),
         )
 
         return Response(

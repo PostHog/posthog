@@ -19,8 +19,11 @@ clap = { workspace = true, features = ["derive", "env"] }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
 humantime = { workspace = true }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["client"] }
 rand = { workspace = true }
 rdkafka = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }

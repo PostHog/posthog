@@ -2,27 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    BatchExportsCreateBody,
-    BatchExportsDestroyParams,
-    BatchExportsListQueryParams,
-    BatchExportsPartialUpdateBody,
-    BatchExportsPartialUpdateParams,
-    BatchExportsRetrieveParams,
-    FileDownloadBatchExportsCancelCreateBody,
-    FileDownloadBatchExportsCancelCreateParams,
-    FileDownloadBatchExportsCreateBody,
-    FileDownloadBatchExportsRetrieveParams,
-} from '@/generated/batch_exports/api'
+import * as orvalSchemas from '@/generated/batch_exports/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const BatchExportCreateSchema = BatchExportsCreateBody
+const BatchExportCreateSchema = () => {
+    const BatchExportsCreateBody = orvalSchemas.BatchExportsCreateBody()
+    return BatchExportsCreateBody
+}
 
-const batchExportCreate = (): ToolBase<typeof BatchExportCreateSchema, Schemas.BatchExport> => ({
+const batchExportCreate = (): ToolBase<ReturnType<typeof BatchExportCreateSchema>, Schemas.BatchExport> => ({
     name: 'batch-export-create',
-    schema: BatchExportCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof BatchExportCreateSchema>) => {
+    schema: BatchExportCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BatchExportCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -58,12 +50,15 @@ const batchExportCreate = (): ToolBase<typeof BatchExportCreateSchema, Schemas.B
     },
 })
 
-const BatchExportDeleteSchema = BatchExportsDestroyParams.omit({ project_id: true })
+const BatchExportDeleteSchema = () => {
+    const BatchExportsDestroyParams = orvalSchemas.BatchExportsDestroyParams()
+    return BatchExportsDestroyParams.omit({ project_id: true })
+}
 
-const batchExportDelete = (): ToolBase<typeof BatchExportDeleteSchema, unknown> => ({
+const batchExportDelete = (): ToolBase<ReturnType<typeof BatchExportDeleteSchema>, unknown> => ({
     name: 'batch-export-delete',
-    schema: BatchExportDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof BatchExportDeleteSchema>) => {
+    schema: BatchExportDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BatchExportDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -73,12 +68,15 @@ const batchExportDelete = (): ToolBase<typeof BatchExportDeleteSchema, unknown> 
     },
 })
 
-const BatchExportGetSchema = BatchExportsRetrieveParams.omit({ project_id: true })
+const BatchExportGetSchema = () => {
+    const BatchExportsRetrieveParams = orvalSchemas.BatchExportsRetrieveParams()
+    return BatchExportsRetrieveParams.omit({ project_id: true })
+}
 
-const batchExportGet = (): ToolBase<typeof BatchExportGetSchema, Schemas.BatchExport> => ({
+const batchExportGet = (): ToolBase<ReturnType<typeof BatchExportGetSchema>, Schemas.BatchExport> => ({
     name: 'batch-export-get',
-    schema: BatchExportGetSchema,
-    handler: async (context: Context, params: z.infer<typeof BatchExportGetSchema>) => {
+    schema: BatchExportGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BatchExportGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.BatchExport>({
             method: 'GET',
@@ -88,14 +86,16 @@ const batchExportGet = (): ToolBase<typeof BatchExportGetSchema, Schemas.BatchEx
     },
 })
 
-const BatchExportUpdateSchema = BatchExportsPartialUpdateParams.omit({ project_id: true }).extend(
-    BatchExportsPartialUpdateBody.shape
-)
+const BatchExportUpdateSchema = () => {
+    const BatchExportsPartialUpdateBody = orvalSchemas.BatchExportsPartialUpdateBody()
+    const BatchExportsPartialUpdateParams = orvalSchemas.BatchExportsPartialUpdateParams()
+    return BatchExportsPartialUpdateParams.omit({ project_id: true }).extend(BatchExportsPartialUpdateBody.shape)
+}
 
-const batchExportUpdate = (): ToolBase<typeof BatchExportUpdateSchema, Schemas.BatchExport> => ({
+const batchExportUpdate = (): ToolBase<ReturnType<typeof BatchExportUpdateSchema>, Schemas.BatchExport> => ({
     name: 'batch-export-update',
-    schema: BatchExportUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof BatchExportUpdateSchema>) => {
+    schema: BatchExportUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BatchExportUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -131,15 +131,18 @@ const batchExportUpdate = (): ToolBase<typeof BatchExportUpdateSchema, Schemas.B
     },
 })
 
-const BatchExportsListSchema = BatchExportsListQueryParams
+const BatchExportsListSchema = () => {
+    const BatchExportsListQueryParams = orvalSchemas.BatchExportsListQueryParams()
+    return BatchExportsListQueryParams
+}
 
 const batchExportsList = (): ToolBase<
-    typeof BatchExportsListSchema,
+    ReturnType<typeof BatchExportsListSchema>,
     WithPostHogUrl<Schemas.PaginatedBatchExportList>
 > => ({
     name: 'batch-exports-list',
-    schema: BatchExportsListSchema,
-    handler: async (context: Context, params: z.infer<typeof BatchExportsListSchema>) => {
+    schema: BatchExportsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BatchExportsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedBatchExportList>({
             method: 'GET',
@@ -166,21 +169,28 @@ const batchExportsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-pipelines/destinations')
+        return await withPostHogUrl(context, filtered, '/data-management/destinations')
     },
 })
 
-const FileDownloadBatchExportsCancelCreateSchema = FileDownloadBatchExportsCancelCreateParams.omit({
-    project_id: true,
-}).extend(FileDownloadBatchExportsCancelCreateBody.shape)
+const FileDownloadBatchExportsCancelCreateSchema = () => {
+    const FileDownloadBatchExportsCancelCreateBody = orvalSchemas.FileDownloadBatchExportsCancelCreateBody()
+    const FileDownloadBatchExportsCancelCreateParams = orvalSchemas.FileDownloadBatchExportsCancelCreateParams()
+    return FileDownloadBatchExportsCancelCreateParams.omit({ project_id: true }).extend(
+        FileDownloadBatchExportsCancelCreateBody.shape
+    )
+}
 
 const fileDownloadBatchExportsCancelCreate = (): ToolBase<
-    typeof FileDownloadBatchExportsCancelCreateSchema,
+    ReturnType<typeof FileDownloadBatchExportsCancelCreateSchema>,
     unknown
 > => ({
     name: 'file-download-batch-exports-cancel-create',
-    schema: FileDownloadBatchExportsCancelCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FileDownloadBatchExportsCancelCreateSchema>) => {
+    schema: FileDownloadBatchExportsCancelCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof FileDownloadBatchExportsCancelCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.file !== undefined) {
@@ -194,6 +204,9 @@ const fileDownloadBatchExportsCancelCreate = (): ToolBase<
         }
         if (params.exclude !== undefined) {
             body['exclude'] = params.exclude
+        }
+        if (params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
         }
         if (params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
@@ -210,12 +223,50 @@ const fileDownloadBatchExportsCancelCreate = (): ToolBase<
     },
 })
 
-const FileDownloadBatchExportsCreateSchema = FileDownloadBatchExportsCreateBody
+const FileDownloadBatchExportsCountRowsCreateSchema = () => {
+    const FileDownloadBatchExportsCountRowsCreateBody = orvalSchemas.FileDownloadBatchExportsCountRowsCreateBody()
+    return FileDownloadBatchExportsCountRowsCreateBody
+}
 
-const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExportsCreateSchema, unknown> => ({
+const fileDownloadBatchExportsCountRowsCreate = (): ToolBase<
+    ReturnType<typeof FileDownloadBatchExportsCountRowsCreateSchema>,
+    Schemas.FileDownloadCountRowsResponse
+> => ({
+    name: 'file-download-batch-exports-count-rows-create',
+    schema: FileDownloadBatchExportsCountRowsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof FileDownloadBatchExportsCountRowsCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
+        }
+        const result = await context.api.request<Schemas.FileDownloadCountRowsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/count_rows/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FileDownloadBatchExportsCreateSchema = () => {
+    const FileDownloadBatchExportsCreateBody = orvalSchemas.FileDownloadBatchExportsCreateBody()
+    return FileDownloadBatchExportsCreateBody
+}
+
+const fileDownloadBatchExportsCreate = (): ToolBase<
+    ReturnType<typeof FileDownloadBatchExportsCreateSchema>,
+    unknown
+> => ({
     name: 'file-download-batch-exports-create',
-    schema: FileDownloadBatchExportsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FileDownloadBatchExportsCreateSchema>) => {
+    schema: FileDownloadBatchExportsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FileDownloadBatchExportsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.file !== undefined) {
@@ -230,11 +281,14 @@ const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExpo
         if ('exclude' in params && params.exclude !== undefined) {
             body['exclude'] = params.exclude
         }
-        if (params.data_interval_start !== undefined) {
+        if ('data_interval_start' in params && params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
         }
-        if (params.data_interval_end !== undefined) {
+        if ('data_interval_end' in params && params.data_interval_end !== undefined) {
             body['data_interval_end'] = params.data_interval_end
+        }
+        if ('hogql_query' in params && params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -245,15 +299,18 @@ const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExpo
     },
 })
 
-const FileDownloadBatchExportsRetrieveSchema = FileDownloadBatchExportsRetrieveParams.omit({ project_id: true })
+const FileDownloadBatchExportsRetrieveSchema = () => {
+    const FileDownloadBatchExportsRetrieveParams = orvalSchemas.FileDownloadBatchExportsRetrieveParams()
+    return FileDownloadBatchExportsRetrieveParams.omit({ project_id: true })
+}
 
 const fileDownloadBatchExportsRetrieve = (): ToolBase<
-    typeof FileDownloadBatchExportsRetrieveSchema,
+    ReturnType<typeof FileDownloadBatchExportsRetrieveSchema>,
     Schemas.RetrieveFileDownloadResponse
 > => ({
     name: 'file-download-batch-exports-retrieve',
-    schema: FileDownloadBatchExportsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FileDownloadBatchExportsRetrieveSchema>) => {
+    schema: FileDownloadBatchExportsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FileDownloadBatchExportsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.RetrieveFileDownloadResponse>({
             method: 'GET',
@@ -270,6 +327,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'batch-export-update': batchExportUpdate,
     'batch-exports-list': batchExportsList,
     'file-download-batch-exports-cancel-create': fileDownloadBatchExportsCancelCreate,
+    'file-download-batch-exports-count-rows-create': fileDownloadBatchExportsCountRowsCreate,
     'file-download-batch-exports-create': fileDownloadBatchExportsCreate,
     'file-download-batch-exports-retrieve': fileDownloadBatchExportsRetrieve,
 }

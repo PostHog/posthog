@@ -14,12 +14,15 @@ members = [
   "common/alloc",
   "common/assignment-coordination",
   "common/k8s-awareness",
+  "common/keyed-stash",
   "common/cache",
   "common/cookieless",
   "common/database",
   "common/dns",
+  "common/grpc",
   "common/health",
   "common/kafka",
+  "common/kafka-consumer",
   "common/liveness",
   "common/lifecycle",
   "common/limiters",
@@ -38,22 +41,24 @@ members = [
   "feature-flags",
   "flags-consumer",
   "hypercache-server",
-  "cyclotron-core",
-  "cyclotron-node",
-  "cyclotron-janitor",
   "replay-anonymizer",
   "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",
+  "usage-ingestion-proto",
+  "usage-ingestion",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
   "common/ingestion_warnings",
+  "deltalite/core",
+  "deltalite/python",
   "hogql/parser",
   "kafka-assigner",
   "kafka-assigner-proto",
   "ingestion-consumer",
   "ingestion-control-plane",
+  "ingestion-worker-proto",
   "kafka-deduplicator",
   "personhog-common",
   "personhog-coordination",
@@ -61,13 +66,21 @@ members = [
   "personhog-leader",
   "personhog-writer",
   "personhog-proto",
+  "prometheus-rw-proto",
   "personhog-replica",
   "personhog-router",
   "personhog-stateright",
   "personhog-test-harness",
   "affected-services",
   "property-vals-rs",
+  "pgcollector",
+  "pgapi",
 ]
+
+# NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
+# dependency graph. `hogql/parser` and `deltalite/python` must therefore agree on their
+# pyo3 major (currently 0.28, dictated by arrow 58's `pyarrow` feature in deltalite) --
+# bumping pyo3 in one means bumping it in the other, or the workspace stops resolving.
 
 [workspace.lints.rust]
 # See https://doc.rust-lang.org/stable/rustc/lints/listing/allowed-by-default.html
@@ -149,7 +162,6 @@ chrono = { version = "0.4.44", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
 dashmap = "6.1"
 envconfig = "0.10.0"
-eyre = "0.6.9"
 flate2 = "1.0"
 futures = { version = "0.3.29" }
 futures-timer = "3.0"
@@ -177,8 +189,9 @@ once_cell = "1.21.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
-public-suffix = "0.1.2"
+percent-encoding = "2.3.1"
 prost = "0.13"
+public-suffix = "0.1.2"
 rand = "0.8.5"
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
@@ -190,6 +203,7 @@ serde_derive = { version = "1.0" }
 serde_json = { version = "1.0" }
 serde_urlencoded = "0.7.1"
 siphasher = "1.0.1"
+snap = "1"
 sqlx = { version = "0.8.6", features = [
   "chrono",
   "json",
@@ -221,11 +235,12 @@ quick_cache = "0.6.21"
 ahash = "0.8.11"
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.58.0"
+aws-sdk-dynamodb = "1.55.0"
 aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.21.0", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.25.4", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",
@@ -258,5 +273,6 @@ clickhouse = { version = "0.13.2", features = [
 fernet = "0.2"
 tiktoken-rs = "0.7.0"
 sha2 = "0.10"
+sha1 = "0.10"
 hmac = "0.12"
 testcontainers = "0.27.2"

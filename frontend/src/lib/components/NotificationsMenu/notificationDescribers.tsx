@@ -13,7 +13,8 @@ export interface NotificationDescriber {
 }
 
 function WebAnalyticsDigestDescriber({ notification }: NotificationDescriberProps): JSX.Element | null {
-    if (!notification.metadata) {
+    // metadata is a free-form JSON blob — one malformed row would otherwise crash the whole panel
+    if (!notification.metadata?.metrics) {
         return null
     }
 

@@ -1,5 +1,5 @@
 //! Notifications mode: consumes the `error_tracking_ingestion_notifications`
-//! Kafka topic and fans ingestion notifications out to downstream side effects.
+//! Kafka topic and starts the matching Temporal lifecycle workflow.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -22,11 +22,9 @@ mod consumer_loop;
 mod context;
 mod handler;
 mod issue_handler;
-pub mod side_effects;
-pub mod signals;
-pub mod stacktrace;
+pub mod rate_limit;
 pub mod temporal;
-pub mod types;
+mod token_bucket;
 
 pub use config::NotificationsConfig;
 

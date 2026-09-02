@@ -114,7 +114,7 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     logger.info("Starting team metadata cache sync")
 
     try:
-        successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_caches(ttl_threshold_hours=24)
 
         # Note: Teams processed metrics are pushed to Pushgateway by
         # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -126,8 +126,8 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
 
         logger.info(
             "Completed team metadata cache refresh",
-            successful_refreshes=successful,
-            failed_refreshes=failed,
+            successful_refreshes=counts.successful,
+            failed_refreshes=counts.failed,
             total_cached=stats_after.get("total_cached", 0),
             total_teams=stats_after.get("total_teams", 0),
             cache_coverage=stats_after.get("cache_coverage", "unknown"),

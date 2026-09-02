@@ -1,14 +1,17 @@
 import { create } from '@bufbuild/protobuf'
-import { type ServiceImpl, createClient, createRouterTransport } from '@connectrpc/connect'
+import { Code, ConnectError, type ServiceImpl, createClient, createRouterTransport } from '@connectrpc/connect'
 
 import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
 import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import type {
     GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest,
+    UpdatePersonPropertiesRequest,
 } from '~/common/generated/personhog/personhog/types/v1/person_pb'
+import { parseJSON } from '~/common/utils/json-parse'
+import { NoRowsUpdatedError } from '~/common/utils/utils'
 
-import { PersonHogPersonOperations } from './persons'
+import { PersonHogPersonOperations, PersonhogPropertiesSizeError } from './persons'
 
 const textEncoder = new TextEncoder()
 
@@ -69,6 +72,11 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
     splitPerson: () => ({ splits: [] }),
+    setPersonDistinctIdVersionFloor: () => ({}),
+    setPersonVersionFloor: () => ({ updated: false }),
+    fencePerson: () => ({}),
+    releaseFence: () => ({}),
+    foldPersonDocument: () => ({}),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {
@@ -174,6 +182,109 @@ describe('PersonHogPersonOperations', () => {
             // team 1: 2 batches (250 + 50), team 2: 1 batch (100)
             expect(handler).toHaveBeenCalledTimes(3)
             expect(results).toHaveLength(400)
+        })
+    })
+
+    describe('updatePersonProperties', () => {
+        it('maps each op onto its own proto field and decodes the response person', async () => {
+            const handler = jest.fn()
+            handler.mockImplementation((req: UpdatePersonPropertiesRequest) => ({
+                person: makeProtoPerson(Number(req.personId), 'uuid-42', Number(req.teamId)),
+                updated: true,
+            }))
+
+            const { ops } = createOperations({ updatePersonProperties: handler })
+            const result = await ops.updatePersonProperties({
+                teamId: 7,
+                personId: '42',
+                eventName: '$folded_person_update',
+                setProperties: { plan: 'pro' },
+                setOnceProperties: { first_seen: '2024-01-01' },
+                unsetProperties: ['stale'],
+                isIdentified: true,
+                lastSeenAtMs: 1700000000000,
+            })
+
+            const req = handler.mock.calls[0][0] as UpdatePersonPropertiesRequest
+            expect(req.teamId).toBe(7n)
+            expect(req.personId).toBe(42n)
+            expect(req.eventName).toBe('$folded_person_update')
+            expect(parseJSON(new TextDecoder().decode(req.setProperties))).toEqual({ plan: 'pro' })
+            expect(parseJSON(new TextDecoder().decode(req.setOnceProperties))).toEqual({
+                first_seen: '2024-01-01',
+            })
+            expect(req.unsetProperties).toEqual(['stale'])
+            expect(req.isIdentified).toBe(true)
+            expect(req.lastSeenAt).toBe(1700000000000n)
+
+            expect(result.updated).toBe(true)
+            expect(result.person?.id).toBe('42')
+            expect(result.person?.uuid).toBe('uuid-42')
+        })
+
+        it('sends empty ops as empty bytes and absent scalars as unset fields', async () => {
+            const handler = jest.fn((_req: UpdatePersonPropertiesRequest) => ({
+                person: makeProtoPerson(1, 'u', 1),
+                updated: false,
+            }))
+
+            const { ops } = createOperations({ updatePersonProperties: handler })
+            await ops.updatePersonProperties({
+                teamId: 1,
+                personId: '1',
+                eventName: '$folded_person_update',
+                setProperties: {},
+                setOnceProperties: {},
+                unsetProperties: [],
+            })
+
+            const req = handler.mock.calls[0][0]
+            expect(req.setProperties).toHaveLength(0)
+            expect(req.setOnceProperties).toHaveLength(0)
+            expect(req.isIdentified).toBeUndefined()
+            expect(req.lastSeenAt).toBeUndefined()
+        })
+
+        it('maps the personhog contract onto domain errors', async () => {
+            const foldedUpdate = {
+                teamId: 7,
+                personId: '42',
+                eventName: '$folded_person_update',
+                setProperties: { a: '1' },
+                setOnceProperties: {},
+                unsetProperties: [],
+            }
+
+            const { ops: notFoundOps } = createOperations({
+                updatePersonProperties: () => {
+                    throw new ConnectError('person 42 not found', Code.NotFound)
+                },
+            })
+            await expect(notFoundOps.updatePersonProperties(foldedUpdate)).rejects.toBeInstanceOf(NoRowsUpdatedError)
+
+            const { ops: tooBigOps } = createOperations({
+                updatePersonProperties: () => {
+                    throw new ConnectError(
+                        'person properties update would exceed the size limit: 700000 bytes',
+                        Code.InvalidArgument
+                    )
+                },
+            })
+            const sizeError = await tooBigOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(sizeError).toBeInstanceOf(PersonhogPropertiesSizeError)
+            expect(sizeError.teamId).toBe(7)
+            expect(sizeError.personId).toBe('42')
+
+            // Codes without a domain meaning pass through untouched for the
+            // caller's generic retry handling.
+            const { ops: unavailableOps } = createOperations({
+                updatePersonProperties: () => {
+                    throw new ConnectError('leader unreachable', Code.Unavailable)
+                },
+            })
+            const passthrough = await unavailableOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(passthrough).toBeInstanceOf(ConnectError)
+            expect(passthrough.code).toBe(Code.Unavailable)
         })
     })
 })

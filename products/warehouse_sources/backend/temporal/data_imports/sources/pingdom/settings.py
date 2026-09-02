@@ -18,8 +18,6 @@ class PingdomEndpointConfig:
     partition_key: Optional[str] = None
     # Max page size the endpoint accepts (checks allow 25000, actions 1000).
     page_size: int = 1000
-    # Composite keys on alerts may still collide (same check/user/second/channel).
-    has_duplicate_primary_keys: bool = False
 
 
 # Pingdom API 3.1 timestamps are UNIX epoch seconds. Only /actions exposes a
@@ -46,12 +44,13 @@ PINGDOM_ENDPOINTS: dict[str, PingdomEndpointConfig] = {
         name="alerts",
         path="/actions",
         data_key="actions.alerts",
-        # Alert rows carry no id; (checkid, time, userid, via) is the closest
-        # natural key and can still collide, so flag duplicates for the pipeline.
+        # Alert rows carry no id; (checkid, time, userid, via) is the closest natural key and can
+        # still collide — an expected trait of this data, not something the user can fix. The
+        # merge's own per-batch dedup (keep-last-per-key) resolves the collision safely, so
+        # incremental syncing (via `time` below) stays available.
         primary_keys=["checkid", "time", "userid", "via"],
         partition_key="time",
         page_size=1000,
-        has_duplicate_primary_keys=True,
         incremental_fields=[
             {
                 "label": "time",

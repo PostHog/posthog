@@ -2,12 +2,15 @@
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.temporal.ai_observability.eval_reports.output_types import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     MIN_REPORT_SECTIONS,
     Citation,
     EvalReportContent,
+    EvalReportGenerationStatus,
     EvalReportMetrics,
     ReportSection,
 )
@@ -25,7 +28,7 @@ class TestCitation(SimpleTestCase):
         c = Citation(generation_id="a-gen-id", trace_id="a-trace-id", reason="high_cost")
         self.assertEqual(
             c.to_dict(),
-            {"generation_id": "a-gen-id", "trace_id": "a-trace-id", "reason": "high_cost"},
+            {"generation_id": "a-gen-id", "trace_id": "a-trace-id", "reason": "high_cost", "session_id": ""},
         )
 
     def test_from_dict(self):
@@ -33,15 +36,35 @@ class TestCitation(SimpleTestCase):
         self.assertEqual(c.generation_id, "g")
         self.assertEqual(c.trace_id, "t")
         self.assertEqual(c.reason, "refusal")
+        self.assertEqual(c.session_id, "")
 
     def test_from_dict_missing_fields(self):
         c = Citation.from_dict({})
         self.assertEqual(c.generation_id, "")
         self.assertEqual(c.trace_id, "")
         self.assertEqual(c.reason, "")
+        self.assertEqual(c.session_id, "")
 
-    def test_roundtrip(self):
-        original = Citation(generation_id="g1", trace_id="t1", reason="some reason")
+    @parameterized.expand(
+        [
+            ("generation", Citation(generation_id="g1", trace_id="t1", reason="r"), "g1"),
+            ("trace", Citation(trace_id="t1", reason="r"), "t1"),
+            # A session citation may name the trace the agent read inside it, but the report
+            # text and its link are about the session, so that is the ID it resolves to.
+            ("session", Citation(session_id="s1", trace_id="t1", reason="r"), "s1"),
+        ]
+    )
+    def test_cited_id_is_the_evaluated_unit(self, _name, citation, expected):
+        self.assertEqual(citation.cited_id(), expected)
+
+    @parameterized.expand(
+        [
+            ("generation", Citation(generation_id="g1", trace_id="t1", reason="some reason")),
+            ("trace", Citation(trace_id="t1", reason="some reason")),
+            ("session", Citation(session_id="s1", trace_id="t1", reason="some reason")),
+        ]
+    )
+    def test_roundtrip(self, _name, original):
         self.assertEqual(Citation.from_dict(original.to_dict()), original)
 
 
@@ -214,6 +237,8 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(len(c.sections), 2)
         self.assertEqual(c.sections[1].content, "C2")
         self.assertEqual(c.citations[0].reason, "r")
+        self.assertIsNotNone(c.metrics)
+        assert c.metrics is not None
         self.assertEqual(c.metrics.total_runs, 10)
 
     def test_roundtrip(self):
@@ -231,6 +256,25 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(roundtripped.citations[0], original.citations[0])
         self.assertEqual(roundtripped.metrics, original.metrics)
         self.assertEqual(roundtripped.evaluation_target, "trace")
+
+    def test_metrics_unavailable_roundtrip_has_no_placeholder_metrics(self):
+        original = EvalReportContent(
+            generation_status=EvalReportGenerationStatus.METRICS_UNAVAILABLE,
+            metrics=None,
+        )
+
+        roundtripped = EvalReportContent.from_dict(original.to_dict())
+
+        self.assertEqual(roundtripped.generation_status, EvalReportGenerationStatus.METRICS_UNAVAILABLE)
+        self.assertIsNone(roundtripped.metrics)
+
+    def test_historical_content_defaults_to_completed(self):
+        content = EvalReportContent.from_dict({"metrics": {"total_runs": 5}})
+
+        self.assertEqual(content.generation_status, EvalReportGenerationStatus.COMPLETED)
+        self.assertIsNotNone(content.metrics)
+        assert content.metrics is not None
+        self.assertEqual(content.metrics.total_runs, 5)
 
 
 class TestSectionBounds(SimpleTestCase):

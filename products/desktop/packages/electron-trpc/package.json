@@ -1,0 +1,48 @@
+{
+  "name": "@posthog/electron-trpc",
+  "description": "Electron support for tRPC (forked with HMR fix)",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./main": {
+      "types": "./dist/main/index.d.ts",
+      "import": "./dist/main.mjs"
+    },
+    "./renderer": {
+      "types": "./dist/renderer/index.d.ts",
+      "import": "./dist/renderer.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "main.d.ts",
+    "renderer.d.ts"
+  ],
+  "scripts": {
+    "build": "vite build -c src/main/vite.config.ts && vite build -c src/renderer/vite.config.ts && pnpm build:types",
+    "build:types": "tsc -p tsconfig.build.json",
+    "dev": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run -c vitest.config.ts",
+    "test:ci": "vitest run -c vitest.config.ts --coverage",
+    "clean": "node ../../scripts/rimraf.mjs dist .turbo"
+  },
+  "devDependencies": {
+    "@trpc/client": "^11.8.0",
+    "@trpc/server": "^11.8.0",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.8",
+    "electron": "^42.3.0",
+    "superjson": "^2.2.2",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0",
+    "vitest": "^4.1.8",
+    "zod": "^4.2.0"
+  },
+  "peerDependencies": {
+    "@trpc/client": ">=11.0.0",
+    "@trpc/server": ">=11.0.0",
+    "electron": ">19.0.0"
+  }
+}

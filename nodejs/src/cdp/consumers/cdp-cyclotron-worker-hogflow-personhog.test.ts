@@ -7,7 +7,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -73,9 +73,8 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         hogFlow = await insertHogFlow(
             hub.postgres,
@@ -160,6 +159,81 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
         expect(results[0].invocation.person?.distinct_id).toBe('distinct_A_1')
         expect(results[0].invocation.state.event.distinct_id).toBe('distinct_A_1')
         expect(mockRepo.fetchPersonsByPersonIds).toHaveBeenCalled()
+    })
+
+    it('resolves person by personId (not the repointed distinct_id) when a merge re-keyed the job', async () => {
+        // A person merge repointed this parked wait's distinct_id and re-keyed personId onto the survivor
+        // (state.personIdRepointed). The survivor must be resolved by personId: resolving by the repointed
+        // distinct_id hits its stale ~1min cache entry — the pre-merge person — so a downstream step (e.g.
+        // an email) reads the wrong/empty properties and drops the send. Guards that regression.
+        const survivorUuid = 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1'
+        const survivor = makePerson(team.id, survivorUuid, 'survivor_did', {
+            name: 'Survivor',
+            email: 'survivor@example.com',
+        })
+
+        const mockRepo = createMockPersonReadRepository({
+            // The distinct_id path would return the stale pre-merge person; personId returns the survivor.
+            fetchPersonsByDistinctIds: jest
+                .fn()
+                .mockResolvedValue([makePerson(team.id, 'old-uuid', 'anon_did', { name: 'Pre-merge anon' })]),
+            fetchPersonsByPersonIds: jest.fn().mockResolvedValue([survivor]),
+            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({ [survivor.id]: ['survivor_did'] }),
+        })
+
+        const processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: mockRepo },
+            createMockJobQueue()
+        )
+
+        const invocations = [
+            createSerializedHogFlowInvocation(hogFlow, {
+                // The event still carries the anon distinct_id, but the re-key set personId + the flag.
+                event: { distinct_id: 'anon_did', properties: {} } as any,
+                personId: survivorUuid,
+                personIdRepointed: true,
+            }),
+        ]
+
+        const results = (await processor.processInvocations(
+            invocations
+        )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+        expect(results).toHaveLength(1)
+        // Resolved the survivor (via personId), not the stale pre-merge person (via distinct_id).
+        expect(results[0].invocation.person?.properties).toEqual({ name: 'Survivor', email: 'survivor@example.com' })
+        expect(mockRepo.fetchPersonsByPersonIds).toHaveBeenCalled()
+        expect(mockRepo.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+    })
+
+    it('clears personIdRepointed after the wake-resolution so later steps resolve by distinct_id again', async () => {
+        // The flag is a one-shot override for the merge-wake resolution only. If it stuck around, a second
+        // merge onto a non-wait step (out of the matcher's re-key scope) would leave the flow pinned to the
+        // now-stale first survivor forever instead of self-healing via distinct_id. Guards that regression.
+        const survivorUuid = 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1'
+        const mockRepo = createMockPersonReadRepository({
+            fetchPersonsByPersonIds: jest
+                .fn()
+                .mockResolvedValue([makePerson(team.id, survivorUuid, 'survivor_did', { name: 'Survivor' })]),
+            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({ [survivorUuid]: ['survivor_did'] }),
+        })
+
+        const processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: mockRepo },
+            createMockJobQueue()
+        )
+
+        const results = (await processor.processInvocations([
+            createSerializedHogFlowInvocation(hogFlow, {
+                event: { distinct_id: 'anon_did', properties: {} } as any,
+                personId: survivorUuid,
+                personIdRepointed: true,
+            }),
+        ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+        expect(results[0].invocation.state.personIdRepointed).toBeUndefined()
     })
 
     it('propagates error when personhog is unavailable', async () => {

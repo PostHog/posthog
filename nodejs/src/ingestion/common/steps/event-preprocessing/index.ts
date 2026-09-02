@@ -4,7 +4,7 @@ export { createApplyPersonProcessingRestrictionsStep } from './apply-person-proc
 export { createDedupeFeatureFlagCalledStep } from './dedupe-feature-flag-called'
 export { createEnrichSurveyPersonPropertiesStep } from './enrich-survey-person-properties'
 export { createParseHeadersStep } from './parse-headers'
-export { createParseKafkaMessageStep } from './parse-kafka-message'
+export { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'
 export { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
 export {
     createOnlyCookielessRateLimitToOverflowStep,
@@ -12,7 +12,6 @@ export {
     createSkipCookielessRateLimitToOverflowStep,
 } from './rate-limit-to-overflow-step'
 export { createResolveTeamStep } from './resolve-team'
-export { createValidateAiEventTokensStep } from './validate-ai-event-tokens'
 export { createValidateEventMetadataStep } from './validate-event-metadata'
 export { createValidateEventPropertiesStep } from './validate-event-properties'
 export { createValidateEventSchemaStep } from './validate-event-schema'

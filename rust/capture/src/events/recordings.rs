@@ -13,11 +13,13 @@
 use std::sync::Arc;
 
 use chrono::DateTime;
-use common_types::{CapturedEvent, HasEventName};
+use common_ingestion_warnings::{WarningEmitter, CAPTURE_REPLAY};
+use common_types::{CapturedEvent, ExtractedDistinctId, HasEventName};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, histogram};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
+use time::{format_description::well_known::Iso8601, OffsetDateTime};
 use tokio::time::Instant;
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
@@ -29,13 +31,30 @@ use crate::{
         AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
         Pipeline,
     },
+    ingestion_warnings::{
+        emit_distinct_id_truncated_warning,
+        replay::{
+            emit_replay_abort_warning, request_context, ReplayRejectionReason, SessionIdRejection,
+            SnapshotDataRejection,
+        },
+    },
+    outputs::OutputRegistry,
     prometheus::report_dropped_events,
-    sinks,
     utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
 };
+
+fn deserialize_sent_at<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(match Option::<Value>::deserialize(deserializer)? {
+        Some(Value::String(value)) => Some(value),
+        _ => None,
+    })
+}
 
 /// A recording event optimized for minimal deserialization overhead.
 /// Instead of fully parsing all properties into a HashMap, we only extract
@@ -65,6 +84,14 @@ pub struct RawRecording {
     /// Event timestamp
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
+
+    /// ISO 8601 request dispatch timestamp.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_sent_at",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sent_at: Option<String>,
 
     /// Timezone offset
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,6 +123,11 @@ pub struct RecordingProperties {
     #[serde(rename = "$lib", skip_serializing_if = "Option::is_none")]
     pub lib: Option<String>,
 
+    /// Read only for ingestion-warning attribution, unlike `$lib`, which also
+    /// lands in the serialized snapshot as the recording's library.
+    #[serde(rename = "$lib_version", skip_serializing_if = "Option::is_none")]
+    pub lib_version: Option<String>,
+
     #[serde(rename = "$cookieless_mode", skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
 
@@ -122,8 +154,28 @@ pub enum RecordingRequest {
 }
 
 impl RawRecording {
-    /// Extract the distinct_id, checking both root field and properties
-    pub fn extract_distinct_id(&self) -> Option<String> {
+    pub fn sent_at(&self) -> Option<OffsetDateTime> {
+        self.sent_at
+            .as_deref()
+            .and_then(|value| OffsetDateTime::parse(value, &Iso8601::DEFAULT).ok())
+    }
+
+    /// Extract the distinct_id, checking both root field and properties, and
+    /// report whether it was cut down to the 200-char cap so the caller can tell
+    /// the sender their id was modified.
+    ///
+    /// Truncation is reported only when the value was actually cut. An id over
+    /// 200 bytes but within 200 chars survives `chars().take(200)` intact, so
+    /// reporting it would warn a customer about a modification that never
+    /// happened. This matches [`common_types::ExtractedDistinctId`]'s contract on
+    /// the analytics path, which is what lets one warning type mean the same
+    /// thing on both.
+    ///
+    /// Deliberately not shared with `RawEvent::extract_distinct_id_checked`: that
+    /// one also trims whitespace, rejects ids that are empty after trimming, and
+    /// counts a whitespace metric. Adopting those here would change which replay
+    /// payloads capture accepts.
+    pub fn extract_distinct_id(&self) -> Option<ExtractedDistinctId> {
         let value = match &self.distinct_id {
             None | Some(Value::Null) => match &self.properties.distinct_id {
                 None | Some(Value::Null) => return None,
@@ -139,11 +191,31 @@ impl RawRecording {
 
         let distinct_id = distinct_id.replace('\0', "\u{FFFD}");
 
-        match distinct_id.len() {
-            0 => None,
-            1..=200 => Some(distinct_id),
-            _ => Some(distinct_id.chars().take(200).collect()),
+        if distinct_id.is_empty() {
+            return None;
         }
+
+        // Byte length bounds char count, so ids within 200 bytes skip the
+        // char-count pass entirely on the hot path.
+        if distinct_id.len() <= 200 {
+            return Some(ExtractedDistinctId {
+                value: distinct_id,
+                truncated_from_chars: None,
+            });
+        }
+
+        let char_count = distinct_id.chars().count();
+        if char_count <= 200 {
+            return Some(ExtractedDistinctId {
+                value: distinct_id,
+                truncated_from_chars: None,
+            });
+        }
+
+        Some(ExtractedDistinctId {
+            value: distinct_id.chars().take(200).collect(),
+            truncated_from_chars: Some(char_count),
+        })
     }
 
     /// Extract token from root field or properties
@@ -182,12 +254,107 @@ impl HasEventName for RawRecording {
 ///
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
 pub async fn process_replay_events(
-    sink: Arc<dyn sinks::Event + Send + Sync>,
+    outputs: Arc<OutputRegistry>,
+    restriction_service: Option<EventRestrictionService>,
+    replay_overflow_limiter: Option<Arc<RedisLimiter>>,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    events: Vec<RawRecording>,
+    context: &ProcessingContext,
+) -> Result<(), CaptureError> {
+    let event_count = events.len() as u64;
+
+    let abort = match process_replay_events_inner(
+        outputs,
+        restriction_service,
+        replay_overflow_limiter,
+        events,
+        context,
+    )
+    .await
+    {
+        // The batch collapses into one message carrying one distinct_id, so a
+        // truncation is always exactly one modified id: `count` is 1 and the
+        // sample is never an arbitrary pick among several.
+        Ok(truncated_sample) => {
+            if truncated_sample.is_some() {
+                emit_distinct_id_truncated_warning(
+                    ingestion_warning_emitter.as_deref(),
+                    &request_context(context),
+                    CAPTURE_REPLAY,
+                    truncated_sample,
+                    1,
+                );
+            }
+            return Ok(());
+        }
+        Err(abort) => abort,
+    };
+
+    emit_replay_abort_warning(
+        ingestion_warning_emitter.as_deref(),
+        context,
+        &abort.error,
+        abort.reason,
+        abort.session_id_bytes,
+        event_count,
+    );
+
+    Err(abort.error)
+}
+
+/// A replay abort, carrying the warning detail that names the specific condition
+/// behind a `CaptureError` variant that covers several.
+///
+/// The `From<CaptureError>` impl is what lets the pipeline keep using `?` for the
+/// aborts that need no extra detail.
+struct ReplayAbort {
+    error: CaptureError,
+    reason: Option<ReplayRejectionReason>,
+    /// Byte length of the offending `$session_id`, matching the limit that
+    /// rejected it. Session ids are constrained to ASCII, so for any id that
+    /// fails only on length this is also its character count.
+    session_id_bytes: Option<usize>,
+}
+
+impl From<CaptureError> for ReplayAbort {
+    fn from(error: CaptureError) -> Self {
+        Self {
+            error,
+            reason: None,
+            session_id_bytes: None,
+        }
+    }
+}
+
+impl ReplayAbort {
+    fn invalid_session_id(reason: SessionIdRejection, bytes: Option<usize>) -> Self {
+        Self {
+            error: CaptureError::InvalidSessionId,
+            reason: Some(ReplayRejectionReason::InvalidSessionId(reason)),
+            session_id_bytes: bytes,
+        }
+    }
+
+    fn missing_snapshot_data(reason: SnapshotDataRejection) -> Self {
+        Self {
+            error: CaptureError::MissingSnapshotData,
+            reason: Some(ReplayRejectionReason::MissingSnapshotData(reason)),
+            session_id_bytes: None,
+        }
+    }
+}
+
+/// Returns the truncated-distinct_id sample when the ingested id was cut down to
+/// the 200-char cap, for the caller to warn about. `None` means nothing was
+/// modified, including when the request was dropped by an event restriction and
+/// so ingested nothing to warn about.
+async fn process_replay_events_inner(
+    outputs: Arc<OutputRegistry>,
     restriction_service: Option<EventRestrictionService>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     events: Vec<RawRecording>,
     context: &ProcessingContext,
-) -> Result<(), CaptureError> {
+) -> Result<Option<(String, usize, Uuid)>, ReplayAbort> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
     Span::current().record("request_id", &context.request_id);
@@ -215,9 +382,14 @@ pub async fn process_replay_events(
     let uuid = first_event
         .uuid
         .unwrap_or_else(|| uuid_v7_from_datetime(computed_timestamp));
-    let distinct_id = first_event
+    let extracted_distinct_id = first_event
         .extract_distinct_id()
         .ok_or(CaptureError::MissingDistinctId)?;
+    let distinct_id = extracted_distinct_id.value;
+    // Only clones on the rare truncated path; the id is moved into the event below.
+    let truncated_sample = extracted_distinct_id
+        .truncated_from_chars
+        .map(|chars| (distinct_id.clone(), chars, uuid));
     let is_cookieless_mode = first_event
         .extract_is_cookieless_mode()
         .ok_or(CaptureError::InvalidCookielessMode)?;
@@ -229,14 +401,26 @@ pub async fn process_replay_events(
         .take()
         .ok_or(CaptureError::MissingSessionId)?;
 
-    // Validate session_id
-    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
-    if session_id_str.len() > 70
-        || !session_id_str
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    // Validate session_id. Split into two checks so the ingestion warning can
+    // name which rule the id broke; the accept/reject outcome is unchanged, and
+    // length is still evaluated first so an id that breaks both reports length.
+    let session_id_str = session_id
+        .as_str()
+        .ok_or_else(|| ReplayAbort::invalid_session_id(SessionIdRejection::NotAString, None))?;
+    if session_id_str.len() > 70 {
+        return Err(ReplayAbort::invalid_session_id(
+            SessionIdRejection::TooLong,
+            Some(session_id_str.len()),
+        ));
+    }
+    if !session_id_str
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-')
     {
-        return Err(CaptureError::InvalidSessionId);
+        return Err(ReplayAbort::invalid_session_id(
+            SessionIdRejection::InvalidCharset,
+            Some(session_id_str.len()),
+        ));
     }
     Span::current().record("session_id", session_id_str);
 
@@ -257,7 +441,7 @@ pub async fn process_replay_events(
 
         if applied.should_drop() {
             report_dropped_events("event_restriction_drop", 1);
-            return Ok(());
+            return Ok(None);
         }
 
         applied
@@ -288,7 +472,7 @@ pub async fn process_replay_events(
         .properties
         .lib
         .take()
-        .or_else(|| snapshot_library_fallback_from(context.user_agent.as_ref()))
+        .or_else(|| snapshot_library_fallback_from(context.user_agent.as_deref()))
         .unwrap_or_else(|| String::from("unknown"));
 
     // Collect snapshot items from all events by taking ownership (no clone!)
@@ -297,7 +481,9 @@ pub async fn process_replay_events(
 
     // Process first event's snapshot_data
     let Some(snapshot_data) = first_event.properties.snapshot_data.take() else {
-        return Err(CaptureError::MissingSnapshotData);
+        return Err(ReplayAbort::missing_snapshot_data(
+            SnapshotDataRejection::Absent,
+        ));
     };
     match snapshot_data {
         Value::Array(mut arr) => {
@@ -307,14 +493,18 @@ pub async fn process_replay_events(
             snapshot_items.push(Value::Object(obj));
         }
         _ => {
-            return Err(CaptureError::MissingSnapshotData);
+            return Err(ReplayAbort::missing_snapshot_data(
+                SnapshotDataRejection::WrongJsonType,
+            ));
         }
     }
 
     // Process remaining events' snapshot_data
     for mut event in events_iter {
         let Some(snapshot_data) = event.properties.snapshot_data.take() else {
-            return Err(CaptureError::MissingSnapshotData);
+            return Err(ReplayAbort::missing_snapshot_data(
+                SnapshotDataRejection::Absent,
+            ));
         };
         match snapshot_data {
             Value::Array(mut arr) => {
@@ -324,7 +514,9 @@ pub async fn process_replay_events(
                 snapshot_items.push(Value::Object(obj));
             }
             _ => {
-                return Err(CaptureError::MissingSnapshotData);
+                return Err(ReplayAbort::missing_snapshot_data(
+                    SnapshotDataRejection::WrongJsonType,
+                ));
             }
         }
     }
@@ -373,6 +565,7 @@ pub async fn process_replay_events(
         redirect_to_topic: applied.redirect_to_topic().map(|s| s.to_string()),
         skip_heatmap_processing: false,
         overflow_reason,
+        distinct_id_truncated_from: extracted_distinct_id.truncated_from_chars,
     };
 
     // Serialize snapshot data synchronously
@@ -407,11 +600,15 @@ pub async fn process_replay_events(
         historical_migration: context.historical_migration,
     };
 
-    sink.send(ProcessedEvent { metadata, event }).await?;
+    // One `$snapshot_items` event per call.
+    histogram!("capture_event_batch_size").record(1.0);
+    outputs
+        .publish(vec![ProcessedEvent { metadata, event }])
+        .await?;
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
 
-    Ok(())
+    Ok(truncated_sample)
 }
 
 /// Asynchronously serialize snapshot data by offloading to blocking thread pool
@@ -471,7 +668,11 @@ pub fn serialize_snapshot_data_sync(
     data.to_string()
 }
 
-fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
+/// Derive the recording's library from the user agent when the payload carried no
+/// `$lib`. Shared with the ingestion-warning attribution in
+/// [`crate::ingestion_warnings::replay`] so a warning names the same library as
+/// the event it is about.
+pub(crate) fn snapshot_library_fallback_from(user_agent: Option<&str>) -> Option<String> {
     user_agent?
         .split('/')
         .next()
@@ -484,6 +685,9 @@ fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String>
 mod tests {
     use super::*;
     use crate::event_restrictions::RestrictionType;
+    use common_ingestion_warnings::test_support::CollectingEmitter;
+    use common_ingestion_warnings::WarningType;
+    use rstest::rstest;
     use serde_json::json;
 
     #[test]
@@ -491,6 +695,7 @@ mod tests {
         let json = json!({
             "event": "$snapshot",
             "distinct_id": "user123",
+            "sent_at": "2024-01-02T03:04:05.678Z",
             "properties": {
                 "$session_id": "session-abc",
                 "$window_id": "window-xyz",
@@ -501,11 +706,26 @@ mod tests {
 
         let recording: RawRecording = serde_json::from_value(json).unwrap();
         assert_eq!(recording.event, "$snapshot");
-        assert_eq!(recording.extract_distinct_id(), Some("user123".to_string()));
+        assert_eq!(
+            recording.sent_at(),
+            Some(OffsetDateTime::from_unix_timestamp_nanos(1_704_164_645_678_000_000).unwrap())
+        );
+        assert_eq!(
+            recording.extract_distinct_id().map(|e| e.value),
+            Some("user123".to_string())
+        );
         assert_eq!(
             recording.properties.session_id,
             Some(Value::String("session-abc".to_string()))
         );
+
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "sent_at": 1_704_164_645_678_i64,
+            "properties": {}
+        }))
+        .unwrap();
+        assert_eq!(recording.sent_at(), None);
     }
 
     #[test]
@@ -519,7 +739,64 @@ mod tests {
         });
 
         let recording: RawRecording = serde_json::from_value(json).unwrap();
-        assert_eq!(recording.extract_distinct_id(), Some("user456".to_string()));
+        assert_eq!(
+            recording.extract_distinct_id().map(|e| e.value),
+            Some("user456".to_string())
+        );
+    }
+
+    // Truncation drives a customer-facing `distinct_id_truncated` warning, so
+    // reporting it for an id that was ingested intact is a false alarm. The
+    // multi-byte cases are the trap: matching on byte length (which this
+    // extractor used to do) flags ids that `chars().take(200)` never cuts.
+    //
+    // Each case also asserts the replay extractor agrees with the analytics one,
+    // so the single warning type keeps meaning the same thing on both paths.
+    // Parity holds for these inputs because none has surrounding whitespace,
+    // which `RawEvent` trims and this extractor deliberately does not.
+    #[rstest]
+    #[case::short("abc", 3, None)]
+    #[case::ascii_at_the_cap(&"a".repeat(200), 200, None)]
+    #[case::ascii_over_the_cap(&"a".repeat(201), 200, Some(201))]
+    #[case::multibyte_over_200_bytes_within_200_chars(&"é".repeat(150), 150, None)]
+    #[case::multibyte_over_200_chars(&"é".repeat(201), 200, Some(201))]
+    fn distinct_id_truncation_is_reported_only_when_the_value_was_cut(
+        #[case] distinct_id: &str,
+        #[case] expected_chars: usize,
+        #[case] expected_truncated_from: Option<usize>,
+    ) {
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "distinct_id": distinct_id,
+            "properties": {"$session_id": "s", "$snapshot_data": [{"type": 1}]}
+        }))
+        .unwrap();
+
+        let extracted = recording
+            .extract_distinct_id()
+            .expect("a non-empty distinct_id must extract");
+        assert_eq!(extracted.value.chars().count(), expected_chars);
+        assert_eq!(extracted.truncated_from_chars, expected_truncated_from);
+
+        let analytics = common_types::RawEvent {
+            distinct_id: Some(json!(distinct_id)),
+            ..Default::default()
+        }
+        .extract_distinct_id_checked()
+        .expect("a non-empty distinct_id must extract");
+        assert_eq!(
+            extracted, analytics,
+            "replay and analytics extraction must agree so one warning type means one thing"
+        );
+    }
+
+    #[rstest]
+    #[case::absent(json!({"event": "$snapshot", "properties": {}}))]
+    #[case::null(json!({"event": "$snapshot", "distinct_id": null, "properties": {}}))]
+    #[case::empty_string(json!({"event": "$snapshot", "distinct_id": "", "properties": {}}))]
+    fn unusable_distinct_ids_extract_to_none(#[case] payload: Value) {
+        let recording: RawRecording = serde_json::from_value(payload).unwrap();
+        assert!(recording.extract_distinct_id().is_none());
     }
 
     #[test]
@@ -553,8 +830,8 @@ mod tests {
     use crate::event_restrictions::{
         EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
+    use crate::outputs::OutputRegistry;
     use crate::sinks::test_sink::MockSink;
-    use crate::sinks::Event;
     use common_redis::MockRedisClient;
     use limiters::redis::{QuotaResource, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
     use std::sync::{Arc, Mutex};
@@ -586,15 +863,18 @@ mod tests {
             chatty_debug_enabled: false,
             user_agent: None,
             path: "/s/".to_string(),
+            capture_mode: crate::config::CaptureMode::Recordings,
+            ai_max_event_bytes: 0,
+            sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
 
     #[tokio::test]
     async fn test_process_replay_events_drop_event_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -616,8 +896,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         assert!(events_captured.lock().unwrap().is_empty());
@@ -626,9 +913,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_redirect_to_dlq_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -650,8 +937,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -662,9 +956,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_force_overflow_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -686,8 +980,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -698,9 +999,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_skip_person_processing_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -722,8 +1023,15 @@ mod tests {
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -734,14 +1042,15 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_no_restriction_service() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
+        let result =
+            process_replay_events(outputs, None, None, None, vec![recording], &context).await;
 
         assert!(result.is_ok());
         let captured = events_captured.lock().unwrap();
@@ -763,14 +1072,14 @@ mod tests {
         ];
         for (stamp, expected) in cases {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured.clone(),
-            });
+            }));
             let mut recording = create_test_recording();
             recording.properties.snapshot_host = stamp.clone();
             let context = create_test_context();
 
-            process_replay_events(sink, None, None, vec![recording], &context)
+            process_replay_events(outputs, None, None, None, vec![recording], &context)
                 .await
                 .unwrap();
 
@@ -787,9 +1096,9 @@ mod tests {
     #[tokio::test]
     async fn test_process_replay_events_filtered_restriction() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -814,8 +1123,15 @@ mod tests {
         let recording = create_test_recording(); // has session_id "test-session-123"
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, Some(service), None, vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            Some(service),
+            None,
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
 
         // Should NOT be dropped because session_id doesn't match filter
         assert!(result.is_ok());
@@ -852,14 +1168,15 @@ mod tests {
     #[tokio::test]
     async fn test_replay_overflow_stamp_none_when_limiter_absent() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
+        let result =
+            process_replay_events(outputs, None, None, None, vec![recording], &context).await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -870,16 +1187,23 @@ mod tests {
     #[tokio::test]
     async fn test_replay_overflow_stamp_replay_limited_for_matching_session() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
         let recording = create_test_recording(); // session_id = "test-session-123"
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, None, Some(limiter), vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            None,
+            Some(limiter),
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -893,16 +1217,23 @@ mod tests {
     #[tokio::test]
     async fn test_replay_overflow_stamp_none_for_unlimited_session() {
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let limiter = build_replay_limiter(vec!["some-other-session".to_string()]).await;
         let recording = create_test_recording();
         let context = create_test_context();
 
-        let result =
-            process_replay_events(sink, None, Some(limiter), vec![recording], &context).await;
+        let result = process_replay_events(
+            outputs,
+            None,
+            Some(limiter),
+            None,
+            vec![recording],
+            &context,
+        )
+        .await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -916,9 +1247,9 @@ mod tests {
         // must leave overflow_reason = None so the sink routes on force_overflow
         // directly (matching the old sink precedence).
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let service = EventRestrictionService::new(
             vec![Pipeline::SessionRecordings],
@@ -942,9 +1273,10 @@ mod tests {
         let context = create_test_context();
 
         let result = process_replay_events(
-            sink,
+            outputs,
             Some(service),
             Some(limiter),
+            None,
             vec![recording],
             &context,
         )
@@ -964,15 +1296,16 @@ mod tests {
         // uniformly to the batch. This guards against a regression where a
         // per-item check might diverge from batch-level routing.
         let events_captured = Arc::new(Mutex::new(Vec::new()));
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
             events: events_captured.clone(),
-        });
+        }));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
         let recordings = vec![create_test_recording(), create_test_recording()];
         let context = create_test_context();
 
-        let result = process_replay_events(sink, None, Some(limiter), recordings, &context).await;
+        let result =
+            process_replay_events(outputs, None, Some(limiter), None, recordings, &context).await;
         assert!(result.is_ok());
 
         let captured = events_captured.lock().unwrap();
@@ -1029,15 +1362,22 @@ mod tests {
     async fn test_replay_overflow_histogram_recorded_when_limited() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
             let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
             let recording = create_test_recording();
             let context = create_test_context();
-            process_replay_events(sink, None, Some(limiter), vec![recording], &context)
-                .await
-                .unwrap();
+            process_replay_events(
+                outputs,
+                None,
+                Some(limiter),
+                None,
+                vec![recording],
+                &context,
+            )
+            .await
+            .unwrap();
         })
         .await;
 
@@ -1053,17 +1393,24 @@ mod tests {
     async fn test_replay_overflow_histogram_recorded_when_not_limited() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
             // Session NOT in the limited set -> limiter returns false, but
             // the histogram must still record the call duration.
             let limiter = build_replay_limiter(vec!["some-other-session".to_string()]).await;
             let recording = create_test_recording();
             let context = create_test_context();
-            process_replay_events(sink, None, Some(limiter), vec![recording], &context)
-                .await
-                .unwrap();
+            process_replay_events(
+                outputs,
+                None,
+                Some(limiter),
+                None,
+                vec![recording],
+                &context,
+            )
+            .await
+            .unwrap();
         })
         .await;
 
@@ -1079,9 +1426,9 @@ mod tests {
     async fn test_replay_overflow_histogram_not_recorded_on_force_overflow() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
 
             // force_overflow short-circuits the limiter branch; the pipeline
             // must skip the redis call AND the histogram record.
@@ -1105,9 +1452,10 @@ mod tests {
             let recording = create_test_recording();
             let context = create_test_context();
             process_replay_events(
-                sink,
+                outputs,
                 Some(service),
                 Some(limiter),
+                None,
                 vec![recording],
                 &context,
             )
@@ -1128,12 +1476,12 @@ mod tests {
     async fn test_replay_overflow_histogram_not_recorded_when_limiter_absent() {
         let (histograms, _) = run_with_metric_capture(|| async {
             let events_captured = Arc::new(Mutex::new(Vec::new()));
-            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            let outputs = Arc::new(OutputRegistry::single(MockSink {
                 events: events_captured,
-            });
+            }));
             let recording = create_test_recording();
             let context = create_test_context();
-            process_replay_events(sink, None, None, vec![recording], &context)
+            process_replay_events(outputs, None, None, None, vec![recording], &context)
                 .await
                 .unwrap();
         })
@@ -1159,18 +1507,25 @@ mod tests {
     #[tokio::test]
     async fn e2e_replay_limited_pipeline_to_sink_routes_to_replay_overflow_with_session_key() {
         let producer = MockKafkaProducer::new();
-        let sink: Arc<dyn Event + Send + Sync> = Arc::new(KafkaSinkBase::with_producer(
+        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
             test_topics(),
-        ));
+        )));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
         let recording = create_test_recording(); // session_id = "test-session-123"
         let context = create_test_context();
 
-        process_replay_events(sink, None, Some(limiter), vec![recording], &context)
-            .await
-            .unwrap();
+        process_replay_events(
+            outputs,
+            None,
+            Some(limiter),
+            None,
+            vec![recording],
+            &context,
+        )
+        .await
+        .unwrap();
 
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
@@ -1182,6 +1537,159 @@ mod tests {
             records[0].key.as_deref(),
             Some("test-session-123"),
             "replay overflow keeps session_id partition key"
+        );
+    }
+
+    fn recording_with_properties(properties: Value) -> RawRecording {
+        serde_json::from_value(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": properties,
+        }))
+        .unwrap()
+    }
+
+    async fn warnings_from_replay(
+        events: Vec<RawRecording>,
+    ) -> Vec<common_ingestion_warnings::test_support::EmittedWarning> {
+        let outputs = Arc::new(OutputRegistry::single(MockSink {
+            events: Arc::new(Mutex::new(Vec::new())),
+        }));
+        let emitter = Arc::new(CollectingEmitter::default());
+
+        // The outcome is asserted by each caller through the warnings; a failing
+        // result is the point in most of these cases.
+        drop(
+            process_replay_events(
+                outputs,
+                None,
+                None,
+                Some(emitter.clone()),
+                events,
+                &create_test_context(),
+            )
+            .await,
+        );
+
+        emitter.emitted()
+    }
+
+    // The mapper and details are unit-tested in `ingestion_warnings::replay`; what
+    // no helper test can catch is the pipeline failing to call it, or calling it
+    // with the wrong reason for the branch that rejected. Each case here pins one
+    // emit site to the condition that reaches it.
+    #[rstest]
+    #[case::missing_session_id(
+        json!({"$snapshot_data": [{"type": 1}]}),
+        WarningType::MissingSessionId,
+        None
+    )]
+    #[case::session_id_not_a_string(
+        json!({"$session_id": 42, "$snapshot_data": [{"type": 1}]}),
+        WarningType::InvalidSessionId,
+        Some("not_a_string")
+    )]
+    #[case::session_id_too_long(
+        json!({"$session_id": "a".repeat(71), "$snapshot_data": [{"type": 1}]}),
+        WarningType::InvalidSessionId,
+        Some("too_long")
+    )]
+    #[case::session_id_bad_charset(
+        json!({"$session_id": "not a valid id", "$snapshot_data": [{"type": 1}]}),
+        WarningType::InvalidSessionId,
+        Some("invalid_charset")
+    )]
+    #[case::snapshot_data_absent(
+        json!({"$session_id": "s"}),
+        WarningType::MissingSnapshotData,
+        Some("absent")
+    )]
+    #[case::snapshot_data_wrong_type(
+        json!({"$session_id": "s", "$snapshot_data": "not-an-array"}),
+        WarningType::MissingSnapshotData,
+        Some("wrong_json_type")
+    )]
+    #[tokio::test]
+    async fn replay_validation_failures_emit_their_warning(
+        #[case] properties: Value,
+        #[case] expected: WarningType,
+        #[case] expected_reason: Option<&str>,
+    ) {
+        let emitted = warnings_from_replay(vec![recording_with_properties(properties)]).await;
+
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, expected);
+        assert_eq!(emitted[0].source, CAPTURE_REPLAY);
+        assert_eq!(
+            emitted[0]
+                .extra_details
+                .get("reason")
+                .and_then(|r| r.as_str()),
+            expected_reason
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_distinct_id_emits_its_warning() {
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "properties": {"$session_id": "s", "$snapshot_data": [{"type": 1}]},
+        }))
+        .unwrap();
+
+        let emitted = warnings_from_replay(vec![recording]).await;
+
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::MissingDistinctId);
+    }
+
+    // A later event's missing snapshot data aborts the whole request, so the
+    // warning must charge every event in it, not just the offending one.
+    #[tokio::test]
+    async fn a_later_events_bad_snapshot_data_charges_the_whole_batch() {
+        let good = recording_with_properties(json!({
+            "$session_id": "s", "$snapshot_data": [{"type": 1}]
+        }));
+        let bad = recording_with_properties(json!({"$session_id": "s"}));
+
+        let emitted = warnings_from_replay(vec![good, bad]).await;
+
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::MissingSnapshotData);
+        assert_eq!(emitted[0].count, 2);
+    }
+
+    #[tokio::test]
+    async fn a_valid_batch_emits_nothing() {
+        let emitted = warnings_from_replay(vec![create_test_recording()]).await;
+        assert!(emitted.is_empty());
+    }
+
+    // The id is ingested after being cut, so this rides the success path. Nothing
+    // else proves the pipeline reads the truncation outcome it now computes.
+    #[tokio::test]
+    async fn a_truncated_distinct_id_warns_on_the_success_path() {
+        let long_id = "a".repeat(201);
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "distinct_id": long_id,
+            "properties": {"$session_id": "s", "$snapshot_data": [{"type": 1}]},
+        }))
+        .unwrap();
+
+        let emitted = warnings_from_replay(vec![recording]).await;
+
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::DistinctIdTruncated);
+        assert_eq!(emitted[0].source, CAPTURE_REPLAY);
+        assert_eq!(emitted[0].count, 1);
+        assert_eq!(emitted[0].extra_details["distinctIdLength"], json!(201));
+        assert_eq!(
+            emitted[0].extra_details["distinctId"]
+                .as_str()
+                .map(|s| s.chars().count()),
+            Some(200),
+            "the reported id is the truncated one that was actually ingested"
         );
     }
 }

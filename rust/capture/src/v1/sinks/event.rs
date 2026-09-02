@@ -1,6 +1,7 @@
 use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
+use crate::ordering::OrderingGuarantee;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::Destination;
 
@@ -27,10 +28,15 @@ pub trait Event: Send + Sync {
     /// `common_types`).
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
 
-    /// Return the partition key for this event.
-    /// The sink decides whether to use it or null it based on routing policy
-    /// (e.g. force_disable_person_processing).
+    /// Return the partition key for this event. Whether the sink actually uses
+    /// it is decided by [`Event::ordering`], not by inspecting headers.
     fn partition_key(&self, ctx: &RequestContext) -> String;
+
+    /// The ordering guarantee this event's destination must preserve. The sink
+    /// realizes [`OrderingGuarantee::None`] by publishing without a partition
+    /// key so the broker round-robins; every other guarantee uses
+    /// [`Event::partition_key`], which supplies the value that preserves it.
+    fn ordering(&self) -> OrderingGuarantee;
 
     /// Serialize the event payload and return the raw bytes. `Bytes` (not
     /// `String`) so non-UTF-8 / binary payloads (e.g. replay) share this

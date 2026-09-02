@@ -1,9 +1,9 @@
-//! Re-key producer for `cohort_stream_seed_events`: cross-partition-merged tiles are re-produced
-//! to the survivor's partition, keyed exactly as the seeder keys them.
+//! Re-key producer for `cohort_stream_seed_events`: cross-partition-merged seeds of either kind are
+//! re-produced to the survivor's partition, keyed exactly as the seeder keys them.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use cohort_core::seed::SeedTile;
+use cohort_core::seed::{PersonSeed, SeedTile};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{
     create_kafka_producer, send_keyed_iter_to_kafka_with_headers, KafkaContext, KafkaProduceError,
@@ -16,6 +16,8 @@ use crate::producer::merge::Capture;
 #[async_trait]
 pub trait SeedTileSink: Send + Sync {
     async fn produce(&self, tiles: Vec<SeedTile>) -> Vec<Result<(), KafkaProduceError>>;
+
+    async fn produce_person(&self, seeds: Vec<PersonSeed>) -> Vec<Result<(), KafkaProduceError>>;
 }
 
 pub struct KafkaSeedTileSink {
@@ -44,6 +46,17 @@ impl SeedTileSink for KafkaSeedTileSink {
         )
         .await
     }
+
+    async fn produce_person(&self, seeds: Vec<PersonSeed>) -> Vec<Result<(), KafkaProduceError>> {
+        send_keyed_iter_to_kafka_with_headers(
+            &self.producer,
+            &self.topic,
+            |seed| Some(seed.partition_key()),
+            |_| None,
+            seeds,
+        )
+        .await
+    }
 }
 
 /// Inert sink for gate-off deploys: a produce is a coding error made loud, not a silent drop.
@@ -57,43 +70,57 @@ impl SeedTileSink for NoopSeedTileSink {
             .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
             .collect()
     }
+
+    async fn produce_person(&self, seeds: Vec<PersonSeed>) -> Vec<Result<(), KafkaProduceError>> {
+        seeds
+            .into_iter()
+            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+            .collect()
+    }
 }
 
-pub struct CaptureSeedTileSink(Capture<SeedTile>);
+/// Independent failure budgets per kind, so a test can fail one leg without arming the other.
+#[derive(Clone, Default)]
+pub struct CaptureSeedTileSink {
+    tiles: Capture<SeedTile>,
+    persons: Capture<PersonSeed>,
+}
 
 impl CaptureSeedTileSink {
     pub fn new() -> Self {
-        Self(Capture::default())
+        Self::default()
     }
 
     pub fn failing_first(n: usize) -> Self {
-        Self(Capture::failing_first(n))
+        Self {
+            tiles: Capture::failing_first(n),
+            persons: Capture::failing_first(n),
+        }
     }
 
     pub fn failing_always() -> Self {
-        Self(Capture::failing_always())
+        Self {
+            tiles: Capture::failing_always(),
+            persons: Capture::failing_always(),
+        }
     }
 
     pub fn tiles(&self) -> Vec<SeedTile> {
-        self.0.recorded()
+        self.tiles.recorded()
     }
-}
 
-impl Default for CaptureSeedTileSink {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Clone for CaptureSeedTileSink {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
+    pub fn person_seeds(&self) -> Vec<PersonSeed> {
+        self.persons.recorded()
     }
 }
 
 #[async_trait]
 impl SeedTileSink for CaptureSeedTileSink {
     async fn produce(&self, tiles: Vec<SeedTile>) -> Vec<Result<(), KafkaProduceError>> {
-        self.0.produce(tiles)
+        self.tiles.produce(tiles)
+    }
+
+    async fn produce_person(&self, seeds: Vec<PersonSeed>) -> Vec<Result<(), KafkaProduceError>> {
+        self.persons.produce(seeds)
     }
 }

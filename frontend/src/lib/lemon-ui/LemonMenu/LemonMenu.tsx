@@ -35,6 +35,8 @@ export interface LemonMenuItemBase extends Pick<
 export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: (LemonMenuItem | false | null)[]
     placement?: LemonDropdownProps['placement']
+    closeOnClickInside?: boolean
+    closeParentPopoverOnClickInside?: boolean
     keyboardShortcut?: never
 }
 
@@ -42,6 +44,8 @@ export interface LemonMenuItemLeafCallback extends LemonMenuItemBase {
     onClick?: (e: React.MouseEvent) => void
     items?: never
     placement?: never
+    closeOnClickInside?: never
+    closeParentPopoverOnClickInside?: never
     keyboardShortcut?: KeyboardShortcut
 }
 export interface LemonMenuItemLeafLink extends LemonMenuItemBase {
@@ -51,6 +55,8 @@ export interface LemonMenuItemLeafLink extends LemonMenuItemBase {
     targetBlank?: boolean
     items?: never
     placement?: never
+    closeOnClickInside?: never
+    closeParentPopoverOnClickInside?: never
     keyboardShortcut?: KeyboardShortcut
 }
 
@@ -67,6 +73,8 @@ export interface LemonMenuItemCustom {
     /** True if the item is a custom element. */
     custom?: boolean
     placement?: never
+    closeOnClickInside?: never
+    closeParentPopoverOnClickInside?: never
 }
 export type LemonMenuItem = (LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode) & {
     tag?: 'alpha' | 'beta' | 'new'
@@ -298,7 +306,17 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
     React.forwardRef(
         (
             {
-                item: { label, items, placement, keyboardShortcut, tag, custom, ...buttonProps },
+                item: {
+                    label,
+                    items,
+                    placement,
+                    keyboardShortcut,
+                    tag,
+                    custom,
+                    closeOnClickInside,
+                    closeParentPopoverOnClickInside,
+                    ...buttonProps
+                },
                 size,
                 tooltipPlacement,
                 active,
@@ -344,8 +362,8 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement={placement || 'right-start'}
-                    closeOnClickInside={!custom}
-                    closeParentPopoverOnClickInside={!custom}
+                    closeOnClickInside={closeOnClickInside ?? !custom}
+                    closeParentPopoverOnClickInside={closeParentPopoverOnClickInside ?? !custom}
                     buttonSize={size}
                 >
                     {button}

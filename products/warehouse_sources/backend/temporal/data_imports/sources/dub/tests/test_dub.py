@@ -309,6 +309,29 @@ class TestCredentialValidation:
         assert valid is expected_valid
         assert (message is None) is expected_valid
 
+    def test_personal_key_gets_workspace_guidance_not_raw_dub_error(self) -> None:
+        # A personal (non-workspace) key fails with Dub's raw "workspaceId" copy about a missing
+        # query param — replace it with guidance to use a workspace key.
+        response = _make_http_response(
+            {
+                "error": {
+                    "code": "bad_request",
+                    "message": "Workspace ID not found. Did you forget to include a `workspaceId` query parameter?",
+                }
+            },
+            400,
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
+            return_value=self._mock_session(response),
+        ):
+            valid, message = validate_credentials("dub_test")
+
+        assert valid is False
+        assert message is not None
+        assert "workspaceId" not in message
+        assert "workspace API key" in message
+
     def test_check_endpoint_access_surfaces_api_denial_message(self) -> None:
         response = _make_http_response(
             {"error": {"code": "forbidden", "message": "Requires a Business plan or higher."}}, 403

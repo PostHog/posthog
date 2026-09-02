@@ -34,6 +34,7 @@ class Client:
         properties: dict[str, Any] | None = None,
         groups: dict[str, Any] | None = None,
         capture_analytics: bool = True,
+        privacy_mode: bool = False,
     ):
         self.provider_key = provider_key
         self.config = config
@@ -43,6 +44,7 @@ class Client:
             properties=properties,
             groups=groups,
             capture=capture_analytics,
+            privacy_mode=privacy_mode,
         )
 
     def _get_api_key(self) -> str | None:

@@ -3,6 +3,7 @@
 import json
 import asyncio
 from datetime import timedelta
+from itertools import batched
 
 from django.conf import settings
 
@@ -162,7 +163,7 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
         "not_deliverable": 0,
     }
 
-    for batch in _batch_report_ids(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE):
+    for batch in batched(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE, strict=False):
         tasks = [
             temporalio.workflow.execute_activity(
                 check_count_triggered_eval_report_activity,
@@ -259,10 +260,6 @@ async def _check_count_triggered_eval_report_candidates_batched(report_id_groups
     return due_report_ids
 
 
-def _batch_report_ids(report_ids: list[str], batch_size: int) -> list[list[str]]:
-    return [report_ids[index : index + batch_size] for index in range(0, len(report_ids), batch_size)]
-
-
 def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:
     """Log which child workflows failed in a fan-out, without re-raising."""
     failed: list[tuple[str, str]] = []
@@ -274,6 +271,15 @@ def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> No
             f"{kind}.child_workflow_errors",
             extra={"failed_count": len(failed), "failures": failed},
         )
+
+
+async def _update_report_schedule(inputs: UpdateNextDeliveryDateInput) -> None:
+    await temporalio.workflow.execute_activity(
+        update_next_delivery_date_activity,
+        inputs,
+        start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+        retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+    )
 
 
 @temporalio.workflow.defn(name=GENERATE_EVAL_REPORT_WORKFLOW_NAME)
@@ -294,6 +300,8 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             start_to_close_timeout=PREPARE_ACTIVITY_TIMEOUT,
             retry_policy=FETCH_RETRY_POLICY,
         )
+        trace_id = str(temporalio.workflow.uuid4())
+        session_id = str(temporalio.workflow.uuid4())
 
         # 2. Run agent
         agent_result = await temporalio.workflow.execute_activity(
@@ -311,6 +319,8 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                 period_end=context.period_end,
                 previous_period_start=context.previous_period_start,
                 report_prompt_guidance=context.report_prompt_guidance,
+                trace_id=trace_id,
+                session_id=session_id,
             ),
             start_to_close_timeout=AGENT_ACTIVITY_TIMEOUT,
             heartbeat_timeout=AGENT_HEARTBEAT_TIMEOUT,
@@ -332,6 +342,24 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             retry_policy=STORE_RETRY_POLICY,
         )
 
+        generation_status = (
+            agent_result.generation_status
+            if temporalio.workflow.patched("eval-report-generation-status-2026-07")
+            else "completed"
+        )
+        generation_completed = generation_status == "completed"
+        attempt_before_delivery = temporalio.workflow.patched("eval-report-attempt-before-delivery-2026-07")
+
+        if not inputs.manual and (attempt_before_delivery or not generation_completed):
+            await _update_report_schedule(
+                UpdateNextDeliveryDateInput(
+                    report_id=inputs.report_id,
+                    period_end=context.period_end,
+                    generation_status=generation_status,
+                    advance_data_cursor=False if attempt_before_delivery else None,
+                )
+            )
+
         # 3b. Emit a signal for this report run (fire-and-forget).
         # Runs on the same LLMA worker as the parent via LLMA_TASK_QUEUE; ABANDON
         # parent-close lets the LLM summary call continue independently so it doesn't
@@ -341,7 +369,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         # Wrapped in workflow.patched so in-flight workflows started before this code
         # was deployed don't hit a nondeterminism error on replay — they'll skip the
         # child-workflow command entirely.
-        if temporalio.workflow.patched("eval-report-emit-signal-2026-04"):
+        if generation_completed and temporalio.workflow.patched("eval-report-emit-signal-2026-04"):
             try:
                 await temporalio.workflow.start_child_workflow(
                     EmitEvalReportSignalWorkflow.run,
@@ -365,7 +393,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             except WorkflowAlreadyStartedError:
                 # Same parent workflow replayed/retried with the same report_run_id.
                 # Safe to skip — the previous run is already handling emission.
-                temporalio.workflow.logger.info(
+                logger.info(
                     "Eval report signal workflow already started for this run",
                     evaluation_id=context.evaluation_id,
                     team_id=context.team_id,
@@ -384,14 +412,14 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             retry_policy=DELIVER_RETRY_POLICY,
         )
 
-        # 5. Update next delivery date (skip for manual runs to avoid disrupting schedule)
-        if not inputs.manual:
-            await temporalio.workflow.execute_activity(
-                update_next_delivery_date_activity,
+        # 5. Advance the successful data cursor (skip for manual runs to avoid disrupting schedule)
+        if not inputs.manual and generation_completed:
+            await _update_report_schedule(
                 UpdateNextDeliveryDateInput(
                     report_id=inputs.report_id,
                     period_end=context.period_end,
-                ),
-                start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
-                retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+                    generation_status=generation_status,
+                    record_attempt=not attempt_before_delivery,
+                    advance_data_cursor=True,
+                )
             )

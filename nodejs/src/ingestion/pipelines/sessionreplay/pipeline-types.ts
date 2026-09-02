@@ -1,11 +1,14 @@
 /** Types carried across the session replay pipeline steps (step-to-step data contracts). */
 import { Message } from 'node-rdkafka'
 
+import { KafkaDebugContext } from '~/ingestion/framework/helpers'
+
 import { SessionKey } from './shared/types'
 
 /** The per-message context threaded through every stage of the session replay pipeline. */
 export interface MessageContext {
     message: Message
+    debugContext?: KafkaDebugContext
 }
 
 /**

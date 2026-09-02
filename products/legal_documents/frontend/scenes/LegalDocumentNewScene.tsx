@@ -189,7 +189,7 @@ export function LegalDocumentNewScene(): JSX.Element {
                                             to=""
                                             onClick={() =>
                                                 openSupportForm({
-                                                    target_area: 'billing',
+                                                    billing_issue: true,
                                                     isEmailFormOpen: true,
                                                 })
                                             }

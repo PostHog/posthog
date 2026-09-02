@@ -20,6 +20,7 @@ export function createTestTeam(overrides: Partial<Team> = {}): Team {
         heatmaps_opt_in: null,
         ingested_event: true,
         person_display_name_properties: null,
+        minimal_flag_called_events: false,
         test_account_filters: null,
         cookieless_server_hash_mode: null,
         timezone: 'UTC',

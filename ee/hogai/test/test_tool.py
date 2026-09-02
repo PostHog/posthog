@@ -1,14 +1,15 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from langgraph.errors import GraphInterrupt
 from pydantic import BaseModel
 
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ee.hogai.core.context import set_node_path
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL, _import_max_tools
-from ee.hogai.tool import ClientToolCallRequest, MaxTool
+from ee.hogai.tool import ApprovalResumePayload, ClientToolCallRequest, MaxTool
 from ee.hogai.tool_errors import (
     MaxToolAccessDeniedError,
     MaxToolError,
@@ -490,3 +491,41 @@ class TestToolAccessControlDeclarations(BaseTest):
                 f"Tools without access control declaration: {missing_access_control}. "
                 f"Either add get_required_resource_access() or add to TOOLS_WITHOUT_ACCESS_CONTROL with a reason."
             )
+
+
+class _ApprovalArgs(BaseModel):
+    count: int
+
+
+class TestDangerousOperationBindsApprovedArguments(BaseTest):
+    """An approving user may edit the arguments; the tool must run what they approved, not what was asked."""
+
+    class _SpendingTool(MaxTool):
+        name: str = "create_feature_flag"
+        description: str = "test"
+        thinking_message: str = "test"
+        args_schema: type[BaseModel] = _ApprovalArgs
+
+        def get_required_resource_access(self):
+            # Every registered tool must declare this, and subclassing registers under the shared name.
+            return [("feature_flag", "editor")]
+
+        async def is_dangerous_operation(self, **kwargs) -> bool:
+            return True
+
+        async def _arun_impl(self, count: int) -> tuple[str, dict]:
+            return f"ran with {count}", {"count": count}
+
+    @pytest.mark.asyncio
+    async def test_edited_arguments_reach_the_implementation(self):
+        # The approval payload used to be merged into a local copy of kwargs, so an edit at the prompt
+        # was discarded and the original operation ran. On a tool that spends money, that charges for
+        # something the user did not approve.
+        tool = self._SpendingTool(team=self.team, user=self.user)
+        approved = ApprovalResumePayload(action="approve", payload={"count": 5}, proposal_id="p1")
+
+        with patch("ee.hogai.tool.interrupt", return_value=approved.model_dump()):
+            content, artifact = await tool._arun_with_context(count=200)
+
+        assert artifact["count"] == 5
+        assert "5" in content

@@ -21,7 +21,7 @@
             "type": "string"
         },
         "scope": {
-            "description": "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).",
+            "description": "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.",
             "minLength": 1,
             "type": "string"
         },
@@ -33,6 +33,10 @@
         "source_comment": {
             "description": "Filter replies to a specific parent comment.",
             "minLength": 1,
+            "type": "string"
+        },
+        "task_id": {
+            "description": "Owning task for task, task_artifact, and desktop_canvas comment scopes.",
             "type": "string"
         }
     },

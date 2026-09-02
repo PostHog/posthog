@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "client_query_id": {
+            "description": "Names the ClickHouse query this request runs. Send the same id to `DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still running. Up to 128 characters.",
+            "type": "string"
+        },
         "distinct_id": {
             "description": "Filter list by distinct id.",
             "type": "string"
@@ -18,7 +22,7 @@
             "type": "number"
         },
         "search": {
-            "description": "Search persons, either by email (full text search) or distinct_id (exact match).",
+            "description": "Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.",
             "type": "string"
         }
     },

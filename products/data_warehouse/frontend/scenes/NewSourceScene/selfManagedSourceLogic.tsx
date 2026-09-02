@@ -63,6 +63,15 @@ export function selfManagedTableFormErrors({
         }
     }
 
+    // The backend only accepts https bucket URLs and rejects anything else (a bare path, http://,
+    // s3a://, gs://) with a generic error, so catch those here with the same guidance as s3://.
+    if (url_pattern && !url_pattern.startsWith('https://')) {
+        return {
+            url_pattern:
+                'Please use the https URL for your bucket, e.g. https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt',
+        }
+    }
+
     return {
         name: !name && 'Please enter a name.',
         url_pattern: !url_pattern && 'Please enter a url pattern.',
@@ -99,10 +108,12 @@ export interface selfManagedSourceLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     addConditionSet: () => {
         value: true

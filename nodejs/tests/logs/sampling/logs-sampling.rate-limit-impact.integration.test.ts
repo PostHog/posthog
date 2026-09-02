@@ -1,4 +1,5 @@
 import avro from 'avsc'
+import { randomUUID } from 'crypto'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -37,11 +38,10 @@ const LOG_RECORD_AVRO = avro.Type.forSchema({
     ],
 })
 
-const logsSettings = { json_parse_logs: false, pii_scrub_logs: false }
 const SERVICE = 'smokescreen'
-const TEAM_ID = 4242
+const TEAM_ID = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 8), 16)
 // LogsSamplingService names its limiter 'logs-sampling-rate'; key prefix uses the test root.
-const SAMPLING_RATE_KEY_PREFIX = '@posthog-test/logs-sampling-rate'
+const SAMPLING_RATE_KEY_PREFIX = `@posthog-test/logs-sampling-rate/tokens/${TEAM_ID}`
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
@@ -126,7 +126,17 @@ describe('logs drop-rule rate limit — save-to-impact', () => {
         mockNow.mockReturnValue(now)
     }
 
-    /** Push `recordsPerSecond` rows of `bytesEach` through one processBuffer call per simulated second. */
+    /** Decode → run the sampling stage over the records → survivors + drop count, as the pipeline does. */
+    async function sampleBuffer(
+        buffer: Buffer,
+        ruleSet: ReturnType<typeof compileRuleSet>
+    ): Promise<{ kept: LogRecord[]; recordsDropped: number; allDropped: boolean }> {
+        const [, , records] = await decodeLogRecords(buffer)
+        const { kept, stats } = await service.sampleRecords(records, ruleSet, TEAM_ID)
+        return { kept, recordsDropped: stats.recordsDropped, allDropped: kept.length === 0 }
+    }
+
+    /** Push `recordsPerSecond` rows of `bytesEach` through one sampling call per simulated second. */
     async function streamForSeconds(
         ruleSet: ReturnType<typeof compileRuleSet>,
         seconds: number,
@@ -138,7 +148,7 @@ describe('logs drop-rule rate limit — save-to-impact', () => {
         for (let s = 0; s < seconds; s++) {
             const batch = Array.from({ length: recordsPerSecond }, (_, i) => logRow(`s${s}-r${i}`, bytesEach))
             const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', batch)
-            const result = await service.processBuffer(buffer, logsSettings, ruleSet, TEAM_ID)
+            const result = await sampleBuffer(buffer, ruleSet)
             dropped += result.recordsDropped
             kept += recordsPerSecond - result.recordsDropped
             advanceOneSecond()
@@ -204,10 +214,9 @@ describe('logs drop-rule rate limit — save-to-impact', () => {
         // Decoding a sampled batch still yields valid avro (the kept rows re-encode cleanly).
         const batch = Array.from({ length: 400 }, (_, i) => logRow(`final-${i}`, BYTES_EACH))
         const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', batch)
-        const result = await service.processBuffer(buffer, logsSettings, ruleSet, TEAM_ID)
+        const result = await sampleBuffer(buffer, ruleSet)
         if (!result.allDropped) {
-            const [, , kept] = await decodeLogRecords(result.value)
-            expect(kept.length).toBe(400 - result.recordsDropped)
+            expect(result.kept.length).toBe(400 - result.recordsDropped)
         }
     })
 })

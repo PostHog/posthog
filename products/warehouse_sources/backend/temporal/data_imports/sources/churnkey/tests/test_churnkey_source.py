@@ -1,16 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.churnkey import ChurnkeyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source import ChurnkeySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.churnkey import (
     ChurnkeySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source.validate_churnkey_credentials"
@@ -39,24 +35,6 @@ def _inputs() -> SourceInputs:
 
 
 class TestChurnkeySourceConfig:
-    def test_source_type(self) -> None:
-        assert ChurnkeySource().source_type == ExternalDataSourceType.CHURNKEY
-
-    def test_source_config_fields(self) -> None:
-        config = ChurnkeySource().get_source_config
-        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
-
-        assert set(fields) == {"api_key", "app_id"}
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].secret is True
-        assert fields["app_id"].type == SourceFieldInputConfigType.TEXT
-        assert fields["app_id"].secret is False
-
-    def test_source_config_metadata(self) -> None:
-        config = ChurnkeySource().get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/churnkey"
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static catalog (no I/O), so the public docs can render the table list.
         assert ChurnkeySource.lists_tables_without_credentials is True
@@ -81,11 +59,6 @@ class TestChurnkeySchemas:
     def test_get_schemas_name_filter(self) -> None:
         schemas = ChurnkeySource().get_schemas(_config(), team_id=1, names=["does-not-exist"])
         assert schemas == []
-
-    def test_canonical_descriptions_cover_sessions(self) -> None:
-        canonical = ChurnkeySource().get_canonical_descriptions()
-        assert "Sessions" in canonical
-        assert "_id" in canonical["Sessions"]["columns"]
 
     def test_documented_tables_render(self) -> None:
         # Exercises the public-docs path end to end (placeholder config, no credentials).
@@ -119,20 +92,7 @@ class TestChurnkeyValidateCredentials:
         assert error is not None and "App ID" in error
 
 
-class TestChurnkeyNonRetryableErrors:
-    def test_auth_errors_present(self) -> None:
-        errors = ChurnkeySource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-        assert any("404" in key for key in errors)
-
-
 class TestChurnkeyPipeline:
-    def test_get_resumable_source_manager(self) -> None:
-        manager = ChurnkeySource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ChurnkeyResumeConfig
-
     def test_source_for_pipeline_plumbing(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         response = ChurnkeySource().source_for_pipeline(_config(), manager, _inputs())

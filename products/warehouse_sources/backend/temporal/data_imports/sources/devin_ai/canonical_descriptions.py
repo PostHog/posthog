@@ -67,6 +67,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "pinned_repo": "Repository the note is pinned to, if any.",
         },
     },
+    "members": {
+        "description": "A member of the Devin organization. Join sessions.user_id to members.user_id to resolve who ran a session to their email and name.",
+        "docs_url": "https://docs.devin.ai/api-reference/v3/users/list-organization-users",
+        "columns": {
+            "user_id": "Unique identifier for the member. The same identifier is recorded as user_id on sessions, so it joins directly to that table.",
+            "email": "Email address of the member.",
+            "name": "Display name of the member.",
+            "role_assignments": "Roles assigned directly to the member, each with a role (role_id, role_name, role_type) and the org it applies to.",
+        },
+    },
     "secrets": {
         "description": "Metadata for an org-level secret available to Devin sessions. Secret values are never returned by the API and are not synced.",
         "docs_url": "https://docs.devin.ai/api-reference/v3/secrets/organizations-secrets",

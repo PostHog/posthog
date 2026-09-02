@@ -14,9 +14,12 @@ class SloOperation(StrEnum):
     SUBSCRIPTION_DELETE = "subscription_delete"
     AI_SUBSCRIPTION_PROMPT_GENERATION = "ai_subscription_prompt_generation"
     ALERT_CHECK = "alert_check"
+    ALERT_DELIVERY = "alert_delivery"
     QUERY_SERVICE = "query_service"
+    PERSONS_LIST = "persons_list"
     DASHBOARD_WIDGET_DELIVERY = "dashboard_widget_delivery"
     PULSE_BRIEF_GENERATION = "pulse-brief-generation"
+    SYNC_EVENTS_RETENTION = "sync_events_retention"
 
 
 class SloOutcome(StrEnum):
@@ -54,6 +57,8 @@ class SloConfig:
 
     Workflows opt into SLO tracking by adding ``slo: SloConfig | None = None``
     to their input dataclass. The SLO interceptor reads this at workflow start.
+    The workflow's task queue must also be listed in ``SloInterceptor.task_queue``,
+    or the config is silently ignored on that worker.
 
     ``start_properties`` and ``completion_properties`` must be JSON-serializable
     (they cross the Temporal serialization boundary as part of the workflow input).

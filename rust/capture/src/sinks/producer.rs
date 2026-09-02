@@ -173,14 +173,18 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
 
 /// Mock Kafka producer for testing - captures all sent records.
 ///
-/// Optionally fails on a specific send index (0-based) by returning
-/// `CaptureError::RetryableSinkError`. Records before the failing index are
-/// still captured; the failing record is not. Used by send-batch tests that
-/// need to simulate a mid-batch enqueue failure.
+/// Two failure modes, both keyed on the 0-based send index:
+/// - `new_failing_at`: the `idx`-th `send()` itself returns
+///   `CaptureError::RetryableSinkError` (an enqueue failure). Records before
+///   the failing index are still captured; the failing record is not.
+/// - `new_failing_ack_at`: every `send()` succeeds and captures its record,
+///   but the `idx`-th ack future resolves to `RetryableSinkError` — the
+///   producer accepted the record and its delivery report failed.
 #[derive(Clone, Default)]
 pub struct MockKafkaProducer {
     records: std::sync::Arc<std::sync::Mutex<Vec<ProduceRecord>>>,
     fail_at_index: Option<usize>,
+    fail_ack_at_index: Option<usize>,
     call_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -194,6 +198,15 @@ impl MockKafkaProducer {
     pub fn new_failing_at(idx: usize) -> Self {
         Self {
             fail_at_index: Some(idx),
+            ..Self::default()
+        }
+    }
+
+    /// Build a producer whose `idx`-th (0-based) ack future resolves to
+    /// `RetryableSinkError` after the send itself succeeded.
+    pub fn new_failing_ack_at(idx: usize) -> Self {
+        Self {
+            fail_ack_at_index: Some(idx),
             ..Self::default()
         }
     }
@@ -220,6 +233,9 @@ impl KafkaProducer for MockKafkaProducer {
             return Err(CaptureError::RetryableSinkError);
         }
         self.records.lock().unwrap().push(record);
+        if self.fail_ack_at_index == Some(idx) {
+            return Ok(std::future::ready(Err(CaptureError::RetryableSinkError)));
+        }
         Ok(std::future::ready(Ok(())))
     }
 

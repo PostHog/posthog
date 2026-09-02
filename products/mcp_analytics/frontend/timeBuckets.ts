@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 
 import { IntervalType } from '~/types'
 
@@ -68,15 +68,104 @@ export function buildBucketKeys(
     return keys
 }
 
+// Grouping intervals offered in the picker. Sub-hour intervals are left out: the date filter has no
+// minute-level quick range, and a window short enough to need one is rare enough to skip.
+export const SELECTABLE_INTERVALS: IntervalType[] = ['hour', 'day', 'week', 'month']
+
+const INTERVAL_LABELS: Record<string, string> = { hour: 'Hour', day: 'Day', week: 'Week', month: 'Month' }
+
+// A line this dense is already a smear, and MCPToolQualityDailyStatsQuery's row limit starts dropping
+// the newest buckets not far above it, so intervals past this many points are offered disabled.
+const MAX_BUCKETS = 1000
+
+export interface IntervalOption {
+    value: IntervalType
+    label: string
+    // Set when the interval doesn't suit the selected window — the picker offers it disabled with
+    // this as the reason.
+    disabledReason: string | null
+}
+
+// Read a pinned grouping interval off a URL param, ignoring anything the picker can't offer.
+export function parseIntervalParam(raw: unknown): IntervalType | null {
+    return SELECTABLE_INTERVALS.find((interval) => interval === raw) ?? null
+}
+
+// How many buckets a window spans at an interval, without materializing every key. Approximate by
+// design: month lengths and DST shifts move the count by one, which never changes the judgement it
+// feeds.
+export function approximateBucketCount(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string,
+    interval: IntervalType
+): number {
+    const { start, end } = resolveWindow(dateFrom, dateTo, timezone)
+    return Math.max(1, Math.floor(end.diff(startOfBucket(start, interval), interval, true)) + 1)
+}
+
+// The picker's options for a window, with the intervals that would draw an unreadable line or
+// collapse the range to a single point marked disabled.
+export function intervalOptionsForWindow(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string
+): IntervalOption[] {
+    return SELECTABLE_INTERVALS.map((value) => {
+        const buckets = approximateBucketCount(dateFrom, dateTo, timezone, value)
+        return {
+            value,
+            label: INTERVAL_LABELS[value] ?? value,
+            disabledReason: buckets > MAX_BUCKETS ? 'Range too long' : buckets < 2 ? 'Range too short' : null,
+        }
+    })
+}
+
+// The interval to group by: the pinned choice when it still suits the window, else PostHog's
+// auto-choice for the range. A pin survives date changes, so it has to give way when the window
+// outgrows it — hourly kept from a 12-hour window would otherwise chart a year hour by hour.
+export function resolveInterval(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string,
+    pinned: IntervalType | null
+): IntervalType {
+    if (pinned) {
+        const option = intervalOptionsForWindow(dateFrom, dateTo, timezone).find((o) => o.value === pinned)
+        if (option && !option.disabledReason) {
+            return pinned
+        }
+    }
+    return getDefaultInterval(dateFrom, dateTo)
+}
+
+// True when the final bucket is the current, still-running interval (open-ended window), so a chart
+// can dash that segment as "in progress" rather than letting the partial period read as a drop.
+// Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
+export function lastBucketIsInProgress(
+    bucketKeys: string[],
+    timezone: string,
+    interval: IntervalType,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    if (bucketKeys.length < 2) {
+        return false
+    }
+    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
+    return bucketKeys[bucketKeys.length - 1] === currentBucket
+}
+
 // Normalize a raw bucket string from a query (a date or datetime) to BUCKET_FORMAT so it joins the
-// generated keys regardless of how ClickHouse rendered it. The value already carries the project-tz
-// wall clock — either a naive datetime (toString(dateTrunc)) or a Z-stamped ISO (a raw DateTime
-// column) — so read it in UTC to keep those digits verbatim. dayjs.tz(s, tz) would treat a Z-stamped
-// value as an instant and convert it by the project offset, shifting buckets off the axis so nothing
-// matches (flat charts for non-UTC projects). buildBucketKeys formats keys as the same wall clock.
+// generated keys regardless of how ClickHouse rendered it. The value always carries the project-tz
+// wall clock, in one of three shapes: naive (toString(dateTrunc)), Z-stamped (a raw DateTime
+// column), or offset-stamped like 2026-07-21T00:00:00-07:00 (a typed DateTime column in a non-UTC
+// project). Strip the zone designator before parsing so those digits survive verbatim: any parse
+// that honors the offset re-converts a wall clock that was never an instant, shifting every bucket
+// off the axis so nothing matches, which renders as a flat or empty chart. buildBucketKeys formats
+// keys as the same wall clock.
 export function normalizeBucket(raw: unknown): string {
     const s = String(raw ?? '')
-    return s ? dayjs.utc(s).format(BUCKET_FORMAT) : ''
+    return s ? dayjs.utc(s.replace(/(?:Z|[+-]\d{2}:?\d{2})$/, '')).format(BUCKET_FORMAT) : ''
 }
 
 // Human-readable axis/hover label for a bucket, showing the time only when the interval is sub-day.

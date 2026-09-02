@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaiads import (
     OpenAIAdsSourceConfig,
 )
@@ -31,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    OPENAI_ADS_BASE_URL,
     OPENAI_ADS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -84,6 +82,25 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
         return {
             "401 Client Error: Unauthorized for url: https://api.ads.openai.com": "Your OpenAI Ads API key is invalid or has been revoked. Create a new API key in the Settings tab of OpenAI Ads Manager, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.ads.openai.com": "Your OpenAI Ads API key does not have access to this ad account. Create a key for this ad account in the Settings tab of OpenAI Ads Manager, then reconnect.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The shared RESTClient (rest_client.py) already retries 429/5xx responses, connection
+        # resets, timeouts, and malformed-JSON bodies in-process via tenacity (5 attempts,
+        # exponential backoff honoring Retry-After) before re-raising RESTClientRetryableError.
+        # A failure that survives all 5 attempts is a transient OpenAI Ads / edge blip, not a bug —
+        # Temporal's activity retry recovers once the upstream issue clears, so keep it out of
+        # error tracking as noise. The status code and path vary per request; the API host doesn't,
+        # so match on that rather than the volatile parts of the message.
+        return {
+            f"for {OPENAI_ADS_BASE_URL}",
+            f"from {OPENAI_ADS_BASE_URL}",
+            # A 400 response whose body labels itself `code=server_error` (appended by
+            # `_error_identity` in rest_client.py) is a backend blip on OpenAI's side reported
+            # through an unusual status code — 400s fall outside the 429/5xx range this client
+            # retries in-process, so the body is the only transience signal available. Trust it,
+            # the same way Meta Ads trusts its own documented error codes over raw HTTP status.
+            "code=server_error",
         }
 
     def get_schemas(

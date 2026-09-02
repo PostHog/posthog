@@ -1,7 +1,10 @@
 import json
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, PropertyMock, patch
+
+import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
@@ -9,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 
 
-def _make_producer(**kwargs: Any) -> PostgresProducer:
+def _default_kwargs(**kwargs: Any) -> dict[str, Any]:
     defaults: dict[str, Any] = {
         "database_url": "postgres://unused:unused@localhost/unused",
         "team_id": 1,
@@ -22,12 +25,16 @@ def _make_producer(**kwargs: Any) -> PostgresProducer:
         "logger": MagicMock(),
     }
     defaults.update(kwargs)
+    return defaults
+
+
+def _make_producer(**kwargs: Any) -> PostgresProducer:
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.psycopg"
     ) as mock_psycopg:
         mock_conn = MagicMock()
         mock_psycopg.Connection.connect.return_value = mock_conn
-        producer = PostgresProducer(**defaults)
+        producer = PostgresProducer(**_default_kwargs(**kwargs))
     return producer
 
 
@@ -43,6 +50,38 @@ def _make_batch_result(batch_index: int = 0) -> BatchWriteResult:
 
 def _mock_conn(producer: PostgresProducer) -> Any:
     return producer._conn
+
+
+class TestPostgresProducerConnectRetry:
+    _CONNECT_TARGET = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.psycopg.Connection.connect"
+    _SLEEP_TARGET = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.time.sleep"
+
+    def test_recovers_from_transient_connection_drop(self) -> None:
+        mock_conn = MagicMock()
+        with (
+            patch(
+                self._CONNECT_TARGET,
+                side_effect=[psycopg.OperationalError("server closed the connection unexpectedly"), mock_conn],
+            ),
+            patch(self._SLEEP_TARGET) as mock_sleep,
+        ):
+            producer = PostgresProducer(**_default_kwargs())
+
+        assert producer._conn is mock_conn
+        mock_sleep.assert_called_once()
+
+    def test_raises_once_retries_are_exhausted(self) -> None:
+        with (
+            patch(
+                self._CONNECT_TARGET,
+                side_effect=psycopg.OperationalError("server closed the connection unexpectedly"),
+            ) as mock_connect,
+            patch(self._SLEEP_TARGET),
+        ):
+            with pytest.raises(psycopg.OperationalError):
+                PostgresProducer(**_default_kwargs())
+
+        assert mock_connect.call_count == 3
 
 
 class TestPostgresProducerSendBatch:

@@ -23,6 +23,7 @@ import type {
     DatabaseSchemaSource,
     FunnelsQuery,
 } from '../../../queries/schema/schema-general'
+import type { DatabaseSchemaTableCertification } from '../../../queries/schema/schema-general'
 
 export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'aggregation_target_field'
 
@@ -81,6 +82,7 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicValues {
     previewSelectedKey: string | undefined
     previewTable: {
         aggregation_target_field?: string | undefined
+        certification?: DatabaseSchemaTableCertification | undefined
         distinct_id_field?: string | undefined
         fields: {
             [k: string]: DatabaseSchemaField
@@ -148,6 +150,7 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicMeta {
         ) => string | undefined
         previewTable: (table: DataWarehouseTableForInsight) => {
             aggregation_target_field?: string | undefined
+            certification?: DatabaseSchemaTableCertification | undefined
             distinct_id_field?: string | undefined
             fields: {
                 [k: string]: DatabaseSchemaField

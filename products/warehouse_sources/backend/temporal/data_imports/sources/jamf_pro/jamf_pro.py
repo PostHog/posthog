@@ -11,10 +11,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import (
     JAMF_PRO_ENDPOINTS,
     JamfProEndpointConfig,
@@ -140,13 +142,13 @@ class JamfProResumeConfig:
     page: int
 
 
-@dataclasses.dataclass
+@frozen
 class JamfProCredentials:
     method: Literal["client_credentials", "basic"]
     client_id: str | None = None
-    client_secret: str | None = None
+    client_secret: str | None = dataclasses.field(default=None, repr=False)
     username: str | None = None
-    password: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:

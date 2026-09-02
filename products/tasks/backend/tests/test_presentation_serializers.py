@@ -6,11 +6,53 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
+    SandboxEnvironmentWriteSerializer,
+    TaskRunArtifactUploadSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
 )
+
+
+class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("scheme", "https://example.com"),
+            ("path", "example.com/path"),
+            ("port", "example.com:443"),
+            ("ip", "127.0.0.1"),
+            ("malformed_wildcard", "api.*.example.com"),
+        ]
+    )
+    def test_rejects_domains_that_cannot_be_enforced(self, _name: str, domain: str) -> None:
+        serializer = SandboxEnvironmentWriteSerializer(data={"name": "Restricted", "allowed_domains": [domain]})
+
+        assert not serializer.is_valid()
+        assert "allowed_domains" in serializer.errors
+
+    def test_normalizes_valid_domains(self) -> None:
+        serializer = SandboxEnvironmentWriteSerializer(
+            data={"name": "Restricted", "allowed_domains": [" EXAMPLE.com ", "example.com"]}
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_domains"] == ["example.com"]
+
+    def test_rejects_too_many_allowed_domains(self) -> None:
+        domains = [f"host-{index}.example.com" for index in range(tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS + 1)]
+        serializer = SandboxEnvironmentWriteSerializer(data={"name": "Restricted", "allowed_domains": domains})
+
+        assert not serializer.is_valid()
+        assert serializer.errors["allowed_domains"][0].code == "max_length"
+
+    def test_facade_rejects_too_many_allowed_domains(self) -> None:
+        domains = [f"host-{index}.example.com" for index in range(tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS + 1)]
+
+        with self.assertRaisesRegex(ValueError, "You can allow up to 100 domains"):
+            tasks_facade.normalize_sandbox_allowed_domains(domains)
 
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
@@ -72,3 +114,28 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
 
         assert not serializer.is_valid()
         mock_resolve_url_hosts_ips.assert_not_called()
+
+
+class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at the ceiling", TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES, True),
+            ("above the ceiling", TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES + 1, False),
+        ]
+    )
+    def test_inline_content_is_capped_below_the_request_body_limit(
+        self, _name: str, content_length: int, expected_valid: bool
+    ) -> None:
+        serializer = TaskRunArtifactUploadSerializer(
+            data={
+                "name": "output.txt",
+                "type": "output",
+                "content": "a" * content_length,
+                "content_encoding": "utf-8",
+            }
+        )
+
+        assert serializer.is_valid() is expected_valid
+        if not expected_valid:
+            megabytes = TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)
+            assert f"{megabytes}MB attachment limit" in str(serializer.errors["content"])

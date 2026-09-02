@@ -213,14 +213,21 @@ impl Normalization {
             }
         }
         if self.strip_hashed_chunks {
-            // Build hashes are long alphanumeric runs containing at least one digit (the digit
-            // constraint lives in the replacer because the regex crate has no lookahead).
+            // Build hashes are long alphanumeric runs. Most bundler hash alphabets include
+            // digits, but esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a
+            // digit-only test misses those and mints a fresh fingerprint every time the hash
+            // happens to roll all-letter. All-uppercase is the second signal: real identifiers
+            // that end up in a path (words, camelCase names) are essentially never all-uppercase,
+            // so treat "has a digit" OR "every letter is uppercase" as a build hash. (The regex
+            // crate has no lookahead, so both checks live in the replacer.)
             let re = HASHED_CHUNK_TOKEN
                 .get_or_init(|| Regex::new(r"[A-Za-z0-9]{8,}").expect("valid regex"));
             out = re
                 .replace_all(&out, |caps: &regex::Captures| {
                     let token = &caps[0];
-                    if token.chars().any(|c| c.is_ascii_digit()) {
+                    let looks_like_hash = token.chars().any(|c| c.is_ascii_digit())
+                        || token.chars().all(|c| c.is_ascii_uppercase());
+                    if looks_like_hash {
                         "*".to_string()
                     } else {
                         token.to_string()
@@ -482,7 +489,6 @@ mod test {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: false,
             suspicious: false,
             module: None,
@@ -708,6 +714,8 @@ mod test {
                 "http://x.com/app.js?v=def456",
             ),
             ("chunk-PGUQKT6S.js", "chunk-Z9XW4B2Q.js"),
+            // esbuild's hash alphabet can roll an all-letter token with no digits at all.
+            ("/static/chunk-SURMLCAQ.js", "/static/chunk-DJSITZHL.js"),
             (
                 "/data/app/8CC63366-D88D/bundle.js",
                 "/data/app/A4CD3A3C-8BE6/bundle.js",

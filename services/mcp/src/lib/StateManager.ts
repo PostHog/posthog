@@ -1,4 +1,5 @@
 import type { ApiClient, GroupType } from '@/api/client'
+import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
@@ -15,6 +16,7 @@ import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -71,11 +73,22 @@ export class StateManager {
             throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
         }
 
-        const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
+        const { scope, scoped_teams, scoped_organizations, client_name, client_id } = introspectionResult.data
+
+        // Which OAuth application minted this token. Introspection is server-derived, so unlike
+        // the consumer header the caller cannot set it, which is what makes it usable as the
+        // first-party gate in `resolveEventSource`. Django gates on the same id set.
+        if (client_id) {
+            await this._cache.set('oauthClientId', client_id)
+        }
 
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {
             await this._cache.set('clientName', sanitizedClientName)
+            // Introspection is the first point the OAuth app name is known, and the client was
+            // already built for this request — stamp it on so the rest of the request forwards
+            // `x-posthog-mcp-oauth-client-name` instead of waiting for the next cache hit.
+            this._api.config.oauthClientName = sanitizedClientName
         }
 
         return {
@@ -279,8 +292,8 @@ export class StateManager {
         return projectId
     }
 
-    private isCacheStale(fetchedAt: number | undefined): boolean {
-        return !fetchedAt || Date.now() - fetchedAt > CACHE_TTL_MS
+    private isCacheStale(fetchedAt: number | undefined, ttlMs: number = CACHE_TTL_MS): boolean {
+        return !fetchedAt || Date.now() - fetchedAt > ttlMs
     }
 
     /**
@@ -294,13 +307,14 @@ export class StateManager {
         cacheKey: D
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
+        ttlMs?: number
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (!this.isCacheStale(fetchedAt)) {
+        if (!this.isCacheStale(fetchedAt, opts.ttlMs)) {
             return cached
         }
 
@@ -385,13 +399,63 @@ export class StateManager {
         })
     }
 
-    async getEnvironmentPrompt(): Promise<string | undefined> {
+    /**
+     * Integration kinds (github, slack, ...) connected in the project, for the
+     * environment prompt. Returns undefined when the key lacks `integration:read`
+     * so the prompt renders nothing rather than a false "none connected".
+     */
+    async getOrFetchIntegrationKinds(projectId: string): Promise<string[] | undefined> {
+        const apiKey = await this.getApiKey()
+        if (!hasScope(apiKey.scopes, 'integration:read')) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'integration_kinds',
+            cacheKey: `integrationKinds:${projectId}` as const,
+            fetchedAtKey: `integrationKindsFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const result = await this._api.request<Schemas.PaginatedIntegrationConfigList>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/integrations/`,
+                    query: { limit: 100 },
+                })
+                return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
+            },
+        })
+    }
+
+    /**
+     * The third-party MCP tools this user can reach, from the gateway.
+     *
+     * Shorter TTL than the other cached entities: connecting a server is a deliberate
+     * act and the user expects its tools to appear on the next command, not ten minutes
+     * later. Cheap enough to re-fetch — it's one request, and only `exec` triggers it.
+     */
+    async getOrFetchGatewayTools(projectId: string): Promise<Schemas.AvailableToolsResponse | undefined> {
+        return this.getOrFetchCached({
+            name: 'gateway_tools',
+            cacheKey: `gatewayTools:${projectId}` as const,
+            fetchedAtKey: `gatewayToolsFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getGatewayTools(projectId),
+            ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
+        })
+    }
+
+    async getEnvironmentPrompt(opts?: { includeProductContext?: boolean }): Promise<string | undefined> {
+        const includeProductContext = opts?.includeProductContext !== false
         const [user, org, project] = await Promise.all([
             this.getCachedOrFetchUser().catch(() => undefined),
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl)
+        const integrationKinds =
+            includeProductContext && project
+                ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
+                : undefined
+        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, {
+            integrationKinds,
+            includeProductContext,
+        })
     }
 
     /**

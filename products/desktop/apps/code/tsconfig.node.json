@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": false,
+    "declaration": false,
+    "declarationMap": false,
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "types": ["node"]
+  },
+  "exclude": [
+    "src/renderer/**/*",
+    "src/main/preload.ts",
+    "src/shared/constants/environment.ts",
+    "src/shared/test/**/*"
+  ],
+  "extends": "./tsconfig.json",
+  "include": ["src/main/**/*", "src/shared/**/*"]
+}

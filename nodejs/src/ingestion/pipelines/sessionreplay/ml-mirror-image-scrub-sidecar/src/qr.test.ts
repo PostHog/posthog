@@ -35,7 +35,13 @@ describe('detectCodes', () => {
             .raw()
             .toBuffer({ resolveWithObject: true })
 
-        const boxes = await detectCodes({ data, W: info.width, H: info.height })
+        const boxes = await detectCodes({
+            data,
+            W: info.width,
+            H: info.height,
+            format: 'raw',
+            inputPixels: info.width * info.height,
+        })
 
         expect(boxes).toHaveLength(1)
         const b = boxes[0]

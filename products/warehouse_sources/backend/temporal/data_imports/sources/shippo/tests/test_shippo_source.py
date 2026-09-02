@@ -3,17 +3,12 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shippo import ShippoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.shippo import ShippoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source import ShippoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestShippoSource:
@@ -21,26 +16,6 @@ class TestShippoSource:
         self.source = ShippoSource()
         self.team_id = 123
         self.config = ShippoSourceConfig(api_key="shippo_test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SHIPPO
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Shippo"
-        assert config.label == "Shippo"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/shippo"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API token; the base URL is hardcoded, so there is no
@@ -106,20 +81,6 @@ class TestShippoSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source.validate_shippo_credentials"
-    )
-    def test_validate_credentials_delegates_with_api_key(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Shippo API token")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("shippo_test_key")
-        assert result == (False, "Invalid Shippo API token")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ShippoResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source.shippo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

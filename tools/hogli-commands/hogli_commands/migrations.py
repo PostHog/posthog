@@ -28,7 +28,7 @@ import os
 import re
 import sys
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from urllib.parse import quote
 
@@ -80,6 +80,24 @@ class MigrationDiff:
     pending: list[MigrationInfo] = field(default_factory=list)
     # Migrations that are in sync
     synced: list[MigrationInfo] = field(default_factory=list)
+
+
+@dataclass(frozen=True, kw_only=True)
+class OrphanRollbackPlan:
+    """Orphaned migrations split by whether a cached file can drive a real rollback."""
+
+    # Cached: the migration file is available, so Django can undo the schema changes
+    cached: list[MigrationInfo]
+    # Uncached: only the django_migrations record can be removed, and --force is required
+    uncached: list[MigrationInfo]
+
+
+@dataclass(frozen=True, kw_only=True)
+class GitRecoveryResult:
+    """Uncached migrations split by whether git history could supply their file."""
+
+    newly_cached: list[MigrationInfo]
+    still_uncached: list[MigrationInfo]
 
 
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
@@ -331,16 +349,16 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         return False
 
 
-def _fetch_uncached_from_git(uncached: list[MigrationInfo], cached: list[MigrationInfo]) -> list[MigrationInfo]:
+def _fetch_uncached_from_git(uncached: list[MigrationInfo]) -> GitRecoveryResult:
     """Try to fetch uncached migrations from git history.
 
-    Moves successfully fetched migrations from uncached to cached list.
-    Returns the list of migrations that are still uncached.
+    Returns the migrations that are now cached, and the ones that are still uncached.
     """
     if not uncached:
-        return []
+        return GitRecoveryResult(newly_cached=[], still_uncached=[])
 
     click.echo("Attempting to fetch uncached migrations from git…\n")
+    newly_cached: list[MigrationInfo] = []
     still_uncached: list[MigrationInfo] = []
 
     for m in uncached:
@@ -349,7 +367,7 @@ def _fetch_uncached_from_git(uncached: list[MigrationInfo], cached: list[Migrati
             click.echo(f"  Fetching {m.app}.{m.name} from {branch}…")
             if _fetch_and_cache_migration_from_git(m.app, m.name, branch):
                 click.secho(f"  ✓ Cached {m.app}.{m.name}", fg="green")
-                cached.append(m)
+                newly_cached.append(m)
             else:
                 click.secho(f"  ✗ Could not fetch {m.app}.{m.name}", fg="red")
                 still_uncached.append(m)
@@ -358,7 +376,7 @@ def _fetch_uncached_from_git(uncached: list[MigrationInfo], cached: list[Migrati
             still_uncached.append(m)
 
     click.echo()
-    return still_uncached
+    return GitRecoveryResult(newly_cached=newly_cached, still_uncached=still_uncached)
 
 
 def _show_manual_rollback_instructions(uncached: list[MigrationInfo], command_name: str) -> None:
@@ -384,7 +402,7 @@ def _show_manual_rollback_instructions(uncached: list[MigrationInfo], command_na
         click.echo()
 
     click.echo("After manual rollback, run 'hogli migrations:sync' again.\n")
-    click.echo("Or use --force to skip schema rollback (just removes DB records):")
+    click.echo("Or use --force to continue, removing only the DB records for those migrations:")
     click.secho(f"  hogli {command_name} --force\n", fg="yellow")
     raise SystemExit(1)
 
@@ -576,92 +594,93 @@ def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool 
     return MigrationResult(success=True)
 
 
-@click.command(name="migrations:status", help="Show migration diff between database and code")
-def migrations_status() -> None:
-    """Show which migrations are orphaned, pending, or synced."""
-    click.echo("\nAnalyzing migrations…\n")
-
-    diff = _compute_migration_diff()
-
-    if diff.orphaned:
-        click.secho("Orphaned migrations (in DB but not in code):", fg="yellow", bold=True)
-        click.echo("  These were likely applied on another branch.\n")
-        for m in diff.orphaned:
-            click.echo(f"    {m.app}: {m.name}")
-        click.echo()
-
-    if diff.pending:
-        click.secho("Pending migrations (in code but not applied):", fg="blue", bold=True)
-        click.echo("  These need to be applied.\n")
-        for m in diff.pending:
-            click.echo(f"    {m.app}: {m.name}")
-        click.echo()
-
-    if not diff.orphaned and not diff.pending:
-        click.secho("✓ Migrations are in sync", fg="green", bold=True)
-        click.echo(f"  {len(diff.synced)} migration(s) applied and present in code.")
-    else:
-        click.echo("Run 'hogli migrations:sync' to fix, or use 'down'/'up' individually.")
-
-
-@click.command(name="migrations:down", help="Roll back orphaned migrations")
-@click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
-@click.option("--force", "-f", is_flag=True, help="Force removal without schema rollback (just deletes DB records)")
-def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
-    """Roll back migrations that are applied but don't exist in code."""
-    click.echo("\nAnalyzing migrations…\n")
-
+def _echo_dry_run_banner(dry_run: bool) -> None:
     if dry_run:
         click.secho("[DRY RUN MODE - No changes will be made]\n", fg="yellow")
 
-    diff = _compute_migration_diff()
 
-    if not diff.orphaned:
-        click.secho("✓ No orphaned migrations to roll back", fg="green")
-        return
+def _echo_step_header(title: str, color: str) -> None:
+    click.echo("\n" + "─" * 40)
+    click.secho(title, fg=color, bold=True)
 
-    # Categorize orphaned migrations by whether we can roll them back
+
+def _classify_orphans(orphaned: list[MigrationInfo]) -> OrphanRollbackPlan:
+    """Split orphaned migrations by whether their file is in the migration cache."""
     cached: list[MigrationInfo] = []
     uncached: list[MigrationInfo] = []
-
-    for m in diff.orphaned:
+    for m in orphaned:
         if _get_cached_migration(m.app, m.name):
             cached.append(m)
         else:
             uncached.append(m)
+    return OrphanRollbackPlan(cached=cached, uncached=uncached)
 
-    # Show what we found
+
+def _echo_orphaned_migrations(orphaned: list[MigrationInfo], plan: OrphanRollbackPlan) -> None:
+    """List the orphans in the order the diff found them, each labeled with its cache status.
+
+    The plan holds the same migrations but grouped by cache status, so it only supplies
+    the label here. Iterating the plan instead would regroup the printed list.
+    """
+    if not orphaned:
+        return
+
     click.secho("Orphaned migrations to roll back:", fg="yellow", bold=True)
-    for m in diff.orphaned:
-        cache_status = "cached" if m in cached else "not cached"
+    for m in orphaned:
+        cache_status = "cached" if m in plan.cached else "not cached"
         click.echo(f"    {m.app}: {m.name} ({cache_status})")
     click.echo()
 
-    # Try to fetch uncached migrations from git
-    if uncached and not force:
-        uncached = _fetch_uncached_from_git(uncached, cached)
 
-    # If there are still uncached migrations and not forcing, show instructions
-    if uncached and not force:
-        _show_manual_rollback_instructions(uncached, "migrations:down")
+def _echo_pending_migrations(pending: list[MigrationInfo]) -> None:
+    if not pending:
+        return
 
-    # Proceed with rollback
-    if not yes and not dry_run:
-        if force and uncached:
-            click.secho(
-                "\n⚠ WARNING: --force will only remove DB records.\n"
-                "Schema changes from these migrations will remain!\n",
-                fg="red",
-            )
-        if not click.confirm("Proceed?", default=False):
-            click.echo("Aborted.")
-            raise SystemExit(1)
+    click.secho("Pending migrations to apply:", fg="blue", bold=True)
+    for m in pending:
+        click.echo(f"    {m.app}: {m.name}")
+    click.echo()
 
-    # Roll back cached migrations properly
-    if cached:
+
+def _recover_uncached_orphans(plan: OrphanRollbackPlan, force: bool, command_name: str) -> OrphanRollbackPlan:
+    """Fill the cache from git history so uncached orphans can still be rolled back.
+
+    Migrations that stay uncached stop the command, because removing their records
+    leaves their schema changes behind. --force accepts that trade and skips the search.
+    """
+    if force or not plan.uncached:
+        return plan
+
+    recovery = _fetch_uncached_from_git(plan.uncached)
+    plan = replace(plan, cached=[*plan.cached, *recovery.newly_cached], uncached=recovery.still_uncached)
+    if plan.uncached:
+        _show_manual_rollback_instructions(plan.uncached, command_name)
+    return plan
+
+
+def _confirm_or_exit(
+    prompt: str, default: bool, dry_run: bool, yes: bool, force: bool, plan: OrphanRollbackPlan
+) -> None:
+    """Ask before changing the database. A dry run and --yes both skip the prompt."""
+    if yes or dry_run:
+        return
+
+    if force and plan.uncached:
+        click.secho(
+            "\n⚠ WARNING: --force will only remove DB records for uncached migrations.\n"
+            "Schema changes from those migrations will remain!\n",
+            fg="red",
+        )
+    if not click.confirm(prompt, default=default):
+        click.echo("Aborted.")
+        raise SystemExit(1)
+
+
+def _execute_orphan_rollback(plan: OrphanRollbackPlan, force: bool, dry_run: bool) -> None:
+    """Roll back cached orphans, then remove records for uncached ones under --force."""
+    if plan.cached:
         click.echo("\nRolling back cached migrations…")
-        for m in cached:
+        for m in plan.cached:
             click.echo(f"  Rolling back {m.app}.{m.name}…")
             if not _rollback_migration_with_cache(m.app, m.name, dry_run=dry_run):
                 click.secho(f"  Failed to roll back {m.app}.{m.name}", fg="red")
@@ -669,15 +688,11 @@ def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
             if not dry_run:
                 click.secho(f"  ✓ Rolled back {m.app}.{m.name}", fg="green")
 
-    # For uncached migrations (only if --force), just remove DB records
-    if uncached and force:
+    if plan.uncached and force:
         click.echo("\nRemoving uncached migration records (schema changes remain)…")
-        if not _remove_orphaned_migrations(uncached, dry_run=dry_run):
+        if not _remove_orphaned_migrations(plan.uncached, dry_run=dry_run):
             click.secho("Failed to remove orphaned migrations", fg="red")
             raise SystemExit(1)
-
-    click.echo()
-    click.secho("✓ Orphaned migrations handled", fg="green", bold=True)
 
 
 def _handle_duplicate_error(result: MigrationResult, pending: list[MigrationInfo], dry_run: bool, yes: bool) -> bool:
@@ -732,15 +747,97 @@ def _handle_duplicate_error(result: MigrationResult, pending: list[MigrationInfo
         return False
 
 
+def _apply_pending_migrations(pending: list[MigrationInfo], dry_run: bool, yes: bool) -> None:
+    """Apply pending migrations, offering to fake any migration whose schema already exists.
+
+    Each faked migration leaves the rest of the list unapplied, so the run repeats
+    until Django reports success or an error we cannot recover from.
+    """
+    remaining = list(pending)
+
+    while True:
+        result = _apply_migrations(pending=remaining, dry_run=dry_run)
+        if result.success:
+            return
+
+        recoverable = result.error_type in ("duplicate_column", "duplicate_table")
+        if recoverable and _handle_duplicate_error(result, remaining, dry_run, yes):
+            click.echo("\nRetrying remaining migrations…\n")
+            continue
+
+        if not recoverable:
+            click.secho("Failed to apply migrations", fg="red")
+            if result.error_message:
+                click.echo(f"\n{result.error_message}")
+        raise SystemExit(1)
+
+
+@click.command(name="migrations:status", help="Show migration diff between database and code")
+def migrations_status() -> None:
+    """Show which migrations are orphaned, pending, or synced."""
+    click.echo("\nAnalyzing migrations…\n")
+
+    diff = _compute_migration_diff()
+
+    if diff.orphaned:
+        click.secho("Orphaned migrations (in DB but not in code):", fg="yellow", bold=True)
+        click.echo("  These were likely applied on another branch.\n")
+        for m in diff.orphaned:
+            click.echo(f"    {m.app}: {m.name}")
+        click.echo()
+
+    if diff.pending:
+        click.secho("Pending migrations (in code but not applied):", fg="blue", bold=True)
+        click.echo("  These need to be applied.\n")
+        for m in diff.pending:
+            click.echo(f"    {m.app}: {m.name}")
+        click.echo()
+
+    if not diff.orphaned and not diff.pending:
+        click.secho("✓ Migrations are in sync", fg="green", bold=True)
+        click.echo(f"  {len(diff.synced)} migration(s) applied and present in code.")
+    else:
+        click.echo("Run 'hogli migrations:sync' to fix, or use 'down'/'up' individually.")
+
+
+@click.command(name="migrations:down", help="Roll back orphaned migrations")
+@click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Continue when some migrations can't be rolled back, removing only their DB records",
+)
+def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
+    """Roll back migrations that are applied but don't exist in code."""
+    click.echo("\nAnalyzing migrations…\n")
+    _echo_dry_run_banner(dry_run)
+
+    diff = _compute_migration_diff()
+
+    if not diff.orphaned:
+        click.secho("✓ No orphaned migrations to roll back", fg="green")
+        return
+
+    plan = _classify_orphans(diff.orphaned)
+    _echo_orphaned_migrations(diff.orphaned, plan)
+    plan = _recover_uncached_orphans(plan, force=force, command_name="migrations:down")
+
+    _confirm_or_exit("Proceed?", default=False, dry_run=dry_run, yes=yes, force=force, plan=plan)
+    _execute_orphan_rollback(plan, force=force, dry_run=dry_run)
+
+    click.echo()
+    click.secho("✓ Orphaned migrations handled", fg="green", bold=True)
+
+
 @click.command(name="migrations:up", help="Apply pending migrations")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 @click.option("--yes", "-y", is_flag=True, help="Auto-confirm faking migrations with duplicate schema")
 def migrations_up(dry_run: bool, yes: bool) -> None:
     """Apply migrations that exist in code but aren't applied."""
     click.echo("\nApplying pending migrations…\n")
-
-    if dry_run:
-        click.secho("[DRY RUN MODE - No changes will be made]\n", fg="yellow")
+    _echo_dry_run_banner(dry_run)
 
     diff = _compute_migration_diff()
 
@@ -748,33 +845,8 @@ def migrations_up(dry_run: bool, yes: bool) -> None:
         click.secho("✓ No pending migrations to apply", fg="green")
         return
 
-    click.secho("Pending migrations to apply:", fg="blue", bold=True)
-    for m in diff.pending:
-        click.echo(f"    {m.app}: {m.name}")
-    click.echo()
-
-    pending = list(diff.pending)  # Make a mutable copy
-
-    while True:
-        result = _apply_migrations(pending=pending, dry_run=dry_run)
-
-        if result.success:
-            break
-
-        # Check for recoverable duplicate schema errors
-        if result.error_type in ("duplicate_column", "duplicate_table"):
-            if _handle_duplicate_error(result, pending, dry_run, yes):
-                # User chose to fake, retry remaining migrations
-                click.echo("\nRetrying remaining migrations…\n")
-                continue
-            else:
-                raise SystemExit(1)
-        else:
-            # Non-recoverable error
-            click.secho("Failed to apply migrations", fg="red")
-            if result.error_message:
-                click.echo(f"\n{result.error_message}")
-            raise SystemExit(1)
+    _echo_pending_migrations(diff.pending)
+    _apply_pending_migrations(diff.pending, dry_run=dry_run, yes=yes)
 
     if not dry_run:
         click.secho("✓ Migrations applied and cached", fg="green", bold=True)
@@ -797,9 +869,7 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
         hogli migrations:sync
     """
     click.echo("\nAnalyzing migrations…\n")
-
-    if dry_run:
-        click.secho("[DRY RUN MODE - No changes will be made]\n", fg="yellow")
+    _echo_dry_run_banner(dry_run)
 
     diff = _compute_migration_diff()
 
@@ -808,100 +878,21 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
         click.echo(f"  {len(diff.synced)} migration(s) applied and present in code.")
         return
 
-    # Categorize orphaned migrations
-    cached: list[MigrationInfo] = []
-    uncached: list[MigrationInfo] = []
+    plan = _classify_orphans(diff.orphaned)
+    _echo_orphaned_migrations(diff.orphaned, plan)
+    _echo_pending_migrations(diff.pending)
+    plan = _recover_uncached_orphans(plan, force=force, command_name="migrations:sync")
 
-    for m in diff.orphaned:
-        if _get_cached_migration(m.app, m.name):
-            cached.append(m)
-        else:
-            uncached.append(m)
+    _confirm_or_exit("Proceed with sync?", default=True, dry_run=dry_run, yes=yes, force=force, plan=plan)
 
-    # Show what will happen
     if diff.orphaned:
-        click.secho("Orphaned migrations to roll back:", fg="yellow", bold=True)
-        for m in diff.orphaned:
-            cache_status = "cached" if m in cached else "not cached"
-            click.echo(f"    {m.app}: {m.name} ({cache_status})")
-        click.echo()
+        _echo_step_header("Step 1: Rolling back orphaned migrations", "yellow")
+        _execute_orphan_rollback(plan, force=force, dry_run=dry_run)
 
     if diff.pending:
-        click.secho("Pending migrations to apply:", fg="blue", bold=True)
-        for m in diff.pending:
-            click.echo(f"    {m.app}: {m.name}")
+        _echo_step_header("Step 2: Applying pending migrations", "blue")
         click.echo()
-
-    # Try to fetch uncached migrations from git
-    if uncached and not force:
-        uncached = _fetch_uncached_from_git(uncached, cached)
-
-    # If there are still uncached migrations and not forcing, show instructions
-    if uncached and not force:
-        _show_manual_rollback_instructions(uncached, "migrations:sync")
-
-    if not yes and not dry_run:
-        if force and uncached:
-            click.secho(
-                "\n⚠ WARNING: --force will only remove DB records for uncached migrations.\n"
-                "Schema changes from those migrations will remain!\n",
-                fg="red",
-            )
-        if not click.confirm("Proceed with sync?", default=True):
-            click.echo("Aborted.")
-            raise SystemExit(1)
-
-    # Step 1: Roll back orphaned migrations
-    if diff.orphaned:
-        click.echo("\n" + "─" * 40)
-        click.secho("Step 1: Rolling back orphaned migrations", fg="yellow", bold=True)
-        click.echo()
-
-        # Roll back cached migrations properly
-        for m in cached:
-            click.echo(f"  Rolling back {m.app}.{m.name}…")
-            if not _rollback_migration_with_cache(m.app, m.name, dry_run=dry_run):
-                click.secho(f"  Failed to roll back {m.app}.{m.name}", fg="red")
-                raise SystemExit(1)
-            if not dry_run:
-                click.secho(f"  ✓ Rolled back {m.app}.{m.name}", fg="green")
-
-        # Remove uncached migrations (only records, if --force)
-        if uncached and force:
-            click.echo("\n  Removing uncached migration records…")
-            if not _remove_orphaned_migrations(uncached, dry_run=dry_run):
-                click.secho("Failed to remove orphaned migrations", fg="red")
-                raise SystemExit(1)
-
-    # Step 2: Apply pending
-    if diff.pending:
-        click.echo("\n" + "─" * 40)
-        click.secho("Step 2: Applying pending migrations", fg="blue", bold=True)
-        click.echo()
-
-        pending = list(diff.pending)  # Make a mutable copy
-
-        while True:
-            result = _apply_migrations(pending=pending, dry_run=dry_run)
-
-            if result.success:
-                break
-
-            # Check for recoverable duplicate schema errors
-            if result.error_type in ("duplicate_column", "duplicate_table"):
-                if _handle_duplicate_error(result, pending, dry_run, yes):
-                    # User chose to fake, retry remaining migrations
-                    click.echo("\nRetrying remaining migrations…\n")
-                    continue
-                else:
-                    raise SystemExit(1)
-            else:
-                # Non-recoverable error
-                click.secho("Failed to apply migrations", fg="red")
-                if result.error_message:
-                    click.echo(f"\n{result.error_message}")
-                raise SystemExit(1)
-
+        _apply_pending_migrations(diff.pending, dry_run=dry_run, yes=yes)
         if not dry_run:
             click.secho("  ✓ Migrations applied and cached", fg="green")
 

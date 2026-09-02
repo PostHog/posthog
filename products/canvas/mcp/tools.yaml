@@ -1,0 +1,385 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Canvas
+feature: canvas
+url_prefix: /
+ui_apps: {}
+tools:
+    canvas-builds-retrieve:
+        operation: canvases_builds_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas build status
+        description: >
+            Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most
+            recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues
+            a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed`
+            (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task
+            while its build is still queued or building.
+        param_overrides:
+            id:
+                description: ID of the canvas whose builds to read.
+    canvas-create:
+        operation: canvases_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create canvas
+        description: >
+            Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it
+            source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the
+            intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link —
+            share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.
+        param_overrides:
+            channel_id:
+                description:
+                    "Id of the channel to create the canvas in — the channel the task was created in, from the task's context.
+                    Use channel-list only to resolve a channel the user named; never pick a channel from the listing
+                    yourself (the personal #me channel is not a default)."
+            kind:
+                description:
+                    "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid
+                    canvases; its published project must declare a `component` placement contract), or 'grid' (a
+                    composition of components, edited via canvas-layout-patch). See canvas-list (kind=component) before
+                    creating a component."
+            description:
+                description:
+                    Short prose describing the canvas. For components this is the store-search text — say what the widget shows
+                    and what its config controls, so future searches find it.
+    canvas-draft-create:
+        operation: canvases_draft_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Stage a canvas draft build
+        description: >
+            Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is
+            validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so
+            viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT
+            way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version
+            or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued
+            build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights,
+            capture events, inline queries, network origins) — so added access is visible before shipping. Poll
+            canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve
+            passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime
+            capabilities in `project.capabilities`. A project that shows PostHog data must make every figure verifiable
+            before staging: an insight-backed metric links its saved insight (ph.openExternal with a URL from
+            generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed area.
+        param_overrides:
+            id:
+                description: ID of the canvas to stage a draft for.
+    canvas-drafts-retrieve:
+        operation: canvases_drafts_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvas drafts
+        description: >
+            List a canvas's staged drafts (from canvas-draft-create), newest first, each with its latest build status
+            (queued/building/ready/failed). Drafts are separate from the published version history and are never the
+            live version until promoted. Use this to find a pending draft to preview (canvas-source-retrieve with its
+            `version_id`) and promote (canvas-promote-create).
+        param_overrides:
+            id:
+                description: ID of the canvas whose drafts to list.
+    canvas-edit-create:
+        operation: canvases_edit_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit canvas source files
+        description: >
+            Publish per-file edits against a canvas's current source, without resending the whole project. Each
+            operation sets a file's complete content, or deletes it when `content` is null.
+            `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published
+            canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again.
+            The edited project is validated first; error diagnostics reject the whole edit atomically. Edits go live
+            like a publish — for a canvas with a live version, default to staging the complete project as a draft with
+            canvas-draft-create instead, unless the user asked for an immediate live change.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to edit.
+    canvas-layout-get:
+        operation: canvases_layout_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read grid canvas layout
+        description: >
+            Read a grid canvas's live layout document (grid definition + placements) and its `current_version_id`.
+            Always call this before patching or publishing: pass the returned version id as
+            `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet
+            returns the default empty layout with a null version id. Placements reference component canvases
+            (kind=component) — resolve their contracts via canvas-list.
+        exclude_params:
+            - version_id
+        param_overrides:
+            id:
+                description: ID of the grid canvas whose layout to read.
+    canvas-layout-patch:
+        operation: canvases_layout_patch_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Patch grid canvas layout
+        description: >
+            Apply surgical operations to a grid canvas's layout — the DEFAULT way to change one: add_placement (a new
+            widget box), update_placement (fill a box with a component, move/resize it, change its status or config),
+            remove_placement, set_grid. Operations apply in order to the current layout, the result is validated
+            atomically, and the new version is live immediately (layout is data — no build).
+            `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before the first layout
+            publish) — a stale base is rejected with 409 version_conflict; re-read the layout, re-apply, and patch
+            again. To fill a drawn box: update_placement with changes {status: "live", component: <component canvas id>,
+            config: {...}}. The component must be published (canvas-list kind=component shows component_meta and
+            published_build_id) and the config must match its configSchema.
+        param_overrides:
+            id:
+                description: ID of the grid canvas whose layout to patch.
+    canvas-layout-publish:
+        operation: canvases_layout_publish_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish grid canvas layout
+        description: >
+            Publish a COMPLETE layout document as a grid canvas's new head version. Prefer canvas-layout-patch for
+            incremental changes — full publish is for creating an initial layout or restructuring the whole grid. The
+            layout is validated first (grid bounds, overlaps, component references, per-placement config against each
+            component's configSchema); errors reject the publish and leave the canvas untouched. The new version is live
+            immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before
+            the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild
+            the document on the new head, and publish again.
+        param_overrides:
+            id:
+                description: ID of the grid canvas whose layout to publish.
+            expected_current_version_id:
+                description:
+                    The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas
+                    that has never published a layout). A whole document replaces the head, so without the guard a
+                    layout the user changed after you read it is silently discarded.
+                required: true
+    canvas-list:
+        operation: canvases_list
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvases
+        description: >
+            List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to
+            resolve which canvas a request refers to before reading or publishing source. With `kind=component` this is
+            the COMPONENT STORE: reusable widgets grid canvases place. Before building a new widget, ALWAYS search here
+            first (`kind=component` plus `search=<what the widget shows>`) — placing an existing component with the
+            right `config` beats authoring a duplicate. A component is placeable when `component_meta` (its size
+            contract and configSchema) and `published_build_id` are both set. Each row's `url` is that canvas's only
+            valid link — share it verbatim; never construct a canvas URL yourself.
+        param_overrides:
+            channel:
+                description: Only return canvases in this channel (channel id).
+            kind:
+                description: Only return canvases of this kind. kind=component lists the component store.
+            search:
+                description: Case-insensitive match on name and description — use to find store components by what they show.
+    canvas-promote-create:
+        operation: canvases_promote_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Promote a canvas draft to live
+        description: >
+            Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is
+            already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass
+            `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent
+            change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity
+            is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head:
+            revert does not act on drafts.
+        param_overrides:
+            id:
+                description: ID of the canvas whose draft to promote.
+    canvas-publish-create:
+        operation: canvases_publish_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish canvas source project
+        description: >
+            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build.
+            Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to
+            make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The
+            project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
+            `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
+            version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
+            against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare
+            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. A
+            project that shows PostHog data must make every figure verifiable before publishing: an insight-backed
+            metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
+            exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk —
+            this tool is what saves it.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to publish.
+    canvas-publish-current-version:
+        operation: canvases_publish_current_version_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish current canvas version
+        description: >
+            Queue a build for the canvas's current source version without changing its source or metadata. Any project
+            member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale
+            value returns a 409 version_conflict.
+    canvas-report-error-create:
+        operation: canvases_report_error_create
+        enabled: false
+    canvas-request-agent-create:
+        operation: canvases_request_agent_create
+        enabled: false
+    canvas-request-fix-create:
+        operation: canvases_request_fix_create
+        enabled: false
+    canvas-source-retrieve:
+        operation: canvases_source_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas source project
+        description: >
+            Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit
+            the returned files, then publish the complete project with canvas-publish-create, passing the
+            `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten.
+            Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds
+            the React component.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to read.
+    canvas-state-retrieve:
+        operation: canvases_state_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas state
+        description: >
+            Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's
+            own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
+            progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
+            declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
+    canvas-state-set:
+        operation: canvases_state_set
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set canvas state
+        description: >
+            Set one persisted `ph.state` key on a visible canvas, or delete it by passing a null value. `user` updates
+            only the authenticated user's private state; `shared` updates the state every viewer sees. The scope must be
+            declared by the live canvas version. Read the current entries with canvas-state-retrieve before changing
+            progress or other existing values.
+    canvas-validate-create:
+        operation: canvases_validate_create
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate canvas source project
+        description: >
+            Validate a candidate canvas source project without publishing it. Returns structured diagnostics (severity,
+            code, message, file, line); `valid: false` means a publish would be rejected. Side-effect free — call it as
+            often as needed while iterating, and fix every error-severity diagnostic (including undeclared-capability
+            errors) before publishing.
+        param_overrides:
+            id:
+                description: ID of the canvas the project is for.
+    canvases-actions-invoke:
+        operation: canvases_actions_invoke
+        enabled: false
+    canvases-actions-retrieve:
+        operation: canvases_actions_retrieve
+        enabled: false
+    canvases-build-action-create:
+        operation: canvases_build_action_create
+        enabled: false
+    canvases-destroy:
+        operation: canvases_destroy
+        enabled: false
+    canvases-home-create:
+        operation: canvases_home_create
+        enabled: false
+    canvases-partial-update:
+        operation: canvases_partial_update
+        enabled: false
+    canvases-retrieve:
+        operation: canvases_retrieve
+        enabled: false
+    canvases-revert-create:
+        operation: canvases_revert_create
+        enabled: false
+    canvases-versions-retrieve:
+        operation: canvases_versions_retrieve
+        enabled: false

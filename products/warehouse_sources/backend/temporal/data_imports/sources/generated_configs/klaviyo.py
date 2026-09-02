@@ -7,3 +7,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class KlaviyoSourceConfig(config.Config):
     api_key: str
+    conversion_metric_id: str | None = None

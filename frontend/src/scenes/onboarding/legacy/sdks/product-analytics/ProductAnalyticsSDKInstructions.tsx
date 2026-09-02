@@ -13,6 +13,7 @@ import {
     GoogleTagManagerInstallation,
     HeliconeInstallation,
     IOSInstallation,
+    KMPInstallation,
     LangfuseInstallation,
     LaravelInstallation,
     MoEngageInstallation,
@@ -75,6 +76,11 @@ const ProductAnalyticsIOSInstructionsWrapper = withMobileReplay({
 const ProductAnalyticsFlutterInstructionsWrapper = withMobileReplay({
     Installation: FlutterInstallation,
     sdkKey: SDKKey.FLUTTER,
+    onboardingContext: 'product-analytics-onboarding',
+})
+const ProductAnalyticsKMPInstructionsWrapper = withMobileReplay({
+    Installation: KMPInstallation,
+    sdkKey: SDKKey.KMP,
     onboardingContext: 'product-analytics-onboarding',
 })
 const ProductAnalyticsRNInstructionsWrapper = withMobileReplay({
@@ -233,6 +239,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.GOOGLE_TAG_MANAGER]: ProductAnalyticsGoogleTagManagerInstructionsWrapper,
     [SDKKey.HELICONE]: ProductAnalyticsHeliconeInstructionsWrapper,
     [SDKKey.IOS]: ProductAnalyticsIOSInstructionsWrapper,
+    [SDKKey.KMP]: ProductAnalyticsKMPInstructionsWrapper,
     [SDKKey.LANGFUSE]: ProductAnalyticsLangfuseInstructionsWrapper,
     [SDKKey.LARAVEL]: ProductAnalyticsLaravelInstructionsWrapper,
     [SDKKey.MOENGAGE]: ProductAnalyticsMoEngageInstructionsWrapper,

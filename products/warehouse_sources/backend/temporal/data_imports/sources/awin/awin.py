@@ -8,7 +8,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.settings import (
     AWIN_ENDPOINTS,
     DEFAULT_BACKFILL_DAYS,
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.awin.setti
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 AWIN_BASE_URL = "https://api.awin.com"
 
@@ -138,7 +138,11 @@ def _iter_windows(start: datetime, end: datetime, max_days: int) -> Iterator[tup
 
 
 def _build_window_params(
-    config: AwinEndpointConfig, window_start: datetime, window_end: datetime, incremental_field: Optional[str]
+    config: AwinEndpointConfig,
+    window_start: datetime,
+    window_end: datetime,
+    incremental_field: Optional[str],
+    region: str,
 ) -> dict[str, str]:
     params: dict[str, str] = {
         "startDate": window_start.strftime(config.date_format),
@@ -148,6 +152,8 @@ def _build_window_params(
     if config.date_type_by_field:
         default_date_type = next(iter(config.date_type_by_field.values()))
         params["dateType"] = config.date_type_by_field.get(incremental_field or "", default_date_type)
+    if config.requires_region:
+        params["region"] = region
     params.update(config.extra_params)
     return params
 
@@ -214,6 +220,7 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AwinResumeConfig],
+    region: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: Optional[str] = None,
@@ -247,7 +254,9 @@ def get_rows(
         logger.debug(f"Awin: resuming {endpoint} from item {start_index}/{len(work_items)}")
 
     for window, publisher_id in work_items[start_index:]:
-        params = config.extra_params if window is None else _build_window_params(config, *window, incremental_field)
+        params = (
+            config.extra_params if window is None else _build_window_params(config, *window, incremental_field, region)
+        )
         data = _fetch(session, config.path.format(publisher_id=publisher_id), headers, params, logger)
         rows = _rows_from_response(config, data, publisher_id)
         if rows:
@@ -268,6 +277,7 @@ def awin_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AwinResumeConfig],
+    region: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: Optional[str] = None,
@@ -281,6 +291,7 @@ def awin_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            region=region,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,

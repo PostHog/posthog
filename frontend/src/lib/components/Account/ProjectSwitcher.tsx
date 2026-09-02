@@ -22,6 +22,7 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { pendingInvitesLogic, PendingInviteForCurrentUser } from './pendingInvitesLogic'
+import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
 import { ProjectName } from './ProjectMenu'
 
 interface ProjectListItem {
@@ -255,7 +256,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                             render={(props) => (
                                                 <ButtonPrimitive {...props} menuItem active className="flex-1" truncate>
                                                     <IconCheck className="text-tertiary" />
-                                                    <ProjectName team={item.team} />
+                                                    <ProjectName team={item.team} className="flex-1 min-w-0" />
+                                                    <ProjectFreshnessIndicator teamId={item.team.id} />
                                                 </ButtonPrimitive>
                                             )}
                                         />
@@ -282,7 +284,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     hasSideActionRight
                                                 >
                                                     <IconBlank />
-                                                    <ProjectName team={item.team} />
+                                                    <ProjectName team={item.team} className="flex-1 min-w-0" />
+                                                    <ProjectFreshnessIndicator teamId={item.team.id} />
                                                 </ButtonPrimitive>
                                             )}
                                         />

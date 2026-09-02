@@ -2,6 +2,8 @@ from typing import Any
 
 import structlog
 
+from posthog.schema_enums import InsightNodeKind
+
 logger = structlog.get_logger(__name__)
 
 
@@ -20,20 +22,12 @@ _VALID_TOP_LEVEL_QUERY_KINDS = frozenset(
     }
 )
 
-# Source kinds that an InsightVizNode is actually allowed to wrap (matches the Pydantic
-# schema at posthog/schema.py — InsightVizNode.source).
-_VALID_INSIGHT_VIZ_SOURCE_KINDS = frozenset(
-    {
-        "TrendsQuery",
-        "FunnelsQuery",
-        "RetentionQuery",
-        "PathsQuery",
-        "StickinessQuery",
-        "LifecycleQuery",
-        "WebStatsTableQuery",
-        "WebOverviewQuery",
-    }
-)
+
+# InsightNodeKind is generated from the same schema union as InsightVizNode.source, so new
+# insight kinds are accepted here the moment they join the union instead of drifting behind a
+# hardcoded copy.
+_VALID_INSIGHT_VIZ_SOURCE_KINDS = frozenset(kind.value for kind in InsightNodeKind)
+_INSIGHT_VIZ_SOURCE_KINDS_SENTENCE = ", ".join(sorted(_VALID_INSIGHT_VIZ_SOURCE_KINDS))
 
 
 class InvalidNotebookQueryError(ValueError):
@@ -108,8 +102,7 @@ def _normalize_insight_viz_node(query: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(source, dict):
         raise InvalidNotebookQueryError(
             "ph-query node has an InsightVizNode without a `source`. "
-            "InsightVizNode.source must be a TrendsQuery, FunnelsQuery, RetentionQuery, "
-            "PathsQuery, StickinessQuery, LifecycleQuery, WebStatsTableQuery, or WebOverviewQuery."
+            f"InsightVizNode.source must be one of: {_INSIGHT_VIZ_SOURCE_KINDS_SENTENCE}."
         )
 
     source_kind = source.get("kind")
@@ -136,8 +129,7 @@ def _normalize_insight_viz_node(query: dict[str, Any]) -> dict[str, Any]:
     if source_kind not in _VALID_INSIGHT_VIZ_SOURCE_KINDS:
         raise InvalidNotebookQueryError(
             f"ph-query node has an InsightVizNode wrapping `{source_kind}`, which is not "
-            "a valid insight source. InsightVizNode.source must be one of: "
-            f"{', '.join(sorted(_VALID_INSIGHT_VIZ_SOURCE_KINDS))}."
+            f"a valid insight source. InsightVizNode.source must be one of: {_INSIGHT_VIZ_SOURCE_KINDS_SENTENCE}."
         )
 
     return query

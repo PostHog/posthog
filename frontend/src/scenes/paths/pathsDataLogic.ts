@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
-import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActionFilter, FunnelVizType, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -31,6 +31,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
@@ -81,6 +82,7 @@ export interface pathsDataLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -252,6 +254,9 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         MathAvailability.None,
                         NodeKind.FunnelsDataWarehouseNode
                     ),
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.Steps,
+                    },
                     dateRange: {
                         date_from: values.dateRange?.date_from,
                     },

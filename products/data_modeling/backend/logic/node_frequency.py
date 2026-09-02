@@ -9,11 +9,21 @@ typed column.
 
 import uuid
 import dataclasses
+from collections.abc import Iterable
 from datetime import timedelta
 
 from django.db.models import Q, QuerySet
 
-from products.data_modeling.backend.logic.freshness import STREAMING, all_source_floors, normalize_seed_target
+from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
+from products.data_modeling.backend.logic.freshness import (
+    STREAMING,
+    TargetBounds,
+    all_source_floors,
+    ancestors_of,
+    compute_target_bounds,
+    intersect_target_bounds,
+    normalize_seed_target,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -23,6 +33,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 _SYSTEM_KEY = "system"
 _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
+_ANCHOR_MINUTES_KEY = "anchor_minutes"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
@@ -31,10 +42,55 @@ _ORIGIN_POSTHOG = "posthog"
 _ORIGIN_WAREHOUSE = "warehouse"
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class NodeIdentity:
+    """What a node is in access-control terms, so a caller can decide whether to name it.
+
+    All three empty means the node predates the origin stamp, and a caller that redacts should
+    treat it as withheld rather than guess.
+    """
+
+    saved_query_id: str | None  # views, materialized views and endpoints, under `warehouse_view`
+    warehouse_table_id: str | None  # imported source tables, under `warehouse_table`
+    is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
+
+
+def node_identity(node: Node) -> NodeIdentity:
+    """Resolve one node to the resource its name belongs to."""
+    if node.saved_query_id is not None:
+        return NodeIdentity(saved_query_id=str(node.saved_query_id), warehouse_table_id=None, is_posthog_table=False)
+    properties = node.properties or {}
+    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY)
+    return NodeIdentity(
+        saved_query_id=None,
+        warehouse_table_id=str(table_id) if table_id else None,
+        is_posthog_table=properties.get(_ORIGIN_KEY) == _ORIGIN_POSTHOG,
+    )
+
+
 def get_declared_target(node: Node) -> timedelta | None:
     """Return the node's declared freshness target, or None if it has none."""
     seconds = (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_TARGET_SECONDS_KEY)
     return timedelta(seconds=seconds) if seconds is not None else None
+
+
+def declared_targets_by_saved_query(team_id: int, saved_query_ids: Iterable[str | uuid.UUID]) -> dict[str, timedelta]:
+    """Declared freshness target per saved query id, for those whose node carries one.
+
+    Batched for callers that render many saved queries at once. A saved query can hold nodes in
+    several DAGs, but `apply_saved_query_frequency_target` writes the same target to all of them,
+    so the first one found wins.
+    """
+    ids = [str(saved_query_id) for saved_query_id in saved_query_ids]
+    if not ids:
+        return {}
+
+    targets: dict[str, timedelta] = {}
+    for node in Node.objects.filter(team_id=team_id, saved_query_id__in=ids).only("saved_query_id", "properties"):
+        target = get_declared_target(node)
+        if target is not None:
+            targets.setdefault(str(node.saved_query_id), target)
+    return targets
 
 
 def set_declared_target(node: Node, target: timedelta | None) -> None:
@@ -45,6 +101,25 @@ def set_declared_target(node: Node, target: timedelta | None) -> None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
+    node.properties = properties
+    node.save(update_fields=["properties"])
+
+
+def get_declared_anchor(node: Node) -> int | None:
+    """Return the node's declared schedule anchor (minutes past Monday 00:00 UTC), or None."""
+    return (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_ANCHOR_MINUTES_KEY)
+
+
+def set_declared_anchor(node: Node, anchor_minutes: int | None) -> None:
+    """Set (or clear, with None) the node's schedule anchor without touching sibling system state."""
+    if anchor_minutes is not None and not 0 <= anchor_minutes < MINUTES_PER_WEEK:
+        raise ValueError(f"anchor_minutes must be in [0, {MINUTES_PER_WEEK}), got {anchor_minutes}")
+    properties = node.properties or {}
+    frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
+    if anchor_minutes is None:
+        frequency.pop(_ANCHOR_MINUTES_KEY, None)
+    else:
+        frequency[_ANCHOR_MINUTES_KEY] = anchor_minutes
     node.properties = properties
     node.save(update_fields=["properties"])
 
@@ -134,8 +209,11 @@ class FrequencyGraph:
     nodes: set[str]  # schedulable (non-TABLE) node ids
     edges: list[tuple[str, str]]  # (upstream_id, downstream_id), includes source tables
     declared_targets: dict[str, timedelta]  # declared per-node targets
+    declared_anchors: dict[str, int]  # declared per-node schedule anchors (minutes past Monday 00:00 UTC)
     source_intervals: dict[str, timedelta]  # per source (TABLE) node
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
+    names: dict[str, str]  # node id -> display name, so a bound can name what set it
+    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
@@ -148,10 +226,14 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 
     schedulable = {str(node.id) for node in nodes if node.type != NodeType.TABLE}
     declared_targets: dict[str, timedelta] = {}
+    declared_anchors: dict[str, int] = {}
     for node in nodes:
         target = get_declared_target(node)
         if target is not None:
             declared_targets[str(node.id)] = target
+        anchor = get_declared_anchor(node)
+        if anchor is not None:
+            declared_anchors[str(node.id)] = anchor
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
@@ -160,7 +242,65 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         nodes=schedulable,
         edges=edges,
         declared_targets=declared_targets,
+        declared_anchors=declared_anchors,
         source_intervals=source_intervals,
+        best_effort_source_ids=best_effort,
+        names={str(node.id): node.name for node in nodes},
+        identities={str(node.id): node_identity(node) for node in nodes},
+    )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class SavedQueryFrequencyBounds:
+    """A saved query's selectable cadences, plus what a caller needs to name the blockers."""
+
+    bounds: TargetBounds
+    names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
+    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
+    best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
+
+
+def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
+    """Every cadence this saved query may be set to, folded across each DAG holding a node for it.
+
+    The read-side twin of `apply_saved_query_frequency_target`: same nodes, same per-DAG graphs,
+    same validator input, so a cadence offered here cannot be refused by the write that follows.
+
+    None means no DAG node carries this saved query, which is not "anything goes" — it is a target
+    with nowhere to be stored, and the caller owes the reader a different answer than a picker.
+    """
+    nodes = list(Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).select_related("dag"))
+    if not nodes:
+        return None
+
+    per_dag: list[TargetBounds] = []
+    names: dict[str, str] = {}
+    identities: dict[str, NodeIdentity] = {}
+    best_effort: set[str] = set()
+    graphs: dict[str, FrequencyGraph] = {}
+    for node in nodes:
+        # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
+        dag_key = str(node.dag_id)
+        if dag_key not in graphs:
+            graphs[dag_key] = build_frequency_graph(node.dag)
+        graph = graphs[dag_key]
+        per_dag.append(
+            compute_target_bounds(
+                node_id=str(node.id),
+                edges=graph.edges,
+                declared_targets=graph.declared_targets,
+                source_intervals=graph.source_intervals,
+            )
+        )
+        names.update(graph.names)
+        identities.update(graph.identities)
+        # a best-effort source elsewhere in the DAG says nothing about this node's freshness
+        best_effort |= graph.best_effort_source_ids & ancestors_of(str(node.id), graph.edges)
+
+    return SavedQueryFrequencyBounds(
+        bounds=intersect_target_bounds(per_dag),
+        names=names,
+        identities=identities,
         best_effort_source_ids=best_effort,
     )
 

@@ -10,8 +10,8 @@
 #   4. fund that team's ledger in the gateway's Postgres (admission needs it)
 #   5. set the sibling gateway to AI_GATEWAY_AUTH_MODE=resolver
 #
-# The runner uses the gateway by default in dev (config dev defaults) and Django
-# defaults AI_GATEWAY_REDIS_URL to :6381 in dev — so no .env.local is needed.
+# Django defaults AI_GATEWAY_REDIS_URL to :6381 in dev — so no .env.local is
+# needed.
 # Idempotent. The gateway itself runs from the sibling repo:
 #   cd ~/Development/ai-gateway && bin/start gateway   (or: just dev)
 #
@@ -127,13 +127,12 @@ log "set AI_GATEWAY_AUTH_MODE=resolver in $SIBLING_ENV"
 
 cat <<EOF
 
-[setup-gateway-e2e] done. The runner already defaults to the gateway in dev. Next:
+[setup-gateway-e2e] done. Next:
   1. Run the gateway (resolver mode picked up from its .env):
        cd $AI_GATEWAY_REPO && bin/start gateway
      Make sure its .env also has provider keys:
        AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...   AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
-  2. (Re)start the agent-runner.
-  3. Smoke it:
+  2. Smoke it:
        curl -sS http://localhost:8080/v1/messages -H "Authorization: Bearer $DEV_PHS" \\
          -H 'content-type: application/json' \\
          -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'

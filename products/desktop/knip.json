@@ -1,0 +1,151 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "mprocs.yaml",
+        "postcss.config.mjs",
+        "scripts/*.{mjs,js,ts,mts}"
+      ],
+      "ignoreBinaries": ["bin/phrocs"]
+    },
+    "apps/code": {
+      "entry": [
+        "src/main/bootstrap.ts",
+        "src/main/index.ts",
+        "src/main/preload.ts",
+        "src/renderer/main.tsx",
+        "src/renderer/desktop-services.ts",
+        "src/renderer/desktop-contributions.ts",
+        "electron.vite.config.ts",
+        "vite-main-plugins.mts",
+        "vite.shared.mts",
+        "src/renderer/quick-ask/main.tsx",
+        "src/renderer/quick-ask-annotate/main.tsx",
+        ".storybook/mocks/*.ts",
+        "scripts/**/*.{ts,mts,mjs}"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mts,mjs}"],
+      "ignoreDependencies": [
+        "typed-openapi",
+        "chokidar",
+        "detect-libc",
+        "is-glob",
+        "node-addon-api",
+        "@vitest/coverage-v8",
+        "node-pty",
+        "@parcel/watcher",
+        "better-sqlite3",
+        "@posthog/enricher"
+      ]
+    },
+    "packages/agent": {
+      "project": ["src/**/*.ts"],
+      "ignore": ["src/templates/**"],
+      "ignoreDependencies": [
+        "yoga-wasm-web",
+        "@vitest/coverage-v8",
+        "@openai/codex"
+      ],
+      "includeEntryExports": false,
+      "entry": ["src/**/*.bench.ts"]
+    },
+    "packages/api-client": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["src/generated.ts", "src/generated.augment.ts"],
+      "includeEntryExports": true
+    },
+    "packages/core": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["reflect-metadata"],
+      "includeEntryExports": true
+    },
+    "packages/di": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/electron-trpc": {
+      "entry": [
+        "src/main/index.ts",
+        "src/renderer/index.ts",
+        "main.d.ts",
+        "renderer.d.ts"
+      ],
+      "project": ["src/**/*.ts"]
+    },
+    "packages/enricher": {
+      "entry": ["src/**/*.test.ts", "scripts/*.cjs"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["tree-sitter-cli"],
+      "includeEntryExports": true
+    },
+    "packages/git": {
+      "entry": ["src/*.ts", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": true
+    },
+    "packages/host-router": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/host-trpc": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/platform": {
+      "entry": ["src/*.ts"],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": true
+    },
+    "packages/shared": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": false
+    },
+    "packages/ui": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["vite", "tailwindcss-scroll-mask"],
+      "includeEntryExports": true,
+      "entry": ["src/**/*.stories.tsx", "src/test/**/*.{ts,tsx}"]
+    },
+    "packages/workspace-client": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "packages/workspace-server": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "includeEntryExports": true
+    },
+    "apps/web": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["tailwindcss"]
+    },
+    "apps/mobile": {
+      "entry": ["src/**/*.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        "@expo/ui",
+        "expo-crypto",
+        "expo-dev-client",
+        "expo-font",
+        "expo-glass-effect",
+        "expo-splash-screen",
+        "expo-system-ui",
+        "react-native-svg-transformer"
+      ],
+      "ignoreBinaries": ["eas"],
+      "metro": false,
+      "expo": false,
+      "babel": false,
+      "tailwind": false
+    }
+  },
+  "rules": {
+    "duplicates": "off"
+  },
+  "ignoreExportsUsedInFile": {
+    "interface": true,
+    "type": true
+  }
+}

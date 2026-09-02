@@ -1,12 +1,9 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import DevinAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import (
@@ -14,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.s
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.source import DevinAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> Any:
@@ -22,18 +18,6 @@ def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert DevinAISource().source_type == ExternalDataSourceType.DEVINAI
-
-    def test_config_declares_api_key_and_org_id_fields(self) -> None:
-        fields = DevinAISource().get_source_config.fields
-        names = {f.name for f in fields}
-        assert names == {"api_key", "org_id"}
-        api_key_field = next(f for f in fields if f.name == "api_key")
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.secret is True
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert DevinAISource.lists_tables_without_credentials is True
@@ -56,6 +40,17 @@ class TestGetSchemas:
         schemas = {s.name: s for s in DevinAISource().get_schemas(_config(), team_id=1)}
         assert schemas["secrets"].should_sync_default is False
         assert schemas["sessions"].should_sync_default is True
+
+    def test_members_table_is_discovered_full_refresh_with_user_id_key(self) -> None:
+        # The set-equality assertions above compare get_schemas against the same dict the schemas come
+        # from, so only an explicit name check catches the members table going missing from discovery.
+        schemas = {s.name: s for s in DevinAISource().get_schemas(_config(), team_id=1)}
+        members = schemas["members"]
+        assert members.supports_incremental is False
+        assert members.supports_append is False
+        # user_id is the merge key: anything else would duplicate members across full refreshes.
+        assert members.detected_primary_keys == ["user_id"]
+        assert members.should_sync_default is True
 
     def test_names_filter_restricts_output(self) -> None:
         schemas = DevinAISource().get_schemas(_config(), team_id=1, names=["sessions"])
@@ -132,25 +127,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = DevinAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = DevinAISource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-
-    def test_source_for_pipeline_plumbs_config_through(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "sessions"
-        manager = MagicMock()
-        with patch.object(source_module, "devin_ai_source") as mock_source:
-            DevinAISource().source_for_pipeline(_config(api_key="cog_k", org_id="org-x"), manager, inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "cog_k"
-        assert kwargs["org_id"] == "org-x"
-        assert kwargs["endpoint"] == "sessions"
-        assert kwargs["resumable_source_manager"] is manager
 
 
 class TestCanonicalDescriptions:

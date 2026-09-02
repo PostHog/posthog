@@ -7,7 +7,10 @@ from psycopg.errors import SerializationFailure
 from posthog.models.integration import MISSING_CERT_PATH, PostgreSQLIntegration
 
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
+    NON_RETRYABLE_ERROR_TYPES,
+    PostgresInsertInputs,
     PostgreSQLClient,
+    PostgreSQLMissingRequiredInputsError,
     PostgreSQLTransactionError,
     remove_invalid_json,
     run_in_retryable_transaction,
@@ -36,6 +39,30 @@ pytestmark = [
 )
 def test_remove_invalid_json(input_data, expected_data):
     assert remove_invalid_json(input_data) == expected_data
+
+
+@pytest.mark.parametrize("missing_field", ["user", "password", "host", "port"])
+def test_from_inputs_raises_value_error_when_connection_inputs_missing(missing_field):
+    # The activity relies on `from_inputs` raising ValueError to convert missing inputs into a
+    # non-retryable error, so it fails fast rather than retrying to an SLA breach.
+    inputs = PostgresInsertInputs(
+        team_id=1,
+        data_interval_start=None,
+        data_interval_end="2023-04-25T14:30:00+00:00",
+        database="posthog",
+        table_name="events",
+        host="localhost",
+        port=5432,
+        user="posthog",
+        password="posthog",
+    )
+    setattr(inputs, missing_field, None)
+    with pytest.raises(ValueError):
+        PostgreSQLClient.from_inputs(inputs, database=inputs.database)
+
+
+def test_missing_required_inputs_error_is_non_retryable():
+    assert PostgreSQLMissingRequiredInputsError.__name__ in NON_RETRYABLE_ERROR_TYPES
 
 
 async def test_run_in_retryable_transaction_raises_non_retryable_error_after_max_retries(

@@ -28,6 +28,7 @@ describe('notebook operations', () => {
             ['list edit', '- one\n- two', '- one\n- two\n- three'],
             ['code edit', '```py\nprint(1)\n```', '```py\nprint(2)\n```'],
             ['component props', '<Query query={{"kind":"A"}} />', '<Query query={{"kind":"B"}} />'],
+            ['card boundary', '# T\n\na\n\nb', '# T\n\na\n\n\nb'],
             ['everything at once', '# T\n\na\n\nb\n\nc', '# T\n\nc edited\n\nnew\n\na'],
         ])('round-trips %s', (_name, fromMarkdown, toMarkdown) => {
             const fromDocument = parseDocument(fromMarkdown)
@@ -48,7 +49,7 @@ describe('notebook operations', () => {
 
         it('produces inverse operations that revert the change', () => {
             const fromDocument = parseDocument('# Title\n\nalpha\n\nbeta')
-            const toDocument = evolveDocument(fromDocument, '# Title\n\nalpha edited\n\nnew block\n\nbeta')
+            const toDocument = evolveDocument(fromDocument, '# Title\n\nalpha edited\n\nnew block\n\n\nbeta')
 
             const operations = diffNotebookDocuments(fromDocument, toDocument)
             const applied = applyNotebookOperations(fromDocument, operations)

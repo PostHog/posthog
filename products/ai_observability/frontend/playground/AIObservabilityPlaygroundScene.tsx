@@ -30,6 +30,7 @@ import {
     LemonDivider,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -43,6 +44,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
@@ -163,23 +165,28 @@ function PlaygroundHeaderActions(): JSX.Element {
             >
                 Add prompt
             </LemonButton>
-            <LemonButton
-                type={playgroundSubmitting ? 'secondary' : 'primary'}
-                size="small"
-                icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
-                status={playgroundSubmitting ? 'danger' : undefined}
-                onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
-                disabledReason={
-                    playgroundSubmitting
-                        ? undefined
-                        : !hasRunnablePrompts
-                          ? 'Add messages to at least one prompt'
-                          : undefined
-                }
-                data-attr="llma-playground-run-button"
+            <AccessControlAction
+                resourceType={AccessControlResourceType.LlmPlayground}
+                minAccessLevel={AccessControlLevel.Editor}
             >
-                {playgroundSubmitting ? 'Stop' : 'Run'}
-            </LemonButton>
+                <LemonButton
+                    type={playgroundSubmitting ? 'secondary' : 'primary'}
+                    size="small"
+                    icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
+                    status={playgroundSubmitting ? 'danger' : undefined}
+                    onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
+                    disabledReason={
+                        playgroundSubmitting
+                            ? undefined
+                            : !hasRunnablePrompts
+                              ? 'Add messages to at least one prompt'
+                              : undefined
+                    }
+                    data-attr="llma-playground-run-button"
+                >
+                    {playgroundSubmitting ? 'Stop' : 'Run'}
+                </LemonButton>
+            </AccessControlAction>
         </>
     )
 }

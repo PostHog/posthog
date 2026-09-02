@@ -12,7 +12,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs
 from products.posthog_ai.backend.models.assistant import CoreMemory
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 

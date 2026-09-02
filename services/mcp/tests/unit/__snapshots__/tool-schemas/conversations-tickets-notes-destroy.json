@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The ticket's UUID or its numeric ticket number.",
+            "type": "string"
+        },
+        "message_id": {
+            "description": "The UUID of the private note (comment) to edit or delete.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "message_id"],
+    "type": "object"
+}

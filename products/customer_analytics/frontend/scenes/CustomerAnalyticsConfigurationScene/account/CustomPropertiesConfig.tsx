@@ -1,8 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconInfo, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconLogomark, IconPencil, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTableColumns,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -20,6 +27,7 @@ import type {
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
+import { CustomPropertySyncRuns } from './CustomPropertySyncRuns'
 import { labelForDisplayType, type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
 
 const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
@@ -30,17 +38,40 @@ const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
 }
 
 export function CustomPropertiesConfig(): JSX.Element {
-    const { definitions, definitionsLoading } = useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition } = useActions(customPropertyDefinitionsLogic)
+    const {
+        filteredDefinitions,
+        definitionsLoading,
+        searchTerm,
+        targetTypeFilter,
+        runsBySourceId,
+        runsCountBySourceId,
+        runsOffsetBySourceId,
+        runsSearchBySourceId,
+        runsLoadingBySourceId,
+        runsLoadFailedBySourceId,
+    } = useValues(customPropertyDefinitionsLogic)
+    const {
+        openCreateModal,
+        openEditModal,
+        deleteDefinition,
+        setSearchTerm,
+        setTargetTypeFilter,
+        setRunsSearch,
+        loadRuns,
+    } = useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
         LemonDialog.open({
             title: `Delete ${definition.name}?`,
-            description: `Deleting ${definition.name} removes this custom property. This can't be undone.`,
+            description: (
+                <>
+                    <p>This action is irreversible.</p>
+                    <p>All stored values for this custom property will be permanently deleted.</p>
+                </>
+            ),
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
@@ -54,13 +85,24 @@ export function CustomPropertiesConfig(): JSX.Element {
         {
             title: 'Name',
             dataIndex: 'name',
-            render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
+            render: (_, definition) => (
+                <span className="flex items-center gap-1 font-semibold">
+                    {definition.is_canonical && (
+                        <Tooltip title="PostHog sets this property automatically">
+                            <IconLogomark className="text-lg shrink-0" />
+                        </Tooltip>
+                    )}
+                    {definition.name}
+                </span>
+            ),
         },
         {
             title: 'Attach to',
             render: (_, definition) =>
                 definition.target_type === 'person' ? (
                     <LemonTag type="completion">Person</LemonTag>
+                ) : definition.target_type === 'group' ? (
+                    <LemonTag type="caution">Group</LemonTag>
                 ) : (
                     <LemonTag type="default">Account</LemonTag>
                 ),
@@ -91,7 +133,12 @@ export function CustomPropertiesConfig(): JSX.Element {
                     </Tooltip>
                 </span>
             ),
-            render: (_, definition) => <ReferencesCell references={definition.references} />,
+            render: (_, definition) => (
+                <ReferencesCell
+                    hasWorkflowReference={definition.has_workflow_reference}
+                    references={definition.references}
+                />
+            ),
         },
         {
             title: 'Last updated',
@@ -103,10 +150,26 @@ export function CustomPropertiesConfig(): JSX.Element {
                 ),
         },
         {
-            title: 'Sync',
+            title: (
+                <span className="flex items-center gap-1">
+                    Sync
+                    <Tooltip title="Expand a warehouse-backed account property to see staging, retries, and account updates.">
+                        <IconInfo className="text-secondary" />
+                    </Tooltip>
+                </span>
+            ),
             render: (_, definition) => {
+                if (definition.is_canonical) {
+                    return <span className="text-secondary">Auto</span>
+                }
                 if (!definition.source) {
-                    return <span className="text-secondary">Manual</span>
+                    return definition.has_workflow_reference ? (
+                        <Tooltip title="This property is updated by a workflow.">
+                            <span className="text-secondary">Workflow</span>
+                        </Tooltip>
+                    ) : (
+                        <span className="text-secondary">Manual</span>
+                    )
                 }
                 const status = sourceSyncStatus(definition.source)
                 return (
@@ -124,25 +187,31 @@ export function CustomPropertiesConfig(): JSX.Element {
         {
             title: '',
             width: 0,
-            render: (_, definition) => (
-                <div className="flex gap-1 justify-end">
-                    <LemonButton
-                        size="small"
-                        icon={<IconPencil />}
-                        tooltip="Edit"
-                        onClick={() => openEditModal(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                    <LemonButton
-                        size="small"
-                        status="danger"
-                        icon={<IconTrash />}
-                        tooltip="Delete"
-                        onClick={() => confirmDelete(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                </div>
-            ),
+            render: (_, definition) => {
+                const canonicalReason = definition.is_canonical
+                    ? "PostHog sets this property automatically, so it can't be edited or deleted."
+                    : undefined
+                return (
+                    <div className="flex gap-1 justify-end">
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            tooltip="Edit"
+                            onClick={() => openEditModal(definition)}
+                            disabledReason={canonicalReason ?? restrictionReason}
+                        />
+                        <LemonButton
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            tooltip="Delete"
+                            onClick={() => confirmDelete(definition)}
+                            disabledReason={canonicalReason ?? restrictionReason}
+                            data-attr="delete-custom-property"
+                        />
+                    </div>
+                )
+            },
         },
     ]
 
@@ -157,23 +226,114 @@ export function CustomPropertiesConfig(): JSX.Element {
                     New custom property
                 </LemonButton>
             </div>
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search custom properties"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="max-w-80"
+                />
+                <LemonSegmentedButton
+                    size="small"
+                    value={targetTypeFilter}
+                    onChange={setTargetTypeFilter}
+                    options={[
+                        { value: 'all', label: 'All' },
+                        { value: 'account', label: 'Accounts' },
+                        { value: 'person', label: 'Persons' },
+                        { value: 'group', label: 'Groups' },
+                    ]}
+                />
+            </div>
             <LemonTable
                 columns={columns}
-                dataSource={definitions}
+                dataSource={filteredDefinitions}
                 loading={definitionsLoading}
                 rowKey="id"
-                emptyState="No custom properties yet. Create one to get started."
+                pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                expandable={{
+                    rowExpandable: (definition) =>
+                        definition.target_type === 'account' && !!definition.source?.saved_query,
+                    onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
+                    noIndent: true,
+                    expandedRowRender: (definition) =>
+                        definition.source ? (
+                            <CustomPropertySyncRuns
+                                runs={runsBySourceId[definition.source.id] ?? []}
+                                loading={runsLoadingBySourceId[definition.source.id] ?? false}
+                                loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
+                                targetType="account"
+                                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
+                                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
+                                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
+                                onSearch={(searchTerm) => {
+                                    if (definition.source) {
+                                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
+                                    }
+                                }}
+                                onForward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
+                                        })
+                                    }
+                                }}
+                                onBackward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
+                                        })
+                                    }
+                                }}
+                                syncsUrl={
+                                    definition.source.saved_query
+                                        ? urls.sqlEditor({ view_id: definition.source.saved_query })
+                                        : null
+                                }
+                                onReload={() =>
+                                    definition.source &&
+                                    loadRuns({
+                                        sourceId: definition.source.id,
+                                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
+                                    })
+                                }
+                            />
+                        ) : null,
+                }}
+                emptyState={
+                    searchTerm || targetTypeFilter !== 'all'
+                        ? 'No custom properties match your filters.'
+                        : 'No custom properties yet. Create one to get started.'
+                }
             />
             <CustomPropertyModal />
         </div>
     )
 }
 
-function ReferencesCell({ references }: { references: readonly CustomPropertyReferenceApi[] }): JSX.Element {
+function ReferencesCell({
+    hasWorkflowReference,
+    references,
+}: {
+    hasWorkflowReference: boolean
+    references: readonly CustomPropertyReferenceApi[]
+}): JSX.Element {
     const [open, setOpen] = useState(false)
 
-    if (!references.length) {
+    if (!hasWorkflowReference) {
         return <span className="text-secondary">0</span>
+    }
+
+    if (!references.length) {
+        return (
+            <Tooltip title="You don't have access to view the workflow.">
+                <span className="text-secondary">Workflow</span>
+            </Tooltip>
+        )
     }
 
     return (

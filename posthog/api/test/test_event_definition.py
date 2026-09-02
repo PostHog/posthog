@@ -7,15 +7,18 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.event_definition import create_event_definitions_sql
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.constants import EventDefinitionType
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 
 from products.actions.backend.models.action import Action
@@ -45,7 +48,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             create_event_definitions(event_definition, team_id=cls.demo_team.pk)
             capture_event(
-                event=EventData(
+                event=EventFixture(
                     event=event_definition["name"],
                     team_id=cls.demo_team.pk,
                     distinct_id="abc",
@@ -67,6 +70,27 @@ class TestEventDefinitionAPI(APIBaseTest):
             )
             assert abs((dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds()) < 1
 
+    def test_list_event_definitions_scopes_by_project_across_environments(self):
+        # Rows written before the project backfill have project_id NULL and scope by team_id; rows written
+        # since carry project_id. Both must be visible from any environment of the project, and a sibling
+        # project's rows must not. Guards the scope predicate against a rewrite to only one of the columns.
+        other_env = Team.objects.create(
+            organization=self.organization, project_id=self.demo_team.project_id, name="staging env"
+        )
+        other_project_team = create_team(organization=self.organization)
+        EventDefinition.objects.create(team=other_env, project_id=self.demo_team.project_id, name="from_other_env")
+        EventDefinition.objects.create(
+            team=other_project_team, project_id=other_project_team.project_id, name="from_other_project"
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+
+        assert response.status_code == status.HTTP_200_OK
+        result_names = {r["name"] for r in response.json()["results"]}
+        assert "from_other_env" in result_names
+        assert "from_other_project" not in result_names
+        assert {d["name"] for d in self.EXPECTED_EVENT_DEFINITIONS} <= result_names
+
     def test_list_event_definitions_with_excluded_properties(self):
         response = self.client.get(
             '/api/projects/@current/event_definitions/?excluded_properties=["installed_app", "purchase"]'
@@ -76,6 +100,18 @@ class TestEventDefinitionAPI(APIBaseTest):
         result_names = [r["name"] for r in response.json()["results"]]
         assert "installed_app" not in result_names
         assert "purchase" not in result_names
+
+    @parameterized.expand(
+        [
+            ("repeated", "names=installed_app&names=purchase&names=missing_event"),
+            ("comma_separated", "names=installed_app,purchase,missing_event"),
+        ]
+    )
+    def test_list_event_definitions_with_exact_names(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {result["name"] for result in response.json()["results"]} == {"installed_app", "purchase"}
 
     @parameterized.expand(
         [
@@ -344,6 +380,27 @@ class TestEventDefinitionAPI(APIBaseTest):
         detail = cast(dict[str, Any], activity_log.detail)
         assert detail["name"] == "my_custom_event"
 
+    @patch("posthog.api.event_definition.EE_AVAILABLE", False)
+    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "event_with_unsupported_metadata",
+                "description": "This cannot be stored without EE.",
+                "verified": True,
+                "hidden": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is not supported by this deployment.",
+            "attr": "description",
+        }
+        assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
+
     def test_create_event_definition_duplicate_name(self):
         """Test that creating an event with a duplicate name fails"""
         EventDefinition.objects.create(team=self.demo_team, name="existing_event")
@@ -595,6 +652,20 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
 
 
+class TestCreateEventDefinitionsSql(SimpleTestCase):
+    @parameterized.expand([("enterprise", True), ("open source", False)])
+    def test_selects_columns_in_a_stable_order(self, _name: str, is_enterprise: bool):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=is_enterprise)
+        select_clause = sql.split("SELECT ", 1)[1].split("FROM", 1)[0]
+        columns = [column.strip() for column in select_clause.split(",")]
+        assert columns == sorted(columns)
+
+    def test_joins_the_enterprise_table_with_a_left_join(self):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=True)
+        assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
+        assert "FULL OUTER JOIN" not in sql
+
+
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
     in `exclude_stale` matches the fixture last_seen_at values. The other test class is
@@ -633,7 +704,7 @@ class TestEventDefinitionExcludeStale(APIBaseTest):
 
 
 @dataclasses.dataclass
-class EventData:
+class EventFixture:
     """
     Little utility struct for creating test event data
     """
@@ -645,7 +716,7 @@ class EventData:
     properties: dict[str, Any]
 
 
-def capture_event(event: EventData):
+def capture_event(event: EventFixture):
     """
     Creates an event, given an event dict. Currently just puts this data
     directly into clickhouse, but could be created via api to get better parity

@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -13,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.settings import (
     ELEVENLABS_ENDPOINTS,
     ElevenLabsEndpointConfig,
@@ -159,11 +159,20 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     if status == 200:
         return True, None
     if status == 401:
-        return False, "Invalid ElevenLabs API key"
+        return (
+            False,
+            "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
+            "ElevenLabs account settings, then try again.",
+        )
     if status == 403:
         if schema_name is None:
             return True, None
         return False, f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`."
+    # A 4xx other than the 401/403 above (a 400 is what users actually hit) is a deterministic client
+    # error: the key was rejected and retrying sends the same request, so treat it as an invalid key
+    # rather than a transient "try again". 429 is a rate limit and stays retryable below.
+    if 400 <= status < 500 and status != 429:
+        return False, "Invalid ElevenLabs API key"
     # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
     # can retry, rather than saving a source that only fails on its first sync.
     return False, f"Could not verify the ElevenLabs API key (status {status}). Please try again."

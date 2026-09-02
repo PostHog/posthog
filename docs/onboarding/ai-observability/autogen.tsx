@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -17,8 +18,8 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-autogen)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
-                            wrapper
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see this example
+                            instead: [Python wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-autogen).
                         </Markdown>
                     </CalloutBox>
@@ -124,6 +125,7 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python'] }),
     ]
 }
 

@@ -1,12 +1,15 @@
 import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
+import { TophogOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { TopHog, TopHogComponent } from '~/ingestion/framework/tophog'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { Scope, extend } from './scopes'
@@ -17,7 +20,10 @@ type MessageInput = { message: Message }
 type MessageContext = { message: Message }
 
 export interface IngestionBatchingPipeline {
-    feed(elements: OkResultWithContext<MessageInput, MessageContext>[]): Promise<FeedResult>
+    feed(
+        elements: OkResultWithContext<MessageInput, MessageContext>[],
+        batchContext: Record<never, never>
+    ): Promise<FeedResult>
     next(): Promise<BatchResult<unknown> | null>
 }
 
@@ -61,17 +67,33 @@ const latestOffsetTimestampGauge = new Gauge({
  * consumer, and returns a live `CommonIngestionConsumer` that owns the
  * started handle.
  */
-export class CommonIngestionConsumerScope<S extends ContainerWithPromiseScheduler> {
-    private readonly innerScope: Scope<S & { kafkaConsumer: KafkaConsumerInterface }>
+export class CommonIngestionConsumerScope<
+    S extends ContainerWithPromiseScheduler & { outputs: IngestionOutputs<TophogOutput> },
+> {
+    private readonly innerScope: Scope<S & { topHog: TopHog } & { kafkaConsumer: KafkaConsumerInterface }>
 
     constructor(
         private readonly name: string,
         config: CommonIngestionConsumerConfig,
         scope: Scope<S>,
-        pipelineFactory: PipelineFactory<S>
+        pipelineFactory: PipelineFactory<S & { topHog: TopHog }>
     ) {
         const consumerName = this.name
-        this.innerScope = extend(scope, `${consumerName}-consumer`, (container, builder) => {
+        // Every consumer gets a topHog registry scoped to its own outputs and
+        // pipeline/lane labels. It lives one scope above the consumer so its
+        // started value is in the container when the pipeline factory runs —
+        // and so its flush loop starts before, and stops after, the consumer.
+        const scopeWithTopHog = extend(scope, `${consumerName}-tophog`, (container, builder) =>
+            builder.add(
+                'topHog',
+                new TopHogComponent({
+                    outputs: container.outputs,
+                    pipeline: config.INGESTION_PIPELINE ?? 'unknown',
+                    lane: config.INGESTION_LANE ?? 'unknown',
+                })
+            )
+        )
+        this.innerScope = extend(scopeWithTopHog, `${consumerName}-consumer`, (container, builder) => {
             const pipeline = pipelineFactory({ container })
             const handler = new KafkaBatchHandler(config, consumerName, pipeline, container.promiseScheduler)
             return builder.add(
@@ -144,9 +166,11 @@ class KafkaBatchHandler {
             this.logBatchStart(messages)
         }
 
-        const batch = messages.map((message) => createOkContext({ message }, { message }))
+        const batch = messages.map((message) =>
+            createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+        )
 
-        const feedResult = await this.pipeline.feed(batch)
+        const feedResult = await this.pipeline.feed(batch, {})
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }

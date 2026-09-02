@@ -10,7 +10,10 @@ import sharp from 'sharp'
 
 const OUT = new URL('../corpus/', import.meta.url).pathname
 
-function screenshotSvg(w: number, h: number, seed: number): Buffer {
+/** textScale is the capture's device pixel ratio: a retina screenshot has twice the pixels AND twice
+ *  the glyph height, while a large monitor at DPR 1 has the pixels without the glyphs, which is the
+ *  case that stresses the SCRUB_MAX_PIXELS downscale hardest. */
+function screenshotSvg(w: number, h: number, seed: number, textScale = 1): Buffer {
     const rows: string[] = []
     const lines = [
         'Dashboard  Settings  Profile  Billing  Log out',
@@ -22,19 +25,19 @@ function screenshotSvg(w: number, h: number, seed: number): Buffer {
         'SSN 123-45-6789   DOB 1990-04-12   Acct 0098761234',
         'Search results for "quarterly forecast q3 2026"',
     ]
-    let y = 40
+    let y = 40 * textScale
     for (let i = 0; i < 18; i++) {
         const text = lines[(i + seed) % lines.length]
         rows.push(
-            `<text x="32" y="${y}" font-family="Arial" font-size="${14 + ((i + seed) % 6)}" fill="#1f2937">${text}</text>`
+            `<text x="${32 * textScale}" y="${y}" font-family="Arial" font-size="${(14 + ((i + seed) % 6)) * textScale}" fill="#1f2937">${text}</text>`
         )
         y += Math.floor(h / 20)
     }
     return Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
            <rect width="${w}" height="${h}" fill="#ffffff"/>
-           <rect width="${w}" height="56" fill="#111827"/>
-           <text x="32" y="36" font-family="Arial" font-size="22" fill="#ffffff">Acme Analytics</text>
+           <rect width="${w}" height="${56 * textScale}" fill="#111827"/>
+           <text x="${32 * textScale}" y="${36 * textScale}" font-family="Arial" font-size="${22 * textScale}" fill="#ffffff">Acme Analytics</text>
            ${rows.join('\n')}
          </svg>`
     )
@@ -57,21 +60,31 @@ async function main(): Promise<void> {
     await mkdir(OUT, { recursive: true })
     const manifest: { file: string; bytes: number; kind: string }[] = []
 
-    const sizes: [number, number, string][] = [
-        [1280, 720, 'desktop'],
-        [1440, 900, 'desktop'],
-        [375, 812, 'mobile'],
-        [390, 844, 'mobile'],
+    // Spans both sides of SCRUB_MAX_PIXELS on purpose. Everything at or under 1440x900 stays under
+    // the cap and is never downscaled, so a corpus of only those says nothing about what the cap
+    // costs. The dpr-1 entries above 2 MP are the pessimistic shape: monitor-sized frames whose text
+    // is still 14-19px, so the downscale eats glyph height that was already marginal.
+    const sizes: [number, number, string, number][] = [
+        [1280, 720, 'desktop', 1],
+        [1440, 900, 'desktop', 1],
+        [1920, 1080, 'desktop', 1],
+        [2560, 1440, 'desktop', 1],
+        [3840, 2160, 'desktop', 1],
+        [2880, 1800, 'retina', 2],
+        [3840, 2160, 'retina', 2],
+        [375, 812, 'mobile', 1],
+        [390, 844, 'mobile', 1],
+        [750, 1624, 'mobile', 2],
     ]
     let i = 0
-    for (const [w, h, kind] of sizes) {
+    for (const [w, h, kind, dpr] of sizes) {
         for (let k = 0; k < 3; k++) {
-            const png = await sharp(screenshotSvg(w, h, i + k))
+            const png = await sharp(screenshotSvg(w, h, i + k, dpr))
                 .png()
                 .toBuffer()
-            const file = `shot_${kind}_${w}x${h}_${k}.png`
+            const file = `shot_${kind}_${w}x${h}_dpr${dpr}_${k}.png`
             await writeFile(OUT + file, png)
-            manifest.push({ file, bytes: png.length, kind: `screenshot_${kind}` })
+            manifest.push({ file, bytes: png.length, kind: `screenshot_${kind}_dpr${dpr}` })
             i++
         }
     }

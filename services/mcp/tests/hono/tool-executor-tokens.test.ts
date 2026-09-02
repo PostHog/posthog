@@ -8,6 +8,7 @@ const { mockTrackToolCall, mockTrackExecuteSqlGeneration } = vi.hoisted(() => ({
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: mockTrackToolCall,
     trackExecuteSqlGeneration: mockTrackExecuteSqlGeneration,
+    trackToolSpan: vi.fn(),
 }))
 
 vi.mock('@/resources/internals', () => ({
@@ -28,6 +29,8 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { estimateTokens } from '@/lib/estimate-tokens'
+
+import { toolFromPreBuilt } from '../shared/test-utils'
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -51,6 +54,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -59,6 +63,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -68,28 +73,32 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
+}
+
+type FakeToolBase = {
+    schema: z.ZodObject<Record<string, never>>
+    handler: ReturnType<typeof vi.fn>
+    _meta?: { ui?: { resourceUri?: string } }
 }
 
 function makeFakeTool(
     name: string,
     handler: () => Promise<unknown> = async () => 'ok',
     _meta?: { ui?: { resourceUri?: string } }
-): {
-    name: string
-    base: {
-        schema: z.ZodObject<Record<string, never>>
-        handler: ReturnType<typeof vi.fn>
-        _meta?: { ui?: { resourceUri?: string } }
-    }
-} {
+): { name: string; build: () => FakeToolBase; base: FakeToolBase } {
     return {
         name,
+        build() {
+            return this.base
+        },
         base: {
             schema: z.object({}),
             handler: vi.fn().mockImplementation(handler),
@@ -118,6 +127,9 @@ describe('ToolExecutor token estimates', () => {
         it('emits the execute-sql generation with the validated args', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'execute-sql',
+                build() {
+                    return this.base
+                },
                 base: {
                     schema: z.object({ query: z.string() }),
                     handler: vi.fn().mockResolvedValue('ok'),
@@ -232,16 +244,9 @@ describe('ToolExecutor token estimates', () => {
         it('attributes the canonical event to the inner tool via the standard $mcp_tool_name', async () => {
             // Full catalog tools (real names, so the instructions builder resolves them),
             // with the target handler stubbed to keep dispatch offline + deterministic.
-            const tools = catalog.getPreBuiltEntries().map((entry) => {
-                const preBuilt = catalog.getToolByName(entry.name)!
-                return {
-                    ...preBuilt.base,
-                    title: entry.title,
-                    description: entry.description ?? '',
-                    annotations: entry.annotations,
-                    scopes: [],
-                }
-            })
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
             const target = tools.find((t) => t.name === 'docs-search')! as any
             target.handler = vi.fn(async () => 'inner-ok')
             const state = makeState(tools as any, { useSingleExec: true })

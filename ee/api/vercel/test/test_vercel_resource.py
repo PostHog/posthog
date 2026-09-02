@@ -284,11 +284,13 @@ class TestVercelResourceAPI(VercelTestBase):
         data = response.json()
         self.assertIn("secrets", data)
         secrets = data["secrets"]
-        self.assertEqual(len(secrets), 2)
+        expected_prefixes = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
+        self.assertEqual(len(secrets), 2 * len(expected_prefixes))
 
         secret_names = [s["name"] for s in secrets]
-        self.assertIn("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", secret_names)
-        self.assertIn("NEXT_PUBLIC_POSTHOG_HOST", secret_names)
+        for prefix in expected_prefixes:
+            self.assertIn(f"{prefix}POSTHOG_PROJECT_TOKEN", secret_names)
+            self.assertIn(f"{prefix}POSTHOG_HOST", secret_names)
 
         api_key_secret = next(s for s in secrets if s["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN")
         self.assertEqual(api_key_secret["value"], self.team.api_token)

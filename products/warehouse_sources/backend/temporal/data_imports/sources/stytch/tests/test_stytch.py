@@ -166,6 +166,20 @@ class TestGetRowsUsers:
         with pytest.raises(StytchAPIError, match="error_type=invalid_secret_authentication"):
             list(get_rows("project-live-x", "secret", "users", mock.MagicMock(), _make_manager()))
 
+    @mock.patch(MOCK_PATH)
+    def test_search_timeout_is_retried_and_recovers(self, mock_session):
+        # Stytch's own backend search timeout comes back as a 400, not a 5xx, but it's the same
+        # transient condition — it must be retried in-process rather than raised as a hard error.
+        mock_session.return_value.request.side_effect = [
+            _response({"error_type": "search_timeout"}, 400),
+            _response(_search_page("results", [{"user_id": "u1"}], None)),
+        ]
+
+        batches = list(get_rows("project-live-x", "secret", "users", mock.MagicMock(), _make_manager()))
+
+        assert [item["user_id"] for batch in batches for item in batch] == ["u1"]
+        assert mock_session.return_value.request.call_count == 2
+
 
 class TestGetRowsSessions:
     @mock.patch(MOCK_PATH)

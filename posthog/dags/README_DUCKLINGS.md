@@ -5,8 +5,8 @@ This document describes the Dagster jobs and sensors for backfilling ClickHouse 
 ## Architecture
 
 ```text
-DuckgresServer + DuckgresServerTeam (Django models)
-    │ team_id → org's DuckgresServer (connection + bucket); DuckgresServerTeam gates enablement
+DuckgresServer (Django model) + control-plane team rows
+    │ DuckgresServer stores the org connection; control-plane rows gate each team's enablement
     ▼
 ClickHouse (events/person tables)
     │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -85,6 +85,27 @@ To run the full backfill immediately (without waiting for tomorrow):
    - `skip_ducklake_registration: true` - Export to S3 only
    - `delete_tables: true` - Reset duckling tables first
 
+#### Rewriting one events day with the default Parquet layout
+
+Events exports use a 512 MiB uncompressed row-group byte target by default. To pin that layout when rewriting a day, select exactly one daily `<team_id>_YYYY-MM-DD` partition in `duckling_events_backfill_job`, then use this Launchpad configuration:
+
+```yaml
+ops:
+  duckling_events_backfill:
+    config:
+      events_parquet_row_group_size_bytes: 536870912 # 512 MiB
+      target_rows_per_file: 5000000
+      cleanup_existing_partition_data: true
+      skip_ducklake_registration: false
+      delete_tables: false
+```
+
+The 250,000-row cap also applies. ClickHouse closes a row group when either the row or byte target is reached, so wide rows may reach the byte target first. The exporter limits fan-out automatically so `fan-out × events_parquet_row_group_size_bytes` does not exceed the nominal 32 GiB row-group buffer budget. A 512 MiB target therefore allows at most 64 writers. The day's row count and `max_s3_file_fanout` can reduce it further. Encoding and other query memory are not included in the 32 GiB estimate; ClickHouse's `max_memory_usage` remains the hard query limit.
+
+The rewrite is not atomic. The existing DuckLake day is removed before export and registration finish, so queries may temporarily see no rows for that day. After a transient failure, rerun the same daily partition with the same configuration. After a memory or resource failure, lower `max_s3_file_fanout` and rerun. Keep `cleanup_existing_partition_data: true` so the retry clears partial registration and regenerates the day from current ClickHouse data. Do not manually delete the run's S3 objects.
+
+To rewrite the active DuckLake day with the default layout, rerun the same day without the row-group and fan-out overrides. This regenerates the day from current ClickHouse data; it does not restore a pinned snapshot or remove old unreferenced run objects from S3.
+
 ### Resetting a Duckling
 
 To completely reset a duckling's data and re-backfill:
@@ -104,13 +125,16 @@ class DucklingBackfillConfig:
     create_tables_if_missing: bool = True     # Auto-create events/persons tables
     delete_tables: bool = False               # DANGER: Drop and recreate tables
     dry_run: bool = False                     # Preview mode, no writes
+    events_parquet_row_group_size_bytes: int = 536_870_912  # Events only; 512 MiB
+    target_rows_per_file: int = 5_000_000      # Target rows per exported file
+    max_s3_file_fanout: int = 256              # Maximum before the automatic buffer-budget limit
 ```
 
 ## Adding a New Duckling
 
-1. Provision (or create) the org's `DuckgresServer` (typically via the Django admin
-   "Provision managed warehouse" action, which also records the team's
-   `DuckgresServerTeam`). The relevant fields are:
+1. Provision the org's managed warehouse, typically with the Django admin
+   "Provision managed warehouse" action. This creates the org's `DuckgresServer`
+   connection record and the first control-plane team row. The relevant local fields are:
    - `organization`: the org that owns the warehouse
    - `bucket` / `bucket_region`: S3 bucket name and AWS region
    - `catalog_host` / `catalog_database` / `catalog_username` / `catalog_password`: the
@@ -118,17 +142,21 @@ class DucklingBackfillConfig:
 
    Ensure the runtime IAM role can read from and write to the configured S3 bucket.
 
-2. Enable the team's backfill by creating its `DuckgresServerTeam` row with
-   `backfill_enabled=True` (the provision / enable-backfill admin actions do this). The
-   discovery sensor will then pick up the team on its next run. The enablement flow also creates a
-   managed Postgres live-query connection with a distinct Duckgres reader for the team. Once the
-   warehouse is ready, background schema discovery exposes every table in the team's event/person,
-   data-import, team, and modeled-data namespaces in the SQL editor. Duckgres enforces read-only
-   access to those namespaces for both HogQL and raw SQL. Legacy teams that still use the shared
-   unsuffixed `events` and `persons` tables are not exposed because those tables contain rows for
-   multiple teams.
+2. Enable another team's backfill with the "Enable warehouse backfill for a team" admin
+   action or the managed warehouse onboarding API. This creates the control-plane team row
+   with backfill enabled. The discovery sensor will pick up the team on its next run.
+   A new managed SQL-editor source uses short-lived `duckgres_service` credentials and appears as the built-in
+   `PostHog (Managed warehouse)` connection. Existing static and `project_reader` sources keep their current
+   authentication mode. The chooser prefers dynamic authentication, then a ready reader, and otherwise exposes
+   the canonical valid static source as an external connection. Reader provisioning and rotation remain separate
+   from this enablement flow.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
+
+Each Dagster backfill session mints a new short-lived Duckgres service credential.
+Concurrent sessions use the same `dagster:events-backfill` audit principal but receive
+different credential IDs and secrets. A reconnect refreshes only the credential ID held
+by that session.
 
 ## Troubleshooting
 
@@ -157,7 +185,12 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Job definition**: `posthog/dags/events_backfill_to_duckling.py`
 - **Tests**: `posthog/dags/test_events_backfill_to_duckling.py`
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
-- **DuckgresServer / DuckgresServerTeam models**: `posthog/ducklake/models.py`
+- **DuckgresServer model**: `products/managed_warehouse/backend/models.py`
+- **Control-plane team state**: `products/managed_warehouse/backend/cp_teams.py` and `products/managed_warehouse/backend/team_state.py`
+
+Backfill sensors only schedule teams with backfills enabled in a managed warehouse that reports `state: ready`.
+The sensor skips provisioning, failed, deleting, deleted, and resharding warehouses.
+If either control-plane listing is unavailable, the sensor tick schedules no new work and retries on its next tick.
 
 ## S3 Path Structure
 
@@ -166,9 +199,10 @@ ClickHouse `PARTITION BY` bucket) instead of one giant per-day object, so reads 
 parallelism and per-file scans stay cheap. The fan-out is **computed per export** from
 a cheap `count()` estimate — `ceil(row_count / target_rows_per_file)`, clamped to
 `[1, max_s3_file_fanout]` — so a tens-of-millions-of-rows team-day spreads across many
-~GB-scale files while a tiny team-day stays a single file. Both knobs are tunable per
-run via `DucklingBackfillConfig` (`target_rows_per_file`, `max_s3_file_fanout`). The
-`{_partition_id}` is the bucket id (`0 … fanout-1`); registration globs
+~GB-scale files while a tiny team-day stays a single file. Events exports apply one
+more limit: `floor(32 GiB / events_parquet_row_group_size_bytes)`, which keeps the
+nominal row-group staging buffers within budget. These settings are tunable per run
+via `DucklingBackfillConfig`. The `{_partition_id}` is the bucket id (`0 … fanout-1`); registration globs
 `{run_id}_*.parquet` to enumerate every file a run produced.
 
 ```text

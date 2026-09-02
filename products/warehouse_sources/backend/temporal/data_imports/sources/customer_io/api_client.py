@@ -10,6 +10,7 @@ from typing import Any
 
 import requests
 import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -31,6 +32,14 @@ LOGGER = structlog.get_logger(__name__)
 REPORTING_WEBHOOKS_PATH = "/v1/reporting_webhooks"
 WORKSPACES_PATH = "/v1/workspaces"
 REQUEST_TIMEOUT_SECONDS = 30
+
+# Stable sentinel prefix — matched by `CustomerIOSource.get_retryable_errors` so an exhausted
+# retry budget doesn't get tracked as a bug.
+LIST_ENDPOINT_RETRYABLE_ERROR_PREFIX = "Customer.io API error (retryable)"
+
+
+class ListEndpointRetryableError(Exception):
+    pass
 
 
 def _base_url(region: str | None) -> str:
@@ -106,6 +115,23 @@ def validate_credentials(api_key: str, region: str | None) -> tuple[bool, str | 
     return True, None
 
 
+@retry(
+    retry=retry_if_exception_type((ListEndpointRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _get_list_page(session: requests.Session, url: str, params: dict[str, Any]) -> dict[str, Any]:
+    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    # Customer.io's list endpoints occasionally return a transient 429/5xx (e.g. a brief
+    # `503 Service Unavailable`); back off and retry in-process rather than failing the whole
+    # sync on a blip Temporal would just retry anyway.
+    if response.status_code == 429 or response.status_code >= 500:
+        raise ListEndpointRetryableError(f"{LIST_ENDPOINT_RETRYABLE_ERROR_PREFIX}: status={response.status_code}")
+    response.raise_for_status()
+    return response.json() or {}
+
+
 def iterate_list_endpoint(
     api_key: str,
     region: str | None,
@@ -126,9 +152,7 @@ def iterate_list_endpoint(
         params["limit"] = endpoint.page_size
 
     while True:
-        response = session.get(base, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        payload = response.json() or {}
+        payload = _get_list_page(session, base, params)
 
         rows = payload.get(endpoint.response_key) or []
         if isinstance(rows, list):

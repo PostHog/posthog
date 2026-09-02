@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 
+from posthog.dataclasses import frozen
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 
 if TYPE_CHECKING:
@@ -71,15 +72,20 @@ def currency_expression_for_events(team: "Team", event_config: "RevenueAnalytics
     return ast.Constant(value=team.base_currency)
 
 
-# Tuple of (comparison_expr, value_expr) that can be used to:
-# - Check whether the event is the one we're looking for
-# - Convert the revenue to the base currency if needed
+@frozen
+class RevenueEventExprs:
+    # Checks whether the event is the one we're looking for
+    comparison_expr: ast.Expr
+    # Converts the revenue to the base currency if needed
+    value_expr: ast.Expr
+
+
 def revenue_comparison_and_value_exprs_for_events(
     team: "Team",
     event_config: "RevenueAnalyticsEventItem",
     do_currency_conversion: bool = True,
     amount_expr: ast.Expr | None = None,
-) -> tuple[ast.Expr, ast.Expr]:
+) -> RevenueEventExprs:
     if amount_expr is None:
         amount_expr = ast.Field(chain=["events", "properties", event_config.revenueProperty])
 
@@ -122,4 +128,4 @@ def revenue_comparison_and_value_exprs_for_events(
             ],
         )
 
-    return (comparison_expr, value_expr)
+    return RevenueEventExprs(comparison_expr=comparison_expr, value_expr=value_expr)

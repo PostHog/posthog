@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -31,12 +31,23 @@ class MercuryResumeConfig:
 
 
 def format_incremental_value(value: Any) -> str | None:
-    """Format the incremental watermark as ISO 8601, which Mercury's date filters accept."""
+    """Floor the incremental watermark to a yyyy-mm-dd string.
+
+    Mercury's `start` filter accepts "YYYY-MM-DD or an ISO 8601 string", but a naive ISO datetime with
+    microseconds (what `datetime.isoformat()` emits for a tz-naive watermark, e.g.
+    `2026-06-19T18:54:04.991622`) is rejected with a 400. Flooring to the UTC date sidesteps the
+    precision/offset fragility entirely. Re-querying from the floored day re-reads that whole day, which
+    merge dedupes on the primary key — so the incremental sync is self-healing even though the filter is
+    coarser than the cursor.
+    """
     if value is None:
         return None
-    if isinstance(value, datetime | date):
+    if isinstance(value, datetime):
+        aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return aware.astimezone(UTC).date().isoformat()
+    if isinstance(value, date):
         return value.isoformat()
-    return str(value)
+    return str(value)[:10]
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:

@@ -133,11 +133,12 @@ to `external-data-sources-create` — you need the db-schema response to build a
 
 Call `external-data-sources-wizard` **with `source_type` set to the kind(s) you need** (comma-separated, e.g.
 `Postgres,Stripe`). The unfiltered response describes every supported source and is hundreds of KB — large enough to
-blow your context budget. Only omit `source_type` when you genuinely need to enumerate every available type, and
-expect a big payload if you do. The response is a dict keyed by source type. Each entry describes:
+blow your context budget. Only omit `source_type` when you genuinely need to enumerate every available type, and when
+you do, pass `fields: ['*.name', '*.caption']` so the response carries just the names instead of every source's config
+field definitions. The response is a dict keyed by source type. Each entry describes:
 
 - `name` — the canonical source_type string you'll pass to later calls (e.g. `"Postgres"`, `"Stripe"`, `"Hubspot"`).
-- `label` / `caption` — human-readable.
+- `caption` — human-readable description.
 - `fields` — the config fields needed (host, port, database, api_key, client_id/secret, ...). Each has `name`,
   `type` (input, password, switch, select, file-upload), and `required`.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
@@ -336,6 +337,12 @@ If the user wants near-real-time replication from Postgres:
   — row counts and relevance matter for billing. Let the user opt in explicitly.
 - **Don't invent schemas.** Every entry in the `schemas` array must correspond to a real table from the db-schema
   response. You can't "also add an orders table" unless db-schema found one.
+- **A new source syncs to the PostHog warehouse.** That is the default and it needs no setup: a source nobody
+  configured destinations for writes here and nowhere else. Some projects can also send a source's tables to their
+  own database (`external-data-sources-destinations-retrieve` shows where a source writes, when the feature is on for
+  the project). Setting that up is a separate step and never something to do as part of creating a source — adding a
+  destination to a source that has already synced leaves it holding none of the history until the tables are resynced,
+  and a resync bills every destination the source writes to.
 - **Prefix is load-bearing.** It's part of every HogQL query the user will ever write against these tables. Pick
   something short, descriptive, and not already taken.
 - **Prefer the secure connect-link for any credentials.** Use `data-warehouse-source-connect-link` so the user

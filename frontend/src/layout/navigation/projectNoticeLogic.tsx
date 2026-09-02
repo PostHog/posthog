@@ -9,6 +9,7 @@ import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navP
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
@@ -31,6 +32,8 @@ import { brandingForProduct } from 'scenes/welcome/productBranding'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, UserType } from '~/types'
 
+import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
+
 export type ProjectNoticeVariant =
     | 'billing_alert'
     | 'demo_project'
@@ -48,10 +51,6 @@ export interface ProjectNoticeBlueprint {
     type?: LemonBannerProps['type']
     onClose?: LemonBannerProps['onClose']
     mountNoEventsBannerLogic?: boolean
-}
-
-export function shouldShowNoEventsProjectNotice(activeSceneId: string | null, liveEventCount: number): boolean {
-    return activeSceneId !== Scene.Quickstart && !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
 }
 
 const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
@@ -130,29 +129,75 @@ function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: s
     return !!user && !!currentOrganizationId && new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
 
+function buildBillingAlertAction(
+    billingAlert: BillingAlertConfig,
+    canAccessBilling: boolean
+): LemonBannerProps['action'] | undefined {
+    if (billingAlert.action) {
+        return billingAlert.action
+    }
+
+    if (billingAlert.contactSupport) {
+        return {
+            to: 'mailto:sales@posthog.com',
+            children: billingAlert.buttonCTA || 'Contact support',
+            onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+        }
+    }
+
+    if (!canAccessBilling) {
+        return undefined
+    }
+
+    return {
+        to: getBillingAlertBillingUrl(billingAlert),
+        children: 'Manage billing',
+        onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+    }
+}
+
+function getBillingAlertBillingUrl(billingAlert: BillingAlertConfig): string {
+    return urls.organizationBilling(billingAlert.productKey ? [billingAlert.productKey] : undefined)
+}
+
+function isBillingPathname(pathname: string): boolean {
+    const billingPathname = urls.organizationBilling()
+
+    return pathname === billingPathname || pathname.startsWith(`${billingPathname}/`)
+}
+
+function isCurrentBillingAlertBillingUrl(
+    billingAlert: BillingAlertConfig,
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
+): boolean {
+    if (!isBillingPathname(currentLocation.pathname)) {
+        return false
+    }
+
+    if (!billingAlert.productKey) {
+        return true
+    }
+
+    const productsParam = currentLocation.searchParams.products
+    const productKeys = Array.isArray(productsParam)
+        ? productsParam
+        : typeof productsParam === 'string'
+          ? productsParam.split(',')
+          : []
+
+    return productKeys.includes(billingAlert.productKey)
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
-    currentPathname: string
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
 ): ProjectNoticeBlueprint {
     const showButton =
-        billingAlert.action || billingAlert.contactSupport || currentPathname !== urls.organizationBilling()
-
-    const action = billingAlert.action
-        ? billingAlert.action
-        : billingAlert.contactSupport
-          ? {
-                to: 'mailto:sales@posthog.com',
-                children: billingAlert.buttonCTA || 'Contact support',
-                onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-            }
-          : canAccessBilling
-            ? {
-                  to: urls.organizationBilling(),
-                  children: 'Manage billing',
-                  onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-              }
-            : undefined
+        billingAlert.action ||
+        billingAlert.contactSupport ||
+        !isCurrentBillingAlertBillingUrl(billingAlert, currentLocation)
+    const action = buildBillingAlertAction(billingAlert, canAccessBilling)
 
     return {
         message: (
@@ -191,7 +236,7 @@ export interface projectNoticeLogicActions {
     reportProjectNoticeShown: (variant: string) => {
         variant: string
     } // eventUsageLogic
-    requestVerificationLink: (uuid: string) => {
+    requestVerificationCode: (uuid: string) => {
         uuid: string
     } // verifyEmailLogic
     dismissProjectNotice: (dismissKey: string | null) => {
@@ -215,6 +260,9 @@ export interface projectNoticeLogicActions {
     reportNoticeShown: () => {
         value: true
     }
+    showEventIngestionRestrictionDetails: () => {
+        value: true
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -233,7 +281,7 @@ export interface projectNoticeLogicMeta {
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
-            proxyRecords: ProxyRecord[] | null,
+            proxyRecords: import('products/platform_features/frontend/generated/api.schemas').ProxyRecordApi[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
                 hash: string
@@ -305,12 +353,13 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
             // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
             verifyEmailLogic,
-            ['requestVerificationLink'],
+            ['requestVerificationCode'],
         ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),
         reportNoticeShown: true,
+        showEventIngestionRestrictionDetails: true,
     }),
     loaders(({ values }) => ({
         proxyRecords: {
@@ -320,9 +369,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {
-                    // A missing or expired session makes this boot-time GET 401. There's no banner to
-                    // show an unauthenticated user, so swallow it rather than polluting error tracking.
-                    if (error instanceof ApiError && error.status === 401) {
+                    // A missing or expired session makes this boot-time GET 401. A restricted org member
+                    // whose access level to the org resource is below read gets a 403 from the RBAC layer.
+                    // Either way there's no banner to show, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
                         return null
                     }
                     throw error
@@ -433,7 +483,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Belt-and-braces: never claim "no events" while the live activity feed is
                     // actively rendering events on the same screen — `currentTeam.ingested_event`
                     // can lag behind the live SSE stream during the first ingestion window.
-                    shouldShowNoEventsProjectNotice(activeSceneId, liveEventCount)
+                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
                 ) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
@@ -517,11 +567,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         if (!effectiveBillingAlert) {
                             return null
                         }
-                        const notice = buildBillingAlertNotice(
-                            effectiveBillingAlert,
-                            canAccessBilling,
-                            currentLocation.pathname
-                        )
+                        const notice = buildBillingAlertNotice(effectiveBillingAlert, canAccessBilling, currentLocation)
                         const canClose = dismiss || notice.onClose
                         return {
                             ...notice,
@@ -616,7 +662,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Please verify your email address.',
                             action: {
                                 'data-attr': 'unverified-email-cta',
-                                onClick: () => user && verifyEmailLogic.actions.requestVerificationLink(user.uuid),
+                                onClick: () => user && verifyEmailLogic.actions.requestVerificationCode(user.uuid),
                                 children: 'Send verification email',
                             },
                             type: 'warning',
@@ -637,6 +683,11 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message:
                                 'Event ingestion restrictions have been applied to a token in this project. Please contact support.',
                             type: 'warning',
+                            action: {
+                                onClick: () => projectNoticeLogic.actions.showEventIngestionRestrictionDetails(),
+                                'data-attr': 'event-ingestion-restriction-details_link',
+                                children: 'See details',
+                            },
                         }
                     case 'missing_reverse_proxy':
                         return {
@@ -658,6 +709,18 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        showEventIngestionRestrictionDetails: () => {
+            LemonDialog.open({
+                title: 'Event ingestion restrictions',
+                content: (
+                    <EventIngestionRestrictionDetails
+                        restrictions={eventIngestionRestrictionLogic.values.eventIngestionRestrictions}
+                    />
+                ),
+                primaryButton: { children: 'Close' },
+                width: 560,
+            })
+        },
         dismissProjectNotice: ({ dismissKey }) => {
             if (dismissKey) {
                 storeNoticeDismissal(dismissKey)

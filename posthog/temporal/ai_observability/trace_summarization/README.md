@@ -140,7 +140,7 @@ Key constants in `constants.py`:
 | ------------------------------------------- | -------------- | ----------------------------------------------- |
 | `DEFAULT_MAX_ITEMS_PER_WINDOW`              | 15             | Max items per window                            |
 | `DEFAULT_BATCH_SIZE`                        | 5              | Concurrent item processing                      |
-| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 5              | Max teams to process in parallel                |
+| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 20             | Max teams to process in parallel                |
 | `DEFAULT_MODE`                              | "detailed"     | Summary detail level                            |
 | `DEFAULT_MODEL`                             | "gpt-4.1-nano" | LLM model for summarization                     |
 | `DEFAULT_WINDOW_MINUTES`                    | 60             | Time window to query                            |
@@ -152,7 +152,16 @@ Key constants in `constants.py`:
 | `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s           | Summarize + save activity timeout (per attempt) |
 | `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s            | Heartbeat window for summarize activity         |
 
-Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `FETCH_AND_FORMAT_RETRY_POLICY` (3 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (4 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (2 attempts). All retry policies exclude `ValueError` and `TypeError` from retries.
+Retry policies: `SAMPLE_RETRY_POLICY` (5 attempts with backoff), `FETCH_AND_FORMAT_RETRY_POLICY` (2 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (2 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (1 attempt). All retry policies exclude `ValueError` and `TypeError` from retries.
+
+The text representation handed to the model is capped by `batch_text_repr_budget` (see `products/ai_observability/backend/summarization/budget.py`).
+The batch job runs unattended over every team's traces, so its context size drives a recurring bill.
+The cap holds the input near a cost-conscious ceiling instead of the model's full context window, which never bounds a typical trace.
+Oversized trace text is reduced by uniform line sampling before the LLM call.
+Oversized generation text splits the budget between the input and output sections, so a large input never drops the output section.
+
+Sampling keeps ClickHouse capacity errors retryable deliberately: each run covers a disjoint wall-clock window with no persisted cursor, so a run that gives up loses that hour of traces for that team permanently.
+Concurrency is bounded centrally by `CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES`, not by this workflow's fan-out, because trace clustering and eval reports draw on the same budget.
 
 ## Redis Intermediate Storage
 

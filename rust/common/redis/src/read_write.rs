@@ -253,6 +253,11 @@ impl ReadWriteClient {
 
 #[async_trait]
 impl Client for ReadWriteClient {
+    async fn heal(&self) {
+        self.reader.heal().await;
+        self.writer.heal().await;
+    }
+
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
         match self.reader.get(k.clone()).await {
             Ok(value) => Ok(value),

@@ -57,6 +57,30 @@ describe('taxonomicPropertyFilterLogic', () => {
             expect(logic.values.activeTaxonomicGroup?.type).toBe(TaxonomicFilterGroupType.EventProperties)
         })
 
+        it('selects ErrorTrackingIssues group and its values endpoint for an issue property filter', () => {
+            logic.unmount()
+            logic = taxonomicPropertyFilterLogic({
+                filters: [
+                    {
+                        key: 'severity',
+                        type: PropertyFilterType.ErrorTrackingIssue,
+                        value: null,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+                setFilter: () => {},
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.ErrorTrackingIssues],
+                filterIndex: 0,
+                pageKey: 'test-active-group-error-tracking-issue',
+            })
+            logic.mount()
+
+            expect(logic.values.activeTaxonomicGroup?.type).toBe(TaxonomicFilterGroupType.ErrorTrackingIssues)
+            expect(logic.values.activeTaxonomicGroup?.valuesEndpoint?.('severity')).toContain(
+                '/error_tracking/issues/values?key=severity'
+            )
+        })
+
         it('defaults to first group when filter is empty', () => {
             logic.unmount()
             logic = taxonomicPropertyFilterLogic({

@@ -1,4 +1,4 @@
-import type { Series } from '@posthog/quill-charts'
+import type { Series, ValueDomain } from '@posthog/quill-charts'
 
 // Dependency-neutral primitives for the horizontal funnel bars, shared by the web container
 // (funnelBarHorizontalTransforms.ts) and the MCP UI app. Deliberately free of `~/`, `lib/`, and
@@ -11,7 +11,7 @@ export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
 /** Every step's bar is its own single-band chart, so they only line up if they share this
  *  value domain (passed to BarChart as `bars.valueDomain`). Segment data are basis-step
  *  percentages, so the axis is `0–100`. */
-export const FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN: [number, number] = [0, 100]
+export const FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN: ValueDomain = { min: 0, max: 100 }
 
 export const RATE_TO_PERCENT = 100
 

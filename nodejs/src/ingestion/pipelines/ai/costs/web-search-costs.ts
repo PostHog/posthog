@@ -2,6 +2,7 @@ import bigDecimal from 'js-big-decimal'
 
 import { EventWithProperties } from '~/ingestion/pipelines/ai/process-ai-event'
 
+import { finiteNumberOrUndefined } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
 export const calculateWebSearchCost = (event: EventWithProperties, cost: ResolvedModelCost): string => {
@@ -11,9 +12,9 @@ export const calculateWebSearchCost = (event: EventWithProperties, cost: Resolve
     }
 
     // Only calculate if web search count is explicitly provided (no default)
-    const webSearchCount = event.properties['$ai_web_search_count']
+    const webSearchCount = finiteNumberOrUndefined(event.properties['$ai_web_search_count'])
 
-    if (webSearchCount === undefined || webSearchCount === null) {
+    if (webSearchCount === undefined) {
         return '0'
     }
 

@@ -1,1 +1,1 @@
-0004_delete_revenue_analytics_insights
+0008_repair_insightviewed_null_unique_index

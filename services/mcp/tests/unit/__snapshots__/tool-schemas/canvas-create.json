@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "channel_id": {
+            "description": "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default).",
+            "type": "string"
+        },
+        "description": {
+            "default": "",
+            "description": "Short prose describing the canvas. For components this is the store-search text — say what the widget shows and what its config controls, so future searches find it.",
+            "type": "string"
+        },
+        "kind": {
+            "default": "freeform",
+            "description": "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). See canvas-list (kind=component) before creating a component.",
+            "enum": ["freeform", "grid", "component"],
+            "type": "string"
+        },
+        "name": {
+            "description": "Display name for the canvas.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "template_id": {
+            "default": "freeform",
+            "description": "Canvas template identifier.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["name", "channel_id"],
+    "type": "object"
+}

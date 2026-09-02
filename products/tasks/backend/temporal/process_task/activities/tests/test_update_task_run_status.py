@@ -1,15 +1,58 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, TaskRun
+from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
+    SANDBOX_GONE_STATE_KEY,
+    TIMED_OUT_INACTIVITY_STATE_KEY,
+    TIMED_OUT_WALL_CLOCK_STATE_KEY,
+    USAGE_METRICS_RECORDED_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
 
 TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
+
+
+class _RecordingMetric:
+    def __init__(self, sink, name, attributes):
+        self.sink = sink
+        self.name = name
+        self.attributes = attributes
+
+    def record(self, value):
+        self.sink.append((self.name, value, self.attributes))
+
+    def add(self, value):
+        self.sink.append((self.name, value, self.attributes))
+
+
+class _RecordingMetricMeter:
+    def __init__(self, sink, attributes=None):
+        self.sink = sink
+        self.attributes = dict(attributes or {})
+
+    def with_additional_attributes(self, additional_attributes):
+        return _RecordingMetricMeter(self.sink, {**self.attributes, **dict(additional_attributes)})
+
+    def create_counter(self, name, description=None, unit=None):
+        return _RecordingMetric(self.sink, name, self.attributes)
+
+    def create_histogram(self, name, description=None, unit=None):
+        return _RecordingMetric(self.sink, name, self.attributes)
+
+
+async def _run_update_task_run_status(
+    activity_environment: ActivityEnvironment, input_data: UpdateTaskRunStatusInput
+) -> None:
+    await activity_environment.run(update_task_run_status, input_data)
 
 
 @pytest.mark.requires_secrets
@@ -84,6 +127,97 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("existing_key") == "kept"
 
     @pytest.mark.django_db(transaction=True)
+    def test_timed_out_unclaimed_prewarm_soft_deletes_task(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun
+    ) -> None:
+        test_task_run.task.title = ""
+        test_task_run.task.description = ""
+        test_task_run.task.save(update_fields=["title", "description", "updated_at"])
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        async_to_sync(_run_update_task_run_status)(
+            activity_environment,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=TaskRun.Status.COMPLETED,
+                timed_out_inactivity=True,
+            ),
+        )
+
+        test_task_run.task.refresh_from_db()
+        assert test_task_run.task.deleted is True
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "state,timed_out,expected_reason",
+        [
+            ({"prewarmed": True, "await_user_message": True}, True, "idle_timeout"),
+            ({"prewarmed": True, "await_user_message": True}, False, "other"),
+            # Activation clears `await_user_message`, so this warm was used. Counting it as a miss
+            # would understate the warm hit rate the rollout decision reads.
+            ({"prewarmed": True}, True, None),
+            # Mid-activation: the marker is set before the first message is signaled and
+            # `await_user_message` is cleared only after, so a run that terminalizes in between still
+            # carries both older markers while already counted as activated.
+            ({"prewarmed": True, "await_user_message": True, "warm_activated": True}, True, None),
+            # Never warmed at all — a plain run terminalizing is not a warm miss.
+            ({}, True, None),
+        ],
+    )
+    def test_counts_a_warm_run_that_terminalized_unused(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun, state, timed_out, expected_reason
+    ) -> None:
+        test_task_run.state = state
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        with patch("products.tasks.backend.metrics.observe_prewarmed_unused") as m_observe:
+            async_to_sync(_run_update_task_run_status)(
+                activity_environment,
+                UpdateTaskRunStatusInput(
+                    run_id=str(test_task_run.id),
+                    status=TaskRun.Status.COMPLETED,
+                    timed_out_inactivity=timed_out,
+                ),
+            )
+
+        if expected_reason is None:
+            m_observe.assert_not_called()
+        else:
+            assert m_observe.call_args.kwargs["reason"] == expected_reason
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "marker",
+        [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
+    )
+    def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            timeout_marker=marker,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.FAILED
+        assert test_task_run.error_message is None
+        assert test_task_run.state.get(marker) is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_unknown_timeout_marker_is_not_written(self, activity_environment, test_task_run):
+        # The marker comes off the wire, so only allowlisted keys may reach TaskRun.state.
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            timeout_marker="arbitrary_key",
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert "arbitrary_key" not in (test_task_run.state or {})
+
+    @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_publishes_stream_state_event(self, mock_publish_stream_state_event, activity_environment, test_task_run):
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
@@ -109,6 +243,9 @@ class TestUpdateTaskRunStatusActivity:
             **(test_task_run.state or {}),
             "token_usage": dict(TOKEN_USAGE),
             "rtk_effective": True,
+            "benjamin_effective": True,
+            "benjamin_version": "2026.08.1",
+            "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
         }
         test_task_run.save(update_fields=["state"])
@@ -127,11 +264,84 @@ class TestUpdateTaskRunStatusActivity:
         assert props["total_tokens"] == 1500
         assert props["usage_turns"] == 3
         assert props["rtk_enabled"] is True
+        assert props["benjamin_enabled"] is True
+        assert props["benjamin_version"] == "2026.08.1"
         assert props["run_environment"] == test_task_run.environment
+        assert props["termination_reason"] is None
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
+        assert mock_record.call_args.kwargs["benjamin_enabled"] is True
+        assert mock_record.call_args.kwargs["model"] == "gpt-5.6-sol"
         assert mock_record.call_args.kwargs["runtime_adapter"] == "codex"
         assert mock_record.call_args.kwargs["status"] == status
+        test_task_run.refresh_from_db()
+        assert test_task_run.state[USAGE_METRICS_RECORDED_STATE_KEY] is True
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_agent_terminalized_run_still_records_usage_metrics_once(
+        self, mock_capture, mock_record, activity_environment, test_task_run
+    ):
+        test_task_run.status = TaskRun.Status.COMPLETED
+        test_task_run.state = {**(test_task_run.state or {}), "token_usage": dict(TOKEN_USAGE)}
+        test_task_run.save(update_fields=["status", "state"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        mock_record.assert_called_once()
+        assert mock_record.call_args.kwargs["status"] == TaskRun.Status.COMPLETED
+        test_task_run.refresh_from_db()
+        assert test_task_run.state[USAGE_METRICS_RECORDED_STATE_KEY] is True
+        assert [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"] == []
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status,timed_out_inactivity,timeout_marker,expected_event,expected_reason",
+        [
+            (TaskRun.Status.COMPLETED, True, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (
+                TaskRun.Status.FAILED,
+                False,
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                "task_run_failed",
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+            ),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_terminal_analytics_carries_termination_reason(
+        self,
+        mock_capture,
+        activity_environment,
+        test_task_run,
+        status,
+        timed_out_inactivity,
+        timeout_marker,
+        expected_event,
+        expected_reason,
+    ):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=status,
+            timed_out_inactivity=timed_out_inactivity,
+            timeout_marker=timeout_marker,
+            agent_active_at_termination=False,
+            end_of_turn_received=True,
+            last_agent_heartbeat_at="2026-08-19T10:00:00+00:00",
+            seconds_since_last_agent_heartbeat=1800.0,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
+        properties = captured[0].kwargs["properties"]
+        assert properties["termination_reason"] == expected_reason
+        assert properties["agent_active_at_termination"] is False
+        assert properties["end_of_turn_received"] is True
+        assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
+        assert properties["seconds_since_last_agent_heartbeat"] == 1800.0
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -164,19 +374,125 @@ class TestUpdateTaskRunStatusActivity:
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_repeated_terminal_update_does_not_double_capture(self, mock_capture, activity_environment, test_task_run):
+        test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        test_task_run.task.save(update_fields=["origin_product"])
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         completed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"]
         assert len(completed) == 1
+        chats = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "chat with ai"]
+        assert len(chats) == 1
 
     @pytest.mark.django_db(transaction=True)
-    def test_terminal_transition_updates_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
-        # This activity is how workflow-driven loop runs reach a terminal status, so it must
-        # drive loop bookkeeping (last_run_status, consecutive_failures -> auto-pause) — the
-        # HTTP PATCH path is never taken for these. A repeat of the same terminal update must
-        # not double-count.
+    @pytest.mark.parametrize(
+        "origin_product,status,expected_event",
+        [
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.COMPLETED, "chat with ai"),
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.FAILED, "chat with ai failed"),
+            (Task.OriginProduct.USER_CREATED, TaskRun.Status.COMPLETED, None),
+            (Task.OriginProduct.USER_CREATED, TaskRun.Status.FAILED, None),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_posthog_ai_chat_outcome_is_captured_per_origin_and_status(
+        self, mock_capture, activity_environment, test_task_run, origin_product, status, expected_event
+    ):
+        test_task_run.task.origin_product = origin_product
+        test_task_run.task.save(update_fields=["origin_product"])
+
+        async_to_sync(activity_environment.run)(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=status,
+                error_message="boom" if status == TaskRun.Status.FAILED else None,
+            ),
+        )
+
+        chats = [c for c in mock_capture.call_args_list if str(c.kwargs.get("event", "")).startswith("chat with ai")]
+        if expected_event is None:
+            assert chats == []
+            return
+        assert [c.kwargs["event"] for c in chats] == [expected_event]
+        props = chats[0].kwargs["properties"]
+        assert props["agent_runtime"] == "sandbox"
+        assert props["agent_mode"] is None
+        assert props["is_new_conversation"] is True
+        if status == TaskRun.Status.FAILED:
+            assert props["error_message"] == "boom"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "predecessor_state,run_state,expected_is_new",
+        [
+            # An earlier run that held a chat continues the conversation.
+            ({}, {}, False),
+            # An earlier prewarm nobody typed into does not — the next message resumes into a
+            # successor, so counting it would report the first real chat as a continuation.
+            ({"prewarmed": True, "await_user_message": True}, {}, True),
+            # A conversation carried over from LangGraph is continued, however little sandbox
+            # history it has: the conversion starts it on a fresh task with no earlier run.
+            (None, {"converted_from_langgraph": True}, False),
+            (None, {}, True),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_prior_history_decides_whether_a_conversation_is_new(
+        self, mock_capture, activity_environment, test_task_run, predecessor_state, run_state, expected_is_new
+    ):
+        test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        test_task_run.task.save(update_fields=["origin_product"])
+        if run_state:
+            test_task_run.state = run_state
+            test_task_run.save(update_fields=["state", "updated_at"])
+        if predecessor_state is not None:
+            predecessor = TaskRun.objects.create(
+                task=test_task_run.task,
+                team=test_task_run.team,
+                status=TaskRun.Status.COMPLETED,
+                state=predecessor_state,
+            )
+            # `created_at` is auto_now_add, so pin the ordering rather than trusting two inserts
+            # microseconds apart.
+            TaskRun.objects.filter(id=predecessor.id).update(created_at=test_task_run.created_at - timedelta(seconds=1))
+
+        async_to_sync(activity_environment.run)(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED),
+        )
+
+        chats = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "chat with ai"]
+        assert len(chats) == 1
+        assert chats[0].kwargs["properties"]["is_new_conversation"] is expected_is_new
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_a_prewarm_nobody_typed_into_is_not_a_chat(self, mock_capture, activity_environment, test_task_run):
+        test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        test_task_run.task.title = ""
+        test_task_run.task.description = ""
+        test_task_run.task.save(update_fields=["origin_product", "title", "description", "updated_at"])
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        async_to_sync(_run_update_task_run_status)(
+            activity_environment,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=TaskRun.Status.COMPLETED,
+                timed_out_inactivity=True,
+            ),
+        )
+
+        events = [c.kwargs.get("event") for c in mock_capture.call_args_list]
+        assert not [e for e in events if str(e).startswith("chat with ai")]
+        # Only the chat reading is suppressed — the run still completed, and still reports it.
+        assert "task_run_completed" in events
+
+    @pytest.mark.django_db(transaction=True)
+    def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
         loop = Loop(
             team=test_task_run.team,
             created_by=test_task_run.task.created_by,
@@ -186,7 +502,9 @@ class TestUpdateTaskRunStatusActivity:
         )
         loop.save()
         test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
-        test_task_run.save(update_fields=["state"])
+        test_task_run.status = TaskRun.Status.FAILED
+        test_task_run.error_message = "sandbox crashed"
+        test_task_run.save(update_fields=["state", "status", "error_message"])
 
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"
@@ -201,13 +519,17 @@ class TestUpdateTaskRunStatusActivity:
         assert loop.last_run_at is not None
 
     @pytest.mark.django_db(transaction=True)
-    def test_handles_non_existent_task_run(self, activity_environment):
+    def test_missing_task_run_raises_non_retryable(self, activity_environment):
+        # Rows hard-deleted mid-run (team deletion cascade) must fail the workflow fast,
+        # not be swallowed as a successful status write.
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
         input_data = UpdateTaskRunStatusInput(
             run_id=non_existent_run_id,
             status=TaskRun.Status.IN_PROGRESS,
         )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        with pytest.raises(ApplicationError) as exc_info:
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        assert exc_info.value.non_retryable is True
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -235,3 +557,51 @@ class TestUpdateTaskRunStatusActivity:
 
         after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
         assert after == before + expected_delta
+
+
+class TestRecordRunTokenUsageMetrics:
+    def _record(self, activity_environment, **overrides):
+        recorded: list = []
+        activity_environment.metric_meter = _RecordingMetricMeter(recorded)
+        kwargs = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "rtk_enabled": True,
+            "benjamin_enabled": True,
+            "model": "gpt-5.6-sol",
+            "runtime_adapter": "codex",
+            "status": "completed",
+            **overrides,
+        }
+        activity_environment.run(record_run_token_usage, dict(TOKEN_USAGE), **kwargs)
+        return recorded
+
+    def test_records_turns_alongside_tokens(self, activity_environment):
+        recorded = self._record(activity_environment)
+
+        turns = [entry for entry in recorded if entry[0] == "tasks_run_turns"]
+        assert len(turns) == 1
+        assert turns[0][1] == 3
+        assert turns[0][2]["benjamin_enabled"] == "true"
+        assert turns[0][2]["model"] == "gpt-5.6-sol"
+
+    @pytest.mark.parametrize(
+        "model, expected",
+        [
+            ("gpt-5.6-sol", "gpt-5.6-sol"),
+            ("Claude-Sonnet-5", "claude-sonnet-5"),
+            ("some-unreleased-model", "other"),
+            ("", "unknown"),
+            (None, "unknown"),
+        ],
+    )
+    def test_model_attribute_is_bounded_to_the_catalogue(self, activity_environment, model, expected):
+        recorded = self._record(activity_environment, model=model)
+
+        assert {entry[2]["model"] for entry in recorded} == {expected}
+
+    @pytest.mark.parametrize("benjamin_enabled, expected", [(True, "true"), (False, "false"), (None, "unknown")])
+    def test_benjamin_attribute_labels_every_posture(self, activity_environment, benjamin_enabled, expected):
+        recorded = self._record(activity_environment, benjamin_enabled=benjamin_enabled)
+
+        assert {entry[2]["benjamin_enabled"] for entry in recorded} == {expected}

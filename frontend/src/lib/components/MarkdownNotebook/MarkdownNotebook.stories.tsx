@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { fn } from 'storybook/test'
 
 import { MarkdownNotebook, MarkdownNotebookProps } from './MarkdownNotebook'
 import { NotebookCollaborationConflict } from './types'
@@ -112,6 +116,7 @@ const meta: Meta<StoryArgs> = {
     args: {
         showDebug: true,
         onInteractionStateChange: () => {},
+        onCaretChange: fn(),
     },
     render: (props) => <ControlledNotebook {...props} />,
 }
@@ -187,6 +192,17 @@ export const TextOnlyNotebook: Story = {
     },
 }
 
+export const CanvasHeader: Story = {
+    args: {
+        value: textNotebook,
+        canvasHeader: (
+            <div className="mb-2 w-full rounded border border-primary bg-surface-secondary p-2">
+                A panel in the canvas header takes the same left and right edges as the blocks below it.
+            </div>
+        ),
+    },
+}
+
 export const HeadingsAndInlineFormatting: Story = {
     args: {
         value: `# Heading 1
@@ -221,6 +237,34 @@ export const ListsAndLinks: Story = {
     },
 }
 
+export const TablesInProse: Story = {
+    args: {
+        value: `## Weekly activation review
+
+Signup completion improved after the onboarding changes.
+
+| Step | Completion | Change |
+| --- | ---: | ---: |
+| Signup form | 82% | +4% |
+| Workspace setup | 61% | +1% |
+
+Both tables above and below belong to this passage, so they share its card.
+
+| Segment | Invite acceptance |
+| --- | ---: |
+| Self-serve | 44% |
+| Enterprise | 71% |
+
+The table below was added as a node of its own, so it keeps a card of its own.
+
+
+| Owner | Follow-up |
+| --- | --- |
+| Growth | Retry the invite email |
+| Onboarding | Shorten the setup step |`,
+    },
+}
+
 export const QueryBlock: Story = {
     args: {
         value: queryNotebook,
@@ -248,6 +292,23 @@ export const MermaidDiagram: Story = {
     // so the snapshot isn't captured mid-render.
     parameters: {
         testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramEditor: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'edit',
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="notebook-mermaid-editor"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const editButton = await canvas.findByLabelText('Edit diagram')
+        editButton.focus()
+        await userEvent.keyboard('{Enter}')
+        await screen.findByLabelText('Mermaid definition')
     },
 }
 

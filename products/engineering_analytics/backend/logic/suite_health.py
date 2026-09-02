@@ -1,14 +1,21 @@
-"""Test-health orchestration: the active test-health queue and the broken-tests panel."""
+"""Test-health orchestration: the flaky-test queue, the broken-tests panel, and the Trunk
+quarantine debt scoreboard."""
+
+from datetime import UTC, datetime
 
 from products.engineering_analytics.backend.facade.contracts import (
     BROKEN_TEST_SPARKLINE_HOURS,
+    TRUNK_QUARANTINE_TTL_DAYS,
     BrokenTestsResult,
+    CITestRunner,
     FlakyTestList,
+    TrunkQuarantineDebt,
 )
 from products.engineering_analytics.backend.logic._shared import _parse_date, _parse_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.broken_tests import query_broken_tests
 from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
+from products.engineering_analytics.backend.logic.queries.trunk_quarantine import query_trunk_quarantine_debt
 
 # Test-health queue defaults: a week of signal is the triage window, a month the ceiling
 # (per-test spans are high-volume and the short Traces retention makes older data spotty anyway).
@@ -33,6 +40,7 @@ def build_flaky_tests(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    runner: CITestRunner | None = None,
 ) -> FlakyTestList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=MAX_FLAKY_WINDOW_DAYS
@@ -51,6 +59,15 @@ def build_flaky_tests(
         date_to=parsed_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        runner=runner,
+    )
+
+
+def build_trunk_quarantine(*, curated: CuratedGitHubSource) -> TrunkQuarantineDebt:
+    return query_trunk_quarantine_debt(
+        curated=curated,
+        ttl_days=TRUNK_QUARANTINE_TTL_DAYS,
+        now=datetime.now(UTC),
     )
 
 

@@ -12,6 +12,7 @@ from django.conf import settings
 from django.db import models
 
 from posthog.management.migration_analysis.operations import is_unmanaged_model
+from posthog.products import is_product_module
 
 # Apps owned by PostHog where policies are enforced
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
@@ -31,7 +32,7 @@ def is_posthog_app(app_label: str, migration=None) -> bool:
     # Check the migration's module path to detect product apps
     if migration is not None:
         module = getattr(migration, "__module__", "")
-        if module.startswith("products."):
+        if is_product_module(module):
             return True
 
     return False

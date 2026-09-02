@@ -7,6 +7,7 @@ import { TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -241,9 +242,6 @@ describe('ErrorTrackingPipeline', () => {
             updatePersonsBatch: jest.fn(),
             deletePerson: jest.fn(),
             addDistinctId: jest.fn(),
-            addPersonlessDistinctId: jest.fn(),
-            addPersonlessDistinctIdForMerge: jest.fn(),
-            addPersonlessDistinctIdsBatch: jest.fn(),
             personPropertiesSize: jest.fn(),
             updateCohortsAndFeatureFlagsForMerge: jest.fn(),
             inTransaction: jest.fn(),
@@ -323,6 +321,7 @@ describe('ErrorTrackingPipeline', () => {
             overflowMode: 'disabled',
             preservePartitionLocality: false,
             topHog: mockTopHog,
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
     })
 
@@ -1072,7 +1071,7 @@ describe('ErrorTrackingPipeline', () => {
             )
         }
 
-        it('records resolved_teams metric when team is resolved', async () => {
+        it('records messages_by_token metric for parsed messages', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
@@ -1090,11 +1089,11 @@ describe('ErrorTrackingPipeline', () => {
             expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
 
             const messages = getTopHogMessages()
-            const resolvedTeamsMetric = messages.find((m) => m.metric === 'resolved_teams')
-            expect(resolvedTeamsMetric).toBeDefined()
-            expect(resolvedTeamsMetric.type).toBe('sum')
-            expect(resolvedTeamsMetric.key.team_id).toBe('123')
-            expect(resolvedTeamsMetric.value).toBe(1)
+            const messagesByToken = messages.find((m) => m.metric === 'messages_by_token')
+            expect(messagesByToken).toBeDefined()
+            expect(messagesByToken.type).toBe('sum')
+            expect(messagesByToken.key.token).toBe('test-token-123')
+            expect(messagesByToken.value).toBe(1)
         })
 
         it('records emitted_events metric when events are emitted', async () => {
@@ -1200,9 +1199,9 @@ describe('ErrorTrackingPipeline', () => {
 
             const topHogMessages = getTopHogMessages()
 
-            // resolved_teams should have count=3 (one per event)
-            const resolvedTeamsMetric = topHogMessages.find((m) => m.metric === 'resolved_teams')
-            expect(resolvedTeamsMetric.value).toBe(3)
+            // messages_by_token should have count=3 (one per parsed message)
+            const messagesByToken = topHogMessages.find((m) => m.metric === 'messages_by_token')
+            expect(messagesByToken.value).toBe(3)
 
             // emitted_events should have value=3
             const emittedEventsMetric = topHogMessages.find((m) => m.metric === 'emitted_events')

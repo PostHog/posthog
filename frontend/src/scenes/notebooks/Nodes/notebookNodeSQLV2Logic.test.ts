@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -9,7 +10,12 @@ import { initKeaTests } from '~/test/init'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
-import { collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import {
+    collectSqlV2Refs,
+    notebookNodeSQLV2Logic,
+    pollIntervalMs,
+    sqlV2RunErrorMessage,
+} from './notebookNodeSQLV2Logic'
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -35,6 +41,30 @@ describe('notebookNodeSQLV2Logic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    describe('sqlV2RunErrorMessage', () => {
+        // The browser endpoints render every 404 as DRF's generic {"detail": "Not found."}, so the
+        // message must come from the caller's notFoundKind, not from matching the backend string.
+        const notFound = new ApiError(undefined, 404, undefined, { detail: 'Not found.' })
+
+        it('names the notebook for a 404 on a notebook-addressed request', () => {
+            expect(sqlV2RunErrorMessage(notFound, 'fallback', 'notebook')).toBe(
+                'This notebook could not be found. It may have been deleted.'
+            )
+        })
+
+        it('points at a rerun for a 404 on a result-addressed request', () => {
+            // The result/page call sites rely on the default kind.
+            expect(sqlV2RunErrorMessage(notFound, 'fallback')).toBe(
+                'This query result is no longer available. Run the cell again.'
+            )
+        })
+
+        it('keeps the original message for non-404 failures', () => {
+            // A syntax error carries the detail the user needs; the not-found mapping must not swallow it.
+            expect(sqlV2RunErrorMessage(new ApiError('Unexpected token', 400), 'fallback')).toBe('Unexpected token')
+        })
     })
 
     describe('collectSqlV2Refs', () => {
@@ -91,11 +121,19 @@ describe('notebookNodeSQLV2Logic', () => {
         it('collects python cells as local refs under their kernel variable name', () => {
             // Journey 5: a SQL node referencing new_events must reroute to DuckDB, which only
             // happens if the python cell's returnVariable reaches the backend as a local ref.
-            const document = doc(sqlNode('a', 'df1'), pythonNode('py', 'new_events'), pythonNode('py2'))
+            // A blank name binds nothing in the kernel, so it exports no ref — otherwise every
+            // unnamed cell would claim the same name and shadow the others. Only a cell with no
+            // attribute at all predates the optional name and keeps the legacy 'df'.
+            const document = doc(
+                sqlNode('a', 'df1'),
+                pythonNode('py', 'new_events'),
+                pythonNode('py2', ''),
+                pythonNode('py3')
+            )
             expect(collectSqlV2Refs(document, 'self')).toEqual({
                 df1: hogql('a'),
                 new_events: local('py'),
-                df: local('py2'), // returnVariable defaults to 'df', matching the python cell UI
+                df: local('py3'),
             })
         })
 
@@ -127,6 +165,22 @@ describe('notebookNodeSQLV2Logic', () => {
             // Without a persisted nodeId the cell falls back to its parsed fingerprint id.
             expect(refs.df3?.node_id).toMatch(/^mdn-/)
             expect(refs.new_events).toEqual(local('py'))
+        })
+    })
+
+    describe('pollIntervalMs', () => {
+        // The steps are ordered slowest first and the lookup takes the first match, so
+        // reordering them silently returns one cadence for every wait. That changes how many
+        // requests a long-running cell makes by several times over, and nothing else catches it.
+        it.each([
+            [0, 1_000],
+            [29_999, 1_000],
+            [30_000, 2_000],
+            [119_999, 2_000],
+            [120_000, 5_000],
+            [20 * 60 * 1_000, 5_000],
+        ])('waits %ims into a run, so it polls every %ims', (waitedMs, expected) => {
+            expect(pollIntervalMs(waitedMs)).toEqual(expected)
         })
     })
 
@@ -170,14 +224,12 @@ describe('notebookNodeSQLV2Logic', () => {
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('direct')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
             expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('kernel')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
             expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
@@ -200,7 +252,31 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
-        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
+    })
+
+    it('shows the notebook-gone message when the run dispatch 404s', async () => {
+        // A deleted or inaccessible notebook 404s the dispatch as a generic "Not found."; the cell
+        // must say the notebook is gone, not send the user into a rerun loop for a result that
+        // never existed.
+        runSpy.mockRejectedValue(new ApiError(undefined, 404, undefined, { detail: 'Not found.' }))
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runError).toBe('This notebook could not be found. It may have been deleted.')
+        expect(logic.values.isRunning).toBe(false)
+    })
+
+    it('dispatches a run against the cell’s connection', async () => {
+        // Without this the run reaches the backend with no connection and executes on ClickHouse,
+        // which is what made warehouse queries fail with "Unknown table".
+        mount()
+        logic.actions.runQuery('select 1', {}, { connectionId: 'conn-1', sendRawQuery: true })
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+        expect(runSpy).toHaveBeenCalledWith(
+            'nb1',
+            expect.objectContaining({ connection_id: 'conn-1', send_raw_query: true })
+        )
     })
 
     it('dispatches a python run with its node type and output name', async () => {
@@ -239,6 +315,7 @@ describe('notebookNodeSQLV2Logic', () => {
                 stderr: '',
                 media: [],
             },
+            runStatus: 'done',
         })
         expect(logic.values.isRunning).toBe(false)
     })
@@ -261,8 +338,11 @@ describe('notebookNodeSQLV2Logic', () => {
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
+        // The outcome is persisted with the partial result: without it a reload can't tell this
+        // apart from a completed run, since both leave a result behind.
         expect(updateAttributes).toHaveBeenCalledWith({
             result: expect.objectContaining({ stdout: 'partial output' }),
+            runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')
         expect(logic.values.isRunning).toBe(false)
@@ -423,6 +503,35 @@ describe('notebookNodeSQLV2Logic', () => {
         await expectLogic(other).toFinishAllListeners()
         expect(runSpy).toHaveBeenCalledTimes(2)
         other.unmount()
+    })
+
+    it('gives up the poller at the wait budget without leaving a stray timer', async () => {
+        // Reaching the 21-minute client budget stops polling synchronously, which disposes the
+        // poll timer. The self-rescheduling callback must not arm a new one afterwards: an
+        // untracked timer would survive unmount and re-fire the failure every interval, aborting
+        // any run-all chain waiting on this cell until a reload.
+        jest.useFakeTimers()
+        try {
+            mount({ runId: 'r1', hasResult: false })
+            // Let the first (still-running) poll settle so its scheduled follow-up is what trips
+            // the budget next.
+            await jest.advanceTimersByTimeAsync(0)
+
+            // Jump the accumulated wait to the budget edge; the next scheduled poll trips it.
+            logic.cache.pollWaitedMs = 21 * 60 * 1000
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(logic.values.runError).toContain('Stopped checking')
+            // The poller is disposed and, crucially, not re-armed. A stray timer would re-enter
+            // the budget branch every interval, which each time accumulates the wait again — so an
+            // unchanged wait after advancing past several intervals proves nothing rescheduled.
+            expect(logic.cache.disposables.registry.has('pollResult')).toBe(false)
+            const waitedAfterGivingUp = logic.cache.pollWaitedMs
+            await jest.advanceTimersByTimeAsync(15_000)
+            expect(logic.cache.pollWaitedMs).toBe(waitedAfterGivingUp)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('unmounting a busy node releases the notebook', async () => {

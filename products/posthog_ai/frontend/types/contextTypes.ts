@@ -19,6 +19,14 @@ export interface AttachedContextItem {
     value?: string
     /** Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either). */
     hidden?: boolean
+    /**
+     * Items sharing a `dismissGroup` are dismissed together: closing any chip in the group also
+     * detaches the group's hidden items, so a chip never claims control it doesn't have. Dismissal
+     * is recorded against this stable name rather than the dedupe key, which makes it stick for
+     * hidden items whose value (and therefore key) changes on every re-registration, e.g. live
+     * editor state.
+     */
+    dismissGroup?: string
 }
 
 /** Stable dedupe key for an attached context item: `${type}:${key ?? value}`. */

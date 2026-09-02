@@ -1,7 +1,12 @@
 import { scaleLinear } from 'd3-scale'
 import { useMemo } from 'react'
 
-import { normalizeAxisLabel } from '../../utils/axis-labels'
+import {
+    AXIS_TICK_LABEL_HEIGHT,
+    normalizeAxisLabel,
+    normalizeTickLabelRotation,
+    rotatedTickLabelSize,
+} from '../../utils/axis-labels'
 import { measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, orderedAxisPositions, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
@@ -19,7 +24,9 @@ const Y_LABEL_LEFT_GUTTER = 6
 /** Horizontal gap between stacked value-axis gutters on the same side — shared by the margin
  *  reservation here and the gutter rendering in AxisLabels so the two can't drift. */
 export const GUTTER_GAP = 12
-const X_LABEL_EDGE_PADDING = 4
+/** Breathing room past half an edge tick label, so the outermost label doesn't sit flush against
+ *  the wrapper's clip. Shared with chart types that reserve their own x-label gutters. */
+export const X_LABEL_EDGE_PADDING = 4
 export const X_AXIS_TITLE_MARGIN = 22
 export const Y_AXIS_TITLE_MARGIN = 24
 
@@ -30,6 +37,7 @@ interface UseChartMarginsOptions {
     hideYAxis: boolean
     xAxisLabel?: string
     xTickFormatter?: (value: string, index: number) => string | null
+    xTickLabelRotation?: number
     yTickFormatter?: (value: number) => string
     axisOrientation?: 'vertical' | 'horizontal'
     /** Per-side overrides applied on top of the computed margins. */
@@ -53,20 +61,63 @@ interface UseChartMarginsOptions {
     yAxisHidden?: Record<string, boolean>
 }
 
-function widestCategoryLabelWidth(
+/** Apply per-side overrides, skipping sides left `undefined`. A plain spread would write the
+ *  `undefined` through and clobber the computed margin, which turns the whole plot geometry into
+ *  `NaN` and renders a blank chart — so a caller building an override object conditionally
+ *  (`{ top: reserveOrUndefined }`) gets "leave this side alone" rather than a silent wipeout. */
+export function applyMarginOverride(computed: ChartMargins, override: Partial<ChartMargins>): ChartMargins
+export function applyMarginOverride(
+    computed: Partial<ChartMargins>,
+    override: Partial<ChartMargins>
+): Partial<ChartMargins>
+export function applyMarginOverride(
+    computed: Partial<ChartMargins>,
+    override: Partial<ChartMargins>
+): Partial<ChartMargins> {
+    const result = { ...computed }
+    for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+        const value = override[side]
+        if (value !== undefined) {
+            result[side] = value
+        }
+    }
+    return result
+}
+
+interface CategoryLabelWidths {
+    first: number
+    last: number
+    widest: number
+}
+
+function categoryLabelWidths(
     labels: string[],
     xTickFormatter: ((value: string, index: number) => string | null) | undefined,
     maxCategoryLabelWidth = 0
-): number {
+): CategoryLabelWidths {
+    // Track first/last/widest in one pass — spreading a per-label array into `Math.max`
+    // can overflow the argument limit on a high-cardinality category axis.
+    let first = 0
+    let last = 0
     let widest = 0
+    let seenAny = false
     for (let i = 0; i < labels.length; i++) {
         const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
         if (text === null) {
             continue
         }
-        widest = Math.max(widest, measureLabelWidth(text))
+        const measured = measureLabelWidth(text)
+        const width = maxCategoryLabelWidth > 0 ? Math.min(measured, maxCategoryLabelWidth) : measured
+        if (!seenAny) {
+            first = width
+            seenAny = true
+        }
+        last = width
+        if (width > widest) {
+            widest = width
+        }
     }
-    return maxCategoryLabelWidth > 0 ? Math.min(widest, maxCategoryLabelWidth) : widest
+    return { first, last, widest }
 }
 
 function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
@@ -94,6 +145,7 @@ export function useChartMargins({
     hideYAxis,
     xAxisLabel,
     xTickFormatter,
+    xTickLabelRotation = 0,
     yTickFormatter,
     axisOrientation = 'vertical',
     override,
@@ -107,6 +159,11 @@ export function useChartMargins({
     const isHorizontal = axisOrientation === 'horizontal'
     const valueSeries = valueRangeSeries ?? series
     const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
+    const tickLabelRotation = isHorizontal ? 0 : normalizeTickLabelRotation(xTickLabelRotation)
+    const categoryWidths = useMemo(
+        () => categoryLabelWidths(labels, xTickFormatter, maxCategoryLabelWidth),
+        [labels, xTickFormatter, maxCategoryLabelWidth]
+    )
 
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
@@ -151,24 +208,49 @@ export function useChartMargins({
             return 0
         }
         if (isHorizontal) {
-            return widestCategoryLabelWidth(labels, xTickFormatter, maxCategoryLabelWidth)
+            return categoryWidths.widest
         }
         return widestValueLabelWidth(valueSeries, yTickFormatter)
-    }, [valueSeries, yTickFormatter, hideYAxis, isHorizontal, labels, xTickFormatter, maxCategoryLabelWidth])
+    }, [valueSeries, yTickFormatter, hideYAxis, isHorizontal, categoryWidths.widest])
 
-    const xLabelHalfWidth = useMemo<number>(() => {
+    const xLabelEdgeReserves = useMemo<{ left: number; right: number }>(() => {
         if (hideXAxis) {
-            return 0
+            return { left: 0, right: 0 }
         }
         if (isHorizontal) {
             const widest = widestValueLabelWidth(valueSeries, yTickFormatter)
-            return Math.ceil(widest / 2)
+            const halfWidth = Math.ceil(widest / 2)
+            return { left: halfWidth, right: halfWidth }
         }
         if (labels.length === 0) {
+            return { left: 0, right: 0 }
+        }
+        if (tickLabelRotation === 0) {
+            const halfWidth = Math.ceil(categoryWidths.widest / 2)
+            return { left: halfWidth, right: halfWidth }
+        }
+
+        const radians = (Math.abs(tickLabelRotation) * Math.PI) / 180
+        const thinEdgeReserve = Math.ceil(AXIS_TICK_LABEL_HEIGHT * Math.sin(radians))
+        if (tickLabelRotation < 0) {
+            return {
+                left: Math.ceil(categoryWidths.first * Math.cos(radians)),
+                right: thinEdgeReserve,
+            }
+        }
+        return {
+            left: thinEdgeReserve,
+            right: Math.ceil(categoryWidths.last * Math.cos(radians)),
+        }
+    }, [categoryWidths, hideXAxis, isHorizontal, labels.length, tickLabelRotation, valueSeries, yTickFormatter])
+
+    const xLabelExtraBottom = useMemo<number>(() => {
+        if (hideXAxis || isHorizontal || tickLabelRotation === 0) {
             return 0
         }
-        return Math.ceil(widestCategoryLabelWidth(labels, xTickFormatter, maxCategoryLabelWidth) / 2)
-    }, [labels, xTickFormatter, hideXAxis, isHorizontal, valueSeries, yTickFormatter, maxCategoryLabelWidth])
+        const rotatedHeight = rotatedTickLabelSize(categoryWidths.widest, tickLabelRotation).height
+        return Math.max(0, Math.ceil(rotatedHeight - AXIS_TICK_LABEL_HEIGHT))
+    }, [categoryWidths.widest, hideXAxis, isHorizontal, tickLabelRotation])
 
     // With multiple y-axes the value-axis labels stack into several gutters per side; reserve the
     // cumulative width so the outer gutters aren't clipped. Mirrors AxisLabels' gutter layout.
@@ -219,29 +301,40 @@ export function useChartMargins({
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis
             ? COLLAPSED_AXIS_MARGIN
-            : DEFAULT_MARGINS.bottom + (normalizedXAxisLabel ? X_AXIS_TITLE_MARGIN : 0)
+            : DEFAULT_MARGINS.bottom + xLabelExtraBottom + (normalizedXAxisLabel ? X_AXIS_TITLE_MARGIN : 0)
         const leftLabelReserve = gutterReserves ? gutterReserves.left : Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING
+        // Even with the y-axis collapsed, the first x label still overhangs the plot's left edge,
+        // so its edge reserve keeps the floor (the right margin already does the same).
         const left = hideYAxis
-            ? COLLAPSED_AXIS_MARGIN
+            ? Math.max(COLLAPSED_AXIS_MARGIN, xLabelEdgeReserves.left + X_LABEL_EDGE_PADDING)
             : Math.max(
                   MIN_LEFT_MARGIN,
                   leftLabelReserve + Y_LABEL_LEFT_GUTTER,
-                  xLabelHalfWidth + X_LABEL_EDGE_PADDING
+                  xLabelEdgeReserves.left + X_LABEL_EDGE_PADDING
               ) + titleReserve.left
         const rightFloor = usesPerSideGutters && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const rightLabelReserve = (gutterReserves?.right ?? 0) + titleReserve.right
-        const right = Math.max(rightFloor, rightLabelReserve, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
+        const right = Math.max(rightFloor, rightLabelReserve, xLabelEdgeReserves.right + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
-        return override ? { ...computed, ...override } : computed
+        return override ? applyMarginOverride(computed, override) : computed
+        // Depend on the individual sides, not `override` by identity — callers are expected to build
+        // the override object inline and conditionally (`{ top: reserveOrUndefined }`), which is a
+        // fresh identity every render, and keying off it here would reintroduce the referential churn
+        // this hook's memoization is meant to contain.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         hideXAxis,
         hideYAxis,
         usesPerSideGutters,
         gutterReserves,
         yLabelWidth,
-        xLabelHalfWidth,
+        xLabelEdgeReserves,
+        xLabelExtraBottom,
         normalizedXAxisLabel,
         titleReserve,
-        override,
+        override?.top,
+        override?.right,
+        override?.bottom,
+        override?.left,
     ])
 }

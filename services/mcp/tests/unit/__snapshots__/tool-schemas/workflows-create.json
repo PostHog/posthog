@@ -75,11 +75,13 @@
                                                             },
                                                             "source": {
                                                                 "default": "events",
-                                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                                "description": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
                                                                 "enum": [
                                                                     "events",
+                                                                    "internal-events",
                                                                     "person-updates",
-                                                                    "data-warehouse-table"
+                                                                    "data-warehouse-table",
+                                                                    "data-warehouse-view"
                                                                 ],
                                                                 "type": "string"
                                                             },
@@ -157,11 +159,13 @@
                                                                 },
                                                                 "source": {
                                                                     "default": "events",
-                                                                    "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                                    "description": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
                                                                     "enum": [
                                                                         "events",
+                                                                        "internal-events",
                                                                         "person-updates",
-                                                                        "data-warehouse-table"
+                                                                        "data-warehouse-table",
+                                                                        "data-warehouse-view"
                                                                     ],
                                                                     "type": "string"
                                                                 },
@@ -185,7 +189,7 @@
                                         "type": "array"
                                     },
                                     "max_wait_duration": {
-                                        "description": "'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay).",
+                                        "description": "'<number><unit>' with unit s|m|h|d, e.g. '30m' (same rules as delay).",
                                         "type": "string"
                                     }
                                 },
@@ -193,7 +197,7 @@
                                 "type": "object"
                             }
                         ],
-                        "description": "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                        "description": "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                     },
                     "created_at": {
                         "description": "Created at (epoch ms). Frontend-managed.",
@@ -257,8 +261,14 @@
                                     },
                                     "source": {
                                         "default": "events",
-                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                        "enum": ["events", "person-updates", "data-warehouse-table"],
+                                        "description": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                                        "enum": [
+                                            "events",
+                                            "internal-events",
+                                            "person-updates",
+                                            "data-warehouse-table",
+                                            "data-warehouse-view"
+                                        ],
                                         "type": "string"
                                     },
                                     "transpiled": {}
@@ -298,8 +308,20 @@
                         "description": "Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those."
                     },
                     "type": {
-                        "description": "trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.",
-                        "maxLength": 100,
+                        "description": "One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n* `trigger` - trigger\n* `function` - function\n* `function_email` - function_email\n* `function_sms` - function_sms\n* `function_push` - function_push\n* `delay` - delay\n* `wait_until_condition` - wait_until_condition\n* `wait_until_time_window` - wait_until_time_window\n* `conditional_branch` - conditional_branch\n* `random_cohort_branch` - random_cohort_branch\n* `exit` - exit",
+                        "enum": [
+                            "trigger",
+                            "function",
+                            "function_email",
+                            "function_sms",
+                            "function_push",
+                            "delay",
+                            "wait_until_condition",
+                            "wait_until_time_window",
+                            "conditional_branch",
+                            "random_cohort_branch",
+                            "exit"
+                        ],
                         "type": "string"
                     },
                     "updated_at": {
@@ -375,8 +397,14 @@
                                             },
                                             "source": {
                                                 "default": "events",
-                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                                "enum": ["events", "person-updates", "data-warehouse-table"],
+                                                "description": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                                                "enum": [
+                                                    "events",
+                                                    "internal-events",
+                                                    "person-updates",
+                                                    "data-warehouse-table",
+                                                    "data-warehouse-view"
+                                                ],
                                                 "type": "string"
                                             },
                                             "transpiled": {}
@@ -434,7 +462,7 @@
                         "type": "string"
                     },
                     "index": {
-                        "description": "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing).",
+                        "description": "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing).",
                         "type": "number"
                     },
                     "to": {
@@ -451,6 +479,31 @@
                 "type": "object"
             },
             "type": "array"
+        },
+        "email_sending_rate_limit": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "count": {
+                            "description": "Maximum number of emails this workflow sends per period.",
+                            "maximum": 1000000,
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "period": {
+                            "description": "Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n* `minute` - minute\n* `hour` - hour",
+                            "enum": ["minute", "hour"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["count", "period"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
         },
         "exit_condition": {
             "description": "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End",
@@ -473,6 +526,19 @@
                 }
             ],
             "description": "Workflow name."
+        },
+        "origin_product": {
+            "anyOf": [
+                {
+                    "description": "* `loops` - Loops",
+                    "enum": ["loops"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n* `loops` - Loops"
         },
         "status": {
             "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",

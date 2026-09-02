@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -18,6 +17,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
+            docsHref: 'https://posthog.com/docs/endpoints',
         },
         EndpointScene: {
             import: () => import('./frontend/EndpointScene'),
@@ -77,9 +77,8 @@ export const manifest: ProductManifest = {
             name: 'Endpoints',
             iconType: 'endpoints',
             href: () => urls.endpoints(),
-            iconColor: ['var(--color-product-endpoints-light)'],
+            iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
             filterKey: 'endpoints',
-            flag: FEATURE_FLAGS.ENDPOINTS,
         },
     },
     treeItemsProducts: [
@@ -89,9 +88,11 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             href: urls.endpoints(),
             type: 'endpoints',
-            flag: FEATURE_FLAGS.ENDPOINTS,
             iconType: 'endpoints',
-            iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-endpoints-light)',
+                'var(--color-product-endpoints-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'EndpointsScene',
         },
     ],
@@ -100,10 +101,12 @@ export const manifest: ProductManifest = {
             path: 'Endpoints',
             category: 'Tools',
             iconType: 'endpoints' as FileSystemIconType,
-            iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-endpoints-light)',
+                'var(--color-product-endpoints-dark)',
+            ] as FileSystemIconColor,
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
-            flag: FEATURE_FLAGS.ENDPOINTS,
             sceneKeys: ['EndpointsScene', 'EndpointScene'],
         },
     ],

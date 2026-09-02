@@ -42,6 +42,9 @@ tools:
     hog-flows-assets-retrieve:
         operation: hog_flows_assets_retrieve
         enabled: false
+    hog-flows-batch-jobs-cancel-create:
+        operation: hog_flows_batch_jobs_cancel_create
+        enabled: false
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
         enabled: false
@@ -56,6 +59,15 @@ tools:
         enabled: false
     hog-flows-discard-draft-create:
         operation: hog_flows_discard_draft_create
+        enabled: false
+    hog-flows-email-sending-suspension-retrieve:
+        operation: hog_flows_email_sending_suspension_retrieve
+        enabled: false
+    hog-flows-invocation-results-count-retrieve:
+        operation: hog_flows_invocation_results_count_retrieve
+        enabled: false
+    hog-flows-invocations-cancel-create:
+        operation: hog_flows_invocations_cancel_create
         enabled: false
     hog-flows-invocations-create:
         operation: hog_flows_invocations_create
@@ -84,6 +96,9 @@ tools:
     hog-flows-revisions-retrieve:
         operation: hog_flows_revisions_retrieve
         enabled: false
+    hog-flows-run-create:
+        operation: hog_flows_run_create
+        enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
         enabled: false
@@ -98,6 +113,9 @@ tools:
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-account-audience-create:
+        operation: internal_hog_flows_account_audience_create
         enabled: false
     internal-hog-flows-batch-jobs-status-update:
         operation: internal_hog_flows_batch_jobs_status_update
@@ -129,15 +147,22 @@ tools:
             Provide an actions array with exactly one type='trigger' (config.type:
             event|webhook|manual|batch|tracking_pixel) plus action nodes
             (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
-            connected by edges. Read the building-workflows skill for node shapes before composing: a node that
-            mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a
-            conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not
-            {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't
-            evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server
-            compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property
-            conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch
-            with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did
-            event X at least N times over the last M days') is unsupported; reject it and explain why.
+            connected by edges. A webhook or manual trigger also needs config.template_id set to the literal
+            'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'; without it
+            the create is rejected with 'Template not found' against the trigger node. Read the building-workflows skill
+            for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual
+            editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper —
+            {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the
+            editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send
+            properties/hash and the server compiles it. For '$account_custom_property_changed', current_value is
+            polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in
+            each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan
+            with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do
+            not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an
+            audience (config.filters.properties: person-property conditions and/or cohort references), one run per
+            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
+            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
+            unsupported; reject it and explain why.
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
@@ -165,11 +190,13 @@ tools:
         enrich_url: '{id}/workflow'
         title: Get workflow
         description: >
-            Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
-            condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check
-            status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active
-            workflow, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) —
-            the live config in actions/edges is what's running.
+            Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead,
+            resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full
+            workflow definition including trigger, edges, actions, exit condition, variables, and any recurring
+            'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in
+            'schedules' to confirm it will actually fire. On an active workflow, 'draft' holds staged content changes
+            awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
+            running.
         ui_app: workflow
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
@@ -230,7 +257,9 @@ tools:
         title: List workflows
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps.
+            (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<name> to find a
+            workflow by name and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius,
+            workflows-run-batch and workflows-schedule-create take it as 'workflow_id'.
         ui_app: workflow-list
     workflows-list-batch-jobs:
         operation: hog_flows_batch_jobs_list
@@ -294,6 +323,27 @@ tools:
             Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
             LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
             results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
+    workflows-patch-action-email:
+        operation: hog_flows_actions_email_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: WorkflowActionEmailPatchSchema
+        title: Patch a workflow step's email
+        description: >
+            Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design
+            changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template,
+            addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and
+            email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
+            server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
+            nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
+            reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over
+            workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
+            sync. For library templates use workflows-patch-email-template instead.
     workflows-patch-graph:
         operation: hog_flows_graph_partial_update
         enabled: true
@@ -314,11 +364,10 @@ tools:
             validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing
             changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch
             copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until
-            workflows-publish. A rejection saying active workflows can't be edited means draft editing isn't enabled for
-            this project yet — then a live change means recreating the workflow as a new draft. The full updated
-            workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a
-            conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not
-            {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.
+            workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next
+            edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
+            {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
+            workflows-test-run after patching.
     workflows-publish:
         operation: hog_flows_publish_create
         enabled: true
@@ -372,7 +421,9 @@ tools:
             Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval
             (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an
             at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports
-            breakdown by metric kind (success/failure) or name, and time range filtering.
+            breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read
+            email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends
+            with open/click tracking off, which can never register an open or a click.
     workflows-test-run:
         operation: hog_flows_invocations_create
         enabled: true
@@ -389,11 +440,19 @@ tools:
             includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit
             current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat.
             To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action
-            after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
-            Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side
-            effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of
-            its live config — always do this before workflows-publish. use_draft requires a staged draft to exist
-            (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.
+            after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}),
+            shaped like what the trigger really receives: for event triggers, an event matching the trigger filters; for
+            internal-event triggers, the event MUST be named in the trigger's filters.events (the Slack trigger fires on
+            $slack_message_received with Slack properties like channel, channel_type, user, bot_id, app_id, subtype,
+            text, ts, thread_ts) and carry no person; copy a real payload from workflows-get-invocation when a past run
+            exists. The trigger step evaluates event, internal-event, and warehouse-row trigger filters against globals
+            and returns status=skipped when the event name or filters do not match: fix a fabricated payload to match
+            the trigger, but treat a skip on a real, copied payload as a broken trigger filter instead. Other trigger
+            types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set
+            mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true
+            to test a workflow's staged draft instead of its live config — always do this before workflows-publish.
+            use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing
+            staged, omit it.
         exclude_params:
             - configuration
     workflows-update:
@@ -411,10 +470,8 @@ tools:
             Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
-            content fields stage a draft (published with workflows-publish) while name/description apply immediately; a
-            rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet -
-            then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable
-            / workflows-archive.
+            content fields stage a draft (published with workflows-publish) while name/description apply immediately.
+            Status changes go through workflows-enable / workflows-archive.
         exclude_params:
             - status
             - actions

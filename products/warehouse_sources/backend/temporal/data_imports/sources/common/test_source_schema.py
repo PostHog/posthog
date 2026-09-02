@@ -4,6 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     _select_incremental_field,
     build_default_schemas,
+    build_endpoint_schemas,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -119,6 +120,23 @@ class TestBuildDefaultSchemas:
         )
         assert schemas == [{"name": "teams", "should_sync": False}]
 
+    @parameterized.expand(
+        [
+            ("denied", "Requires the Issues permission", False),
+            ("reachable", None, True),
+            ("blank_reason_is_not_a_denial", "", True),
+        ]
+    )
+    def test_permission_error_leaves_table_disabled(self, _name: str, reason: str | None, expected_sync: bool) -> None:
+        # One-shot setup used to enable every default-on table regardless of the per-table scope
+        # probe the schema picker already honors, so an OAuth connection missing a grant queued
+        # syncs that could only ever 403.
+        schemas = build_default_schemas(
+            [SourceSchema(name="issues", supports_incremental=False, supports_append=False)],
+            permission_errors={"issues": reason},
+        )
+        assert schemas[0]["should_sync"] is expected_sync
+
     def test_incremental_lookback_default_flows_through(self) -> None:
         # Sources whose recent rows get restated upstream (e.g. Google Ads stats tables) set a
         # default lookback; dropping it here would freeze restated rows at first-imported values.
@@ -163,3 +181,59 @@ class TestBuildDefaultSchemas:
         schemas = build_default_schemas(source_schemas)
         assert [s["name"] for s in schemas] == ["a", "b", "c"]
         assert all(s["should_sync"] for s in schemas)
+
+
+class TestBuildEndpointSchemas:
+    ENDPOINTS = ["campaigns", "contacts", "events"]
+    INCREMENTAL = {"contacts": [_field("updated_at")]}
+
+    def _build(self, **kwargs) -> list[SourceSchema]:
+        return build_endpoint_schemas(self.ENDPOINTS, self.INCREMENTAL, **kwargs)
+
+    def test_only_endpoints_with_tracking_fields_sync_incrementally(self) -> None:
+        schemas = {s.name: s for s in self._build()}
+
+        assert (schemas["contacts"].supports_incremental, schemas["contacts"].supports_append) == (True, True)
+        assert schemas["contacts"].incremental_fields == self.INCREMENTAL["contacts"]
+        assert (schemas["campaigns"].supports_incremental, schemas["campaigns"].supports_append) == (False, False)
+        assert schemas["campaigns"].incremental_fields == []
+
+    @parameterized.expand(
+        [
+            ("append_only", {"append_only": ["contacts"]}, False, True),
+            ("merge_only", {"merge_only": ["contacts"]}, True, False),
+        ]
+    )
+    def test_sync_mode_overrides(self, _name: str, kwargs: dict, incremental: bool, append: bool) -> None:
+        contacts = {s.name: s for s in self._build(**kwargs)}["contacts"]
+
+        assert (contacts.supports_incremental, contacts.supports_append) == (incremental, append)
+
+    @parameterized.expand(
+        [
+            ("subset", ["contacts"], ["contacts"]),
+            ("preserves_catalog_order", ["events", "campaigns"], ["campaigns", "events"]),
+            ("unknown_name", ["nope"], []),
+            ("empty_list", [], []),
+            ("none_means_everything", None, ENDPOINTS),
+        ]
+    )
+    def test_names_filter(self, _name: str, names: list[str] | None, expected: list[str]) -> None:
+        assert [s.name for s in self._build(names=names)] == expected
+
+    def test_per_endpoint_metadata_reaches_the_schema(self) -> None:
+        # should_sync_default drives which tables are pre-checked in the picker, so a regression
+        # here silently changes what a new source syncs on its first run.
+        schemas = {
+            s.name: s
+            for s in self._build(
+                descriptions={"campaigns": "Every campaign"},
+                should_sync_default={"events": False},
+                supports_webhooks=["contacts"],
+            )
+        }
+
+        assert schemas["campaigns"].description == "Every campaign"
+        assert schemas["contacts"].description is None
+        assert (schemas["events"].should_sync_default, schemas["campaigns"].should_sync_default) == (False, True)
+        assert (schemas["contacts"].supports_webhooks, schemas["campaigns"].supports_webhooks) == (True, False)

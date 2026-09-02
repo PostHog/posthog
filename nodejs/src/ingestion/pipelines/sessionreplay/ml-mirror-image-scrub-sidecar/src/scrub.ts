@@ -10,15 +10,17 @@
  * zxing-wasm. The source is decoded once to raw RGB (area-capped at SCRUB_MAX_PIXELS) and shared
  * across stages.
  */
-import sharp from 'sharp'
+import sharp, { type Sharp } from 'sharp'
 
-import { BLANK_PNG, LIMIT_INPUT_PIXELS, UndecodableImageError, blurOnly } from './blur.ts'
+import { BLANK_PNG, LIMIT_INPUT_PIXELS, blurOnly } from './blur.ts'
 import { type DbnetModel, detectTextDbnet, loadDbnet } from './dbnet.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
+import { PermanentImageError, undecodableImageErrorFromDecodeFailure } from './image-input.ts'
 import { detectCodes } from './qr.ts'
 import { type SafetyModel, classifySafety, loadSafety } from './safety.ts'
-import { type Src, decodeSrc, srcSharp } from './src-image.ts'
+import { type Dims, type ScalePlan, limitsFromEnv, planScales } from './scale-plan.ts'
+import { type Src, decodeSrc, probeDims, srcSharp } from './src-image.ts'
 import { type YunetModel, detectFacesYunet, loadYunet } from './yunet.ts'
 
 export type TextMode = 'heuristic' | 'dbnet'
@@ -47,6 +49,10 @@ export async function loadModels(
     return { safety, dbnet, yunet }
 }
 
+// For harnesses that load and drop models repeatedly (dev/bench.ts). The sidecar never calls it:
+// models live as long as the worker that loaded them, and every path that ends a worker has either
+// already lost the thread or cannot get a reply from it, so the isolate teardown after
+// worker.terminate() is what frees the sessions there.
 export async function disposeModels(m: Models): Promise<void> {
     await Promise.all([m.safety.session.release(), m.dbnet.session.release(), m.yunet.session.release()])
 }
@@ -62,9 +68,19 @@ export interface StageTimings {
     encodeMs: number
     totalMs: number
     blanked: boolean
+    /** Frame was a single flat colour, so detection was skipped as provably vacuous. */
+    uniform: boolean
     faces: number
     textBoxes: number
     codes: number
+    /** Source format and its pre-downscale size: which stage to attack depends on the corpus mix,
+     *  and only formats with a multi-resolution decode can be shrunk on load. */
+    format: string
+    inputPixels: number
+    /** Encoded size as received, which is what this image cost the topic and the bucket. */
+    inputBytes: number
+    /** Pixels actually written, which SCRUB_OUT_MAX_PIXELS can move independently of the source. */
+    storedPixels: number
 }
 
 const NSFW_THRESHOLD = numFromEnv('NSFW_THRESHOLD', 0.6, 0.05, 0.95) // NSFL+NSFW combined; deliberately loose, this is a safety net
@@ -93,17 +109,6 @@ function clampBox(b: Box, W: number, H: number): Box | null {
 // --- input preparation --------------------------------------------------------------------------
 /** Adaptive DBNet detection budget: big enough to resolve small text on retina shots, capped for cost.
  *  The returned value is the budget SIDE — dbnet caps its input at detLimit^2 px, aspect preserved. */
-// Detection budget as a fraction of the image's own scale (sqrt of its area). 0.75 clears all crisp
-// rendered UI (session replay's actual domain) cheaply; raise toward 1.0 for faint/small
-// scanned-document print (more CPU), lower for more throughput. Faint low-contrast text is
-// contrast- not size-limited, so resolution alone won't catch every faded fax line.
-const DET_FACTOR = numFromEnv('DET_FACTOR', 0.75, 0.1, 1)
-const DET_CAP = numFromEnv('DET_CAP', 1600, 256, 4096) // cap so retina screenshots don't explode
-function adaptiveDetLimit(W: number, H: number): number {
-    const target = Math.round((Math.sqrt(W * H) * DET_FACTOR) / 32) * 32
-    return Math.max(736, Math.min(DET_CAP, target))
-}
-
 /** Whole worker job for one image, advanced path. Detection is parallelized when PARALLEL_DETECT=1:
  *  the three ORT sessions run on onnxruntime's background threads. */
 export async function advancedScrub(
@@ -121,22 +126,47 @@ export async function advancedScrub(
         encodeMs: 0,
         totalMs: 0,
         blanked: false,
+        uniform: false,
         faces: 0,
         textBoxes: 0,
         codes: 0,
+        format: 'unknown',
+        inputPixels: 0,
+        inputBytes: input.length,
+        storedPixels: 0,
     }
     const t0 = performance.now()
     const tDec = performance.now()
     // Decode the PNG ONCE; every stage re-wraps these raw pixels. The decode is the only stage that
     // consumes untrusted bytes, so its failures are permanent-for-these-bytes (422/skip), never 500.
     let src: Src
+    let plan: ScalePlan
     try {
-        src = await decodeSrc(input)
+        const meta = await probeDims(input)
+        // One decision, before any pixel is read: every stage below takes its size from here.
+        plan = planScales(meta, limitsFromEnv())
+        src = await decodeSrc(input, plan.frame)
     } catch (e) {
-        throw e instanceof UndecodableImageError ? e : new UndecodableImageError(String(e))
+        throw e instanceof PermanentImageError ? e : undecodableImageErrorFromDecodeFailure(e)
     }
     const { W, H } = src
     timings.decodeMs = performance.now() - tDec
+    timings.format = src.format
+    timings.inputPixels = src.inputPixels
+
+    // A frame of one exact colour holds no text, face, code or anything the safety gate could trip
+    // on, so every model below can only return nothing. Replay captures plenty of them: blank page
+    // loads, transitions, cleared views. Ahead of the gate rather than after it because the gate is a
+    // fixed-cost inference on every frame, which makes it the largest single thing this skips.
+    if (isUniform(src)) {
+        timings.uniform = true
+        // Stored at the planned size like any other frame. Sizing it by its own dimensions instead
+        // would make a blank frame the one image kept at full resolution, which is a surprising
+        // exception to carry for no benefit: a flat colour is as recognisable small as large.
+        const out = await compose(src, W, H, [], timings, plan.stored)
+        timings.totalMs = performance.now() - t0
+        return { out, t: timings }
+    }
 
     // 1. NSFW / gore gate FIRST: if it trips we skip all detection. Running it first (rather than
     //    overlapping detection) keeps each worker ~1 core, which packs better under multi-process
@@ -154,9 +184,8 @@ export async function advancedScrub(
 
     // 2. Face (YuNet) + text (DBNet) on native ORT, codes (zxing) on wasm. Serial by default
     //    (1 core/worker); parallel opt-in.
-    const det = adaptiveDetLimit(W, H)
     const runText = (): Promise<Box[]> =>
-        textMode === 'dbnet' ? detectTextDbnet(m.dbnet, src, W, H, { detLimit: det }) : detectTextRegions(input, W, H)
+        textMode === 'dbnet' ? detectTextDbnet(m.dbnet, src, plan.text) : detectTextRegions(input, W, H)
     let faceBoxes: Box[]
     let textBoxes: Box[]
     let codeBoxes: Box[]
@@ -197,9 +226,30 @@ export async function advancedScrub(
     }
     const fillBoxes = [...faceBoxes, ...textBoxes.map(expandText).filter((b): b is Box => b !== null), ...codeBoxes]
 
-    const out = await compose(src, W, H, fillBoxes, timings)
+    const out = await compose(src, W, H, fillBoxes, timings, plan.stored)
     timings.totalMs = performance.now() - t0
     return { out, t: timings }
+}
+
+/** Whether every pixel is the same exact colour.
+ *
+ *  Exact, and over the same buffer every detector is given, which is what makes skipping them sound:
+ *  a frame that is one colour at that resolution cannot yield a detection at that resolution. Both
+ *  obvious relaxations break that: a tolerance admits a faint watermark, and running it over a
+ *  thumbnail admits a single 14px line once the downscale averages it into the background. Costs
+ *  nothing on a frame with content, which differs from its first pixel within the first few, and a
+ *  full pass only on frames it is about to save an entire detection round on. */
+export function isUniform(src: Src): boolean {
+    const d = src.data
+    const r = d[0]
+    const g = d[1]
+    const b = d[2]
+    for (let i = 3; i < d.length; i += 3) {
+        if (d[i] !== r || d[i + 1] !== g || d[i + 2] !== b) {
+            return false
+        }
+    }
+    return true
 }
 
 /**
@@ -280,12 +330,21 @@ async function detectTextRegions(input: Buffer, W: number, H: number): Promise<B
  *  pixels inside a box ever survive. A solid fill carries no glyph, face, or code-module structure
  *  (blur and mosaic are low-pass filters whose coarse structure an LLM or a re-run detector can
  *  still recover), so the same irreversible treatment covers all three classes. */
-async function compose(src: Src, W: number, H: number, boxes: Box[], timings: StageTimings): Promise<Buffer> {
+export async function compose(
+    src: Src,
+    W: number,
+    H: number,
+    boxes: Box[],
+    timings: StageTimings,
+    /** Where the plan says this image is stored. Passed in rather than derived here, because the size
+     *  is a property of the whole pipeline's geometry and not of the compose step. */
+    stored: Dims
+): Promise<Buffer> {
     const tC = performance.now()
     if (boxes.length === 0) {
         timings.composeMs = performance.now() - tC
         const tE0 = performance.now()
-        const out0 = await srcSharp(src).png({ compressionLevel: PNG_LEVEL }).toBuffer()
+        const out0 = await encodeStored(srcSharp(src), W, H, stored, timings)
         timings.encodeMs = performance.now() - tE0
         return out0
     }
@@ -333,14 +392,51 @@ async function compose(src: Src, W: number, H: number, boxes: Box[], timings: St
     // Soften edges by blurring the COLOUR layer only (alpha stays hard, so nothing under a box is
     // ever revealed; the blur just fades the fill into its background margin).
     const redBlurred = EDGE_BLUR > 0 ? await sharp(red, raw3).blur(EDGE_BLUR).raw().toBuffer() : red
-    const overlay = await sharp(redBlurred, raw3).joinChannel(alphaLayer, raw1).png().toBuffer()
+    // Raw, not PNG: composite reads a raw buffer directly, so encoding here would only be decoded
+    // again inside composite, costing a full-frame round-trip at sharp's default compression.
+    const overlay = await sharp(redBlurred, raw3).joinChannel(alphaLayer, raw1).raw().toBuffer()
 
     timings.composeMs = performance.now() - tC
     const tE = performance.now()
-    const out = await srcSharp(src)
-        .composite([{ input: overlay, left: 0, top: 0 }])
-        .png({ compressionLevel: PNG_LEVEL })
-        .toBuffer()
+    const redacted = srcSharp(src).composite([
+        { input: overlay, raw: { width: W, height: H, channels: 4 }, left: 0, top: 0 },
+    ])
+    const out = await encodeStored(redacted, W, H, stored, timings)
     timings.encodeMs = performance.now() - tE
     return out
+}
+
+/**
+ * Encode at the storage budget, downscaling only after every fill is already in the pixels.
+ *
+ * Order matters here and is the whole reason this is a separate step. Resampling the frame first and
+ * filling the rescaled boxes afterwards leaves a rim of the content each box exists to destroy: a
+ * resize kernel reaches beyond the box edge, so destination pixels just outside it carry a weighted
+ * average that includes what was inside. Rounding the boxes outward covers one pixel of rounding,
+ * not the kernel's reach, and measured against a black block on white the residue runs to full
+ * intensity one pixel out at a mild downscale. Downscaling what is already redacted cannot leak,
+ * because the only thing left to smear is the solid fill.
+ *
+ * Sharp orders resize before composite within one pipeline regardless of call order, so the resize
+ * has to happen in a second pass over the composited pixels rather than chained onto the first.
+ */
+async function encodeStored(
+    redacted: Sharp,
+    W: number,
+    H: number,
+    stored: Dims,
+    timings?: StageTimings
+): Promise<Buffer> {
+    const { width: outW, height: outH } = stored
+    if (timings) {
+        timings.storedPixels = outW * outH
+    }
+    if (outW >= W && outH >= H) {
+        return redacted.png({ compressionLevel: PNG_LEVEL }).toBuffer()
+    }
+    const { data, info } = await redacted.raw().toBuffer({ resolveWithObject: true })
+    return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } })
+        .resize(outW, outH, { fit: 'fill' })
+        .png({ compressionLevel: PNG_LEVEL })
+        .toBuffer()
 }

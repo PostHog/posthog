@@ -62,3 +62,17 @@ ENDPOINTS = tuple(CALENDLY_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in CALENDLY_ENDPOINTS.items()
 }
+
+# Calendly only emits webhooks for invitee lifecycle and routing form submissions. The invitee
+# payloads embed the whole `scheduled_event` object under the same field names the REST list
+# endpoint returns, so those deliveries can merge straight into `scheduled_events`. Nothing else
+# we sync has a matching event: there is no event type for event types, groups or memberships,
+# and `routing_form_submission.created` carries a submission rather than the form we sync.
+CALENDLY_WEBHOOK_EVENTS = ("invitee.created", "invitee.canceled")
+
+# Key the hog template routes on, not a Calendly event name: both subscribed events map to the
+# one table, so the template routes on the resource it found in the payload rather than on
+# `body.event`.
+WEBHOOK_RESOURCE_MAP: dict[str, str] = {"scheduled_events": "scheduled_event"}
+
+WEBHOOK_SCHEMA_NAMES = tuple(WEBHOOK_RESOURCE_MAP)

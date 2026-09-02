@@ -26,6 +26,7 @@ from posthog.email import (
     _send_email,
     _send_via_http,
     _send_via_smtp,
+    get_email_team_and_org_context,
     sanitize_email_properties,
 )
 from posthog.models import Organization, Person, Team, User
@@ -35,6 +36,47 @@ from posthog.test.persons import (
     add_distinct_id as add_test_distinct_id,
     create_person as create_test_person,
 )
+
+
+class TestEmailTeamAndOrgContext(BaseTest):
+    def test_team_derives_org_name_and_customer_id_from_org(self):
+        self.organization.customer_id = "cus_123"
+        self.organization.save()
+        assert get_email_team_and_org_context(team=self.team) == {
+            "team_name": self.team.name,
+            "organization_name": self.organization.name,
+            "customer_id": "cus_123",
+        }
+
+    def test_organization_only_yields_org_name_and_customer_id(self):
+        self.organization.customer_id = "cus_123"
+        self.organization.save()
+        assert get_email_team_and_org_context(organization=self.organization) == {
+            "organization_name": self.organization.name,
+            "customer_id": "cus_123",
+        }
+
+    @parameterized.expand(
+        [
+            ("team_name", "your project"),
+            ("organization_name", "your organization"),
+        ]
+    )
+    def test_url_name_falls_back_to_a_placeholder(self, field: str, expected: str):
+        self.team.name = "https://acme.example.com"
+        self.team.save()
+        self.organization.name = "https://acme.example.com"
+        self.organization.save()
+        assert get_email_team_and_org_context(team=self.team)[field] == expected
+
+    def test_blank_values_are_omitted_so_templates_render_only_whats_present(self):
+        self.organization.customer_id = None
+        self.organization.save()
+        assert get_email_team_and_org_context() == {}
+        assert get_email_team_and_org_context(team=self.team) == {
+            "team_name": self.team.name,
+            "organization_name": self.organization.name,
+        }
 
 
 class TestEmail(BaseTest):

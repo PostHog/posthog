@@ -118,7 +118,7 @@ export type IngestionConsumerConfig = {
     // Maximum in-flight batches per worker (BatchingPipeline.concurrentBatches).
     // Mirrors INGESTION_WORKER_CONCURRENT_BATCHES on the Rust consumer side —
     // both values MUST agree, otherwise either the Rust consumer over-limits
-    // (idle worker capacity) or the worker rejects with HTTP 503.
+    // (idle worker capacity) or the worker stalls stream reads at capacity.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
 
     // Feed-order sentinel (ingestion API server only): checks that each
@@ -130,6 +130,21 @@ export type IngestionConsumerConfig = {
     // least-recently-seen key is dropped and rebaselines unchecked.
     INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
 
+    // Streaming ingest (ingestion API server only): the port serving
+    // ingestion.worker.v1.WorkerIngest. The stream delivers each consumer's
+    // sub-batches in order.
+    INGESTION_API_GRPC_PORT: number
+    // Concurrency caps for the gRPC listener. Legitimate load is roughly one
+    // stream per connected consumer, so these are generous ceilings that bound
+    // resource use if a peer misbehaves rather than limits normal traffic.
+    INGESTION_API_GRPC_MAX_STREAMS: number
+    INGESTION_API_GRPC_MAX_SESSIONS: number
+    INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION: number
+    INGESTION_API_GRPC_SESSION_MEMORY_MB: number
+    INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
+    INGESTION_API_GRPC_READ_MAX_BYTES: number
+    INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
+
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
     PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -137,6 +152,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
+    PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
 
     // Person properties config
@@ -162,13 +179,42 @@ export type IngestionConsumerConfig = {
     // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
     // means "no teams", not "all teams"; use '*' to open the gate.
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
+    // Fold consecutive runs of $identify merges for the same distinct_id in a batch into a single
+    // merge operation (merge-storm mitigation). Master switch; when off, the planning step passes
+    // every event through unplanned and merges stay sequential.
+    PERSON_MERGE_FOLD_ENABLED: boolean
+    // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
+    PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
+    // Tombstone rollout of the person-deletion-gaps RFC: for these teams, a merge tombstones the
+    // source person row (is_deleted = true, version stamped in the same transaction, properties
+    // scrubbed) instead of hard-deleting it, and the ClickHouse death row carries that exact
+    // version instead of the version + 100 fudge. The row keeps the key's version counter so a
+    // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
+    // teams; empty means no teams.
+    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Teams whose person creation claims an existing unreachable posthog_person row holding
+    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
+    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
+    // for everyone else the probe is wasted load on the hottest write statement.
+    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
+    // Defer creation of new groups to flush time and insert them in a single
+    // batched statement, instead of an inline single-row insert per new group
+    // during event processing. When off, behavior is unchanged.
+    GROUP_BATCH_WRITING_USE_BATCH_CREATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
     GROUPS_PREFETCH_ENABLED: boolean
+
+    // Team-keyed cache prefetch config: one batched warm-up per chunk for each cache,
+    // instead of a per-event lookup in the sequential steps that read it.
+    TEAMS_PREFETCH_ENABLED: boolean
+    EVENT_SCHEMAS_PREFETCH_ENABLED: boolean
+    HOG_FUNCTIONS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -193,6 +239,16 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
+    EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
+
+    // $feature_flag_called fork into the flag_evaluations ClickHouse table
+    /** 'disabled' | 'dual_write' (produce to flag_evaluations while the event continues to events) */
+    INGESTION_FLAG_EVALUATIONS_MODE: string
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_FLAG_EVALUATIONS_TEAMS: string
+    /** Comma-separated team IDs never forked, even when TEAMS is '*' */
+    INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: string
 
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
@@ -229,7 +285,6 @@ export type IngestionConsumerConfig = {
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
     COOKIELESS_SESSION_TTL_SECONDS: number
     COOKIELESS_SALT_TTL_SECONDS: number
@@ -273,6 +328,14 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
         INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
         INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
+        INGESTION_API_GRPC_PORT: 6739,
+        INGESTION_API_GRPC_MAX_STREAMS: 256,
+        INGESTION_API_GRPC_MAX_SESSIONS: 256,
+        INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION: 8,
+        INGESTION_API_GRPC_SESSION_MEMORY_MB: 64,
+        INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: 300_000,
+        INGESTION_API_GRPC_READ_MAX_BYTES: 32 * 1024 * 1024,
+        INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: 15_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
@@ -281,6 +344,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
 
         // Person properties config
@@ -298,13 +362,22 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
+        PERSON_MERGE_FOLD_ENABLED: false,
+        PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
-        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
+        GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUPS_PREFETCH_ENABLED: false,
+
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
@@ -326,6 +399,19 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
+
+        // $feature_flag_called fork into the flag_evaluations ClickHouse table.
+        // Teams default empty so flipping the mode alone forks nobody; ramp by
+        // naming teams (or '*') in INGESTION_FLAG_EVALUATIONS_TEAMS.
+        //
+        // On a split lane the fork runs in the Node processor pool, not in the
+        // Rust consumer that dispatches to it, so these belong on the lane's base
+        // values.yaml, which both roles inherit. Setting them on the consumer
+        // release alone does nothing.
+        INGESTION_FLAG_EVALUATIONS_MODE: 'disabled',
+        INGESTION_FLAG_EVALUATIONS_TEAMS: '',
+        INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: '',
 
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
@@ -364,7 +450,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,
-        COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000,
         COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24),
         COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24),
@@ -397,6 +482,9 @@ export type IngestionOutputsConfig = {
 
     INGESTION_OUTPUT_AI_EVENTS_TOPIC: string
     INGESTION_OUTPUT_AI_EVENTS_PRODUCER: ProducerName
+
+    INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: string
+    INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: ProducerName
 
     INGESTION_OUTPUT_HEATMAPS_TOPIC: string
     INGESTION_OUTPUT_HEATMAPS_PRODUCER: ProducerName
@@ -441,6 +529,14 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_AI_EVENTS_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         INGESTION_OUTPUT_AI_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // Empty topic skips the startup topic-existence check, so deploying this dark cannot
+        // crash-loop a fleet whose broker lacks the topic. Enable ordering: (1) create the
+        // clickhouse_flag_evaluations topic, (2) set INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC
+        // (startup topic verification is then fatal by design), (3) set
+        // INGESTION_FLAG_EVALUATIONS_MODE. Mode without topic is a no-op; see
+        // createFlagEvaluationsService.
+        INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: '',
+        INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_HEATMAPS_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         INGESTION_OUTPUT_HEATMAPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,

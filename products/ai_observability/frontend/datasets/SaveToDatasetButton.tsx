@@ -8,14 +8,17 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } f
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, DatasetItem } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import type { DatasetItemCreateApi } from '../generated/api.schemas'
 import { DatasetItemModal } from './DatasetItemModal'
 import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
+import { normalizeJsonValue } from './utils'
 
 export interface SaveToDatasetButtonProps {
     traceId: string
@@ -33,15 +36,16 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
     input,
     output,
     metadata,
-}: SaveToDatasetButtonProps) {
-    const partialDatasetItem: Partial<DatasetItem> = useMemo(
+}: SaveToDatasetButtonProps): JSX.Element {
+    const partialDatasetItem: Partial<DatasetItemCreateApi> = useMemo(
         () => ({
-            ref_trace_id: traceId,
-            ref_timestamp: timestamp,
-            ref_source_id: sourceId,
-            input: convertToDict(input, 'input'),
-            output: convertToDict(output, 'output'),
-            metadata: convertToDict(metadata, 'metadata'),
+            client_item_id: sourceId,
+            source_trace_id: traceId,
+            source_timestamp: timestamp,
+            source_event_id: sourceId,
+            input: normalizeJsonValue(input ?? {}, {}) ?? {},
+            source_output: normalizeJsonValue(output, null),
+            metadata: toMetadataObject(metadata),
         }),
         [traceId, timestamp, sourceId, input, output, metadata]
     )
@@ -98,13 +102,14 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
 })
 
 function OverlayMenu(): JSX.Element {
-    const { datasets, isLoadingDatasets, recentDatasets, searchForm } = useValues(saveToDatasetButtonLogic)
+    const { datasets, isLoadingDatasets, isSearchFormSubmitting, recentDatasets, searchForm } =
+        useValues(saveToDatasetButtonLogic)
     const { setSearchFormValue, setDropdownVisible } = useActions(saveToDatasetButtonLogic)
 
     const { referenceRef, itemsRef, focusedItemIndex } = useKeyboardNavigation<HTMLDivElement, HTMLButtonElement>(
         (datasets?.length ?? 0) + (recentDatasets?.length ?? 0),
         0,
-        { enabled: !isLoadingDatasets }
+        { enabled: !isLoadingDatasets && !isSearchFormSubmitting }
     )
 
     const recentDatasetsLength = recentDatasets?.length ?? 0
@@ -133,39 +138,63 @@ function OverlayMenu(): JSX.Element {
                             <>
                                 <p className="text-muted text-xs px-2">Recent datasets</p>
                                 {recentDatasets.map((dataset, index) => (
-                                    <LemonButton
+                                    <AccessControlAction
                                         key={dataset.id}
                                         ref={itemsRef?.current?.[index]}
-                                        fullWidth
-                                        size="small"
-                                        active={focusedItemIndex === index}
-                                        htmlType="submit"
-                                        onClick={() => {
-                                            setSearchFormValue('datasetId', dataset.id)
-                                        }}
-                                        data-attr="save-to-dataset-select"
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
                                     >
-                                        <span className="line-clamp-1">{dataset.name}</span>
-                                    </LemonButton>
+                                        <LemonButton
+                                            fullWidth
+                                            size="small"
+                                            active={focusedItemIndex === index}
+                                            htmlType="submit"
+                                            onClick={() => {
+                                                setSearchFormValue('datasetId', dataset.id)
+                                            }}
+                                            loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
+                                            disabledReason={
+                                                isSearchFormSubmitting && searchForm.datasetId !== dataset.id
+                                                    ? 'A dataset item is being saved'
+                                                    : undefined
+                                            }
+                                            data-attr="save-to-dataset-select"
+                                        >
+                                            <span className="line-clamp-1">{dataset.name}</span>
+                                        </LemonButton>
+                                    </AccessControlAction>
                                 ))}
                                 <LemonDivider className="my-0 mb-2" />
                             </>
                         )}
                         {datasets.map((dataset, index) => (
-                            <LemonButton
+                            <AccessControlAction
                                 key={dataset.id}
                                 ref={itemsRef?.current?.[recentDatasetsLength + index]}
-                                fullWidth
-                                size="small"
-                                active={focusedItemIndex - recentDatasetsLength === index}
-                                htmlType="submit"
-                                onClick={() => {
-                                    setSearchFormValue('datasetId', dataset.id)
-                                }}
-                                data-attr="save-to-dataset-select"
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
                             >
-                                <span className="line-clamp-1">{dataset.name}</span>
-                            </LemonButton>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    active={focusedItemIndex - recentDatasetsLength === index}
+                                    htmlType="submit"
+                                    onClick={() => {
+                                        setSearchFormValue('datasetId', dataset.id)
+                                    }}
+                                    loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
+                                    disabledReason={
+                                        isSearchFormSubmitting && searchForm.datasetId !== dataset.id
+                                            ? 'A dataset item is being saved'
+                                            : undefined
+                                    }
+                                    data-attr="save-to-dataset-select"
+                                >
+                                    <span className="line-clamp-1">{dataset.name}</span>
+                                </LemonButton>
+                            </AccessControlAction>
                         ))}
                     </>
                 ) : (
@@ -189,20 +218,14 @@ function OverlayMenu(): JSX.Element {
     )
 }
 
-function convertToDict(input: unknown, key: string): Record<string, unknown> | undefined {
-    if (input === null || input === undefined) {
-        return undefined
+function toMetadataObject(metadata: unknown): Record<string, unknown> {
+    if (metadata === null || metadata === undefined) {
+        return {}
     }
 
-    if (isObject(input) && !Array.isArray(input)) {
-        if (Object.keys(input).length === 0) {
-            return undefined
-        }
-
-        return input
+    if (isObject(metadata) && !Array.isArray(metadata)) {
+        return metadata
     }
 
-    return {
-        [key]: Array.isArray(input) ? input : String(input),
-    }
+    return { value: metadata }
 }

@@ -7,8 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 def test_empty_config():
-    """Test `config.to_config` with an empty class."""
-
     @config.config
     class TestConfig(config.Config):
         pass
@@ -18,8 +16,6 @@ def test_empty_config():
 
 
 def test_basic_to_config():
-    """Test `config.to_config` with a basic class."""
-
     @config.config
     class TestConfig(config.Config):
         a: str
@@ -39,8 +35,6 @@ def test_basic_to_config():
 
 
 def test_basic_to_config_converters():
-    """Test `config.to_config` can convert using converters."""
-
     @config.config
     class TestConfig(config.Config):
         a: int = config.value(converter=int)
@@ -100,6 +94,15 @@ def test_str_to_optional_list(value, expected):
     assert config.str_to_optional_list(value) == expected
 
 
+@pytest.mark.parametrize("value", [{"owner": "repo"}, {}, 5])
+def test_str_to_optional_list_rejects_unsupported_types(value):
+    """A non-str/list value (e.g. a dict submitted for a multi-select field) must raise a
+    `TypeError` that `_convert_value` can surface as a validation error, not an `AttributeError`
+    from calling `.strip()` on it."""
+    with pytest.raises(TypeError):
+        config.str_to_optional_list(value)
+
+
 @pytest.mark.parametrize(
     "value,expected",
     [
@@ -149,6 +152,38 @@ def test_from_dict_raises_clear_error_on_undecrypted_secret(config_dict):
         TestConfig.from_dict(config_dict)
 
     assert _UNDECRYPTED_TOKEN not in str(exc_info.value)
+
+
+def test_from_dict_raises_clear_error_on_unconvertible_value():
+    """A converter failing on bad user input must fail with a clear error that names the field but
+    not the value, instead of the opaque, value-leaking `invalid literal for int()` crash."""
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        port: int = config.value(converter=int)
+
+    with pytest.raises(config.ConfigValueError) as exc_info:
+        TestConfig.from_dict({"host": "db.example.com", "port": "not-a-number"})
+
+    assert "port" in str(exc_info.value)
+    assert "not-a-number" not in str(exc_info.value)
+
+
+def test_validate_dict_rejects_unconvertible_value():
+    """`validate_dict` must flag a value that can't convert to the declared type rather than pass and
+    defer the crash to `to_config`. The reported error came from a value that cleared validation."""
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        port: int = config.value(converter=int)
+
+    is_valid, errors = TestConfig.validate_dict({"host": "db.example.com", "port": "not-a-number"})
+
+    assert is_valid is False
+    assert len(errors) == 1
+    assert "not-a-number" not in errors[0]
 
 
 def test_nested_to_config_with_flat_dict():
@@ -386,8 +421,6 @@ def test_to_config_override_alias_fallback():
 
 
 def test_to_config_union_nested_configs():
-    """Test `config.to_config` with a union of nested configs."""
-
     @config.config
     class A:
         a: str
@@ -423,8 +456,6 @@ def test_to_config_union_nested_configs():
 
 
 def test_to_config_union_nested_configs_with_alias():
-    """Test `config.to_config` with a union of nested configs using alias."""
-
     @config.config
     class A:
         a: str
@@ -576,6 +607,20 @@ def test_to_config_optional_config_does_not_retain_unparseable_dict():
     cfg = SourceConfig.from_dict({"auth": {"unrecognized_key": "value"}})
 
     assert cfg.auth is None
+
+
+@pytest.mark.parametrize("config_dict", [{}, {"unrelated_key": "value"}])
+def test_from_dict_missing_required_field_raises_clear_error(config_dict):
+    # Stored job inputs that don't supply a required (no-default) field used to surface the
+    # opaque builtin `TypeError: SourceConfig.__init__() missing 1 required positional argument:
+    # 'api_key'`, which is impossible to triage from error tracking. It must name the field
+    # instead, and must not leak the (absent) secret value.
+    @config.config
+    class SourceConfig(config.Config):
+        api_key: str
+
+    with pytest.raises(TypeError, match=r"Cannot build 'SourceConfig': missing required field\(s\) \['api_key'\]"):
+        SourceConfig.from_dict(config_dict)
 
 
 @config.config

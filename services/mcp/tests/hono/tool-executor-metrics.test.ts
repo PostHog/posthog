@@ -22,6 +22,7 @@ vi.mock('@/hono/metrics', () => ({
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: vi.fn(),
     trackExecuteSqlGeneration: vi.fn(),
+    trackToolSpan: vi.fn(),
 }))
 
 vi.mock('@/resources/internals', () => ({
@@ -49,6 +50,8 @@ import {
     ToolInputValidationError,
     wrapError,
 } from '@/lib/errors'
+
+import { toolFromPreBuilt } from '../shared/test-utils'
 
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
@@ -80,6 +83,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -88,6 +92,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -97,23 +102,27 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
 }
 
+type FakeToolBase = { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
+
 function makeFakeTool(
     name: string,
     handler: () => Promise<unknown> = async () => 'ok'
-): {
-    name: string
-    base: { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
-} {
+): { name: string; build: () => FakeToolBase; base: FakeToolBase } {
     return {
         name,
+        build() {
+            return this.base
+        },
         base: {
             schema: z.object({}),
             handler: vi.fn().mockImplementation(handler),
@@ -199,6 +208,37 @@ describe('ToolExecutor metrics', () => {
             const extras = trackToolCallExtras('fail-tool')
             expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
             expect(extras).not.toHaveProperty('$mcp_error_message')
+            expect(extras).not.toHaveProperty('$mcp_error_code')
+            expect(extras).not.toHaveProperty('$mcp_error_field')
+        })
+
+        // The code and normalized field path are what make leaf failure modes measurable:
+        // $mcp_error_message is free text, so dashboards can't group on it, and the raw
+        // attr fragments per array index ("actions__0__...", "actions__3__...").
+        it('stamps $mcp_error_code and index-normalized $mcp_error_field for a PostHogValidationError', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogValidationError({
+                        detail: "Email input must contain a 'from' property",
+                        attr: 'actions__2__inputs__email',
+                        code: 'invalid_input',
+                        extra: undefined,
+                        url: 'https://us.posthog.com/api/environments/2/hog_flows/',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: 'invalid_input',
+                $mcp_error_field: 'actions__N__inputs__email',
+            })
+            // The detail body echoes caller input, so it must never ride along.
+            expect(JSON.stringify(extras)).not.toContain("'from' property")
         })
 
         it.each([
@@ -240,6 +280,35 @@ describe('ToolExecutor metrics', () => {
             await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
 
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
+        })
+
+        // An API-layer rejection used to carry no structured field, so it was only
+        // reachable by string-parsing $mcp_error_message. It now populates the same
+        // property a local schema rejection does — the API's free-text `detail` still
+        // never reaches analytics.
+        it('stamps $mcp_validation_fields for an API validation error, without the detail body', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogValidationError({
+                        detail: 'Unable to resolve field: SECRET=sk_live_abc123',
+                        attr: 'series.0.event',
+                        code: 'invalid_input',
+                        extra: undefined,
+                        url: 'https://us.posthog.com/api/environments/2/query/',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({
+                $mcp_error_type: 'validation',
+                // Array indices collapse here too, matching the schema path.
+                $mcp_validation_fields: ['series.N.event:invalid_input'],
+            })
+            expect(JSON.stringify(extras)).not.toContain('sk_live_abc123')
         })
 
         it('rebuilds PostHogApiError messages from status + path, never the response body or query string', async () => {
@@ -340,6 +409,9 @@ describe('ToolExecutor metrics', () => {
         it('records validation_error without starting a timer', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'strict-tool',
+                build() {
+                    return this.base
+                },
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
@@ -347,6 +419,42 @@ describe('ToolExecutor metrics', () => {
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'strict-tool', status: 'validation_error' })
             expect(mockToolDurationStartTimer).not.toHaveBeenCalled()
+        })
+
+        // The direct path used to return before tracking, so a schema rejection in
+        // 'tools' mode produced no `$mcp_tool_call` at all — leaving every
+        // exec-vs-direct error comparison silently flattering direct mode. Pin both
+        // the event and the value-free diagnostics that make it actionable.
+        it('emits an errored analytics event with the rejected fields on a schema rejection', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'strict-tool',
+                build() {
+                    return this.base
+                },
+                base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'strict-tool', arguments: { requiredField: 'sent under the wrong name' } },
+                makeState([{ name: 'strict-tool' }])
+            )
+
+            // Exactly one event: the rejection returns before the handler runs, so
+            // neither the success nor the catch tracker can also fire. A second emit
+            // here would double-count the call in every error-rate metric.
+            const calls = mockTrackToolCall.mock.calls.filter((c) => c[0] === 'strict-tool')
+            expect(calls).toHaveLength(1)
+            const call = calls[0]!
+            expect(call[2]).toBe(true)
+            // No handler ran, so the call carries no duration (mirrors the exec path).
+            expect(call[1]).toBe(0)
+            expect(trackToolCallExtras('strict-tool')).toMatchObject({
+                $mcp_error_type: 'validation',
+                // `:undefined` is the received type — the param was absent, not
+                // mistyped, which is what separates an alias slip from a coercion bug.
+                $mcp_validation_fields: ['required_field:invalid_type:undefined'],
+                $mcp_validation_input_keys: ['requiredField'],
+            })
         })
 
         it('records error for unknown tool', async () => {
@@ -361,16 +469,9 @@ describe('ToolExecutor metrics', () => {
             // Mirror getFilteredTools: full tool objects with real schemas and
             // handlers, so exec's inner dispatch (schema validation, handler
             // call) behaves as in production.
-            const tools = catalog.getPreBuiltEntries().map((entry) => {
-                const preBuilt = catalog.getToolByName(entry.name)!
-                return {
-                    ...preBuilt.base,
-                    title: entry.title,
-                    description: entry.description ?? '',
-                    annotations: entry.annotations,
-                    scopes: [],
-                }
-            })
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
             return makeState(tools as any, { useSingleExec: true })
         }
 
@@ -379,6 +480,26 @@ describe('ToolExecutor metrics', () => {
 
             expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
             expect(callsFor(mockToolDurationStartTimer, 'exec')).toHaveLength(0)
+        })
+
+        // Without the verb, every non-`call` command lands in one undifferentiated
+        // `exec` bucket — schema discovery, tool search and a mistyped verb become
+        // indistinguishable, and `unknown_command` records nothing to diagnose.
+        // `$mcp_exec_target_tool` is what links an `info <tool>` to the `call <tool>`
+        // that follows it, and is the only trace of an attempted unknown tool.
+        it.each([
+            ['tools', { $mcp_exec_verb: 'tools' }],
+            ['info docs-search', { $mcp_exec_verb: 'info', $mcp_exec_target_tool: 'docs-search' }],
+            ['schema docs-search query', { $mcp_exec_verb: 'schema', $mcp_exec_target_tool: 'docs-search' }],
+            // A verb or tool name we don't recognize is caller text, so the event
+            // records that it was unrecognized rather than the token itself.
+            ['frobnicate whatever', { $mcp_exec_verb: 'unrecognized' }],
+            ['call not-a-real-tool {}', { $mcp_exec_verb: 'call', $mcp_exec_target_tool: 'unrecognized' }],
+        ])('stamps the exec verb and target for "%s"', async (command, expected) => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+
+            const call = mockTrackToolCall.mock.calls.at(-1)
+            expect(call?.[4]).toMatchObject(expected)
         })
 
         it('emits inner tool name for counter and duration on inner tool call', async () => {
@@ -431,17 +552,159 @@ describe('ToolExecutor metrics', () => {
             expect(callsFor(mockToolErrorsInc, 'exec')).toHaveLength(0)
         })
 
-        it('emits exec-level error for framework failures before inner dispatch', async () => {
-            await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
-                execState()
-            )
+        // Dispatcher rejections are agent mistakes, not server faults: they must not
+        // land in the `internal` bucket the error-rate alert watches, they stay
+        // attributed to `exec` (no inner tool ran), and they must carry a value-free
+        // message so the failure is debuggable from analytics.
+        it.each([
+            ['call nonexistent-tool-xyz {}', 'unknown_tool'],
+            ['frobnicate', 'unknown_command'],
+            ['call docs-search {not json}', 'invalid_json'],
+        ])('classifies %s as validation', async (command, reason) => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
-            const execErrors = callsFor(mockToolCallsInc, 'exec')
-            expect(execErrors.length).toBeGreaterThan(0)
-            expect(execErrors[0].status).toBe('error')
+            expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'validation_error' }])
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: reason,
+                $mcp_error_message: `Exec command rejected: ${reason}`,
+            })
+        })
 
-            expect(callsFor(mockToolErrorsInc, 'exec').length).toBeGreaterThan(0)
+        it('classifies a scope-gated tool as permission, not validation', async () => {
+            // The agent can't fix this by sending different input — the connection has
+            // to be reauthorized, which is what the permission-rate alert watches for.
+            const state = execState()
+            state.scopeGatedTools = [{ name: 'gated-tool', missingScopes: ['insight:read'] }] as any
+
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'info gated-tool' } }, state)
+
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'permission' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_message: 'Exec command rejected: missing_scope',
+            })
+        })
+
+        // Reading a stored skill is one of the most common tool calls, and nearly all of
+        // them arrive here, as JSON inside a command string rather than as tool arguments.
+        // Without this the event records that *a* skill was read but never which one.
+        describe('skill reads', () => {
+            function lastExtras(): Record<string, unknown> {
+                return (mockTrackToolCall.mock.calls.at(-1)?.[4] ?? {}) as Record<string, unknown>
+            }
+
+            /** A context whose skill fetch resolves, so the success path runs. */
+            function contextThatServes(): any {
+                return {
+                    api: { request: vi.fn().mockResolvedValue({ name: 'conductor', body: 'skill body' }) },
+                    cache: {},
+                    env: {},
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue('2') },
+                    sessionManager: {},
+                    getDistinctId: vi.fn(),
+                    trackEvent: vi.fn(),
+                }
+            }
+
+            /** A context whose skill fetch 404s — a deleted, renamed, or unreadable skill. */
+            function contextThatRejects(): any {
+                return {
+                    ...contextThatServes(),
+                    api: {
+                        request: vi.fn().mockRejectedValue(
+                            new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: '{"detail":"Not found."}',
+                                url: 'https://us.posthog.com/api/projects/2/llm_skills/name/conductor/',
+                                method: 'GET',
+                            })
+                        ),
+                    },
+                }
+            }
+
+            function execStateWith(context: any): ResolvedState {
+                return { ...execState(), context }
+            }
+
+            it.each([
+                ['a body read', 'call skill-get {"skill_name":"conductor"}', { $mcp_skill_name: 'conductor' }],
+                [
+                    'a paged continuation',
+                    'call skill-get {"skill_name":"conductor","body_offset":5000}',
+                    { $mcp_skill_name: 'conductor', $mcp_skill_body_offset: 5000 },
+                ],
+                [
+                    'a bundled-file read',
+                    'call skill-file-get {"skill_name":"conductor","file_path":"references/x.md"}',
+                    { $mcp_skill_name: 'conductor' },
+                ],
+            ])('records the skill when %s succeeds', async (_label, command, expected) => {
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command } },
+                    execStateWith(contextThatServes())
+                )
+
+                expect(lastExtras()).toMatchObject(expected)
+            })
+
+            // A skill that was never delivered is not usage. Stamping it would let a
+            // deleted skill that agents keep requesting read as popular.
+            it.each([
+                ['a body read', 'call skill-get {"skill_name":"conductor","body_offset":5000}'],
+                ['a bundled-file read', 'call skill-file-get {"skill_name":"conductor","file_path":"x.md"}'],
+            ])('records no skill when %s fails', async (_label, command) => {
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command } },
+                    execStateWith(contextThatRejects())
+                )
+
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_body_offset')
+            })
+
+            // Dropping the skill must not take the exec properties with it — those are
+            // stamped on failures by design, and are the only record of what was tried.
+            it('keeps the exec verb and target when a skill read fails', async () => {
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'call skill-get {"skill_name":"conductor"}' } },
+                    execStateWith(contextThatRejects())
+                )
+
+                expect(lastExtras()).toMatchObject({
+                    $mcp_exec_verb: 'call',
+                    $mcp_exec_target_tool: 'skill-get',
+                })
+            })
+
+            it.each([
+                // The agent's text, not a skill that could exist — same rule the exec
+                // verb and target follow.
+                ['a skill name outside the store’s own shape', 'call skill-get {"skill_name":"../../etc/passwd"}'],
+                ['a non-skill tool', 'call docs-search {"query":"skill_name"}'],
+            ])('records no skill for %s', async (_label, command) => {
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command } },
+                    execStateWith(contextThatServes())
+                )
+
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
+            })
+
+            it('records the skill in direct tools mode too', async () => {
+                const tools = catalog
+                    .getPreBuiltEntries()
+                    .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+
+                await executor.handleToolCall(
+                    { name: 'skill-get', arguments: { skill_name: 'conductor' } },
+                    makeState(tools as any, { context: contextThatServes() })
+                )
+
+                expect(trackToolCallExtras('skill-get')).toMatchObject({ $mcp_skill_name: 'conductor' })
+            })
         })
     })
 })

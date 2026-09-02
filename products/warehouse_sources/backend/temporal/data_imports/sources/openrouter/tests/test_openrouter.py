@@ -47,7 +47,7 @@ class TestFetch:
         with mock.patch.object(openrouter._fetch.retry, "wait", return_value=0):  # type: ignore[attr-defined]
             yield
 
-    @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
+    @pytest.mark.parametrize("status_code", [408, 429, 500, 502, 503])
     def test_retries_then_succeeds_on_transient_status(self, status_code):
         session = mock.Mock()
         session.get.side_effect = [_response(status_code), _response(200, {"data": []})]

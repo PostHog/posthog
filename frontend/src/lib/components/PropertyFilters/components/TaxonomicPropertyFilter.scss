@@ -65,4 +65,27 @@
             min-width: 10rem;
         }
     }
+
+    &--single-line {
+        flex-wrap: nowrap;
+
+        > :first-child {
+            flex: 0 0 auto !important;
+            width: auto !important;
+            min-width: 0 !important;
+        }
+
+        [data-attr='taxonomic-operator'] {
+            min-width: 0;
+            max-width: 7rem;
+
+            > * {
+                max-width: 100%;
+            }
+        }
+
+        [data-attr='taxonomic-value-select'] {
+            min-width: 0;
+        }
+    }
 }

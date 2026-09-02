@@ -992,8 +992,12 @@ export function getExpressionCommentForQuestion(
     q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
     questionIndex: number
 ): string {
-    if (q.question.trim().length > 0) {
-        return q.question
+    const question = q.question.trim()
+    if (question.length > 0) {
+        // This is appended after `--` in the generated HogQL, and HogQL `--` comments are
+        // single-line. Collapse any newlines so multi-line question text can't leak past the
+        // comment and break the query (e.g. a stray non-ASCII char -> "Unexpected character").
+        return question.replace(/\s*[\r\n]+\s*/g, ' ')
     }
     return `Question ${questionIndex + 1}`
 }
@@ -1236,22 +1240,57 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
+/**
+ * True when posthog-js emits an intermediate `survey sent` event per answered question, sharing one
+ * `$survey_submission_id`, with only the last carrying `$survey_completed: true`. Requiring the
+ * property to be `true` is what keeps a notification from firing once per question, so it is only
+ * worth requiring here.
+ *
+ * An API survey has no posthog-js rendering it. The integrator sends one event per submission from
+ * their own code and marks a partial one with an explicit `$survey_completed: false`, the way
+ * posthog-js does, so absent means completed there whatever `enable_partial_responses` says.
+ */
+export function surveyEmitsPartialSentEvents(survey: Pick<Survey, 'type' | 'enable_partial_responses'>): boolean {
+    return (survey.enable_partial_responses ?? false) && survey.type !== SurveyType.API
+}
+
+/**
+ * Without intermediate partial events, posthog-js has no partial submission to distinguish a
+ * complete one from, so it never sets `$survey_completed` and requiring `= true` matches nothing.
+ * Accept the property being absent as completed too, the same way the response summary counts them
+ * (`enable_partial_responses` branch in `ee/surveys/summaries/headline_summary.py`). An explicit
+ * `false` stays excluded: a survey switched from partial to non-partial keeps its old partials.
+ */
 export function getSurveyNotificationFilters(
     surveyId: string,
+    emitsPartialSentEvents: boolean,
     extraSentEventProperties: EventPropertyFilter[] = []
 ): CyclotronJobFiltersType {
+    const surveyIdProperty: EventPropertyFilter = {
+        key: SurveyEventProperties.SURVEY_ID,
+        type: PropertyFilterType.Event,
+        value: surveyId,
+        operator: PropertyOperator.Exact,
+    }
     const sentEventProperties: EventPropertyFilter[] = [
-        {
-            key: SurveyEventProperties.SURVEY_ID,
-            type: PropertyFilterType.Event,
-            value: surveyId,
-            operator: PropertyOperator.Exact,
-        },
+        surveyIdProperty,
         {
             key: SurveyEventProperties.SURVEY_COMPLETED,
             type: PropertyFilterType.Event,
             value: true,
             operator: PropertyOperator.Exact,
+        },
+        ...extraSentEventProperties,
+    ]
+    // Event entries are OR'd, so a second branch is how "absent or true" is expressed with
+    // plain property filters rather than a hand-written HogQL predicate.
+    const completedUnsetEventProperties: EventPropertyFilter[] = [
+        surveyIdProperty,
+        {
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsNotSet,
+            operator: PropertyOperator.IsNotSet,
         },
         ...extraSentEventProperties,
     ]
@@ -1263,6 +1302,15 @@ export function getSurveyNotificationFilters(
                 type: 'events',
                 properties: sentEventProperties,
             },
+            ...(emitsPartialSentEvents
+                ? []
+                : [
+                      {
+                          id: SurveyEventName.SENT,
+                          type: 'events' as const,
+                          properties: completedUnsetEventProperties,
+                      },
+                  ]),
             {
                 id: SurveyEventName.DISMISSED,
                 type: 'events',

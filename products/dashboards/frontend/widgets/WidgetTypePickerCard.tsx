@@ -2,11 +2,15 @@ import clsx from 'clsx'
 
 import { IconCheck, IconStarFilled } from '@posthog/icons'
 
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+
 type WidgetTypePickerCardProps = {
     label: string
     badge?: string
     description: string
     selected: boolean
+    /** Live (self-updating) widget type — tags the card so pickers know the tile updates in real time. */
+    live?: boolean
     preview: JSX.Element
     onSelect: () => void
 }
@@ -30,6 +34,7 @@ export function WidgetTypePickerCard({
     badge,
     description,
     selected,
+    live,
     preview,
     onSelect,
 }: WidgetTypePickerCardProps): JSX.Element {
@@ -60,7 +65,14 @@ export function WidgetTypePickerCard({
             ) : null}
             <div className="p-3">
                 <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">{label}</span>
+                    <span className="flex items-center gap-1.5 font-semibold">
+                        {label}
+                        {live ? (
+                            <LemonTag type="success" size="small">
+                                Live
+                            </LemonTag>
+                        ) : null}
+                    </span>
                     <WidgetTypePickerSelectionIndicator selected={selected} />
                 </div>
                 <p className="text-xs text-muted m-0 mt-0.5 mb-2">{description}</p>

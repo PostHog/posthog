@@ -236,7 +236,7 @@ class TestConversationsSlackSignals(SimpleTestCase):
     @patch("ee.billing.salesforce_enrichment.conversations_signals.WebClient")
     @patch("ee.billing.salesforce_enrichment.conversations_signals._get_slack_bot_token")
     def test_fetch_slack_channel_user_count_paginates(self, mock_get_token, mock_web_client):
-        mock_get_token.return_value = "xoxb-test"
+        mock_get_token.return_value = ("xoxb-test", "T123")
         mock_client = MagicMock()
         mock_client.conversations_members.side_effect = [
             {"members": ["U1", "U2"], "response_metadata": {"next_cursor": "next-page"}},
@@ -643,9 +643,10 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
         )
 
         # Matches by Slack workspace id, independent of the representative team.
-        assert _get_slack_bot_token("TWORK", None) == "xoxb-test"
-        # Falls back to the representative team when the workspace id is absent or unmatched.
-        assert _get_slack_bot_token(None, self.team.id) == "xoxb-test"
-        assert _get_slack_bot_token("TUNMATCHED", self.team.id) == "xoxb-test"
+        assert _get_slack_bot_token("TWORK", None) == ("xoxb-test", "TWORK")
+        # Falls back to the representative team when the workspace id is absent or unmatched,
+        # and reports the token's real workspace rather than the requested-but-unmatched id.
+        assert _get_slack_bot_token(None, self.team.id) == ("xoxb-test", "TWORK")
+        assert _get_slack_bot_token("TUNMATCHED", self.team.id) == ("xoxb-test", "TWORK")
         # No token when neither path resolves.
         assert _get_slack_bot_token("TUNMATCHED", None) is None

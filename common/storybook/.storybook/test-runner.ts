@@ -126,6 +126,14 @@ const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
+// Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
+// cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
+// save it: `jest.retryTimes` is registered from setupFilesAfterEnv, which runs *after* the environment
+// setup this navigation happens in, so the throw kills the suite file outright. Hence retrying here.
+const NAVIGATION_TIMEOUT_MS = 45000
+const NAVIGATION_ATTEMPTS = 3
+const NAVIGATION_LIVENESS_TIMEOUT_MS = 10000
+
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 
 // Storybook channel events that mean a forced remount's play function failed. Shared between the
@@ -165,6 +173,22 @@ export default {
                 get: () => patchedUserAgent,
                 configurable: true,
             })
+
+            // Monaco cancels its own in-flight work with a rejection named "Canceled" and treats
+            // it as expected (VS Code's unexpected-error handler ignores cancellation errors).
+            // One such rejection escapes as unhandled here: under Playwright WebKit, Monaco's
+            // clipboard workaround hands a DeferredPromise to `navigator.clipboard.write`, which
+            // the sandbox denies without ever consuming the promise, so the next click's
+            // `cancel()` has no consumer and Storybook fails the story via
+            // `unhandledErrorsWhilePlaying`. This listener registers before any page script, so
+            // it sees the event first and can stop Storybook's listener from recording it.
+            window.addEventListener('unhandledrejection', (event) => {
+                const reason = event.reason as { name?: string; message?: string } | undefined
+                if (reason?.name === 'Canceled' && reason?.message === 'Canceled') {
+                    event.stopImmediatePropagation()
+                    event.preventDefault()
+                }
+            })
         })
 
         // The rest replicates @storybook/test-runner's defaultPrepare (not exported).
@@ -174,14 +198,7 @@ export default {
             const headers = await testRunnerConfig.getHttpHeaders(iframeURL)
             await browserContext.setExtraHTTPHeaders(headers)
         }
-        await page.goto(iframeURL, { waitUntil: 'load' }).catch((err) => {
-            if (err.message?.includes('ERR_CONNECTION_REFUSED')) {
-                throw new Error(
-                    `Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${err.message}`
-                )
-            }
-            throw err
-        })
+        await gotoStorybookIframe(page, iframeURL, targetURL)
     },
 
     setup() {
@@ -331,6 +348,44 @@ export default {
         skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
+
+async function gotoStorybookIframe(page: Page, iframeURL: string, targetURL: string | undefined): Promise<void> {
+    const unreachable = (detail: string): Error =>
+        new Error(`Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${detail}`)
+
+    for (let attempt = 1; attempt <= NAVIGATION_ATTEMPTS; attempt++) {
+        try {
+            await page.goto(iframeURL, { waitUntil: 'load', timeout: NAVIGATION_TIMEOUT_MS })
+            return
+        } catch (error) {
+            const detail = (error as Error).message ?? String(error)
+            if (detail.includes('ERR_CONNECTION_REFUSED')) {
+                throw unreachable(detail)
+            }
+            if (attempt === NAVIGATION_ATTEMPTS) {
+                throw new Error(
+                    `Loading ${iframeURL} timed out on all ${NAVIGATION_ATTEMPTS} attempts of ${NAVIGATION_TIMEOUT_MS}ms.\n\n${detail}`
+                )
+            }
+            // Only a slow bundle load earns another attempt. A server that can't serve its index within
+            // seconds has wedged, and retrying every story file would burn the shard's whole timeout
+            // budget before reporting anything useful.
+            const serverResponds = await page.request
+                .get(targetURL ?? iframeURL, { timeout: NAVIGATION_LIVENESS_TIMEOUT_MS })
+                .then((response) => response.ok())
+                .catch(() => false)
+            if (!serverResponds) {
+                throw unreachable(detail)
+            }
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[test-runner] Navigating to ${iframeURL} timed out after ${NAVIGATION_TIMEOUT_MS}ms, retrying (${
+                    attempt + 1
+                }/${NAVIGATION_ATTEMPTS})`
+            )
+        }
+    }
+}
 
 async function expectStoryToMatchSnapshot(
     page: Page,
@@ -666,7 +721,7 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ ...options })
+    const image = await takeSnapshotImage(locator, context, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -682,6 +737,31 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Screenshot the snapshot target, naming the one cause Playwright reports opaquely: a story that
+ * renders nothing. `#storybook-root` is `display: inline-block` here, so an empty render collapses it
+ * to zero size, and all Playwright says - after a full 10s wait, three times over - is "element is not
+ * visible".
+ */
+async function takeSnapshotImage(
+    locator: Locator | Page,
+    context: TestContext,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
+    try {
+        return await locator.screenshot({ ...options })
+    } catch (error) {
+        const box = 'boundingBox' in locator ? await locator.boundingBox().catch(() => null) : null
+        if (box && !box.width && !box.height) {
+            throw new Error(
+                `Story "${context.id}" rendered nothing, so there is no screenshot to take. ` +
+                    `Wrap it in a decorator that gives the snapshot a sized box, or tag it 'test-skip'.`
+            )
+        }
+        throw error
+    }
 }
 
 /**

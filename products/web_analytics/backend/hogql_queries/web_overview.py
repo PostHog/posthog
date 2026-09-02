@@ -22,6 +22,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_query_runner imp
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -397,21 +398,20 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
             ]
 
+        strategy = (
+            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+            if response == pre_aggregated_response
+            else WebAnalyticsPreComputeStrategy.LIVE
+        )
+
         return WebOverviewQueryResponse(
             results=results,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            preComputeStrategy=(
-                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-                if response == pre_aggregated_response
-                else WebAnalyticsPreComputeStrategy.LIVE
-            ),
+            preComputeStrategy=strategy,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
         )
-
-    def all_properties(self) -> ast.Expr:
-        properties = self.query.properties + self._test_account_filters
-        return property_to_expr(properties, team=self.team)
 
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:

@@ -160,6 +160,18 @@ export function observeLatencyByVersion(person: InternalPerson | undefined, star
     personOperationLatencyByVersionSummary.labels(operation, versionBucket).observe(performance.now() - start)
 }
 
+export const personhogStoreShadowSkipsCounter = new Counter({
+    name: 'personhog_store_shadow_skips_total',
+    help: 'Shadowed writes skipped because the person does not exist in the personhog world yet',
+    labelNames: ['verb'],
+})
+
+export const personhogStoreShadowErrorsCounter = new Counter({
+    name: 'personhog_store_shadow_errors_total',
+    help: 'Personhog shadow-side store verb failures by verb; shadow errors never fail the batch',
+    labelNames: ['verb'],
+})
+
 export const personProfileUpdateOutcomeCounter = new Counter({
     name: 'person_profile_update_outcome_total',
     help: 'Outcome of person profile update operations at event level',
@@ -182,6 +194,23 @@ export const personProfileBatchIgnoredPropertiesCounter = new Counter({
     name: 'person_profile_batch_ignored_properties_total',
     help: 'Count of specific properties that were ignored during person profile updates at batch level',
     labelNames: ['property'],
+})
+
+export const personCreateStrandedClaimCounter = new Counter({
+    name: 'person_create_stranded_claim_total',
+    help: 'Person creations routed through the stranded-row claim statement, by outcome',
+    // claimed: adopted an unreachable row holding this (team_id, uuid)
+    // inserted: no row held the uuid, fresh insert
+    // inserted_duplicate: a reachable person already held the uuid, so the insert created a duplicate key
+    labelNames: ['outcome'],
+})
+
+export const personCreateConflictResolvedCounter = new Counter({
+    name: 'person_create_conflict_resolved_total',
+    help: 'Person creations that lost the (team_id, uuid) key, by how the conflict was resolved',
+    // uuid: resolved to the row already holding the uuid, after recovery by distinct ID found nothing
+    // none: the holder was gone by the time we looked, so the create failed
+    labelNames: ['resolved_by'],
 })
 
 export const personJsonFieldSizeHistogram = new Histogram({

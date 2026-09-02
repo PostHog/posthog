@@ -1,6 +1,6 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.run_mode import run_mode
 
 # Drop MSK Kafka engine tables and their materialized views for topics that are
 # no longer actively produced to, or whose functionality has been superseded.
@@ -25,7 +25,7 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud
     else [
         # plugin_log_entries (INGESTION_SMALL — moved here by migration 0152)
         run_sql_with_exceptions(

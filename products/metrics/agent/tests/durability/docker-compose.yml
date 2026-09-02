@@ -1,0 +1,35 @@
+services:
+    fixture:
+        image: python:3.12-alpine
+        command: python /app/fixture_server.py
+        volumes:
+            - ../integration/fixture_server.py:/app/fixture_server.py:ro
+            - ../integration/fixtures:/app/fixtures:ro
+
+    agent:
+        image: posthog-metrics-agent:test
+        environment:
+            POSTHOG_API_KEY: phc_test
+            POSTHOG_HOST: http://sink:4318
+            POSTHOG_INGEST_PATH: /v1/metrics
+            SCRAPE_TARGETS: fixture:9464
+            SCRAPE_INTERVAL: 1s
+            PERSIST_QUEUE: '1'
+        volumes:
+            - queue:/var/lib/posthog-agent
+        depends_on:
+            - fixture
+
+    # Started manually by run.sh only after the agent has scraped for a while
+    # and been restarted; its absence is the simulated PostHog outage.
+    sink:
+        # Keep the collector version in sync with ../../Dockerfile.
+        image: otel/opentelemetry-collector-contrib:0.142.0
+        command: ['--config', '/etc/sink-config.yaml']
+        volumes:
+            - ../integration/sink-config.yaml:/etc/sink-config.yaml:ro
+            - ./out:/out
+        profiles: [recovery]
+
+volumes:
+    queue:

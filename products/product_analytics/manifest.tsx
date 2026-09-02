@@ -139,6 +139,15 @@ export const manifest: ProductManifest = {
             sceneKeys: ['Insight'],
         },
         {
+            path: `Insight/Journeys`,
+            type: 'insight',
+            href: urls.insightNew({ type: InsightType.JOURNEYS }),
+            flag: FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2,
+            iconType: 'insight/paths',
+            visualOrder: INSIGHT_VISUAL_ORDER.journeys,
+            sceneKeys: ['Insight'],
+        },
+        {
             path: `Insight/Stickiness`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.STICKINESS }),

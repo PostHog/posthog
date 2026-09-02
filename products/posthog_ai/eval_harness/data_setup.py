@@ -24,7 +24,7 @@ from posthog.persons_db import persons_db_connection
 from products.dashboards.backend.models import Dashboard, DashboardTile
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
 from products.posthog_ai.backend.models.assistant import CoreMemory
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = logging.getLogger(__name__)
 

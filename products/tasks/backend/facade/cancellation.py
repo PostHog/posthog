@@ -101,7 +101,16 @@ def cancel_task_run(
     source: str = "api",
     requested_by_user_id: int | None = None,
     requested_by_distinct_id: str | None = None,
+    only_if_awaiting_first_message: bool = False,
 ) -> tuple[str, contracts.TaskRunDetailDTO | None]:
+    """Cancel a run. Returns the outcome and the run as it now stands.
+
+    ``only_if_awaiting_first_message`` makes this a warm hand-back rather than a cancel: the run is
+    stopped only while it is still idling for its first message. One warm Run is shared by every
+    composer holding the same selection (``_find_idling_warm_run`` dedupes on the selection, not on the
+    composer), so without this fence a composer that releases its lease after another one submitted
+    would stop the run that submit activated.
+    """
     run = tasks_api._get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None
@@ -109,6 +118,8 @@ def cancel_task_run(
         if not _publish_cancel_fallback_completion(run):
             return "unavailable", tasks_api._task_run_detail_to_dto(run)
         return "already_terminal", tasks_api._task_run_detail_to_dto(run)
+    if only_if_awaiting_first_message and not (run.state or {}).get("await_user_message"):
+        return "already_activated", tasks_api._task_run_detail_to_dto(run)
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud", tasks_api._task_run_detail_to_dto(run)
 

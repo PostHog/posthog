@@ -30,12 +30,10 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
-    emailReputationEvaluator: isDevEnv(),
 }
 
-/** Realtime Cohorts - precalculated filters and cohort membership */
+/** Realtime Cohorts - cohort membership persistence */
 export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
-    cdpPrecalculatedFilters: true,
     cdpCohortMembership: true,
 }
 
@@ -129,22 +127,14 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
-            return {
-                cdpCyclotronWorkerHogFlowLegacyPg: true,
-            }
         case PluginServerMode.cdp_cyclotron_worker_email:
             return {
                 cdpCyclotronWorkerEmail: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
-            return {
-                cdpCyclotronWorkerEmailLegacyPg: true,
-            }
         case PluginServerMode.cdp_precalculated_filters:
-            return {
-                cdpPrecalculatedFilters: true,
-            }
+            // The consumer is gone. Boot with no capabilities so a pod that charts still
+            // launches in this mode idles instead of crash-looping on an unknown mode.
+            return {}
         case PluginServerMode.cdp_hogflow_subscription_matcher:
             return {
                 cdpHogflowSubscriptionMatcher: true,
@@ -200,15 +190,14 @@ export function getPluginServerCapabilities(
             return {
                 cdpHogflowScheduler: true,
             }
-        case PluginServerMode.email_reputation_evaluator:
-            return {
-                emailReputationEvaluator: true,
-            }
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_mirror:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_parquet_sink:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

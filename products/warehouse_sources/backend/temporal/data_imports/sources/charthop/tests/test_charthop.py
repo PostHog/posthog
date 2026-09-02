@@ -18,7 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.c
     charthop_source,
     resolve_org_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import (
+    CHARTHOP_V1,
+    CHARTHOP_V2,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -161,6 +165,7 @@ class TestPagination:
                 should_use_incremental_field=True,
                 # The saved window must win over the advanced watermark on resume.
                 db_incremental_field_last_value=date(2026, 2, 1),
+                api_version=CHARTHOP_V1,
             )
         )
 
@@ -179,10 +184,37 @@ class TestPagination:
                 _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=date(2026, 1, 15),
+                api_version=CHARTHOP_V1,
             )
         )
 
         assert all(page_params["date"] == "2026-01-15" for page_params in params)
+
+    @parameterized.expand(
+        [
+            (CHARTHOP_V1, "/v1/org/org-1/change", "date"),
+            (CHARTHOP_V2, "/v2/org/org-1/change", "fromDate"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_changes_endpoint_dispatches_path_and_filter_by_version(
+        self, version: str, expected_path: str, expected_param: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params, urls = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                "changes",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 1, 15),
+                api_version=version,
+            )
+        )
+
+        assert urls[0] == f"{CHARTHOP_BASE_URL}{expected_path}"
+        assert params[0][expected_param] == "2026-01-15"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_endpoint_never_sends_date_filter(self, MockSession) -> None:

@@ -53,7 +53,11 @@ class NamingConvention:
             raise ValueError("`name` is None")
         identifier = identifier.strip()
         if not identifier:
-            raise ValueError(identifier)
+            # DLT raises this with the (empty) identifier as the only argument, which leaves
+            # `str(exc)` empty. An empty message reaches the user as Temporal's placeholder
+            # "Application error", so say what happened instead. The normalized output for every
+            # other identifier is unchanged, which is what has to stay compatible.
+            raise ValueError("`name` is empty or contains only whitespace")
         return _normalize_identifier(identifier, max_length)
 
 

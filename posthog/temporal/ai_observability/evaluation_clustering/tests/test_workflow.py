@@ -4,11 +4,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from unittest.mock import patch
 
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.ai_observability.evaluation_clustering.activities import (
+    EvaluationClusteringComputeResult,
+    FetchEvaluationMetadataResult,
+    GenerateEvaluationLabelsInputs,
+    GenerateEvaluationLabelsOutputs,
+)
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
     SAMPLER_MAX_SAMPLES_PER_JOB,
     SAMPLER_WINDOW_MINUTES,
@@ -20,8 +27,12 @@ from posthog.temporal.ai_observability.evaluation_clustering.models import (
     SamplerActivityResult,
     SamplerWorkflowInputs,
 )
-from posthog.temporal.ai_observability.evaluation_clustering.workflow import AIObservabilityEvaluationSamplerWorkflow
+from posthog.temporal.ai_observability.evaluation_clustering.workflow import (
+    AIObservabilityEvaluationClusteringWorkflow,
+    AIObservabilityEvaluationSamplerWorkflow,
+)
 from posthog.temporal.ai_observability.shared_activities import JobConfig
+from posthog.temporal.ai_observability.trace_clustering.models import ClusteringMetrics, ClusteringResult, ClusterLabel
 
 
 class TestEvaluationJobsForTeam:
@@ -173,3 +184,78 @@ class TestSamplerWorkflowWindowMath:
         assert activity_inputs.job_id == "j-forward"
         assert activity_inputs.job_name == "forward test"
         assert activity_inputs.event_filters == filters
+
+
+class TestClusteringWorkflowWiring:
+    @pytest.mark.asyncio
+    async def test_forwards_workflow_run_identity_to_labeling(self) -> None:
+        trace_uuid = uuid.UUID("11111111-1111-4111-8111-111111111111")
+        compute_result = EvaluationClusteringComputeResult(
+            clustering_run_id="1_evaluation_20250108_000000_job-1",
+            eval_ids=["evaluation-1"],
+            labels=[0],
+            centroids=[[0.0, 0.0]],
+            distances=[[0.0]],
+            coords_2d=[[0.0, 0.0]],
+            centroid_coords_2d=[[0.0, 0.0]],
+        )
+        emitted_result = ClusteringResult(
+            clustering_run_id=compute_result.clustering_run_id,
+            team_id=1,
+            timestamp="2025-01-08T00:00:00+00:00",
+            window_start="2025-01-01T00:00:00+00:00",
+            window_end="2025-01-08T00:00:00+00:00",
+            metrics=ClusteringMetrics(total_items_analyzed=1, num_clusters=1, duration_seconds=1.0),
+            clusters=[],
+        )
+        activity_inputs: list[object] = []
+        responses = iter(
+            [
+                compute_result,
+                FetchEvaluationMetadataResult(metadata={}),
+                GenerateEvaluationLabelsOutputs(
+                    cluster_labels={0: ClusterLabel(title="Cluster", description="Description")}
+                ),
+                {},
+                emitted_result,
+            ]
+        )
+
+        async def fake_execute_activity(_activity: object, inputs: object, **_kwargs: object) -> object:
+            activity_inputs.append(inputs)
+            return next(responses)
+
+        with (
+            patch(
+                "posthog.temporal.ai_observability.evaluation_clustering.workflow.workflow.execute_activity",
+                new=fake_execute_activity,
+            ),
+            patch(
+                "posthog.temporal.ai_observability.evaluation_clustering.workflow.workflow.now",
+                return_value=datetime(2025, 1, 8, tzinfo=UTC),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.evaluation_clustering.workflow.workflow.uuid4",
+                return_value=trace_uuid,
+            ),
+            patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_items_analyzed"),
+            patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_noise_points"),
+            patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_clusters_generated"),
+        ):
+            await AIObservabilityEvaluationClusteringWorkflow().run(
+                SamplerWorkflowInputs(team_id=1, job_id="job-1", job_name="Job 1")
+            )
+
+        label_inputs = activity_inputs[2]
+        assert isinstance(label_inputs, GenerateEvaluationLabelsInputs)
+        assert label_inputs.trace_id == str(trace_uuid)
+        assert label_inputs.session_id == f"{trace_uuid}:session"
+        assert label_inputs.clustering_run_id == compute_result.clustering_run_id
+        assert label_inputs.clustering_job_id == "job-1"
+        assert label_inputs.properties_to_log == {
+            "team_id": 1,
+            "trace_id": str(trace_uuid),
+            "session_id": f"{trace_uuid}:session",
+            "clustering_run_id": compute_result.clustering_run_id,
+            "clustering_job_id": "job-1",
+        }

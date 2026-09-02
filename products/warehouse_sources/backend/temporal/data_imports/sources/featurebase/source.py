@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -28,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.featurebase import (
     FeaturebaseResumeConfig,
@@ -151,6 +148,16 @@ class FeaturebaseSource(
                 "Featurebase rejected your API key. Create a new API key in your Featurebase "
                 "dashboard under Settings > API, then reconnect."
             ),
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` (featurebase.py) already retries `FeaturebaseRetryableError` (429/5xx),
+        # read timeouts, connection errors, and chunked-encoding errors with backoff; if that
+        # budget still exhausts, Temporal retries the whole activity, so the failure is transient
+        # and self-recovering rather than a bug to page on.
+        return {
+            "Featurebase API error (retryable)",
+            "HTTPSConnectionPool(host='do.featurebase.app', port=443)",
         }
 
     def get_schemas(

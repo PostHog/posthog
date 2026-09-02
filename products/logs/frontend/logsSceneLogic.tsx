@@ -22,12 +22,16 @@ import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import {
+    FacetFilterTarget,
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import { facetRailLogic } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetRailLogic'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import {
     DEFAULT_DATE_RANGE,
-    DEFAULT_SERVICE_NAMES,
-    DEFAULT_SEVERITY_LEVELS,
     isValidSeverityLevel,
     logsViewerFiltersLogic,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
@@ -45,8 +49,23 @@ export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.cu
 
 const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
+export type LogsSceneActiveTab =
+    | 'viewer'
+    | 'services'
+    | 'alerts'
+    | 'anomalies'
+    | 'sql'
+    | 'transformations'
+    | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = [
+    'viewer',
+    'services',
+    'alerts',
+    'anomalies',
+    'sql',
+    'transformations',
+    'configuration',
+]
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
@@ -227,28 +246,47 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 filtersFromUrl.searchTerm = ''
                 hasFilterChanges = true
             }
+            // `filterGroup` holds the level and service selections, so these two params are read but
+            // never written: reading them keeps legacy links working, along with hand-written ones
+            // like the services table's deep link, and `setFilters` folds a param into the group.
+            // Their absent-param case needs no reset branch: clearing `filterGroup` already clears
+            // these selections with it.
+            //
+            // A `filterGroup` in the same URL is the whole selection, so a param naming a facet that
+            // group already selects is residue from a link minted in the dedicated-field shape, and
+            // folding it would narrow the group's selection to the param's values. Without a group in
+            // the URL there is nothing to defer to, so the param is compared against the live
+            // selection, which also stops it re-applying on every URL change.
+            const legacyFacetParam = <T extends string>(
+                raw: T[] | null | undefined,
+                target: FacetFilterTarget
+            ): T[] | undefined => {
+                if (!raw?.length) {
+                    return undefined
+                }
+                const selected = facetSelection(
+                    filtersFromUrl.filterGroup ?? values.filters.filterGroup,
+                    target
+                ).included
+                if (filtersFromUrl.filterGroup !== undefined && selected.length > 0) {
+                    return undefined
+                }
+                return equal(raw, selected) ? undefined : raw
+            }
             if (params.severityLevels) {
                 const parsed = parseTagsFilter(params.severityLevels)
-                if (parsed) {
-                    const levels = parsed.filter(isValidSeverityLevel)
-                    if (levels.length > 0 && !equal(levels, values.filters.severityLevels)) {
-                        filtersFromUrl.severityLevels = levels
-                        hasFilterChanges = true
-                    }
+                const levels = parsed && legacyFacetParam(parsed.filter(isValidSeverityLevel), SEVERITY_LEVEL_FILTER)
+                if (levels) {
+                    filtersFromUrl.severityLevels = levels
+                    hasFilterChanges = true
                 }
-            } else if (!equal(DEFAULT_SEVERITY_LEVELS, values.filters.severityLevels)) {
-                filtersFromUrl.severityLevels = DEFAULT_SEVERITY_LEVELS
-                hasFilterChanges = true
             }
             if (params.serviceNames) {
-                const names = parseTagsFilter(params.serviceNames)
-                if (names && !equal(names, values.filters.serviceNames)) {
+                const names = legacyFacetParam(parseTagsFilter(params.serviceNames), SERVICE_NAME_FILTER)
+                if (names) {
                     filtersFromUrl.serviceNames = names
                     hasFilterChanges = true
                 }
-            } else if (!equal(DEFAULT_SERVICE_NAMES, values.filters.serviceNames)) {
-                filtersFromUrl.serviceNames = DEFAULT_SERVICE_NAMES
-                hasFilterChanges = true
             }
 
             if (hasFilterChanges) {
@@ -320,8 +358,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                         DEFAULT_UNIVERSAL_GROUP_FILTER
                     )
                     updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
-                    updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                    updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
+                    // No writer sets these two, so they have to be deleted rather than left alone:
+                    // syncSearchParams only removes keys it is told about, and a param still in the
+                    // URL is read again on the next URL change, folding a selection back in on top of
+                    // whatever the rail did to it since.
+                    delete params.severityLevels
+                    delete params.serviceNames
                     updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                     updateSearchParams(params, 'facetNameSearch', values.facetNameSearch, '')
                     return params

@@ -20,11 +20,16 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions
 from ee.hogai.chat_agent.taxonomy.tools import (
@@ -45,6 +50,7 @@ from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     virtual_group_for_entity,
     virtual_property_no_values_message,
 )
+from ee.hogai.utils.helpers import sanitize_event_description
 from ee.hogai.utils.prompt import format_prompt_string
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
@@ -105,9 +111,10 @@ class TaxonomyAgentToolkit:
     _team: Team
     _user: User
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.POSTHOG_AI):
         self._team = team
         self._user = user
+        self._event_source = event_source
 
     def _restricted_property_names(self, property_type: PropertyDefinition.Type) -> set[str]:
         return restricted_property_names(self._team, self._user, property_type)
@@ -161,8 +168,46 @@ class TaxonomyAgentToolkit:
 
         return "\n".join(output_parts)
 
-    def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
-        return enrich_props_with_descriptions(entity, props)
+    def _enrich_props_with_descriptions(
+        self,
+        entity: str,
+        props: Iterable[tuple[str, str | None]],
+        stored_descriptions: dict[str, str] | None = None,
+    ):
+        return enrich_props_with_descriptions(entity, props, stored_descriptions)
+
+    def _get_stored_property_descriptions(
+        self,
+        property_type: PropertyDefinition.Type,
+        names: list[str],
+        group_type_index: int | None = None,
+    ) -> dict[str, str]:
+        """Map property name -> sanitized user-authored description from the team's property definitions.
+
+        Only the enterprise `PropertyDefinition` model carries a `description` field, so this is a
+        no-op on non-EE builds. Descriptions live only in Postgres and never influence which
+        properties are surfaced — the list still comes from ClickHouse / stored definitions. Runs a
+        single batched query.
+        """
+        if not EE_AVAILABLE or not names:
+            return {}
+
+        from ee.models.property_definition import (
+            EnterprisePropertyDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
+        )
+
+        qs = (
+            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            .exclude(description__isnull=True)
+            .exclude(description="")
+        )
+        if group_type_index is not None:
+            qs = qs.filter(group_type_index=group_type_index)
+        return {
+            name: sanitize_event_description(description)
+            for name, description in qs.values_list("name", "description")
+            if description
+        }
 
     def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
@@ -172,19 +217,19 @@ class TaxonomyAgentToolkit:
         if entity not in ("person", "session", *[g["group_type"] for g in self._groups]):
             return f"Entity {entity} does not exist in the taxonomy."
 
+        truncated = False
         if entity == "person":
             restricted = self._restricted_property_names(PropertyDefinition.Type.PERSON)
-            stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.PERSON
-                ).values_list("name", "property_type")
-                if p[0] not in restricted
-            ]
+            stored_props, truncated = self._stored_property_page(
+                PropertyDefinition.Type.PERSON, restricted, max_properties
+            )
             stored_props += list_virtual_properties(
                 "person_properties", exclude={name for name, _ in stored_props} | restricted
             )
-            props = self._enrich_props_with_descriptions("person", stored_props)
+            stored_descriptions = self._get_stored_property_descriptions(
+                PropertyDefinition.Type.PERSON, [name for name, _ in stored_props]
+            )
+            props = self._enrich_props_with_descriptions("person", stored_props, stored_descriptions)
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -201,20 +246,47 @@ class TaxonomyAgentToolkit:
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             restricted = self._restricted_property_names(PropertyDefinition.Type.GROUP)
-            stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-                ).values_list("name", "property_type")[:max_properties]
-                if p[0] not in restricted
-            ]
+            stored_props, truncated = self._stored_property_page(
+                PropertyDefinition.Type.GROUP, restricted, max_properties, group_type_index=group_type_index
+            )
             stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | restricted)
-            props = self._enrich_props_with_descriptions(entity, stored_props)
+            stored_descriptions = self._get_stored_property_descriptions(
+                PropertyDefinition.Type.GROUP,
+                [name for name, _ in stored_props],
+                group_type_index=group_type_index,
+            )
+            props = self._enrich_props_with_descriptions(entity, stored_props, stored_descriptions)
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
-        return format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        result = format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        if truncated:
+            result += (
+                f"\n\nThis list stops at {max_properties} properties and {entity} has more. "
+                "Ask for a property by name before you treat it as missing."
+            )
+        return result
+
+    def _stored_property_page(
+        self,
+        property_type: PropertyDefinition.Type,
+        restricted: set[str],
+        max_properties: int,
+        group_type_index: int | None = None,
+    ) -> tuple[list[tuple[str, str | None]], bool]:
+        """
+        Read one page of stored definitions, and report whether more were left behind.
+
+        Reads one row past the page to detect the overflow. A COUNT would answer the same
+        question by walking the team's whole definition range, which is the cost the page
+        limit is here to avoid.
+        """
+        qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
+        if group_type_index is not None:
+            qs = qs.filter(group_type_index=group_type_index)
+        rows = list(qs.values_list("name", "property_type")[: max_properties + 1])
+        return [row for row in rows[:max_properties] if row[0] not in restricted], len(rows) > max_properties
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
@@ -233,9 +305,36 @@ class TaxonomyAgentToolkit:
         ):
             response = runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
         return response, verbose_name
+
+    def _fetch_event_property_types(self, names: list[str]) -> dict[str, str | None]:
+        """
+        Fetch the stored type for each event property name.
+
+        Filters on COALESCE(project_id, team_id) rather than team_id: no index on this table
+        contains (team_id, name), so a plain team_id predicate makes Postgres walk the team's
+        entire index range — multi-second to statement-timeout on teams with millions of
+        property definitions. The coalesce expression matches the posthog_propdef_proj_uniq
+        index (COALESCE(project_id, team_id), name, type, ...), turning the lookup into one
+        index seek per name. It is also the same project-level scoping the taxonomy REST API
+        applies to this table.
+
+        That index also keys on COALESCE(group_type_index, -1), which this filter leaves open.
+        Event definitions never carry a group type index, so each (project, name) resolves to
+        one row and the dict build below cannot drop a value.
+        """
+        return dict(
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(
+                effective_project_id=self._team.project_id,
+                type=PropertyDefinition.Type.EVENT,
+                name__in=names,
+            )
+            .values_list("name", "property_type")
+        )
 
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
@@ -256,13 +355,12 @@ class TaxonomyAgentToolkit:
 
         # Intersect properties with their types.
         restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
-        )
         property_to_type = {
-            property_definition.name: property_definition.property_type
-            for property_definition in qs
-            if property_definition.name not in restricted
+            name: property_type
+            for name, property_type in self._fetch_event_property_types(
+                [item.property for item in response.results]
+            ).items()
+            if name not in restricted
         }
         props: list[tuple[str, str | None]] = [
             (item.property, property_to_type.get(item.property))
@@ -276,9 +374,14 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
+        stored_descriptions = self._get_stored_property_descriptions(
+            PropertyDefinition.Type.EVENT, [name for name, _ in props]
+        )
         return format_prompt_string(
             PROPERTIES_EXAMPLE_PROMPT,
-            result=self._generate_properties_output(self._enrich_props_with_descriptions("event", props)),
+            result=self._generate_properties_output(
+                self._enrich_props_with_descriptions("event", props, stored_descriptions)
+            ),
         )
 
     def _format_property_values(
@@ -432,7 +535,8 @@ class TaxonomyAgentToolkit:
         ):
             response = ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-                analytics_props={"source": EventSource.POSTHOG_AI},
+                user=self._user,
+                analytics_props={"source": self._event_source},
             )
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):

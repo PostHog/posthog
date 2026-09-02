@@ -19,8 +19,10 @@ CRITICAL - Function name casing:
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.
+- Width-suffixed conversion functions (toInt64, toInt32, toFloat64, toUInt8, etc., including their OrNull/OrZero variants like toInt32OrNull, toFloat64OrZero) are not supported, if you use them, the query will fail. Use the unsuffixed form instead: toInt(), toFloat(), toUInt() and their OrNull/OrZero variants (toIntOrNull, toFloatOrZero, toUIntOrNull, ...).
 - Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrNull) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).
+- toDate() takes exactly one argument. It does not accept a timezone argument like ClickHouse's toDate(value, timezone). Convert to the desired timezone first with toTimeZone(), then wrap in toDate(). Example: toDate(toTimeZone(timestamp, 'US/Pacific')) NOT toDate(timestamp, 'US/Pacific').
+- The ClickHouse `SETTINGS` clause is not supported in HogQL and will always cause an "Unsupported: SelectStmt.settingsClause()" error. Do not append `SETTINGS ...` to a query, even to tune things like `max_execution_time` or `join_algorithm`.
 - LAG()/LEAD() are not supported. Instead, use lagInFrame()/leadInFrame().
   Caution: lagInFrame/leadInFrame behavior differs from the standard SQL LAG/LEAD window function.
   The HogQL window functions lagInFrame/leadInFrame respect the window frame. To get behavior identical to LAG/LEAD, use `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.
@@ -110,6 +112,7 @@ Visualization guidance:
 - Use `ActionsStackedBar` only when a categorical breakdown column should split each x-axis category into colored series.
 - Use `ActionsPie` when the user asks for a pie chart or wants to see proportions of a whole across a small set of categories; set `x_axis` to the category column and `y_axis` to the single numeric value column.
 - Use `TwoDimensionalHeatmap` only when the query returns x, y, and numeric value columns for a matrix-style result.
+- Use `ScatterPlot` when the user asks how two numeric measures relate, such as a correlation between duration and revenue; set `x_axis` to one numeric column and `y_axis` to the other.
 - Use `ActionsTable` for lists, raw event/person rows, or when multiple text columns are the point of the result.
 
 Axis guidance:

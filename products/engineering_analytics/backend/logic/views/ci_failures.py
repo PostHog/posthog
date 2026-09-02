@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, IntegerDatabaseField, StringDatabaseField
 
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
-from products.engineering_analytics.backend.logic.sources import resolve_job_cost_source_pairs
+from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -111,9 +111,9 @@ def build_query() -> str:
 def build_team_view(team: "Team") -> str | None:
     """The view body, or None when the team has no qualifying GitHub source.
 
-    Gated on the same ``resolve_job_cost_source_pairs`` condition as ``ci_job_history`` so the two
+    Gated on the same ``resolve_job_source_tables`` condition as ``ci_job_history`` so the two
     views always appear together — a team without a synced GitHub jobs/runs source gets neither.
     """
-    if not resolve_job_cost_source_pairs(team):
+    if not resolve_job_source_tables(team):
         return None
     return build_query()

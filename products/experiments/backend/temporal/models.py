@@ -1,14 +1,23 @@
 import dataclasses
+from typing import Final, Literal
 
 # Shared by the workflow definition, the schedule, and the management command.
 CANARY_WORKFLOW_NAME = "experiment-precompute-canary"
 
-OUTCOME_PASS = "pass"
-OUTCOME_DIVERGENCE = "divergence"
-OUTCOME_PATH_FLIP = "path_flip"
-OUTCOME_ERROR = "error"
-OUTCOME_SKIPPED = "skipped"
-ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERROR, OUTCOME_SKIPPED)
+CanaryOutcome = Literal["pass", "divergence", "path_flip", "error", "skipped"]
+
+OUTCOME_PASS: Final = "pass"
+OUTCOME_DIVERGENCE: Final = "divergence"
+OUTCOME_PATH_FLIP: Final = "path_flip"
+OUTCOME_ERROR: Final = "error"
+OUTCOME_SKIPPED: Final = "skipped"
+ALL_OUTCOMES: tuple[CanaryOutcome, ...] = (
+    OUTCOME_PASS,
+    OUTCOME_DIVERGENCE,
+    OUTCOME_PATH_FLIP,
+    OUTCOME_ERROR,
+    OUTCOME_SKIPPED,
+)
 
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
@@ -43,6 +52,8 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # A query needing more than this was already doomed to lose its attempt at the 5-minute kill; failing fast
 # also stops the orphaned query from burning ClickHouse for the full default 600s.
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
+
+RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
 
 
 @dataclasses.dataclass
@@ -96,8 +107,15 @@ class ExperimentPrecomputeCanaryInputs:
     experiment_id: int | None = None
     metric_uuids: list[str] | None = None
     funnel_quota: int = 12
-    mean_quota: int = 6
+    # Bake-in level for the new mean metric-events precompute path: ~40% of sampled means are
+    # CUPED/breakdown/DW-ineligible and exercise nothing new, so 20 nominal ≈ 12 effective.
+    # Drop back toward ~10 once the mean table has a few clean weeks of canary history.
+    mean_quota: int = 20
     ratio_quota: int = 4
+    # Bake-in level for the retention metric-events precompute path. Most retention metrics are
+    # eligible (breakdowns and data warehouse sources are rare on them), so nominal stays close
+    # to effective. Drop toward ~5 once retention has a few clean weeks of canary history.
+    retention_quota: int = 15
     per_experiment_cap: int = 3
     time_budget_seconds: int = 5400
     triggered_manually: bool = False
@@ -130,12 +148,12 @@ class CanaryRunSnapshot:
     variants: dict[str, CanaryVariantStats]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CanaryMetricResult:
     """Verdict for one metric: outcome plus everything needed to investigate without re-running."""
 
     target: CanaryMetricTarget
-    outcome: str  # "pass" | "divergence" | "path_flip" | "error" | "skipped"
+    outcome: CanaryOutcome
     stability_deviation: float | None = None  # max relative deviation, run a vs b
     correctness_deviation: float | None = None  # max relative deviation, run b vs c
     runs: list[CanaryRunSnapshot] = dataclasses.field(default_factory=list)
@@ -172,3 +190,14 @@ class RecalculationProgressUpdate:
     # 'experiment results refresh completed' analytics event with real counts.
     succeeded_metrics: int | None = None
     failed_metrics: int | None = None
+
+
+ENROLLMENT_CENSUS_WORKFLOW_NAME = "experiment-precompute-enrollment-census"
+
+
+@dataclasses.dataclass(frozen=True)
+class ExperimentPrecomputeEnrollmentCensusInputs:
+    """Input to the enrollment census workflow. Report-only: the census logs which teams
+    would qualify for precomputation enrollment; it never enrolls anyone."""
+
+    window_days: int = 14

@@ -10,17 +10,35 @@ import { Breadcrumb } from '~/types'
 
 import { visionActionsRetrieve, visionActionsRunsRetrieve } from '../generated/api'
 import type { RunObservationApi, VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
+import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
 
 /**
  * Resolve the `[obs N]` citation markers the synthesizer leaves in a group summary into `[N]` links to
- * each observation. `N` is the observation's stable `index` (its position in the summary), so a deleted
+ * each observation. Adjacent markers collapse into one bracket group (`[2, 5, 33]`) where every number
+ * stays its own link. `N` is the observation's stable `index` (its position in the summary), so a deleted
  * observation drops its citation rather than misdirecting to a renumbered neighbor.
  */
 export function resolveObservationCitations(markdown: string, observations: readonly RunObservationApi[]): string {
     const byIndex = new Map(observations.map((obs) => [obs.index, obs]))
-    return markdown.replace(/\[obs (\d+)\]/g, (_match, n: string) => {
-        const obs = byIndex.get(Number(n))
-        return obs ? `[[${n}]](${urls.replayVisionObservation(obs.id)})` : ''
+    return markdown.replace(/\[obs \d+\](?:[ \t]*\[obs \d+\])*/g, (group) => {
+        const cited: { n: string; url: string }[] = []
+        for (const [, n] of group.matchAll(/\[obs (\d+)\]/g)) {
+            const obs = byIndex.get(Number(n))
+            // Synthesizers often repeat a citation; a group citing the same observation twice would
+            // read as two distinct pieces of evidence.
+            if (obs && !cited.some((c) => c.n === n)) {
+                cited.push({ n, url: urls.replayVisionObservation(obs.id) })
+            }
+        }
+        // Brackets and commas sit inside the link texts (escaped) so the whole group inherits the
+        // superscript citation styling, which only targets the <a> elements (ScannerSummary.scss).
+        // Joined with no-break spaces so a group can't wrap mid-bracket (orphaning e.g. `[2,` at a line end).
+        return cited
+            .map(({ n, url }, i) => {
+                const text = `${i === 0 ? '\\[' : ''}${n}${i === cited.length - 1 ? '\\]' : ','}`
+                return `[${text}](${url})`
+            })
+            .join('\u00a0')
     })
 }
 
@@ -143,24 +161,13 @@ export const visionActionRunSceneLogic = kea<visionActionRunSceneLogicType>([
                 action: VisionActionApi | null,
                 run: VisionActionRunApi | null
             ): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [
-                    {
-                        key: 'replay-vision',
-                        name: 'Replay vision',
-                        path: urls.replayVision(),
-                        iconType: 'replay_vision',
-                    },
-                ]
+                const breadcrumbs: Breadcrumb[] = [VISION_ROOT_BREADCRUMB]
                 if (action?.scanner) {
-                    breadcrumbs.push({
-                        key: `scanner-${action.scanner}`,
-                        name: 'Scanner',
-                        path: `${urls.replayVision(action.scanner)}?tab=actions`,
-                    })
+                    breadcrumbs.push(scannerBreadcrumb(action.scanner, null, 'actions'))
                 }
                 breadcrumbs.push({
                     key: actionId ? `action-${actionId}` : 'action',
-                    name: action?.name || 'Summary',
+                    name: action?.name || 'Digest',
                     path: urls.replayVisionAction(actionId),
                 })
                 breadcrumbs.push({

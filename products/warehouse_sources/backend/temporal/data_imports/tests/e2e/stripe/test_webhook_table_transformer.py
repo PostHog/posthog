@@ -2,7 +2,7 @@ import pytest
 
 import orjson
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import _webhook_table_transformer
 
 
@@ -113,3 +113,13 @@ class TestWebhookTableTransformer:
 
         assert result.num_rows == 1
         assert result.column("id").to_pylist() == ["cus_1"]
+
+    def test_client_secret_scrubbed_from_webhook_object(self):
+        # payment_intent.* / setup_intent.* / checkout.session.* webhooks carry the resource's
+        # client_secret; it must never land in the warehouse table.
+        event = _make_event("evt_1", "pi_1", 1000, {"client_secret": "pi_1_secret_abc", "amount": 500})
+        result = _webhook_table_transformer(_build_table([event]))
+
+        assert result.num_rows == 1
+        assert "client_secret" not in result.column_names
+        assert result.column("amount").to_pylist() == [500]

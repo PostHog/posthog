@@ -34,6 +34,57 @@ export class PersonPropertiesSizeViolationError extends Error {
     readonly isRetriable = false
 }
 
+export class DistinctIdConflictError extends Error {
+    constructor(
+        message: string,
+        public teamId: number,
+        public distinctId?: string
+    ) {
+        super(message)
+        this.name = 'DistinctIdConflictError'
+    }
+}
+
+/**
+ * A tombstone delete found live distinct id rows still pointing at the person
+ * (a concurrent merge added or moved them in after ours moved the known set).
+ * The tombstone-mode equivalent of the FK violation a hard delete would raise;
+ * callers refresh the person and retry, re-moving the new rows.
+ */
+export class PersonTombstoneBlockedError extends Error {
+    constructor(
+        message: string,
+        public teamId: number
+    ) {
+        super(message)
+        this.name = 'PersonTombstoneBlockedError'
+    }
+}
+
+/**
+ * A lifecycle-mark claim lost to a live claim by another operation (a delete
+ * saga mid-flight, or a concurrent merge on the same event). At most one live
+ * operation may hold a person; callers back off and retry, by which time the
+ * winner has usually finished.
+ */
+export class PersonClaimedByLifecycleOpError extends Error {
+    constructor(
+        message: string,
+        public teamId: number
+    ) {
+        super(message)
+        this.name = 'PersonClaimedByLifecycleOpError'
+    }
+}
+
+/** A person a merge claims in the lifecycle mark table for the duration of its transaction. */
+export interface LifecycleMarkPerson {
+    personId: string
+    personUuid: string
+    role: 'target' | 'source'
+    ordinal?: number
+}
+
 /**
  * Read-only person lookups backed by personhog gRPC. Used by services that
  * only need to fetch person data (CDP, error tracking, future pipelines).
@@ -87,6 +138,17 @@ export interface PersonRepository {
     ): Promise<InternalPerson[]>
 
     /**
+     * Batched, row-locking variant of fetchPerson({forUpdate: true}) for folded
+     * merges: resolves and locks all persons behind the given distinct_ids in
+     * one statement, in deterministic (person id) lock order.
+     */
+    fetchPersonsForUpdateByDistinctIds(
+        teamId: TeamId,
+        distinctIds: string[],
+        callerTag?: string
+    ): Promise<InternalPersonWithDistinctId[]>
+
+    /**
      * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id (single team).
      * Returns a record keyed by int person_id as a string (matching InternalPerson.id).
      * Persons with no distinct_ids will be absent from the result.
@@ -132,17 +194,41 @@ export interface PersonRepository {
 
     deletePerson(person: InternalPerson): Promise<PersonMessage[]>
 
-    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
+    /** Batched deletePerson for folded merges; all persons must belong to one team. */
+    deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]>
 
-    addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
-    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
-    addPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<Map<string, boolean>>
+    /**
+     * Claims the given persons in the lifecycle mark table for a merge: at most one live
+     * operation (merge or delete saga) may hold a person, enforced by the mark index.
+     * Claim before reading state the transaction relies on, and hold until commit via
+     * releaseLifecycleMarks. Throws PersonClaimedByLifecycleOpError when another
+     * operation holds one of the persons.
+     */
+    claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void>
+
+    /** Releases a merge's lifecycle marks; must run in the same transaction as the claim. */
+    releaseLifecycleMarks(opId: string, teamId: number): Promise<void>
+
+    /**
+     * Whether the person row exists and is not tombstoned. Only meaningful while the
+     * caller holds the person's lifecycle mark: the mark excludes concurrent tombstones,
+     * so the answer stays true until the transaction commits.
+     */
+    isPersonLive(person: InternalPerson): Promise<boolean>
+
+    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
     personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id']
+    ): Promise<void>
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
         targetPersonID: InternalPerson['id']
     ): Promise<void>
 

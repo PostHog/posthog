@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,
@@ -27,8 +28,7 @@ from posthog.security.llm_prompt_sanitization import (
 )
 from posthog.utils import get_instance_region
 
-from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
-from products.product_analytics.backend.api.insight_suggestions import get_query_specific_instructions
+from products.product_analytics.backend.facade.api import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)
 
@@ -362,7 +362,7 @@ def _attach_images_to_user_message(
 def _get_openai_client() -> OpenAI:
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
 
 
 def generate_change_summary(
@@ -428,7 +428,7 @@ def generate_change_summary(
         posthog_properties["team_id"] = team.id
         extra_capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
-    result = client.chat.completions.create(  # type: ignore[call-overload]
+    result = client.chat.completions.create(
         model="gpt-4.1-mini",
         temperature=0.3,
         max_tokens=500,

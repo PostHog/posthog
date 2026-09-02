@@ -473,6 +473,16 @@ describe('trendsChartTransforms', () => {
             expect((config.yAxis as YAxisConfig)?.label).toBe('Unique users')
         })
 
+        it('forwards the y-axis range onto the axis config', () => {
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                yAxisStartAtZero: false,
+                yAxisMin: 40,
+                yAxisMax: 80,
+            })
+            expect(config.yAxis).toMatchObject({ startAtZero: false, min: 40, max: 80 })
+        })
+
         it('derives yAxis from buildTrendsYAxisConfig when isPercentStackView is true and passes through tooltip / showCrosshair', () => {
             const config = buildTrendsLineTimeSeriesConfig({
                 ...baseOpts,

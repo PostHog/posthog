@@ -6,11 +6,10 @@
  */
 import * as ort from 'onnxruntime-node'
 
-import { numFromEnv } from './env.ts'
+import { ORT_THREADS } from './cores.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const SAFETY_SIZE = 224 // fixed model input; pixel values 0-255 (normalization is baked into the graph)
-const ORT_THREADS = numFromEnv('ORT_THREADS', 1, 1, 32)
 
 export interface SafetyModel {
     session: ort.InferenceSession
@@ -24,6 +23,11 @@ export async function loadSafety(modelPath: string): Promise<SafetyModel> {
         intraOpNumThreads: ORT_THREADS,
         interOpNumThreads: 1,
         executionMode: 'sequential',
+        // The arena allocator holds on to peak allocations for reuse, which on a pool of workers each
+        // running their own sessions is memory multiplied by the worker count: measured at 719MB per
+        // worker with it on against 570MB off, on a 2 MP frame. It buys no measurable CPU here
+        // (97.6% of baseline over the eval corpus, inside run-to-run noise), so the memory is free.
+        enableCpuMemArena: false,
     })
     return { session, inputName: session.inputNames[0], outputName: session.outputNames[0] }
 }

@@ -18,10 +18,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from scim2_filter_parser.transpilers.django_q_object import get_query
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
-from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.identity_provider_config import IdentityProviderConfig
+
+from products.access_control.backend.models.role import Role
 
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
@@ -33,7 +36,6 @@ from ee.api.scim.utils import (
     mask_scim_payload,
     normalize_scim_operations,
 )
-from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from ee.models.scim_request_log import SCIMRequestLog
 
@@ -50,10 +52,16 @@ class SCIMPaginationError(Exception):
         super().__init__(detail)
 
 
-def _parse_scim_pagination(request: Request) -> tuple[int, int]:
+@frozen
+class ScimPagination:
+    start_index: int
+    count: int
+
+
+def _parse_scim_pagination(request: Request) -> ScimPagination:
     """Parse startIndex and count from SCIM query params.
 
-    Returns (start_index, count) following django-scim2 conventions.
+    Returns a ScimPagination following django-scim2 conventions.
     Raises SCIMPaginationError for invalid values.
     """
     try:
@@ -73,29 +81,29 @@ def _parse_scim_pagination(request: Request) -> tuple[int, int]:
         raise SCIMPaginationError("Invalid count (must be >= 0)")
 
     count = min(count, MAX_ITEMS_PER_PAGE)
-    return start_index, count
+    return ScimPagination(start_index=start_index, count=count)
 
 
 def _build_scim_list_response(
     queryset: QuerySet,
-    start_index: int,
-    count: int,
+    *,
+    pagination: ScimPagination,
     adapter_cls: type[PostHogSCIMUser] | type[PostHogSCIMGroup],
-    organization_domain: "OrganizationDomain",
+    config: IdentityProviderConfig,
 ) -> dict:
     total_results = queryset.count()
 
-    if count == 0:
+    if pagination.count == 0:
         resources: list[dict] = []
     else:
-        offset = start_index - 1
-        page = queryset[offset : offset + count]
-        resources = [adapter_cls(obj, organization_domain).to_dict() for obj in page]
+        offset = pagination.start_index - 1
+        page = queryset[offset : offset + pagination.count]
+        resources = [adapter_cls(obj, config).to_dict() for obj in page]
 
     return {
         "schemas": [constants.SchemaURI.LIST_RESPONSE],
         "totalResults": total_results,
-        "startIndex": start_index,
+        "startIndex": pagination.start_index,
         "itemsPerPage": len(resources),
         "Resources": resources,
     }
@@ -104,13 +112,13 @@ def _build_scim_list_response(
 @dataclasses.dataclass(frozen=True)
 class SCIMContext(ActivityContextBase):
     identity_provider: str = ""
-    organization_domain: str = ""
+    identity_provider_config_id: str = ""
     scim_username: str = ""
 
 
 def _log_scim_activity(
     *,
-    organization_domain: OrganizationDomain,
+    config: IdentityProviderConfig,
     activity: str,
     user_id: str,
     user_email: str,
@@ -118,7 +126,7 @@ def _log_scim_activity(
 ) -> None:
     idp = detect_identity_provider(request)
     log_activity(
-        organization_id=organization_domain.organization_id,
+        organization_id=config.organization_id,
         team_id=None,
         user=None,
         was_impersonated=False,
@@ -129,7 +137,7 @@ def _log_scim_activity(
             name=user_email,
             context=SCIMContext(
                 identity_provider=idp.value,
-                organization_domain=organization_domain.domain,
+                identity_provider_config_id=str(config.id),
                 scim_username=request.data.get("userName", ""),
             ),
         ),
@@ -138,14 +146,14 @@ def _log_scim_activity(
 
 def _log_scim_group_activity(
     *,
-    organization_domain: OrganizationDomain,
+    config: IdentityProviderConfig,
     activity: str,
     role: Role,
     request: Request,
 ) -> None:
     idp = detect_identity_provider(request)
     log_activity(
-        organization_id=organization_domain.organization_id,
+        organization_id=config.organization_id,
         team_id=None,
         user=None,
         was_impersonated=False,
@@ -156,7 +164,7 @@ def _log_scim_group_activity(
             name=role.name,
             context=SCIMContext(
                 identity_provider=idp.value,
-                organization_domain=organization_domain.domain,
+                identity_provider_config_id=str(config.id),
             ),
         ),
     )
@@ -208,10 +216,10 @@ class SCIMBaseView(APIView):
             "response_status": response.status_code,
         }
 
-        organization_domain = None
+        config = None
         if drf_request.auth:
-            organization_domain = cast(OrganizationDomain, drf_request.auth)
-            log_data["organization_domain"] = organization_domain.domain
+            config = cast(IdentityProviderConfig, drf_request.auth)
+            log_data["identity_provider_config_id"] = str(config.id)
 
         masked_body = None
         if drf_request.method in ("POST", "PUT", "PATCH"):
@@ -226,10 +234,10 @@ class SCIMBaseView(APIView):
 
         logger.info("scim_request", **log_data)
 
-        if organization_domain is not None:
+        if config is not None:
             try:
                 SCIMRequestLog.objects.create(
-                    organization_domain=organization_domain,
+                    identity_provider_config=config,
                     request_method=drf_request.method or "",
                     request_path=drf_request.get_full_path(),
                     request_headers=mask_headers(dict(drf_request.headers)),
@@ -271,24 +279,23 @@ class PostHogUserFilterQuery(UserFilterQuery):
 
     @classmethod
     def search(cls, filter_query: str, request: Request) -> QuerySet[User]:
-        org_domain = cast(OrganizationDomain, request.auth)
+        config = cast(IdentityProviderConfig, request.auth)
 
         if "userName" in filter_query:
             # userName is stored in SCIMProvisionedUser, not User
             # UserFilterQuery only queries User model, so use scim2-filter-parser directly
             scim_attr_map = {("userName", None, None): "username"}
             q_obj = get_query(filter_query, scim_attr_map)
-            scim_user_ids = SCIMProvisionedUser.objects.filter(
-                q_obj,
-                organization_domain=org_domain,
-            ).values_list("user_id", flat=True)
+            scim_user_ids = (
+                SCIMProvisionedUser.objects.for_config(config).filter(q_obj).values_list("user_id", flat=True)
+            )
             return User.objects.filter(id__in=scim_user_ids).order_by("id")
 
         raw_queryset = super().search(filter_query, request)
         user_ids = [user.id for user in raw_queryset]
         return User.objects.filter(
             id__in=user_ids,
-            organization_membership__organization=org_domain.organization,
+            organization_membership__organization=config.organization,
         ).order_by("id")
 
 
@@ -299,21 +306,21 @@ class PostHogGroupFilterQuery(GroupFilterQuery):
     def search(cls, filter_query: str, request: Request) -> QuerySet[Role]:
         raw_queryset = super().search(filter_query, request)
         # Filter results to only include roles from the specified organization
-        org_domain = cast(OrganizationDomain, request.auth)
+        config = cast(IdentityProviderConfig, request.auth)
         role_ids = [role.id for role in raw_queryset]
         return Role.objects.filter(
             id__in=role_ids,
-            organization=org_domain.organization,
+            organization=config.organization,
         ).order_by("id")
 
 
 class SCIMUsersView(SCIMBaseView):
-    def get(self, request: Request, domain_id: str) -> Response:
-        organization_domain = cast(OrganizationDomain, request.auth)
+    def get(self, request: Request, scim_slug: str) -> Response:
+        config = cast(IdentityProviderConfig, request.auth)
         filter_param = request.query_params.get("filter")
 
         try:
-            start_index, count = _parse_scim_pagination(request)
+            pagination = _parse_scim_pagination(request)
         except SCIMPaginationError as e:
             return Response(
                 {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
@@ -329,24 +336,26 @@ class SCIMUsersView(SCIMBaseView):
                     additional_properties={
                         "scim_operation": "filter_users",
                         "filter": filter_param,
-                        "domain_id": domain_id,
-                        "organization_id": organization_domain.organization.id,
+                        "scim_slug": scim_slug,
+                        "organization_id": config.organization_id,
                     },
                 )
                 queryset = User.objects.none()
         else:
-            queryset = PostHogSCIMUser.get_queryset_for_organization(organization_domain)
+            queryset = PostHogSCIMUser.get_queryset_for_organization(config)
 
-        return Response(_build_scim_list_response(queryset, start_index, count, PostHogSCIMUser, organization_domain))
+        return Response(
+            _build_scim_list_response(queryset, pagination=pagination, adapter_cls=PostHogSCIMUser, config=config)
+        )
 
-    def post(self, request: Request, domain_id: str) -> Response:
-        organization_domain = cast(OrganizationDomain, request.auth)
+    def post(self, request: Request, scim_slug: str) -> Response:
+        config = cast(IdentityProviderConfig, request.auth)
 
         try:
             identity_provider = detect_identity_provider(request)
-            scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain, identity_provider)
+            scim_user = PostHogSCIMUser.from_dict(request.data, config, identity_provider)
             _log_scim_activity(
-                organization_domain=organization_domain,
+                config=config,
                 activity="scim_provisioned",
                 user_id=scim_user.id,
                 user_email=scim_user.obj.email,
@@ -363,8 +372,8 @@ class SCIMUsersView(SCIMBaseView):
                 e,
                 additional_properties={
                     "scim_operation": "create_user",
-                    "domain_id": domain_id,
-                    "organization_id": organization_domain.organization.id,
+                    "scim_slug": scim_slug,
+                    "organization_id": config.organization_id,
                     "request_data": request.data,
                 },
             )
@@ -376,15 +385,16 @@ class SCIMUsersView(SCIMBaseView):
 
 class SCIMUserDetailView(SCIMBaseView):
     def get_object(self, user_id: int) -> PostHogSCIMUser:
-        organization_domain = cast(OrganizationDomain, self.request.auth)
+        config = cast(IdentityProviderConfig, self.request.auth)
         user = User.objects.filter(
-            Q(organization_membership__organization=organization_domain.organization)
-            | Q(scim_provisions__organization_domain=organization_domain),
+            Q(organization_membership__organization=config.organization)
+            | Q(scim_provisions__identity_provider_config=config)
+            | Q(scim_provisions__organization_domain__in=config.organization_domains),
             id=user_id,
         ).first()
         if not user:
             raise User.DoesNotExist()
-        return PostHogSCIMUser(user, organization_domain)
+        return PostHogSCIMUser(user, config)
 
     def handle_exception(self, exc):
         if isinstance(exc, User.DoesNotExist):
@@ -394,17 +404,17 @@ class SCIMUserDetailView(SCIMBaseView):
             )
         return super().handle_exception(exc)
 
-    def get(self, request: Request, domain_id: str, user_id: int) -> Response:
+    def get(self, request: Request, scim_slug: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
         return Response(scim_user.to_dict())
 
-    def put(self, request: Request, domain_id: str, user_id: int) -> Response:
+    def put(self, request: Request, scim_slug: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
-        organization_domain = cast(OrganizationDomain, request.auth)
+        config = cast(IdentityProviderConfig, request.auth)
         try:
             scim_user.put(request.data)
             _log_scim_activity(
-                organization_domain=organization_domain,
+                config=config,
                 activity="scim_replaced",
                 user_id=str(user_id),
                 user_email=scim_user.obj.email,
@@ -417,8 +427,8 @@ class SCIMUserDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "replace_user",
                     "user_id": user_id,
-                    "domain_id": domain_id,
-                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
+                    "scim_slug": scim_slug,
+                    "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
             )
@@ -427,15 +437,15 @@ class SCIMUserDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def patch(self, request: Request, domain_id: str, user_id: int) -> Response:
+    def patch(self, request: Request, scim_slug: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
-        organization_domain = cast(OrganizationDomain, request.auth)
+        config = cast(IdentityProviderConfig, request.auth)
         try:
             operations = request.data.get("Operations", [])
             operations = normalize_scim_operations(operations)
             scim_user.handle_operations(operations)
             _log_scim_activity(
-                organization_domain=organization_domain,
+                config=config,
                 activity="scim_updated",
                 user_id=str(user_id),
                 user_email=scim_user.obj.email,
@@ -448,8 +458,8 @@ class SCIMUserDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "update_user",
                     "user_id": user_id,
-                    "domain_id": domain_id,
-                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
+                    "scim_slug": scim_slug,
+                    "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
             )
@@ -458,13 +468,13 @@ class SCIMUserDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def delete(self, request: Request, domain_id: str, user_id: int) -> Response:
+    def delete(self, request: Request, scim_slug: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
         user_email = scim_user.obj.email
         scim_user.delete()
-        organization_domain = cast(OrganizationDomain, request.auth)
+        config = cast(IdentityProviderConfig, request.auth)
         _log_scim_activity(
-            organization_domain=organization_domain,
+            config=config,
             activity="scim_deprovisioned",
             user_id=str(user_id),
             user_email=user_email,
@@ -474,12 +484,12 @@ class SCIMUserDetailView(SCIMBaseView):
 
 
 class SCIMGroupsView(SCIMBaseView):
-    def get(self, request: Request, domain_id: str) -> Response:
-        organization_domain = cast(OrganizationDomain, request.auth)
+    def get(self, request: Request, scim_slug: str) -> Response:
+        config = cast(IdentityProviderConfig, request.auth)
         filter_param = request.query_params.get("filter")
 
         try:
-            start_index, count = _parse_scim_pagination(request)
+            pagination = _parse_scim_pagination(request)
         except SCIMPaginationError as e:
             return Response(
                 {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
@@ -495,22 +505,24 @@ class SCIMGroupsView(SCIMBaseView):
                     additional_properties={
                         "scim_operation": "filter_groups",
                         "filter": filter_param,
-                        "domain_id": domain_id,
-                        "organization_id": organization_domain.organization.id,
+                        "scim_slug": scim_slug,
+                        "organization_id": config.organization_id,
                     },
                 )
                 queryset = Role.objects.none()
         else:
-            queryset = PostHogSCIMGroup.get_queryset_for_organization(organization_domain)
+            queryset = PostHogSCIMGroup.get_queryset_for_organization(config)
 
-        return Response(_build_scim_list_response(queryset, start_index, count, PostHogSCIMGroup, organization_domain))
+        return Response(
+            _build_scim_list_response(queryset, pagination=pagination, adapter_cls=PostHogSCIMGroup, config=config)
+        )
 
-    def post(self, request: Request, domain_id: str) -> Response:
-        organization_domain = cast(OrganizationDomain, request.auth)
+    def post(self, request: Request, scim_slug: str) -> Response:
+        config = cast(IdentityProviderConfig, request.auth)
         try:
-            scim_group = PostHogSCIMGroup.from_dict(request.data, organization_domain)
+            scim_group = PostHogSCIMGroup.from_dict(request.data, config)
             _log_scim_group_activity(
-                organization_domain=organization_domain,
+                config=config,
                 activity="scim_provisioned",
                 role=scim_group.obj,
                 request=request,
@@ -521,8 +533,8 @@ class SCIMGroupsView(SCIMBaseView):
                 e,
                 additional_properties={
                     "scim_operation": "create_group",
-                    "domain_id": domain_id,
-                    "organization_id": organization_domain.organization.id,
+                    "scim_slug": scim_slug,
+                    "organization_id": config.organization_id,
                     "request_data": request.data,
                 },
             )
@@ -534,11 +546,11 @@ class SCIMGroupsView(SCIMBaseView):
 
 class SCIMGroupDetailView(SCIMBaseView):
     def get_object(self, group_id: str) -> PostHogSCIMGroup:
-        organization_domain = cast(OrganizationDomain, self.request.auth)
-        role = Role.objects.filter(id=group_id, organization=organization_domain.organization).first()
+        config = cast(IdentityProviderConfig, self.request.auth)
+        role = Role.objects.filter(id=group_id, organization=config.organization).first()
         if not role:
             raise Role.DoesNotExist()
-        return PostHogSCIMGroup(role, organization_domain)
+        return PostHogSCIMGroup(role, config)
 
     def handle_exception(self, exc):
         if isinstance(exc, Role.DoesNotExist):
@@ -548,16 +560,16 @@ class SCIMGroupDetailView(SCIMBaseView):
             )
         return super().handle_exception(exc)
 
-    def get(self, request: Request, domain_id: str, group_id: str) -> Response:
+    def get(self, request: Request, scim_slug: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
         return Response(scim_group.to_dict())
 
-    def put(self, request: Request, domain_id: str, group_id: str) -> Response:
+    def put(self, request: Request, scim_slug: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
         try:
             scim_group.put(request.data)
             _log_scim_group_activity(
-                organization_domain=cast(OrganizationDomain, request.auth),
+                config=cast(IdentityProviderConfig, request.auth),
                 activity="scim_replaced",
                 role=scim_group.obj,
                 request=request,
@@ -569,8 +581,8 @@ class SCIMGroupDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "replace_group",
                     "group_id": group_id,
-                    "domain_id": domain_id,
-                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
+                    "scim_slug": scim_slug,
+                    "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
             )
@@ -579,13 +591,13 @@ class SCIMGroupDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def patch(self, request: Request, domain_id: str, group_id: str) -> Response:
+    def patch(self, request: Request, scim_slug: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
         try:
             operations = request.data.get("Operations", [])
             scim_group.handle_operations(operations)
             _log_scim_group_activity(
-                organization_domain=cast(OrganizationDomain, request.auth),
+                config=cast(IdentityProviderConfig, request.auth),
                 activity="scim_updated",
                 role=scim_group.obj,
                 request=request,
@@ -597,8 +609,8 @@ class SCIMGroupDetailView(SCIMBaseView):
                 additional_properties={
                     "scim_operation": "update_group",
                     "group_id": group_id,
-                    "domain_id": domain_id,
-                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
+                    "scim_slug": scim_slug,
+                    "organization_id": cast(IdentityProviderConfig, request.auth).organization_id,
                     "request_data": request.data,
                 },
             )
@@ -607,14 +619,14 @@ class SCIMGroupDetailView(SCIMBaseView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    def delete(self, request: Request, domain_id: str, group_id: str) -> Response:
+    def delete(self, request: Request, scim_slug: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
-        organization_domain = cast(OrganizationDomain, request.auth)
+        config = cast(IdentityProviderConfig, request.auth)
         # Log before delete: Role.delete() runs inside a transaction, which causes
         # log_activity to defer via on_commit. The outer test transaction never commits,
         # but more importantly the role row is gone by the time on_commit fires in prod.
         _log_scim_group_activity(
-            organization_domain=organization_domain,
+            config=config,
             activity="scim_deprovisioned",
             role=scim_group.obj,
             request=request,
@@ -624,7 +636,7 @@ class SCIMGroupDetailView(SCIMBaseView):
 
 
 class SCIMServiceProviderConfigView(SCIMBaseView):
-    def get(self, request: Request, domain_id: str) -> Response:
+    def get(self, request: Request, scim_slug: str) -> Response:
         return Response(
             {
                 "schemas": [constants.SchemaURI.SERVICE_PROVIDER_CONFIG],
@@ -649,7 +661,7 @@ class SCIMServiceProviderConfigView(SCIMBaseView):
 
 
 class SCIMResourceTypesView(SCIMBaseView):
-    def get(self, request: Request, domain_id: str) -> Response:
+    def get(self, request: Request, scim_slug: str) -> Response:
         return Response(
             {
                 "schemas": [constants.SchemaURI.LIST_RESPONSE],
@@ -663,7 +675,7 @@ class SCIMResourceTypesView(SCIMBaseView):
 
 
 class SCIMSchemasView(SCIMBaseView):
-    def get(self, request: Request, domain_id: str) -> Response:
+    def get(self, request: Request, scim_slug: str) -> Response:
         return Response(
             {
                 "schemas": [constants.SchemaURI.LIST_RESPONSE],

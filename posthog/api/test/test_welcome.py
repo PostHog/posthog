@@ -75,18 +75,24 @@ class TestWelcomeEndpoint(APIBaseTest):
     def test_team_members_respect_member_list_visibility(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         project_mate = User.objects.create_and_join(self.organization, "mate@example.com", None, "Mate")
         User.objects.create_and_join(self.organization, "hidden@example.com", None, "Hidden")
         # Private project: default "none" with explicit grants for the requester and one project mate
-        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
         for membership in (
             self.organization_membership,
             project_mate.organization_memberships.get(organization=self.organization),
         ):
             AccessControl.objects.create(
-                team=self.team, resource="project", organization_member=membership, access_level="member"
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="member",
             )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

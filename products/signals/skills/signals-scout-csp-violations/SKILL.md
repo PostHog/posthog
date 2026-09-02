@@ -1,9 +1,9 @@
 ---
 name: signals-scout-csp-violations
 description: >
-  Signals scout for Content Security Policy violation reports. Watches `$csp_violation` events
-  for blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious
-  third-party domains, and files each validated cluster as a report in the inbox.
+  Signals scout for Content Security Policy violations. Watches `$csp_violation` events for
+  blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious third-
+  party domains.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics tools in the
@@ -24,7 +24,7 @@ You are a focused CSP scout. Spot meaningful changes in this team's `$csp_violat
 
 CSP violations are unusual on the noise/signal spectrum: a single user with a misbehaving browser extension can pollute thousands of reports, while a genuine script compromise might surface as five carefully crafted requests from a fresh domain. **Reach (distinct users + distinct documents) matters more than raw count**. Internalize that shape.
 
-You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for an aggregated cluster (a fresh blocked domain, a standing enforced block, a deploy-correlated directive burst) you'd stand behind as a standalone inbox item a human will act on. A cluster the inbox already covers that's still active (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the CSP-specific framing — do not restate the generic mechanics. (Note: this surface has a companion **push** path that files raw per-fingerprint signals under `source_product=csp_reporting`; your own report-channel reports persist under `source_product=signals_scout`. Both live in the same inbox — see Decide for how they interact.)
+You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for an aggregated cluster (a fresh blocked domain, a standing enforced block, a deploy-correlated directive burst) you'd stand behind as a standalone inbox item a human will act on. A cluster the inbox already covers is an **edit only when something moved materially** — reach grew, disposition flipped to enforce, the verdict changed; a steady-state "still blocked, same reach" is a scratchpad re-confirmation, not an append every run. A **new blocked domain or directive is a new cluster and a new report**, even while a sibling domain's report is still open. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the CSP-specific framing — do not restate the generic mechanics. (Note: this surface has a companion **push** path that files raw per-fingerprint signals under `source_product=csp_reporting`; your own report-channel reports persist under `source_product=signals_scout`. Both live in the same inbox — see Decide for how they interact.)
 
 ## Quick close-out: is CSP reporting even active?
 
@@ -53,7 +53,7 @@ Four cheap reads cold-start a run:
 - `scout-scratchpad-search` (`text=csp` or `text=blocked`) — durable team steering from past CSP runs. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `allowlist:`, `report:`, or `reviewer:` key prefixes tell you the team's healthy domains, recurring browser-extension noise, clusters already surfaced, which report covers a cluster, who owns a surface, and what to skip.
 - `scout-runs-list` (last 7d) — what prior CSP scouts found and ruled out.
 - `scout-project-profile-get` — the `$csp_violation` row in `top_events` carries `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users`, plus `existing_inbox_reports`. Pattern the count/users ratio against the table below.
-- `inbox-reports-list` (`ordering=-updated_at`, `search`=the blocked domain / directive) — the reports already in the inbox. **Two source_products matter here:** your own report-channel reports persist under `source_product=signals_scout` (search these for edit-vs-author — don't filter them out), while the companion push path files raw per-fingerprint signals under `source_product=csp_reporting` (check these to stay quiet when the push path already covers a cluster — see Decide). A cluster you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.
+- `inbox-reports-list` (`ordering=-updated_at`, `search`=the blocked domain / directive) — the reports already in the inbox. **Two source_products matter here:** your own report-channel reports persist under `source_product=signals_scout` (search these for edit-vs-author — don't filter them out), while the companion push path files raw per-fingerprint signals under `source_product=csp_reporting` (check these to stay quiet when the push path already covers a cluster — see Decide). A cluster you've reported before is an edit candidate (see Decide for the material-change bar); pull the closest matches with `inbox-reports-retrieve` before authoring.
 
 ### Profile shape — count vs distinct_users
 
@@ -138,6 +138,83 @@ Triage:
 
 The `blocked_domain != ''` filter already drops the giant inline / `eval` / `unsafe-inline` and browser-extension clusters (non-empty `$csp_blocked_url`, empty `domain()`) — the baseline noise this surface always carries — so the limit is spent on the reach that matters: **named** domains. Dedupe standing reports with `addressed:csp_violations:{blocked_domain}-{directive}` so a confirmed-and-allowlisted (or accepted) block doesn't re-surface every run.
 
+#### Reconstruct the policy that blocked
+
+`$csp_original_policy` carries the header a browser saw when it blocked the request — the fastest way to learn what the policy actually says, and the difference between a report that names a problem and one that names a change.
+It is also client-reported data from a public endpoint, so it is a lead, not the deployed configuration. Read it, then check it against the code that emits it before you quote it as current.
+
+Scope the read to the cluster you are about to report, not the whole team:
+
+```sql
+SELECT
+    domain(JSONExtractString(properties, '$csp_document_url')) AS doc_host,
+    -- most recent, not most frequent: a mid-window policy change leaves the retired header holding the volume
+    argMax(replaceRegexpAll(JSONExtractString(properties, '$csp_original_policy'), '\'nonce-[^\']+\'', '\'nonce-N\''), timestamp) AS latest_policy,
+    max(timestamp) AS latest_seen,
+    uniq(replaceRegexpAll(JSONExtractString(properties, '$csp_original_policy'), '\'nonce-[^\']+\'', '\'nonce-N\'')) AS distinct_policies,
+    countIf(JSONExtractString(properties, '$csp_original_policy') = '') AS missing_policy,
+    count() AS occurrences,
+    uniq(person_id) AS distinct_users
+FROM events
+WHERE event = '$csp_violation'
+  AND timestamp > now() - INTERVAL 7 DAY
+  AND JSONExtractString(properties, '$csp_effective_directive') = 'connect-src'      -- the candidate's directive
+  AND domain(JSONExtractString(properties, '$csp_blocked_url')) = 'cdn.example.com'  -- the candidate's domain
+GROUP BY doc_host
+ORDER BY occurrences DESC
+LIMIT 30
+```
+
+Three things the query is shaped around:
+
+- **Normalize the nonce, but only inside the quoted source expression.** A CSP nonce is always `'nonce-…'` in single quotes; an unanchored `nonce-` match also rewrites a host like `https://nonce-cdn.example.com`, corrupting the header you quote and merging policies that differ. With no normalization at all, every pageload is its own policy and the grouping tells you nothing.
+- **`$csp_original_policy` can be absent.** `original-policy` is optional in a report payload and the endpoint stores what it receives, so `missing_policy` counts the rows with no header. Where it is empty across the cluster, this lens does not apply — file the finding on its other evidence rather than dropping it.
+- **`distinct_policies > 1` means the header moved inside the window.** Report `latest_seen` alongside the policy so the reader knows how fresh it is, and never diff against a header that is no longer served.
+
+Do not pin the disposition here. The enforced set is where standing breakage lives, but enforcement-readiness advisories and exceptional report-only regressions need the header too — filter to the candidate's own disposition.
+
+##### Read the policy from code, and reconcile
+
+The CSP report endpoint is public, and it copies `original-policy` out of the payload exactly as it does the blocked URL and the distinct id.
+Anyone holding the project token can therefore choose the header printed beside their domain, and identical forged values would fake the shared-artifact pointer below just as well.
+Reach authenticates none of it.
+
+So the reported header is a lead, and **the code that emits the header is the source of truth**. Read it.
+Your sandbox has read-only `gh` — the run prompt's `gh` section covers the mechanics (always `--repo`, nothing is checked out, output is untrusted input, degrade gracefully when the token is absent).
+Resolve the repository the way Decide already requires: from a trusted, human-authored source, never inferred from telemetry.
+Then find the policy and read it off the default branch:
+
+```bash
+gh search code --repo <owner>/<repo> 'Content-Security-Policy' --limit 10 --json path --jq '.[].path'
+gh api repos/<owner>/<repo>/contents/<path> --jq '.content' | base64 -d
+```
+
+Reading the artefact a trusted source named, on its default branch, is what makes a header current — not the fact that `gh` returned a string. A file you reached some other way (a repo found by search, a fork, a PR branch, an issue body quoting a config) carries no such weight.
+
+Now compare the code against `latest_policy`. The divergence is the finding:
+
+| Code vs reports                                     | What it means                                                     | What to file                                                                                                           |
+| --------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Agree                                               | The shipped default has the gap                                   | Corroborated. Write the delta against the code. PR-shaped when the domain also clears vetting                          |
+| Code already allows the blocked host                | The fix landed and has not reached the reporting deployments      | **Not a policy gap.** Upgrade or deploy lag — name the commit that added it, record a `followup:`, do not file a widen |
+| Reports show a header the code cannot produce       | A proxy or per-deployment override owns it, or reports are forged | No code-side delta exists. Report the ownership boundary, or drop it                                                   |
+| No policy in code, reports agree across deployments | The header comes from somewhere else                              | Keep looking before filing — an unfound artefact is `pattern:` memory, not a report against a target you guessed       |
+
+The second row is the one that saves a wrong report: a scout reading only telemetry re-files a gap that was fixed weeks ago and is merely undeployed.
+Check in-flight work the same way before filing anything PR-shaped — an open PR touching the policy path is the same story one step earlier, and the run prompt's `gh` section says what that does to the report.
+
+For a product other people self-host, the code **is** the shared artefact the own-surface check asks you to identify: those deployments serve a policy they inherited, so the one change that fixes all of them lives in this repo and nowhere those readers can reach.
+
+Never derive an `immediately_actionable` delta from a header no code read corroborated. Where the read is impossible — no trusted repo, no `gh`, no policy found — quote the reported value labelled as client-reported as of `latest_seen` and unverified, name the directive doing the blocking, make verifying the live header the first handoff step, and stay `requires_human_input` however well the domain itself is vetted.
+
+##### What the header changes about the fix
+
+- **The fix is often not the directive that fired.** A cluster that presents as a `connect-src` gap can come from a policy with no `connect-src` at all, where `default-src` does the blocking. The change adds a directive rather than extending one, and only the header tells you which.
+- **Sibling gaps travel together, but do not merge.** One header usually accounts for several blocks at once — a directive set to `'none'`, a directive that omits `'self'`, a host allowed for one directive but not another. Report identity is unchanged: one report per blocked domain + directive, with `report:` and `addressed:` pointers still domain/directive-scoped. What changes is that a corrected header fixes the siblings as a side effect, so name which other open reports the same delta closes and cross-link them by `report_id`.
+- **Cross-host identity is the shared-artifact pointer.** A byte-identical normalized policy across document hosts that do not operate together suggests they inherit one template — corroborate it as above, since it is only as trustworthy as the reports it came from.
+
+A proposed policy is a widen, so it needs the blocked domain vetted (Decide) **and** the header corroborated. Missing either, quote what you have with its label, and leave the delta to the human.
+
 #### Per-directive burst
 
 Group by `properties.$csp_effective_directive`. A directive whose recent 24h count is materially above its 7d-prior baseline (≥ 3×) with reach across multiple documents is a strong "policy regression after deploy" signal. Pair with `advanced-activity-logs-list` filtered to the last 24–48h — a deploy or hog-flow change correlating to the burst timestamp is the clean cross-source convergence.
@@ -162,6 +239,22 @@ Common skippable patterns:
 
 Group by `properties.$csp_disposition`. A team running `report-only` for a long time and then flipping to `enforce` will see violations turn into actual blocks. If the project profile shows `count` for `disposition='enforce'` rising sharply (`recent_24h_count` materially above baseline) while `report-only` shows a corresponding fall, the team has flipped enforcement — write a `pattern:csp_violations:disposition-flip` scratchpad entry and file a report only if a critical page is suddenly seeing enforced blocks.
 
+### Policy improvement (advisory lenses)
+
+The regression lenses above answer "did something change?". These three answer "could the policy be better?" — proactive findings, filed sparingly under the advisory conventions in Decide. They matter most for teams parked in `report-only`: the point of collecting violation reports is to eventually enforce, and these reports are the path there.
+
+#### Enforcement readiness
+
+The highest-value advisory report. For a directive running `report-only`, when a long window (~30 days) shows a closed set of blocked domains — every domain either vetted (`allowlist:` memory) or negligible-reach — the team can flip that directive to `enforce`. File a report with the exact policy delta (the allowlist additions required) and the measured blast radius: the distinct users and documents that would have been affected in the window had enforcement been on. Pull the current header the same way as any other policy-widen report, disposition filtered to `report-only` — the delta still needs a corroborated base. A directive is _not_ ready while fresh unvetted domains keep appearing; record progress in `pattern:csp_violations:enforce-readiness-<directive>` instead and let it ripen.
+
+#### Inline-script debt
+
+The regression queries drop empty-domain violations (`blocked_domain != ''`) as baseline noise — correct for triage, but it makes standing `unsafe-inline` / `eval` debt invisible. Periodically run a pass without that filter, scoped to the team's own documents: sustained inline/eval violation volume with broad reach is policy debt worth one report naming the top routes as nonce/hash migration candidates. The same lens covers overly-wide wildcards or missing directives when the violation shape reveals them.
+
+#### Reporting noise budget
+
+When a large share of the team's `$csp_violation` volume is structurally non-actionable — session-replay playback of third-party origins, self-hosted instances reporting against their own policies, browser-extension schemes — quantify it and file one report recommending how to scope the reporting endpoint or filter at ingestion, with the events/day saved. One-off per project: re-file only if the noise composition changes materially (track via `report:csp_violations:advisory-noise-budget`).
+
 ### Save memory as you go
 
 Memory is a continuous activity. Write a scratchpad entry whenever you observe something a future CSP run should know. Encode the "category" in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`, `allowlist:` — so future runs find it with a single `text=` search:
@@ -170,8 +263,8 @@ Memory is a continuous activity. Write a scratchpad entry whenever you observe s
 - key `allowlist:csp_violations:gtm` — _"`*.googletagmanager.com`, `*.googlesyndication.com`, `*.doubleclick.net` are the team's expected analytics/ads domains — known, vetted, do not re-surface."_
 - key `noise:csp_violations:chrome-extension-scheme` — _"Blocked URL pattern `chrome-extension://*` is a recurring browser-extension noise source for this team — skip unless `disposition=enforce` and `effective_directive=script-src`."_
 - key `addressed:csp_violations:cdn.suspicious.example.com` — _"Surfaced fresh `script-src` cluster from `cdn.suspicious.example.com` on 2026-05-12; team confirmed it was a legitimate new vendor, allowlisted in policy on 2026-05-13. Do not re-file unless the domain re-appears after policy was widened."_
-- key `dedupe:csp_violations:a1b2c3d4` — _"Fingerprint `a1b2c3d4...` (`script-src` | `evil.example.com/x.js` | `/checkout` | `bundle.js`) — surfaced 2026-05-08, report still open in inbox. If this exact fingerprint fires again, edit the existing report; don't author fresh."_
-- key `report:csp_violations:<blocked_domain>-<directive>` — _the `report_id` of a report you filed for a cluster on this domain/directive, so the next run edits it (append_note with the fresh reach) instead of duplicating._
+- key `dedupe:csp_violations:a1b2c3d4` — _"Fingerprint `a1b2c3d4...` (`script-src` | `evil.example.com/x.js` | `/checkout` | `bundle.js`) — surfaced 2026-05-08, report still open in inbox, reach ~120 users/24h. If this exact fingerprint fires again at the same reach, re-confirm here (date + level) and skip; edit the report only on material movement (see Decide). Never author fresh while the report is live."_
+- key `report:csp_violations:<blocked_domain>-<directive>` — _the `report_id` of a report you filed for a cluster on this domain/directive, so the next run can re-find it instead of duplicating — and edit it only on material movement (see Decide), not to log an unchanged re-observation._
 - key `reviewer:csp_violations:<area>` — _a resolved owner (bare lowercase GitHub login) for the security / frontend / policy surface, so reports route to a human faster._
 
 By run #5 you'll have a per-team domain allowlist in the scratchpad, known browser-extension noise patterns, and the typical per-directive shape — and burn near-zero time on cold-start exploration.
@@ -180,8 +273,25 @@ By run #5 you'll have a per-team domain allowlist in the scratchpad, known brows
 
 The generic report mechanics — searching the inbox for your own prior reports (via the `report:csp_violations:*` pointer, else an `inbox-reports-list` search on the specific blocked domain / directive, not a broad word like `script-src`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the CSP judgment layered on top:
 
-- **Edit** when a still-live report already tracks the domain/directive cluster — a fresh domain still blocked, an enforced block still degrading users, a directive burst still elevated. A persistent cluster is one report across runs: a new window confirming it's ongoing is a re-escalation (`append_note` the fresh reach / occurrences), not a fresh report per tick.
-- **Author** when nothing live covers the cluster. A report-worthy finding names the blocked domain, the effective directive(s), the document URL(s), the distinct-user count, and a time range in the `evidence`, with an explicit lens (policy widen / compromise / vendor drift). These are investigations, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. Priority: a `disposition=enforce` block on a `script-src` / `connect-src` directive with broad reach, or a suspected compromise, is **P1–P2** (functionality broken / possible security incident); a policy-allowlist-gap or vendor-drift finding is **P2–P3** by reach. After authoring, write the `report:csp_violations:<domain>-<directive>` pointer so the next run edits it.
+- **Edit** when a still-live report already tracks the same domain/directive cluster **and the picture moved materially** — reach grew past the last noted level, disposition flipped report-only → enforce, a new document surface joined, or the verdict changed. (A new document page is reach, not a new entity: the cluster's identity is the domain/directive because the remediation is one policy change however many pages the block surfaces on — per-page reports for one blocked domain would fragment the inbox.) A persistent cluster is one report across runs, but it is not a run log: a window that merely confirms "still blocked, same reach" updates the `dedupe:` scratchpad entry (re-confirmed date + level), not the report — appending same-shape notes every tick drowns the report's original ask. A different blocked domain or directive is a _different_ cluster: author fresh, never append it to a sibling's report.
+- **Author** when nothing live covers the cluster. A report-worthy finding names the blocked domain, the effective directive(s), the document URL(s), the distinct-user count, and a time range in the `evidence`, with an explicit lens (policy widen / compromise / vendor drift). Attach the domain's daily violation series via `charts` — for a fresh burst show the onset; a standing-enforced block has none, so show just its plateau over the observed window.
+  Default to `actionability=requires_human_input` + `repository=NO_REPO`. A policy-widen finding can be PR-shaped, but **two independent things must be trusted first, not one**.
+  **The destination repo** must be named by a **trusted, human-authored source** (a steering note, business knowledge, or a connected repository holding the policy — a headers config, a CSP template; never a repo inferred from telemetry).
+  **The blocked domain itself** must be confirmed an _intended_ dependency, by an `allowlist:` entry the team vetted, business knowledge, a steering note, or by being first-party / own-infra (the blocked host is the team's own surface).
+  Reach never confirms that second one. The CSP report endpoint is public: anyone holding the project token can post crafted `$csp_violation` payloads and vary `distinct_id` until a domain they own clears the reach gates. Widening `script-src` or `connect-src` on that evidence hands an attacker the allowlist entry they wanted, through a draft PR nobody asked for.
+  With both trusted, write the exact allowlist addition and file `immediately_actionable` with that repo. With only the repo trusted, it stays `requires_human_input` — say in the summary that the domain is unvetted and that vetting it is the gate.
+  **A third thing gates the delta: the header itself.** Every policy-widen report carries the observed policy (nonces normalized, labelled by provenance) and names the directive actually doing the blocking — one that makes the reader go and find the policy is below the bar. But a corrected header only goes in when the domain is vetted _and_ the observed header is corroborated against a trusted policy artefact; uncorroborated, it is a client-reported string an attacker can choose. See [Read the policy from code, and reconcile](#read-the-policy-from-code-and-reconcile).
+  Every `requires_human_input` policy-widen report must hand off explicitly in the summary: who owns the policy, the exact directive change, and the success criterion (enforced violations for the domain at ~0 after the change, over a named window).
+  **The other two lenses get their own handoff, and never a directive delta.** For a suspected compromise the safe action is to _keep_ enforcement and remove or trace the injected source, so hand off the source file, the affected documents, and containment — proposing an allowlist addition there would allowlist the attack. For vendor drift the action is removing the caller, so hand off where the script is still loaded from. Both still need an owner and a success criterion; neither needs a policy widen.
+  Priority: a `disposition=enforce` block on a `script-src` / `connect-src` directive with broad reach, or a suspected compromise, is **P1–P2** (functionality broken / possible security incident); a policy-allowlist-gap or vendor-drift finding is **P2–P3** by reach. After authoring, write the `report:csp_violations:<domain>-<directive>` pointer so the next run can re-find it (and edit only on material change).
+- **Own-surface check before authoring.** Violations name the _document's_ deployment, and a project can receive reports from deployments its readers do not operate (self-hosted instances of the team's product, staging clones, third-party embedders).
+  When the affected document hosts sit outside the surfaces this team runs, the reader cannot change that policy — never file a report asking them to.
+  State the ownership boundary explicitly ("this policy is configured on `<host>`, which this team does not operate"), and name who does operate it where a trusted, human-authored source identifies them (a steering note, business knowledge, an account owner) — "someone else owns this" is not an owner, and a report with no named actor on either side of the boundary is below the bar.
+  Then report only the action the reader _can_ take: the same-shape gap appearing across two or more independent deployments _suggests_ they inherit one default policy, template, or docs page.
+  Matching violation shapes are the reason to go looking, not proof the shared artifact exists — identify it before filing, and name it (the file, template, or docs page a trusted source confirms those deployments inherit). A byte-identical normalized `$csp_original_policy` across those hosts is the strongest pointer you have that the artifact is real, so group by policy before you go looking — a pointer to check, not the confirmation itself, since forged reports can agree with each other. Can't find one, and the correlation is all you have? That's `pattern:` memory, not a report against a target you inferred.
+  With the artifact identified, file one report against it, routed to whoever owns it, with the per-instance clusters as evidence and the same enforced-violation success criterion.
+  A single foreign instance's own misconfiguration is `pattern:` memory, not a report.
+- **Advisory reports** (enforcement readiness / inline-script debt / noise budget) are `priority=P3`, `actionability=requires_human_input`, `repository=NO_REPO`, at most **one report per category per week**, and need broad reach (≥ 100 distinct users for an inline-script-debt finding). Write a `report:csp_violations:advisory-<category>` pointer after filing so the weekly cap holds across runs. These must be _rarer and better-argued_ than incident reports — an advisory report a reviewer dismisses is a strong signal to raise your bar, not to rephrase and re-file.
 - **Remember** if below the bar but worth carrying forward (a fresh domain with only 3 distinct users — let it ripen), or to record what you ruled out.
 - **Skip** with a one-line note if a `noise:` / `allowlist:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
 
@@ -196,7 +306,7 @@ The generic report mechanics — searching the inbox for your own prior reports 
 - **Single user, single document, single fingerprint** — almost always a personal browser extension or a niche client. Low `count` AND `distinct_users` ≤ 2.
 - **Blocked URL scheme is `chrome-extension://` / `moz-extension://` / `about:` / `data:`** — browser-side, not server-side; team can't fix.
 - **Domain matches an `allowlist:` scratchpad entry** — the team has already vetted this vendor; skip without re-surfacing.
-- **`disposition=report-only` with no enforcement signal** — the team is deliberately collecting violations to refine policy. File a report only when reach / freshness / domain novelty is exceptional.
+- **`disposition=report-only` with no enforcement signal** — the team is deliberately collecting violations to refine policy. File a regression report only when reach / freshness / domain novelty is exceptional. (Report-only data is still the input for an advisory enforcement-readiness report — see Policy improvement.)
 - **Fingerprint matches a `dedupe:` scratchpad entry from an open inbox report** — the push-emission path already covered it; don't double-up.
 - **Team has no `signal_source_config` row for `csp_reporting`** — push emission is off for this team. Scout can still find clusters, but the user signal is "team hasn't opted in to CSP signals yet"; raise the bar accordingly — require exceptional reach before filing.
 
@@ -206,7 +316,7 @@ When in doubt, write a memory entry instead of filing a report.
 
 Direct calls (read-only):
 
-- `execute-sql` against `events` (filtered to `event = '$csp_violation'`) — primary drill-down. Group by `domain($csp_blocked_url)`, `$csp_effective_directive`, `$csp_document_url`, `$csp_source_file`. The full property list is in `posthog/api/csp.py`.
+- `execute-sql` against `events` (filtered to `event = '$csp_violation'`) — primary drill-down. Group by `domain($csp_blocked_url)`, `$csp_effective_directive`, `$csp_document_url`, `$csp_source_file`, and `$csp_original_policy` (nonces normalized out). The full property list is in `posthog/api/csp.py`.
 - `read-data-schema` (`kind: event_properties`, `event_name: '$csp_violation'`) — discover the team's actual `$csp_*` property surface and sample values.
 - `advanced-activity-logs-list` — pair burst timestamps with recent deploys or feature-flag changes for cross-source convergence. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 

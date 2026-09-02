@@ -436,7 +436,7 @@ Unknowns remain printable.
 That is intentional until catalog coverage and compatibility baselines are stronger.
 
 No broad AST rewrite is enabled by default.
-The APIs needed for safe rewrites now exist, and the first guarded simplifier is available behind `HogQLContext.enable_type_aware_cast_simplification`.
+The APIs needed for safe rewrites now exist, and the first guarded simplifier is available behind the `typeAwareCastSimplification` query modifier or the `HogQLContext.enable_type_aware_cast_simplification` flag.
 It remains disabled by default.
 Practical printer payoffs are now live: when generic function inference proves a helper returns a non-null value, comparisons can avoid the nullable `ifNull(...)` wrapper that was previously needed only because the function boundary was unknown.
 This now covers typed string/URL helpers and generated aggregate/tuple comparison shapes in person joins.
@@ -466,8 +466,12 @@ When adding an optimizer rule, ask type questions through the new APIs:
 
 `posthog/hogql/transforms/type_aware_simplification.py` adds the first optimizer consumer.
 
-It runs only when `HogQLContext.enable_type_aware_cast_simplification` is true.
+It runs only when the `typeAwareCastSimplification` query modifier is enabled, or when the `HogQLContext.enable_type_aware_cast_simplification` flag is true.
+The modifier is the production rollout surface, since it can be set per team via `team.modifiers` without a deploy; the context flag stays as the direct opt-in for tests and internal callers.
 The default query path does not change.
+
+While the modifier is enabled, every removal or fold increments `hogql_type_simplification_total{dialect, kind}`.
+That counter is deliberately unsampled, so a single-team pilot stays visible despite the 1% sampling of the other `hogql_*` type metrics.
 
 The simplifier currently removes conservative no-op operations:
 

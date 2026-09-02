@@ -1,0 +1,1088 @@
+"""Convert between PostHog rich content/markdown and Slack payload formats."""
+
+import re
+import html as html_mod
+import unicodedata
+from collections.abc import Callable, Iterable
+from typing import Any
+from urllib.parse import urlparse
+from uuid import UUID
+
+JSON = dict[str, Any]
+
+# Pre-compiled regexes for performance (compiled once at module load)
+# Slack mrkdwn patterns - negated character classes are safe from ReDoS
+_RE_SLACK_USER_MENTION = re.compile(r"<@([A-Z0-9]+)>")
+_RE_SLACK_LINK_WITH_LABEL = re.compile(r"<([^|>]+)\|([^>]+)>")
+_RE_SLACK_LINK_BARE = re.compile(r"<([^>]+)>")
+_RE_SLACK_BOLD_ITALIC = re.compile(r"\*_([^_]+)_\*")
+_RE_SLACK_BOLD = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_RE_SLACK_ITALIC = re.compile(r"(?<!_)_([^_\n]+)_(?!_)")
+_RE_SLACK_STRIKE = re.compile(r"(?<!~)~([^~\n]+)~(?!~)")
+
+# Markdown patterns
+_RE_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_RE_MD_BOLD_ITALIC = re.compile(r"\*\*\*(.+?)\*\*\*")
+_RE_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
+_RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
+_RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
+_RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
+_RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
+_RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
+_RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
+_RE_ALT_ESCAPE = re.compile(r"([\\\]])")
+_RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
+_RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
+_RE_MD_FENCED_CODE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
+_RE_MD_TRAILING_LINE_SPACES = re.compile(r"[ \t]+\n")
+_RE_BLANK_LINE_RUN = re.compile(r"\n{2,}")
+
+
+def escape_slack_mrkdwn(text: str) -> str:
+    """Escape Slack mrkdwn control characters in user-supplied text.
+
+    Unescaped `<...>` sequences are live in mrkdwn: `<!channel>` broadcasts,
+    `<@U…>` pings a user, and `<url|label>` renders a disguised link.
+    """
+    if not text:
+        return ""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _slack_unicode_to_char(unicode_hex: str) -> str | None:
+    """Convert Slack's unicode hex field (e.g. '1f44d' or '1f1fa-1f1f8') to a Unicode string."""
+    if not unicode_hex:
+        return None
+    try:
+        return "".join(chr(int(cp, 16)) for cp in unicode_hex.split("-"))
+    except (ValueError, OverflowError):
+        return None
+
+
+_SLACK_EMOJI_NAME_TO_UNICODE: dict[str, str | None] = {
+    "THUMBSUP": "THUMBS UP SIGN",
+    "+1": "THUMBS UP SIGN",
+    "-1": "THUMBS DOWN SIGN",
+    "THUMBSDOWN": "THUMBS DOWN SIGN",
+    "HEART": "HEAVY BLACK HEART",
+    "HANKEY": "PILE OF POO",
+    "POOP": "PILE OF POO",
+    "SHIPIT": None,
+    "SIMPLE SMILE": "SLIGHTLY SMILING FACE",
+    "SMILE": "SMILING FACE WITH OPEN MOUTH AND SMILING EYES",
+    "LAUGHING": "SMILING FACE WITH OPEN MOUTH AND TIGHTLY-CLOSED EYES",
+    "WINK": "WINKING FACE",
+    "BLUSH": "SMILING FACE WITH SMILING EYES",
+    "GRINNING": "GRINNING FACE",
+    "RELAXED": "WHITE SMILING FACE",
+    "STUCK OUT TONGUE": "FACE WITH STUCK-OUT TONGUE",
+    "STUCK OUT TONGUE WINKING EYE": "FACE WITH STUCK-OUT TONGUE AND WINKING EYE",
+    "STUCK OUT TONGUE CLOSED EYES": "FACE WITH STUCK-OUT TONGUE AND TIGHTLY-CLOSED EYES",
+    "DISAPPOINTED": "DISAPPOINTED FACE",
+    "RAGE": "POUTING FACE",
+    "CRY": "CRYING FACE",
+    "SOB": "LOUDLY CRYING FACE",
+    "FEARFUL": "FEARFUL FACE",
+    "SCREAM": "FACE SCREAMING IN FEAR",
+    "SWEAT": "FACE WITH COLD SWEAT",
+    "SWEAT SMILE": "SMILING FACE WITH OPEN MOUTH AND COLD SWEAT",
+    "SUNGLASSES": "SMILING FACE WITH SUNGLASSES",
+    "TRIUMPH": "FACE WITH LOOK OF TRIUMPH",
+    "FLUSHED": "FLUSHED FACE",
+    "SLEEPING": "SLEEPING FACE",
+    "CONFUSED": "CONFUSED FACE",
+    "MASK": "FACE WITH MEDICAL MASK",
+    "SMIRK": "SMIRKING FACE",
+    "HUSHED": "HUSHED FACE",
+    "NO MOUTH": "FACE WITHOUT MOUTH",
+    "INNOCENT": "SMILING FACE WITH HALO",
+    "ALIEN": "EXTRATERRESTRIAL ALIEN",
+    "TADA": "PARTY POPPER",
+    "RAISED HANDS": "PERSON RAISING BOTH HANDS IN CELEBRATION",
+    "PRAY": "PERSON WITH FOLDED HANDS",
+    "CLAP": "CLAPPING HANDS SIGN",
+    "WAVE": "WAVING HAND SIGN",
+    "OK HAND": "OK HAND SIGN",
+    "POINT UP": "WHITE UP POINTING INDEX",
+    "POINT DOWN": "WHITE DOWN POINTING INDEX",
+    "POINT LEFT": "WHITE LEFT POINTING BACKHAND INDEX",
+    "POINT RIGHT": "WHITE RIGHT POINTING BACKHAND INDEX",
+    "MUSCLE": "FLEXED BICEPS",
+    "100": "HUNDRED POINTS SYMBOL",
+    "WHITE CHECK MARK": "WHITE HEAVY CHECK MARK",
+    "X": "CROSS MARK",
+    "WARNING": "WARNING SIGN",
+    "ZAP": "HIGH VOLTAGE SIGN",
+    "STAR": "WHITE MEDIUM STAR",
+    "STAR2": "GLOWING STAR",
+    "BOOM": "COLLISION SYMBOL",
+    "EXCLAMATION": "HEAVY EXCLAMATION MARK SYMBOL",
+    "QUESTION": "BLACK QUESTION MARK ORNAMENT",
+    "GREY EXCLAMATION": "WHITE EXCLAMATION MARK ORNAMENT",
+    "GREY QUESTION": "WHITE QUESTION MARK ORNAMENT",
+    "BULB": "ELECTRIC LIGHT BULB",
+    "LINK": "LINK SYMBOL",
+    "MEGA": "CHEERING MEGAPHONE",
+    "MAG": "LEFT-POINTING MAGNIFYING GLASS",
+    "MAG RIGHT": "RIGHT-POINTING MAGNIFYING GLASS",
+}
+
+
+def _slack_emoji_name_to_char(name: str) -> str | None:
+    """Best-effort conversion of a Slack emoji shortcode name to a Unicode character.
+
+    Uses Python's unicodedata reverse lookup. Covers standard emoji but not
+    custom workspace emoji (those stay as :name:).
+    """
+    unicode_name = name.replace("_", " ").upper()
+    resolved_name = _SLACK_EMOJI_NAME_TO_UNICODE.get(unicode_name, unicode_name)
+    if resolved_name is None:
+        return None
+
+    try:
+        return unicodedata.lookup(resolved_name)
+    except KeyError:
+        return None
+
+
+def _collect_user_ids(elements: list[JSON], ids: set[str]) -> None:
+    for element in elements:
+        if element.get("type") == "user":
+            uid = element.get("user_id")
+            if uid:
+                ids.add(uid)
+        nested = element.get("elements")
+        if nested:
+            _collect_user_ids(nested, ids)
+
+
+def extract_slack_user_ids(text: str, blocks: list[JSON] | None = None) -> set[str]:
+    """Collect all Slack user IDs referenced in mrkdwn text and/or rich_text blocks."""
+    ids: set[str] = set()
+
+    if text:
+        ids.update(_RE_SLACK_USER_MENTION.findall(text))
+
+    if blocks:
+        for block in blocks:
+            if block.get("type") != "rich_text":
+                continue
+            _collect_user_ids(block.get("elements", []), ids)
+
+    return ids
+
+
+def strip_slack_user_mentions(text: str) -> str:
+    """Remove ``<@USERID>`` mention tokens, leaving only the message's own text."""
+    return _RE_SLACK_USER_MENTION.sub("", text)
+
+
+def _markdown_breaks_to_mrkdwn(text: str) -> str:
+    """Translate markdown's vertical whitespace into mrkdwn's.
+
+    Markdown needs a blank line to end a paragraph and two trailing spaces to force a line
+    break, because a lone newline is only a soft wrap. mrkdwn has no soft wrap — every newline
+    already breaks the line — so passing markdown spacing through doubles every gap: a
+    paragraph break renders as a blank line, and a blank line the author typed renders as
+    three. Halving each run of newlines maps one convention onto the other. Fenced code keeps
+    its own spacing, where blank lines are content rather than structure.
+    """
+    parts = _RE_MD_FENCED_CODE.split(text)
+    # split() interleaves the fenced blocks at the odd indices; only the prose needs rewriting.
+    for index in range(0, len(parts), 2):
+        prose = _RE_MD_TRAILING_LINE_SPACES.sub("\n", parts[index])
+        parts[index] = _RE_BLANK_LINE_RUN.sub(lambda match: "\n" * (len(match.group()) // 2), prose)
+    return "".join(parts)
+
+
+def content_to_slack_mrkdwn(
+    content: str,
+    organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
+) -> str:
+    """Convert markdown comment content to Slack mrkdwn text.
+
+    Backslash-escaped characters are unescaped: mrkdwn has no escape syntax, so a
+    markdown ``\\.`` would otherwise reach Slack as a literal backslash. They are
+    masked before the syntax conversions below so an escaped ``*`` is not mistaken
+    for emphasis.
+
+    ``organization_id`` scopes ``@member:<uuid>`` resolution. The marker is author-controlled and
+    the rendered text lands in someone's Slack workspace, so an unscoped lookup would let a comment
+    pull a name or email out of another organization. Without an organization every marker falls
+    back to the generic "@teammate".
+
+    ``slack_user_id_by_email`` renders ``@[Name](email)`` mentions as native Slack mentions when the
+    caller can map the address to a member of the destination workspace. Callers without a workspace
+    to resolve against get the plain display name.
+    """
+    if not content:
+        return ""
+
+    content = _markdown_breaks_to_mrkdwn(content)
+    # Escape mrkdwn control chars up front so user content can't inject links,
+    # user mentions, or <!channel>-style broadcasts. The conversions below
+    # generate their own <url|label> constructs on top of the escaped text.
+    text = escape_slack_mrkdwn(content)
+    # Markdown blockquote markers double as (inert) mrkdwn quotes — keep them.
+    text = _RE_MRKDWN_BLOCKQUOTE_UNESCAPE.sub(">", text)
+
+    escaped_chars: list[str] = []
+
+    def capture_escaped_char(match: re.Match) -> str:
+        escaped_chars.append(match.group(1))
+        return f"\x00ESC{len(escaped_chars) - 1}\x00"
+
+    text = _RE_MD_ESCAPED_CHAR.sub(capture_escaped_char, text)
+
+    text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
+
+    bold_italic_matches: list[str] = []
+
+    def capture_bold_italic(match: re.Match) -> str:
+        bold_italic_matches.append(match.group(1))
+        return f"\x00BI{len(bold_italic_matches) - 1}\x00"
+
+    text = _RE_MD_BOLD_ITALIC.sub(capture_bold_italic, text)
+
+    bold_matches: list[str] = []
+
+    def capture_bold(match: re.Match) -> str:
+        bold_matches.append(match.group(1))
+        return f"\x00B{len(bold_matches) - 1}\x00"
+
+    text = _RE_MD_BOLD.sub(capture_bold, text)
+    text = _RE_MD_ITALIC.sub(r"_\1_", text)
+    text = _RE_MD_STRIKE.sub(r"~\1~", text)
+
+    def render_inline_mention(match: re.Match) -> str:
+        name, email = match.group(1), match.group(2)
+        if slack_user_id_by_email:
+            try:
+                slack_user_id = slack_user_id_by_email(email)
+            except Exception:
+                slack_user_id = None
+            if slack_user_id:
+                return f"<@{slack_user_id}>"
+        return f"@{name}"
+
+    text = _RE_INLINE_MENTION.sub(render_inline_mention, text)
+    text = _RE_MD_LINK.sub(r"<\2|\1>", text)
+
+    for index, value in enumerate(bold_matches):
+        text = text.replace(f"\x00B{index}\x00", f"*{value}*")
+
+    for index, value in enumerate(bold_italic_matches):
+        text = text.replace(f"\x00BI{index}\x00", f"*_{value}_*")
+
+    def resolve_mention(match: re.Match) -> str:
+        uuid_str = match.group(1)
+        if organization_id is None:
+            return "@teammate"
+        try:
+            from posthog.models import User
+
+            user = User.objects.filter(uuid=uuid_str, organization_membership__organization_id=organization_id).first()
+            if user:
+                name = f"{user.first_name} {user.last_name}".strip() or user.email
+                return f"@{name}"
+        except Exception:
+            pass
+        return "@teammate"
+
+    text = _RE_MD_MENTION.sub(resolve_mention, text)
+
+    for index, value in enumerate(escaped_chars):
+        text = text.replace(f"\x00ESC{index}\x00", value)
+
+    return text
+
+
+def slack_mrkdwn_to_content(text: str, user_names: dict[str, str] | None = None) -> str:
+    """Convert Slack mrkdwn text to markdown content."""
+    if not text:
+        return ""
+
+    def _replace_user_mention(match: re.Match) -> str:
+        uid = match.group(1)
+        if user_names and uid in user_names:
+            return f"@{user_names[uid]}"
+        return ""
+
+    text = _RE_SLACK_USER_MENTION.sub(_replace_user_mention, text)
+    # Convert emoji shortcodes before formatting (prevents italic regex mangling underscored names)
+    text = _RE_SLACK_EMOJI.sub(lambda m: _slack_emoji_name_to_char(m.group(1)) or m.group(0), text)
+    # Convert labeled links <url|label> to [label](url)
+    text = _RE_SLACK_LINK_WITH_LABEL.sub(r"[\2](\1)", text)
+    # Convert bare links <url> to just url
+    text = _RE_SLACK_LINK_BARE.sub(r"\1", text)
+    # Convert Slack formatting to markdown
+    text = _RE_SLACK_BOLD_ITALIC.sub(r"***\1***", text)
+    text = _RE_SLACK_BOLD.sub(r"**\1**", text)
+    text = _RE_SLACK_ITALIC.sub(r"*\1*", text)
+    text = _RE_SLACK_STRIKE.sub(r"~~\1~~", text)
+
+    return text
+
+
+def _normalize_single_newlines_to_markdown(text: str) -> str:
+    if not text:
+        return ""
+    return _RE_SINGLE_NEWLINE.sub("  \n", text)
+
+
+def _escape_markdown(text: str) -> str:
+    return _RE_MD_ESCAPE.sub(r"\\\1", text)
+
+
+def _escape_alt_text(text: str) -> str:
+    return _RE_ALT_ESCAPE.sub(r"\\\1", text)
+
+
+def _style_to_marks(style: JSON | None) -> list[JSON]:
+    if not style:
+        return []
+
+    marks: list[JSON] = []
+    if style.get("bold"):
+        marks.append({"type": "bold"})
+    if style.get("italic"):
+        marks.append({"type": "italic"})
+    if style.get("underline"):
+        marks.append({"type": "underline"})
+    if style.get("strike"):
+        marks.append({"type": "strike"})
+    if style.get("code"):
+        marks.append({"type": "code"})
+    return marks
+
+
+def _marks_to_slack_style(marks: Iterable[JSON]) -> JSON:
+    style: JSON = {}
+    for mark in marks:
+        mark_type = mark.get("type")
+        if mark_type == "bold":
+            style["bold"] = True
+        elif mark_type == "italic":
+            style["italic"] = True
+        elif mark_type == "underline":
+            style["underline"] = True
+        elif mark_type == "strike":
+            style["strike"] = True
+        elif mark_type == "code":
+            style["code"] = True
+    return style
+
+
+def _append_text_with_breaks(nodes: list[JSON], text: str, marks: list[JSON]) -> None:
+    if not text:
+        return
+
+    parts = text.split("\n")
+    for index, part in enumerate(parts):
+        if part:
+            node: JSON = {"type": "text", "text": part}
+            if marks:
+                node["marks"] = marks
+            nodes.append(node)
+        if index < len(parts) - 1:
+            nodes.append({"type": "hardBreak"})
+
+
+def _parse_rich_text_inline_elements(elements: list[JSON], user_names: dict[str, str] | None = None) -> list[JSON]:
+    nodes: list[JSON] = []
+
+    for element in elements:
+        element_type = element.get("type")
+
+        if element_type == "text":
+            _append_text_with_breaks(nodes, element.get("text", ""), _style_to_marks(element.get("style")))
+            continue
+
+        if element_type == "link":
+            url = element.get("url")
+            if not url:
+                continue
+            marks = _style_to_marks(element.get("style"))
+            marks.append({"type": "link", "attrs": {"href": url}})
+            _append_text_with_breaks(nodes, element.get("text") or url, marks)
+            continue
+
+        if element_type == "emoji":
+            char = _slack_unicode_to_char(element.get("unicode", ""))
+            if not char:
+                char = _slack_emoji_name_to_char(element.get("name", ""))
+            nodes.append({"type": "text", "text": char or f":{element.get('name', '')}:"})
+            continue
+
+        if element_type == "user":
+            uid = element.get("user_id", "")
+            name = user_names.get(uid) if user_names else None
+            display = f"@{name}" if name else f"<@{uid}>"
+            nodes.append({"type": "text", "text": display})
+            continue
+
+        if element_type == "channel":
+            label = element.get("name") or element.get("channel_id", "")
+            nodes.append({"type": "text", "text": f"#{label}"})
+            continue
+
+        if element_type == "broadcast":
+            nodes.append({"type": "text", "text": f"@{element.get('range', 'channel')}"})
+            continue
+
+        if element.get("text"):
+            _append_text_with_breaks(nodes, element.get("text", ""), _style_to_marks(element.get("style")))
+
+    return nodes
+
+
+def _preformatted_elements_to_text(elements: list[JSON], user_names: dict[str, str] | None = None) -> str:
+    """Flatten a Slack preformatted block's inline elements to literal text.
+
+    Code blocks hold plain text (no marks/links), so each element is reduced to its
+    textual value rather than dropped: link -> label or url, emoji -> char or :name:,
+    user -> resolved name or raw mention, channel -> #name.
+    """
+    parts: list[str] = []
+    for el in elements:
+        el_type = el.get("type")
+        if el_type == "link":
+            parts.append(el.get("text") or el.get("url", ""))
+        elif el_type == "emoji":
+            char = _slack_unicode_to_char(el.get("unicode", "")) or _slack_emoji_name_to_char(el.get("name", ""))
+            parts.append(char or f":{el.get('name', '')}:")
+        elif el_type == "user":
+            uid = el.get("user_id", "")
+            name = user_names.get(uid) if user_names else None
+            parts.append(f"@{name}" if name else f"<@{uid}>")
+        elif el_type == "channel":
+            parts.append(f"#{el.get('name') or el.get('channel_id', '')}")
+        else:
+            parts.append(el.get("text", ""))
+    return "".join(parts)
+
+
+def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str, str] | None = None) -> JSON | None:
+    """Parse Slack rich_text blocks into PostHog SupportEditor-compatible JSON."""
+    if not blocks:
+        return None
+
+    doc_nodes: list[JSON] = []
+    saw_rich_text = False
+
+    for block in blocks:
+        if block.get("type") != "rich_text":
+            continue
+
+        saw_rich_text = True
+        for element in block.get("elements", []):
+            element_type = element.get("type")
+
+            if element_type == "rich_text_section":
+                inline_nodes = _parse_rich_text_inline_elements(element.get("elements", []), user_names)
+                if inline_nodes:
+                    doc_nodes.append({"type": "paragraph", "content": inline_nodes})
+                continue
+
+            if element_type == "rich_text_list":
+                list_type = "orderedList" if element.get("style") == "ordered" else "bulletList"
+                items: list[JSON] = []
+                for list_item in element.get("elements", []):
+                    if list_item.get("type") != "rich_text_section":
+                        continue
+                    inline_nodes = _parse_rich_text_inline_elements(list_item.get("elements", []), user_names)
+                    if inline_nodes:
+                        items.append({"type": "listItem", "content": [{"type": "paragraph", "content": inline_nodes}]})
+                if items:
+                    doc_nodes.append({"type": list_type, "content": items})
+                continue
+
+            if element_type == "rich_text_preformatted":
+                code_text = _preformatted_elements_to_text(element.get("elements", []), user_names)
+                doc_nodes.append(
+                    {
+                        "type": "codeBlock",
+                        "content": [{"type": "text", "text": code_text}] if code_text else [],
+                    }
+                )
+                continue
+
+            if element_type == "rich_text_quote":
+                inline_nodes = _parse_rich_text_inline_elements(element.get("elements", []), user_names)
+                if inline_nodes:
+                    inline_nodes.insert(0, {"type": "text", "text": "> "})
+                    doc_nodes.append({"type": "paragraph", "content": inline_nodes})
+                continue
+
+    if not saw_rich_text:
+        return None
+
+    return {"type": "doc", "content": doc_nodes or [{"type": "paragraph", "content": []}]}
+
+
+def _serialize_text_node_to_markdown(node: JSON) -> str:
+    text = node.get("text", "")
+    marks = node.get("marks", [])
+    has_code_mark = any(mark.get("type") == "code" for mark in marks)
+
+    if not has_code_mark:
+        text = _escape_markdown(text)
+
+    link_mark = next((mark for mark in marks if mark.get("type") == "link"), None)
+
+    for mark in marks:
+        mark_type = mark.get("type")
+        if mark_type == "bold":
+            text = f"**{text}**"
+        elif mark_type == "italic":
+            text = f"*{text}*"
+        elif mark_type == "strike":
+            text = f"~~{text}~~"
+        elif mark_type == "code":
+            text = f"`{text}`" if "`" not in text else f"`` {text} ``"
+        # Underline has no standard markdown syntax - preserve in rich content only.
+
+    if link_mark and link_mark.get("attrs", {}).get("href"):
+        text = f"[{text}]({link_mark['attrs']['href']})"
+
+    return text
+
+
+def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool = True) -> str:
+    chunks: list[str] = []
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type == "text":
+            chunks.append(_serialize_text_node_to_markdown(node))
+        elif node_type == "hardBreak":
+            chunks.append("  \n")
+        elif node_type == "image" and include_images:
+            src = node.get("attrs", {}).get("src")
+            if src:
+                alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
+                chunks.append(f"![{alt}]({src})")
+    return "".join(chunks)
+
+
+def _list_start(node: JSON) -> int:
+    attrs = node.get("attrs") or {}
+    try:
+        return max(int(attrs.get("start") or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -> str:
+    """Serialize a single non-list block node to markdown. Lists are handled by
+    _serialize_list_to_markdown because they carry indentation state."""
+    node_type = node.get("type")
+
+    if node_type == "paragraph":
+        return _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+
+    if node_type == "blockquote":
+        quote_lines: list[str] = []
+        for child in node.get("content", []):
+            child_type = child.get("type")
+            if child_type in ("bulletList", "orderedList"):
+                child_md = _serialize_list_to_markdown(child, child_type == "orderedList", "", include_images)
+            else:
+                child_md = _serialize_block_node_to_markdown(child, include_images=include_images)
+            if child_md:
+                quote_lines.extend(f"> {line}".rstrip() for line in child_md.split("\n"))
+        return "\n".join(quote_lines)
+
+    if node_type == "heading":
+        attrs = node.get("attrs") or {}
+        try:
+            level = min(max(int(attrs.get("level") or 1), 1), 6)
+        except (TypeError, ValueError):
+            level = 1
+        text = _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+        return f"{'#' * level} {text}" if text else ""
+
+    if node_type == "horizontalRule":
+        return "---"
+
+    if node_type == "codeBlock":
+        code_text = "".join(child.get("text", "") for child in node.get("content", []))
+        language = node.get("attrs", {}).get("language") or ""
+        return f"```{language}\n{code_text}\n```"
+
+    if node_type == "image":
+        src = node.get("attrs", {}).get("src")
+        if src and include_images:
+            alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
+            return f"![{alt}]({src})"
+        return ""
+
+    if node.get("content"):
+        return _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
+
+    return ""
+
+
+def _serialize_list_to_markdown(node: JSON, ordered: bool, indent: str, include_images: bool = True) -> str:
+    start = _list_start(node)
+    lines: list[str] = []
+    position = 0
+    for item in node.get("content", []):
+        if item.get("type") != "listItem":
+            continue
+        marker = f"{start + position}. " if ordered else "- "
+        position += 1
+        child_indent = indent + " " * len(marker)
+        blocks: list[tuple[str, bool]] = []
+        for child in item.get("content", []):
+            child_type = child.get("type")
+            if child_type in ("bulletList", "orderedList"):
+                nested = _serialize_list_to_markdown(child, child_type == "orderedList", child_indent, include_images)
+                if nested:
+                    blocks.append((nested, True))
+            else:
+                text = _serialize_block_node_to_markdown(child, include_images=include_images).strip()
+                if text:
+                    blocks.append((text, False))
+        if not blocks:
+            lines.append((indent + marker).rstrip())
+            continue
+        (first_text, first_is_list), *rest = blocks
+        if first_is_list:
+            lines.append((indent + marker).rstrip())
+            lines.append(first_text)
+        else:
+            lines.append(indent + marker + first_text.replace("\n", "\n" + child_indent))
+        for text, is_list in rest:
+            if is_list:
+                lines.append(text)
+            else:
+                lines.append("\n".join(child_indent + line for line in text.split("\n")))
+    return "\n".join(lines)
+
+
+def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = True) -> str:
+    """Serialize PostHog rich content JSON to markdown text."""
+    if not rich_content:
+        return ""
+
+    root_type = rich_content.get("type")
+    if root_type != "doc":
+        return ""
+
+    blocks: list[str] = []
+    for node in rich_content.get("content", []):
+        node_type = node.get("type")
+
+        if node_type in ("bulletList", "orderedList"):
+            list_md = _serialize_list_to_markdown(node, node_type == "orderedList", "", include_images)
+            if list_md:
+                blocks.append(list_md)
+            continue
+
+        # Empty paragraphs are kept so intentional blank lines survive; other empty blocks are skipped.
+        if node_type == "paragraph":
+            blocks.append(_serialize_block_node_to_markdown(node, include_images=include_images))
+            continue
+
+        block_md = _serialize_block_node_to_markdown(node, include_images=include_images)
+        if block_md:
+            blocks.append(block_md)
+
+    return "\n\n".join(blocks).strip()
+
+
+def _text_node_to_slack_elements(node: JSON) -> list[JSON]:
+    text = node.get("text", "")
+    if not text:
+        return []
+
+    marks = node.get("marks", [])
+    link_mark = next((mark for mark in marks if mark.get("type") == "link"), None)
+    style = _marks_to_slack_style(mark for mark in marks if mark.get("type") != "link")
+
+    if link_mark and link_mark.get("attrs", {}).get("href"):
+        element: JSON = {"type": "link", "url": link_mark["attrs"]["href"], "text": text}
+    else:
+        element = {"type": "text", "text": text}
+
+    if style:
+        element["style"] = style
+    return [element]
+
+
+def extract_images_from_rich_content(rich_content: JSON | None) -> list[JSON]:
+    if not rich_content or rich_content.get("type") != "doc":
+        return []
+
+    images: list[JSON] = []
+    for node in rich_content.get("content", []):
+        node_type = node.get("type")
+        if node_type == "image":
+            src = node.get("attrs", {}).get("src")
+            if src:
+                images.append({"url": src, "alt": node.get("attrs", {}).get("alt", "image")})
+            continue
+        if node_type == "paragraph":
+            for child in node.get("content", []):
+                if child.get("type") == "image":
+                    src = child.get("attrs", {}).get("src")
+                    if src:
+                        images.append({"url": src, "alt": child.get("attrs", {}).get("alt", "image")})
+    return images
+
+
+_SLACK_BLOCK_NODE_TYPES = {"paragraph", "codeBlock", "image"}
+
+
+def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool = True) -> list[JSON] | None:
+    """Serialize PostHog rich content JSON into Slack rich_text blocks.
+
+    Returns None when the doc contains block nodes rich_text can't represent (lists,
+    headings, blockquotes, ...) so callers fall back to the complete markdown text
+    instead of sending blocks with content silently missing.
+    """
+    if not rich_content or rich_content.get("type") != "doc":
+        return None
+
+    if any(node.get("type") not in _SLACK_BLOCK_NODE_TYPES for node in rich_content.get("content", [])):
+        return None
+
+    rich_text_elements: list[JSON] = []
+    # Empty paragraphs are blank lines the author typed. They carry to the next element that has
+    # content, so leading and trailing ones fall away — matching what rich_content_to_markdown strips.
+    pending_blank_lines = 0
+
+    def open_next_element(starts_its_own_line: bool) -> None:
+        """Emit the line breaks owed before the next element, then clear the debt.
+
+        Sections run together, so one following another needs an explicit line ending on top of any
+        blank lines. A preformatted element is its own code box and already starts a line, so it
+        needs the blank lines alone.
+        """
+        nonlocal pending_blank_lines
+        newlines = pending_blank_lines if starts_its_own_line else pending_blank_lines + 1
+        if rich_text_elements and newlines:
+            rich_text_elements.append(
+                {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n" * newlines}]}
+            )
+        pending_blank_lines = 0
+
+    for node in rich_content.get("content", []):
+        node_type = node.get("type")
+
+        if node_type == "paragraph":
+            section_elements: list[JSON] = []
+            for child in node.get("content", []):
+                child_type = child.get("type")
+                if child_type == "text":
+                    section_elements.extend(_text_node_to_slack_elements(child))
+                elif child_type == "hardBreak":
+                    section_elements.append({"type": "text", "text": "\n"})
+                elif child_type == "image" and include_images:
+                    src = child.get("attrs", {}).get("src")
+                    if src:
+                        alt = child.get("attrs", {}).get("alt", "image")
+                        section_elements.append({"type": "link", "url": src, "text": alt})
+
+            if not section_elements:
+                if rich_text_elements:
+                    pending_blank_lines += 1
+                continue
+
+            open_next_element(starts_its_own_line=False)
+            rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
+            continue
+
+        if node_type == "codeBlock":
+            code_text = "".join(child.get("text", "") for child in node.get("content", []))
+            if code_text:
+                open_next_element(starts_its_own_line=True)
+                rich_text_elements.append(
+                    {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
+                )
+            continue
+
+        if node_type == "image" and include_images:
+            src = node.get("attrs", {}).get("src")
+            if src:
+                open_next_element(starts_its_own_line=False)
+                rich_text_elements.append(
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "link", "url": src, "text": node.get("attrs", {}).get("alt", "image")}],
+                    }
+                )
+
+    if not rich_text_elements:
+        return None
+
+    return [{"type": "rich_text", "elements": rich_text_elements}]
+
+
+def slack_to_content_and_rich_content(
+    text: str, blocks: list[JSON] | None = None, user_names: dict[str, str] | None = None
+) -> tuple[str, JSON | None]:
+    """
+    Convert inbound Slack payload to markdown content and rich_content.
+
+    Priority:
+    1. Slack rich_text blocks (for style fidelity including underline and nested marks)
+    2. text/mrkdwn fallback
+    """
+    parsed_rich_content = slack_blocks_to_rich_content(blocks, user_names)
+    if parsed_rich_content:
+        markdown_content = rich_content_to_markdown(parsed_rich_content)
+        return markdown_content, parsed_rich_content
+
+    markdown_content = slack_mrkdwn_to_content(text, user_names)
+    return _normalize_single_newlines_to_markdown(markdown_content), None
+
+
+# Hosts Slack serves file permalinks from. A file object is attacker-controlled (anyone in an
+# externally-shared channel can upload), so its permalink only becomes a link when it points at
+# one of these — otherwise it would be an arbitrary outbound link rendered inside a discussion.
+_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
+
+# One Slack message can carry many files; render a bounded number so an upload burst can't
+# flood the mirrored comment.
+MAX_SLACK_FILE_PLACEHOLDERS = 10
+
+
+def _slack_file_permalink(url: object) -> str | None:
+    """The permalink to hang a placeholder off, or None when it isn't safely linkable."""
+    if not isinstance(url, str) or not url:
+        return None
+    # Whitespace or a closing paren ends the markdown link early, spilling the rest of the URL
+    # out as text and leaving the link pointing somewhere other than it appears to.
+    if ")" in url or any(char.isspace() for char in url):
+        return None
+    # urlparse reads a backslash as an ordinary character, while the WHATWG parser browsers use
+    # reads it as a path separator. That splits the host checked below from the host a reader
+    # lands on, so reject the character instead of depending on who normalizes it first.
+    if "\\" in url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme != "https":
+        return None
+    host = (parsed.hostname or "").lower()
+    if not any(host == suffix or host.endswith(f".{suffix}") for suffix in _SLACK_FILE_HOST_SUFFIXES):
+        return None
+    return url
+
+
+def _escape_slack_file_name(name: object) -> str:
+    """Escape a Slack-supplied filename for use as markdown link text."""
+    # Collapse every run of whitespace, not just the ends. A blank line inside the name would
+    # close the paragraph holding the link, dropping the rest of the name into one of its own
+    # where a bare URL renders as a live autolink.
+    text = " ".join(name.split()) if isinstance(name, str) else ""
+    if not text:
+        # A truncated file object still deserves a visible marker — "something was attached"
+        # is strictly better than the message appearing to be empty.
+        return "Attachment"
+    # Brackets would close the link text early. Escaping "[" also neutralizes a leading "!["
+    # for free, so a crafted filename can't turn the placeholder into an inline image.
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def slack_files_to_placeholder_lines(files: list[Any] | None) -> list[str]:
+    """Render one markdown placeholder line per file attached to an inbound Slack message.
+
+    PostHog never downloads the file: the discussion shows a link back to it in Slack, which
+    needs nothing beyond the metadata Slack already puts in the message event. That keeps this
+    working on installs that never granted ``files:read``, where downloading is impossible.
+
+    ``files`` is the raw array off the Slack event, so every element is checked rather than
+    assumed to be a well-formed file object.
+    """
+    if not files:
+        return []
+
+    lines: list[str] = []
+    for file in files[:MAX_SLACK_FILE_PLACEHOLDERS]:
+        if not isinstance(file, dict):
+            continue
+        name = _escape_slack_file_name(file.get("name") or file.get("title"))
+        permalink = _slack_file_permalink(file.get("permalink"))
+        lines.append(f"📎 [{name}]({permalink})" if permalink else f"📎 {name}")
+    return lines
+
+
+def _escape_html(text: str) -> str:
+    return html_mod.escape(text)
+
+
+def _serialize_text_node_to_html(node: JSON) -> str:
+    text = node.get("text", "")
+    if not text:
+        return ""
+
+    escaped = _escape_html(text)
+    marks = node.get("marks", [])
+
+    link_href: str | None = None
+    for mark in marks:
+        mark_type = mark.get("type")
+        if mark_type == "bold":
+            escaped = f"<strong>{escaped}</strong>"
+        elif mark_type == "italic":
+            escaped = f"<em>{escaped}</em>"
+        elif mark_type == "underline":
+            escaped = f"<u>{escaped}</u>"
+        elif mark_type == "strike":
+            escaped = f"<s>{escaped}</s>"
+        elif mark_type == "code":
+            escaped = f"<code>{escaped}</code>"
+        elif mark_type == "link":
+            link_href = mark.get("attrs", {}).get("href")
+
+    if link_href:
+        escaped = f'<a href="{_escape_html(link_href)}">{escaped}</a>'
+
+    return escaped
+
+
+def _serialize_inline_nodes_to_html(nodes: list[JSON]) -> str:
+    chunks: list[str] = []
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type == "text":
+            chunks.append(_serialize_text_node_to_html(node))
+        elif node_type == "hardBreak":
+            chunks.append("<br>")
+        elif node_type == "image":
+            src = node.get("attrs", {}).get("src", "")
+            alt = node.get("attrs", {}).get("alt", "")
+            if src:
+                chunks.append(f'<img src="{_escape_html(src)}" alt="{_escape_html(alt)}">')
+    return "".join(chunks)
+
+
+def _serialize_block_node_to_html(node: JSON) -> str:
+    """Serialize a single non-list block node to email-safe HTML. Lists are handled by
+    _serialize_list_to_html."""
+    node_type = node.get("type")
+
+    if node_type == "paragraph":
+        return f"<p>{_serialize_inline_nodes_to_html(node.get('content', []))}</p>"
+
+    if node_type == "blockquote":
+        inner_blocks: list[str] = []
+        for child in node.get("content", []):
+            child_type = child.get("type")
+            if child_type in ("bulletList", "orderedList"):
+                inner_blocks.append(_serialize_list_to_html(child, child_type == "orderedList"))
+            elif child_type == "paragraph":
+                inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+            else:
+                inner_blocks.append(_serialize_block_node_to_html(child))
+        return f"<blockquote>{'<br>'.join(inner_blocks)}</blockquote>"
+
+    if node_type == "heading":
+        attrs = node.get("attrs") or {}
+        try:
+            level = min(max(int(attrs.get("level") or 1), 1), 6)
+        except (TypeError, ValueError):
+            level = 1
+        return f"<h{level}>{_serialize_inline_nodes_to_html(node.get('content', []))}</h{level}>"
+
+    if node_type == "horizontalRule":
+        return "<hr>"
+
+    if node_type == "codeBlock":
+        return f"<pre><code>{_serialize_inline_nodes_to_html(node.get('content', []))}</code></pre>"
+
+    if node_type == "image":
+        src = node.get("attrs", {}).get("src", "")
+        if src:
+            alt = node.get("attrs", {}).get("alt", "")
+            return f'<p><img src="{_escape_html(src)}" alt="{_escape_html(alt)}"></p>'
+        return ""
+
+    if node.get("content"):
+        inner = _serialize_inline_nodes_to_html(node.get("content", []))
+        if inner:
+            return f"<p>{inner}</p>"
+
+    return ""
+
+
+def _serialize_list_to_html(node: JSON, ordered: bool) -> str:
+    items: list[str] = []
+    for item in node.get("content", []):
+        if item.get("type") != "listItem":
+            continue
+        inner_parts: list[str] = []
+        for child in item.get("content", []):
+            child_type = child.get("type")
+            if child_type == "paragraph":
+                inner_parts.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+            elif child_type in ("bulletList", "orderedList"):
+                inner_parts.append(_serialize_list_to_html(child, child_type == "orderedList"))
+            else:
+                inner_parts.append(_serialize_block_node_to_html(child))
+        items.append(f"<li>{''.join(inner_parts)}</li>")
+    if not ordered:
+        return f"<ul>{''.join(items)}</ul>"
+    start = _list_start(node)
+    start_attr = f' start="{start}"' if start > 1 else ""
+    return f"<ol{start_attr}>{''.join(items)}</ol>"
+
+
+def rich_content_to_html(rich_content: JSON | None) -> str:
+    """Serialize PostHog rich content JSON to email-safe HTML."""
+    if not rich_content or rich_content.get("type") != "doc":
+        return ""
+
+    blocks: list[str] = []
+    for node in rich_content.get("content", []):
+        node_type = node.get("type")
+
+        if node_type in ("bulletList", "orderedList"):
+            blocks.append(_serialize_list_to_html(node, node_type == "orderedList"))
+            continue
+
+        html = _serialize_block_node_to_html(node)
+        if html:
+            blocks.append(html)
+
+    body = "\n".join(blocks)
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.5; color: #333;">
+{body}
+</body>
+</html>"""
+
+
+def rich_content_to_slack_payload(
+    rich_content: JSON | None,
+    fallback_content: str,
+    include_images: bool = True,
+    organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
+) -> tuple[str, list[JSON] | None]:
+    """
+    Convert outbound app message to Slack payload fields.
+
+    ``organization_id`` and ``slack_user_id_by_email`` scope mention resolution — see
+    content_to_slack_mrkdwn.
+
+    Returns:
+    - text (always present, used as fallback for notifications/older clients)
+    - blocks (Slack rich_text blocks when rich_content is available)
+    """
+    if rich_content:
+        blocks = rich_content_to_slack_blocks(rich_content, include_images=include_images)
+        markdown_text = rich_content_to_markdown(rich_content, include_images=include_images)
+        source_content = markdown_text or fallback_content
+        return content_to_slack_mrkdwn(source_content, organization_id, slack_user_id_by_email), blocks
+
+    return content_to_slack_mrkdwn(fallback_content, organization_id, slack_user_id_by_email), None

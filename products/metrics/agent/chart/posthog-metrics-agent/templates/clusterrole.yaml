@@ -1,0 +1,16 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "posthog-metrics-agent.fullname" . }}
+    labels:
+        {{- include "posthog-metrics-agent.labels" . | nindent 8 }}
+rules:
+    # Prometheus kubernetes_sd needs to watch scrape targets across the cluster.
+    - apiGroups: ['']
+      resources: [pods, services, endpoints, nodes]
+      verbs: [get, list, watch]
+    - apiGroups: [discovery.k8s.io]
+      resources: [endpointslices]
+      verbs: [get, list, watch]
+{{- end }}

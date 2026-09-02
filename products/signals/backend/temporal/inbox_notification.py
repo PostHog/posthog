@@ -22,8 +22,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport
+from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.facade import api as tasks_facade
@@ -54,7 +54,10 @@ def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNoti
     if not impl_task_ids:
         return InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
 
-    pr_available = bool(fetch_implementation_pr_urls_for_reports([report_id]))
+    # Resolved from the implementation tasks alone, not the report's surfaced PR: the wait exists to
+    # give the implementation task time to open its PR, so a PR from some other task (a "Discuss"
+    # chat that opened one) must not end it early.
+    pr_available = bool(tasks_facade.get_latest_pr_url_by_task(impl_task_ids))
     # Most recent run across the report's implementation task(s).
     latest_run = max(
         tasks_facade.get_latest_run_by_task(impl_task_ids).values(),
@@ -96,6 +99,14 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Re-derive source products at send time so a deferred notification reflects the current signals.
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
+    # Point any support ticket that raised this report at it. Shares this function's READY guard.
+    # Guarded here as well as inside: the write-back is supplementary, and letting it raise would fail
+    # the activity before the Slack notification below, so a retry loop would drop the notification
+    # entirely over a side errand.
+    try:
+        post_report_findings_to_tickets(team, report_id, signals)
+    except Exception:
+        logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
     return dispatch_inbox_item_notifications(
         report_id=report_id,
         team_id=team_id,

@@ -3,15 +3,15 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.settings import (
     HONEYBADGER_ENDPOINTS,
     HoneybadgerEndpointConfig,
@@ -84,15 +84,20 @@ def _to_unix_timestamp(value: Any) -> int:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
+    # Honeybadger paginates with a root-relative `links.next` (e.g. /v2/projects/1/faults?page=2),
+    # so resolve against the API base before validating the origin. A foreign absolute URL keeps
+    # its own netloc through urljoin, so it is still refused below.
+    resolved_url = urljoin(HONEYBADGER_BASE_URL, url)
+
     # Every fetched URL — including `links.next` from responses and resume URLs replayed from
     # Redis — must stay on the Honeybadger API origin: the session carries the user's token as
     # Basic auth, so following a foreign URL would hand the credential to that host (and is an
     # SSRF primitive).
-    parsed = urlparse(url)
+    parsed = urlparse(resolved_url)
     if parsed.scheme != _API_ORIGIN.scheme or parsed.netloc != _API_ORIGIN.netloc:
         raise ValueError(f"Refusing to fetch non-Honeybadger URL: {url}")
 
-    response = session.get(url, timeout=REQUEST_TIMEOUT)
+    response = session.get(resolved_url, timeout=REQUEST_TIMEOUT)
 
     # Honeybadger signals both auth failure and rate-limit exhaustion with a 403; only the
     # rate-limited one carries an exhausted X-RateLimit-Remaining header. Sleep toward the

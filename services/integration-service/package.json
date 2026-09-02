@@ -1,0 +1,39 @@
+{
+    "name": "@posthog/integration-service",
+    "version": "1.0.0",
+    "description": "PostHog integration service — serves platform integration credentials over HTTP",
+    "license": "MIT",
+    "author": "PostHog Inc.",
+    "type": "module",
+    "scripts": {
+        "build": "tsx scripts/build.ts",
+        "dev": "tsx watch src/index.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
+        "test": "vitest",
+        "test:unit": "vitest run tests/unit",
+        "test:integration": "vitest run tests/integration",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --quiet",
+        "lint:fix": "oxlint --fix --quiet",
+        "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml}\"",
+        "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml}\"",
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s"
+    },
+    "dependencies": {
+        "@hono/node-server": "^2.0.2",
+        "hono": "^4.12.18",
+        "jose": "^6.0.10",
+        "pino": "^8.6.0",
+        "prom-client": "^14.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.17.2",
+        "esbuild": "^0.25.11",
+        "oxfmt": "catalog:",
+        "oxlint": "^1.72.0",
+        "pino-pretty": "^9.1.0",
+        "tsx": "^4.20.5",
+        "typescript": "catalog:",
+        "vite-tsconfig-paths": "^5.1.4",
+        "vitest": "^3.2.4"
+    }
+}

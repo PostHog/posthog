@@ -65,7 +65,7 @@ describe('Batch exports', { concurrent: false }, () => {
             expect(typeof data.count).toBe('number')
             expect(Array.isArray(data.results)).toBe(true)
             expect(typeof data._posthogUrl).toBe('string')
-            expect(data._posthogUrl).toContain('/data-pipelines/destinations')
+            expect(data._posthogUrl).toContain('/data-management/destinations')
         })
 
         it('should respect the limit parameter', async () => {

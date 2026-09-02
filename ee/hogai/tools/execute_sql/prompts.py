@@ -4,8 +4,10 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
 # Important HogQL differences versus other SQL dialects
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
-- toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.
+- Width-suffixed conversion functions (toInt64, toInt32, toFloat64, toUInt8, etc., including their OrNull/OrZero variants like toInt32OrNull, toFloat64OrZero) are not supported, if you use them, the query will fail. Use the unsuffixed form instead: toInt(), toFloat(), toUInt() and their OrNull/OrZero variants (toIntOrNull, toFloatOrZero, toUIntOrNull, ...).
 - Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrNull) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).
+- toDate() takes exactly one argument. It does not accept a timezone argument like ClickHouse's toDate(value, timezone). Convert to the desired timezone first with toTimeZone(), then wrap in toDate(). Example: toDate(toTimeZone(timestamp, 'US/Pacific')) NOT toDate(timestamp, 'US/Pacific').
+- The ClickHouse `SETTINGS` clause is not supported in HogQL and will always cause an "Unsupported: SelectStmt.settingsClause()" error. Do not append `SETTINGS ...` to a query, even to tune things like `max_execution_time` or `join_algorithm`.
 - LAG()/LEAD() are not supported. Instead, use lagInFrame()/leadInFrame().
   Caution: lagInFrame/leadInFrame behavior differs from the standard SQL LAG/LEAD window function.
   The HogQL window functions lagInFrame/leadInFrame respect the window frame. To get behavior identical to LAG/LEAD, use `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.
@@ -81,14 +83,18 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
 - You should not make formatting or casing changes if explicitly requested by the user.
 - You should not use double curly braces (`{{{{` or `}}}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{{{{variables.org}}}}`).<%={{{{ }}}}=%>
 - SQL editor nodes can use `{filters}` placeholders. These placeholders are backed by `HogQLQuery.filters`, not by SQL text:
-  - If the current query contains `{filters}` and the user asks to change the date range or property filters, keep the placeholder in the SQL and pass updated `filters` to this tool.
-  - When keeping `{filters}` in the SQL, pass the complete desired `filters` object to this tool. Copy `current_query_node.source.filters` unchanged unless the user asked to change or remove filters.
-  - To remove all editor filters while preserving `{filters}`, pass an empty `filters` object (`{}`).
-  - Do not replace `{filters}` with explicit `timestamp` clauses when the user's request can be represented in `filters.dateRange`.
-  - Supported filter placeholders are `{filters}`, `{filters.dateRange.from}`, and `{filters.dateRange.to}`.
-  - `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, or `groups`. It is not valid for arbitrary data warehouse/source tables.
-  - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups.
-  - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, and session scope on `sessions` unless the query also includes `events`.
+  - If the current query contains `{filters}` or a column-bound `{filters(...)}` and the user asks to change the date range or property filters, keep the placeholder in the SQL and pass updated `filters` to this tool.
+  - When keeping the placeholder in the SQL, pass the complete desired `filters` object to this tool. Copy `current_query_node.source.filters` unchanged unless the user asked to change or remove filters.
+  - To remove all editor filters while preserving the placeholder, pass an empty `filters` object (`{}`).
+  - Do not replace the placeholder with explicit `timestamp` clauses when the user's request can be represented in `filters.dateRange`.
+  - Supported filter placeholders are `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`, and the column-bound form `{filters(expr AS key, ...)}`.
+  - Plain `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, `groups`, or `persons`.
+  - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups and persons.
+  - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, person scope on queries selecting only `persons`, and session scope on `sessions` unless the query also includes `events`.
+  - For any other table, view, or join (including data warehouse/source tables), use the column-bound form, for example `{filters(created_at AS timestamp, account_id AS 'account_id')}`:
+    - The reserved key `timestamp` receives the date range. Any other key (a string alias like `'plan'` or `'$group_0'`) receives the property filters on that key, with full operator semantics.
+    - `null AS key` opts the query out of filtering on that key. An active filter with no binding raises an error, so bind or explicitly opt out of every filter key in use.
+    - Cohort filters and SQL-expression filters cannot be applied through bindings and raise an error if present.
 - If a filter is optional, ALWAYS implement via the variables namespace with guards:
   - ALWAYS use the "variables." prefix (e.g., variables.org, variables.browser) - never use bare variable names
   - Use coalesce() or IS NULL checks to handle optional values

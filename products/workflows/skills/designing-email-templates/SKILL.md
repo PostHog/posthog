@@ -41,6 +41,20 @@ Every link is automatically rewritten through a click-tracking redirect. This br
 
 The marker must be on the `<a>` tag itself, not a child element. Opted-out links get no click metrics.
 
+## Images
+
+Call `media-images-list` with `purpose="email"` first — reuse an existing image (a logo, a header banner) instead of uploading a duplicate.
+
+To add a new image, upload it with the presigned flow rather than embedding bytes in the design:
+
+1. `media-image-upload-start` with the file's name and `purpose="email"` — returns `id`, `upload_url`, and `form_fields`.
+2. From a shell, POST the local file to `upload_url`: `curl -X POST <upload_url> -F key=value... -F file=@/path/to/image.png` (the `form_fields` from the response, `file` last). Never base64-encode image bytes into a tool call — a flipped token corrupts the image.
+3. `media-image-upload-complete` with the `id` — returns the permanent `url`.
+
+Put that `url` in the image block's `values.src.url` (see [references/unlayer-design-json.md](references/unlayer-design-json.md)). The block also takes `values.src.width`/`height`; the media tools don't return dimensions, so if you have shell access to the local file, measure it yourself rather than guessing.
+
+Images must be under 4MB and decode as PNG, JPEG, GIF, WebP, AVIF or BMP.
+
 ## Creating a template
 
 Call `workflows-create-email-template` with:
@@ -62,7 +76,8 @@ Call `workflows-create-email-template` with:
 ```
 
 - `subject` is required for email templates.
-- Always provide `text` — it's the fallback for clients that block rich content and improves deliverability.
+- Always author the `design` and omit `html` - the server renders html from the design. Sending hand-written html without a design produces an email the visual editor can only show as one raw block.
+- Always provide `text` as a real plain-text rendering of the message - clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes, and a text part that doesn't match the html hurts deliverability.
 - The tool result returns an edit link into the PostHog library.
 - After creating (or updating), call `workflows-show-email-template` — it renders an inline preview so the user sees the result.
 
@@ -79,9 +94,21 @@ Pass the design directly in the tool call — no scratch files, no pre-validatio
 3. `workflows-update-email-template` — send the complete `content` back. The server re-renders the sent email from the edited design.
 4. `workflows-show-email-template` — render the updated template so the user sees the change; its response carries the final rendered html, so read it before describing the result.
 
+For small changes to an existing design, prefer `workflows-patch-email-template`: id-addressed operations over the Unlayer blocks, so you send only the edit instead of the whole design.
+
+## Editing the email inside a workflow step
+
+A `function_email` step carries its own email snapshot (`config.inputs.email.value` with subject/text/html/design), independent of any library template.
+Edit it with `workflows-patch-action-email`: the same design operations as `workflows-patch-email-template`, plus an `email_patch` merge for subject, preheader, text, and recipients.
+
+1. `workflows-get` — the step's current design (and its block ids) is in `config.inputs.email.value.design`.
+2. `workflows-patch-action-email` with the workflow id, the step's `action_id`, and your operations and/or `email_patch`.
+3. The HTML is re-rendered server-side from the patched design, so it never goes stale.
+4. On an active workflow the edit stages a draft — test with `workflows-test-run` (`use_draft=true`) and apply it with `workflows-publish`.
+
 ## Using templates
 
 - List what exists with `workflows-list-email-templates` (metadata only; fetch one for its content).
 - When the user asks to see a template, call `workflows-show-email-template` — it renders an inline preview.
-- Reference a template from a workflow's `function_email` action, or start a broadcast from it in the PostHog UI.
+- Reference a template from a workflow's `function_email` action (its UUID in `config.template_uuid`), or start a broadcast from it in the PostHog UI. The step takes a snapshot of the template's body at save - editing the library template later does not change steps that already used it. To change a step's email, patch that step with `workflows-patch-action-email`.
 - Templates are soft-deleted by setting `deleted: true` via `workflows-update-email-template`.

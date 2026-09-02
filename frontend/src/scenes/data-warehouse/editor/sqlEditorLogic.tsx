@@ -32,15 +32,17 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -75,28 +77,46 @@ import {
     DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryIncremental,
+    DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
     ExternalDataSource,
     QueryBasedInsightModel,
 } from '~/types'
 
-import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
+import {
+    METRIC_FIELD_COPY,
+    MetricFormPrefill,
+    validateMetricDescription,
+    validateMetricName,
+} from 'products/data_catalog/frontend/common'
+import {
+    dataCatalogMetricsCreate,
+    dataCatalogMetricsPartialUpdate,
+    dataCatalogMetricsRetrieve,
+} from 'products/data_catalog/frontend/generated/api'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
 import type { PaginatedResponse } from '../../../lib/api'
+
+// Mirrors MANAGED_WAREHOUSE_SOURCE_PREFIX in products/warehouse_sources/backend/models/external_data_source.py.
+export const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
-import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '../../../types'
+import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
+import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
+import { BIEditorState, parseBIEditorState } from './bi/biEditorTypes'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
-import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
+import { IncrementalConfigFields } from './IncrementalConfigFields'
+import { findInnermostSelectAtOffset } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
@@ -125,7 +145,8 @@ export interface SqlEditorLogicProps {
 // Monaco renders inline decorations per-line, so we can't get a single rectangular
 // border from a className. Instead, we maintain an absolutely-positioned `div`
 // inside the editor's overlay layer and recompute its bounding box from the pixel
-// positions of the range's start/end on each line.
+// positions of the range's start/end on each line. Runs on every scroll frame, so it
+// stays off the DOM wherever the geometry can be derived from layout math instead.
 export function renderQueryOutline(
     editorInstance: editor.IStandaloneCodeEditor,
     node: HTMLElement,
@@ -137,11 +158,6 @@ export function renderQueryOutline(
         return
     }
 
-    let minLeft = Infinity
-    let maxRight = -Infinity
-    let minTop = Infinity
-    let maxBottom = -Infinity
-
     // The cached range can outlive the document it was computed against: a paste or edit
     // that removes lines shrinks the model, but this render path runs on scroll/layout
     // without re-clamping. Passing an out-of-range line to `getLineMaxColumn` throws
@@ -149,8 +165,34 @@ export function renderQueryOutline(
     const lineCount = model.getLineCount()
     const startLine = Math.max(1, Math.min(range.startLineNumber, lineCount))
     const endLine = Math.max(1, Math.min(range.endLineNumber, lineCount))
+    const startColumn = Math.min(range.startColumn, model.getLineMaxColumn(startLine))
 
-    for (let line = startLine; line <= endLine; line++) {
+    // Vertical extent is pure layout math and monotonic in line number, so the range's own
+    // first/last line always bound it — no per-line scan, and no DOM reads. `getBottomForLineNumber`
+    // measures past the end of the wrapped line, which is exactly what a wrapped range needs.
+    const scrollTop = editorInstance.getScrollTop()
+    const minTop = editorInstance.getTopForPosition(startLine, startColumn) - scrollTop
+    const maxBottom = editorInstance.getBottomForLineNumber(endLine) - scrollTop
+
+    // Horizontal extent has to come from `getScrolledVisiblePosition`, which is expensive:
+    // each call forces a synchronous Monaco view render and reads client rects. Only scan
+    // lines that are actually rendered — for off-screen lines Monaco returns a placeholder
+    // pinned to the gutter edge anyway, so clamping here is more accurate, not less.
+    // Folding can yield several ranges; we only need the outer bounds, and don't assume ordering.
+    const visibleRanges = editorInstance.getVisibleRanges?.() ?? []
+    let loopStart = startLine
+    let loopEnd = endLine
+    if (visibleRanges.length) {
+        const firstVisibleLine = Math.min(...visibleRanges.map((r) => r.startLineNumber))
+        const lastVisibleLine = Math.max(...visibleRanges.map((r) => r.endLineNumber))
+        loopStart = Math.max(startLine, firstVisibleLine)
+        loopEnd = Math.min(endLine, lastVisibleLine)
+    }
+
+    let minLeft = Infinity
+    let maxRight = -Infinity
+
+    for (let line = loopStart; line <= loopEnd; line++) {
         const lineMaxColumn = model.getLineMaxColumn(line)
         const leftCol = Math.min(line === startLine ? range.startColumn : 1, lineMaxColumn)
         const rightCol = line === endLine ? Math.min(range.endColumn, lineMaxColumn) : lineMaxColumn
@@ -168,24 +210,10 @@ export function renderQueryOutline(
         if (endVis.left > maxRight) {
             maxRight = endVis.left
         }
-        if (startVis.top < minTop) {
-            minTop = startVis.top
-        }
-        // With wordWrap on, a single model line can span multiple visual rows: `endVis`
-        // sits on a later row than `startVis`. Take the max bottom of both so the outline
-        // covers the wrapped tail. Width on wrapped lines is still approximate — the
-        // mid-rows could extend past either anchor — but the bottom must be correct or
-        // wrapped queries get clipped vertically.
-        const startBottom = startVis.top + startVis.height
-        const endBottom = endVis.top + endVis.height
-        if (startBottom > maxBottom) {
-            maxBottom = startBottom
-        }
-        if (endBottom > maxBottom) {
-            maxBottom = endBottom
-        }
     }
 
+    // No rendered line intersects the range — it's scrolled fully out of view, so there's
+    // nothing to frame.
     if (minLeft === Infinity) {
         node.style.display = 'none'
         return
@@ -209,6 +237,12 @@ function clearQueryOutlineOverlay(
     cache.scrollDisposable = null
     cache.layoutDisposable?.dispose()
     cache.layoutDisposable = null
+
+    if (cache.outlineRafId != null) {
+        cancelAnimationFrame(cache.outlineRafId)
+        cache.outlineRafId = null
+    }
+    cache.scheduleOutlineRender = null
 
     if (cache.queryOutlineWidget) {
         try {
@@ -236,12 +270,24 @@ export interface QueryTab {
     insight?: QueryBasedInsightModel
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
+    metricName?: string
+    biEditorState?: BIEditorState
 }
 
-export type SqlEditorSource = 'insight' | 'endpoint' | 'view'
+export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
+
+export interface SaveAsMetricFields {
+    name: string
+    display_name: string
+    description: string
+    unit: string
+}
 
 export interface DataWarehouseAccessControlModalProps {
-    resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
+    resource:
+        | AccessControlResourceType.WarehouseTable
+        | AccessControlResourceType.WarehouseView
+        | AccessControlResourceType.ExternalDataSource
     resourceId: string
     name: string
 }
@@ -389,8 +435,28 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     if (values.activeTab?.draft) {
         hash['draft'] = values.activeTab.draft.id
     }
+    if (values.activeTab?.biEditorState) {
+        hash['mode'] = values.activeTab.biEditorState.editorView
+        hash['bi'] = values.activeTab.biEditorState.config
+    }
 
     return hash
+}
+
+function parseMetricPrefill(value: unknown): MetricFormPrefill | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null
+    }
+
+    const source = value as Record<string, unknown>
+    const prefill: MetricFormPrefill = {}
+    for (const field of ['name', 'display_name', 'description', 'unit'] as const) {
+        if (typeof source[field] === 'string') {
+            prefill[field] = source[field] as string
+        }
+    }
+
+    return Object.keys(prefill).length ? prefill : null
 }
 
 function parseOutputTab(value: unknown): OutputTab | null {
@@ -469,8 +535,6 @@ const LazyQuery = lazyWithRetry(() =>
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sqlEditorLogicValues {
     connectionOptions: ExternalDataSourceConnectionOptionApi[] | null // connectionSelectorLogic
-    dags: DataModelingDAG[] // dataModelingLogic
-    selectedDagId: string | null // dataModelingLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
@@ -494,6 +558,7 @@ export interface sqlEditorLogicValues {
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
     editingInsight: QueryBasedInsightModel | null
+    editingMetricName: string | null
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
     editorSource: SqlEditorSource
@@ -517,6 +582,8 @@ export interface sqlEditorLogicValues {
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
     metadataLoading: boolean
+    metricPrefill: MetricFormPrefill | null
+    metricUpdating: boolean
     originalQueryInput: string | null | undefined
     queryInput: string | null
     rejectText: string
@@ -585,10 +652,20 @@ export interface sqlEditorLogicActions {
         payload?: any
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
-    materializeDataWarehouseSavedQuery: (viewId: string) => {
+    materializeDataWarehouseSavedQuery: (
+        viewId: string,
+        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
+        incremental?: DataWarehouseSavedQueryIncremental | undefined
+    ) => {
+        incremental: DataWarehouseSavedQueryIncremental | undefined
+        syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
-    runDataWarehouseSavedQuery: (viewId: string) => {
+    runDataWarehouseSavedQuery: (
+        viewId: string,
+        fullRefresh?: boolean | undefined
+    ) => {
+        fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
@@ -650,10 +727,15 @@ export interface sqlEditorLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
+    } // databaseTableListLogic
+    resetConnectionScope: () => {
+        value: true
     } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
         connectionId: string | null
@@ -690,8 +772,10 @@ export interface sqlEditorLogicActions {
     } // draftsLogic
     fixErrors: (
         query: string,
-        error?: string | undefined
+        error?: string | undefined,
+        connectionId?: string | undefined
     ) => {
+        connectionId: string | undefined
         error: string | undefined
         query: string
     } // fixSQLErrorsLogic
@@ -706,12 +790,14 @@ export interface sqlEditorLogicActions {
         response: Response,
         payload?:
             | {
+                  connectionId: string | undefined
                   error: string | undefined
                   query: string
               }
             | undefined
     ) => {
         payload?: {
+            connectionId: string | undefined
             error: string | undefined
             query: string
         }
@@ -736,10 +822,14 @@ export interface sqlEditorLogicActions {
         query?: string,
         view?: DataWarehouseSavedQuery,
         insight?: QueryBasedInsightModel,
-        draft?: DataWarehouseSavedQueryDraft
+        draft?: DataWarehouseSavedQueryDraft,
+        metricName?: string,
+        biEditorState?: BIEditorState
     ) => {
+        biEditorState: BIEditorState | undefined
         draft: DataWarehouseSavedQueryDraft | undefined
         insight: QueryBasedInsightModel<Node<Record<string, any>>> | undefined
+        metricName: string | undefined
         query: string | undefined
         view: DataWarehouseSavedQuery | undefined
     }
@@ -751,15 +841,19 @@ export interface sqlEditorLogicActions {
     }
     editInsight: (
         query: string,
-        insight: QueryBasedInsightModel
+        insight: QueryBasedInsightModel,
+        biEditorState?: BIEditorState
     ) => {
+        biEditorState: BIEditorState | undefined
         insight: QueryBasedInsightModel<Node<Record<string, any>>>
         query: string
     }
     editView: (
         query: string,
-        view: DataWarehouseSavedQuery
+        view: DataWarehouseSavedQuery,
+        biEditorState?: BIEditorState
     ) => {
+        biEditorState: BIEditorState | undefined
         query: string
         view: DataWarehouseSavedQuery
     }
@@ -823,6 +917,13 @@ export interface sqlEditorLogicActions {
     reportAIQueryRejected: () => {
         value: true
     }
+    reviewViewUpdate: (
+        view: UpdateViewPayload,
+        draftId?: string
+    ) => {
+        draftId: string | undefined
+        view: UpdateViewPayload
+    }
     runQuery: (
         queryOverride?: string,
         switchTab?: boolean
@@ -857,6 +958,16 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
+    saveAsMetric: () => {
+        value: true
+    }
+    saveAsMetricSubmit: (
+        fields: SaveAsMetricFields,
+        queryOverride?: string
+    ) => {
+        fields: SaveAsMetricFields
+        queryOverride: string | undefined
+    }
     saveAsView: (
         materializeAfterSave?: any,
         fromDraft?: string
@@ -868,14 +979,14 @@ export interface sqlEditorLogicActions {
         name: string,
         materializeAfterSave?: any,
         fromDraft?: string,
-        dagId?: string,
         folderId?: string | null,
         isTest?: any,
-        queryOverride?: string
+        queryOverride?: string,
+        incremental?: DataWarehouseSavedQueryIncremental
     ) => {
-        dagId: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         isTest: any
         materializeAfterSave: any
         name: string
@@ -908,6 +1019,9 @@ export interface sqlEditorLogicActions {
     }
     setEditingInsightName: (name: string) => {
         name: string
+    }
+    setEditingMetricName: (metricName: string | null) => {
+        metricName: string | null
     }
     setEditorSource: (source: SqlEditorSource) => {
         source: SqlEditorSource
@@ -959,6 +1073,12 @@ export interface sqlEditorLogicActions {
     setMetadataLoading: (loading: boolean) => {
         loading: boolean
     }
+    setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => {
+        metricPrefill: MetricFormPrefill | null
+    }
+    setMetricUpdating: (updating: boolean) => {
+        updating: boolean
+    }
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null
     }
@@ -990,6 +1110,9 @@ export interface sqlEditorLogicActions {
     syncUrlWithQuery: () => {
         value: true
     }
+    updateEditingMetric: () => {
+        value: true
+    }
     updateInsight: () => {
         value: true
     }
@@ -1005,8 +1128,10 @@ export interface sqlEditorLogicActions {
     }
     updateViewSuccess: (
         view: UpdateViewPayload,
-        draftId?: string
+        draftId?: string,
+        biEditorState?: BIEditorState
     ) => {
+        biEditorState: BIEditorState | undefined
         draftId: string | undefined
         view: UpdateViewPayload
     }
@@ -1028,6 +1153,7 @@ export interface sqlEditorLogicMeta {
             queryInput: string | null
         ) => string | null | undefined
         editingView: (activeTab: QueryTab | null) => DataWarehouseSavedQuery | undefined
+        editingMetricName: (activeTab: QueryTab | null) => string | null
         changesToSave: (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
@@ -1068,6 +1194,39 @@ export type sqlEditorLogicType = MakeLogicType<
     sqlEditorLogicMeta
 >
 
+// Which mounted editors currently want the shared schema catalog scoped to a connection, keyed by
+// tab id. Several editors can be mounted at once (notebook SQL nodes, metrics, endpoints) on the
+// same connection, so the last one out is the one that hands the catalog back unscoped.
+const connectionScopeOwners = new Map<string, string>()
+
+function claimConnectionScope(tabId: string, connectionId: string | null | undefined): void {
+    if (connectionId) {
+        connectionScopeOwners.set(tabId, connectionId)
+    } else {
+        connectionScopeOwners.delete(tabId)
+    }
+}
+
+// Drops this tab's claim and reports whether the scoped connection is now unclaimed.
+function releaseConnectionScope(tabId: string, scopedConnectionId: string | null): boolean {
+    connectionScopeOwners.delete(tabId)
+    return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
+}
+
+// With the lazy schema flag on, the editor first loads only table names and metadata; the schema
+// tree hydrates each table's columns on expansion.
+function schemaLoadOptions(
+    featureFlags: FeatureFlagsSet,
+    force = false
+): { force?: boolean; shallow?: boolean } | undefined {
+    const shallow = !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_LAZY_SCHEMA]
+    if (!shallow) {
+        // With the flag off, emit exactly the payloads this logic emitted before lazy loading.
+        return force ? { force } : undefined
+    }
+    return { force, shallow }
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -1090,8 +1249,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['database', 'databaseLoading', 'connectionId as databaseConnectionId'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
-            dataModelingLogic,
-            ['dags', 'selectedDagId'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -1113,7 +1270,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
-            ['setConnection', 'loadDatabase'],
+            ['setConnection', 'loadDatabase', 'resetConnectionScope'],
             connectionSelectorLogic,
             ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
@@ -1135,12 +1292,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             query?: string,
             view?: DataWarehouseSavedQuery,
             insight?: QueryBasedInsightModel,
-            draft?: DataWarehouseSavedQueryDraft
+            draft?: DataWarehouseSavedQueryDraft,
+            metricName?: string,
+            biEditorState?: BIEditorState
         ) => ({
             query,
             view,
             insight,
             draft,
+            metricName,
+            biEditorState,
         }),
         updateTab: (tab: QueryTab) => ({ tab }),
 
@@ -1157,18 +1318,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             fromDraft?: string,
 
-            dagId?: string,
             folderId?: string | null,
             isTest = false,
-            queryOverride?: string
+            queryOverride?: string,
+            incremental?: DataWarehouseSavedQueryIncremental
         ) => ({
             name,
             materializeAfterSave,
             fromDraft,
-            dagId,
             folderId,
             isTest,
             queryOverride,
+            incremental,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string, queryOverride?: string) => ({
@@ -1182,6 +1343,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
             dagId,
         }),
+        saveAsMetric: true,
+        saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({
+            fields,
+            queryOverride,
+        }),
+        setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
+        setEditingMetricName: (metricName: string | null) => ({ metricName }),
+        updateEditingMetric: true,
+        setMetricUpdating: (updating: boolean) => ({ updating }),
         updateInsight: true,
         setEditingInsightName: (name: string) => ({ name }),
         setEditingInsightDescription: (description: string) => ({ description }),
@@ -1199,13 +1369,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setViewQueryLoading: (loading: boolean) => ({ loading }),
         setMaterializationModalOpen: (open: boolean) => ({ open }),
         setMaterializationModalView: (view: DataWarehouseSavedQuery | null) => ({ view }),
-        editView: (query: string, view: DataWarehouseSavedQuery) => ({
+        editView: (query: string, view: DataWarehouseSavedQuery, biEditorState?: BIEditorState) => ({
             query,
             view,
+            biEditorState,
         }),
-        editInsight: (query: string, insight: QueryBasedInsightModel) => ({
+        editInsight: (query: string, insight: QueryBasedInsightModel, biEditorState?: BIEditorState) => ({
             query,
             insight,
+            biEditorState,
         }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({
             lastRunQuery,
@@ -1241,13 +1413,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
+            view,
+            draftId,
+        }),
         updateView: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
         }),
-        updateViewSuccess: (view: UpdateViewPayload, draftId?: string) => ({
+        updateViewSuccess: (view: UpdateViewPayload, draftId?: string, biEditorState?: BIEditorState) => ({
             view,
             draftId,
+            biEditorState,
         }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
@@ -1324,17 +1501,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             // Reposition the overlay on scroll and layout/resize. These don't change the
             // range, only its pixel coordinates, so we skip the SQL parsing path entirely.
+            // Monaco fires scroll events per wheel tick, several per frame, and repositioning
+            // reads editor geometry — so coalesce to one render per frame.
+            cache.scheduleOutlineRender = (): void => {
+                if (cache.outlineRafId != null) {
+                    return
+                }
+                cache.outlineRafId = requestAnimationFrame(() => {
+                    cache.outlineRafId = null
+                    if (cache.queryOutlineRange) {
+                        renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                    }
+                })
+            }
             cache.scrollDisposable?.dispose()
             cache.scrollDisposable = editorInstance.onDidScrollChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
-                }
+                cache.scheduleOutlineRender?.()
             })
             cache.layoutDisposable?.dispose()
             cache.layoutDisposable = editorInstance.onDidLayoutChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
-                }
+                cache.scheduleOutlineRender?.()
             })
         }
     }),
@@ -1404,6 +1590,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 setEditorSource: (_, { source }) => source,
             },
         ],
+        metricPrefill: [
+            null as MetricFormPrefill | null,
+            {
+                setMetricPrefill: (_, { metricPrefill }) => metricPrefill,
+            },
+        ],
         dashboardId: [
             null as number | null,
             {
@@ -1462,6 +1654,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             false,
             {
                 setInsightLoading: (_, { loading }) => loading,
+            },
+        ],
+        metricUpdating: [
+            false,
+            {
+                setMetricUpdating: (_, { updating }) => updating,
             },
         ],
         activeTab: [
@@ -1568,6 +1766,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             return resolveSaveCandidatesPure(fullText, cursorOffset, selectionText)
         }
+        const getActiveBIEditorState = (): BIEditorState | undefined =>
+            values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] ? values.activeTab?.biEditorState : undefined
 
         return {
             fixErrorsSuccess: ({ response }) => {
@@ -1682,13 +1882,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
                 actions._setSuggestionPayload(null)
             },
-            editView: ({ query, view }) => {
-                actions.createTab(query, view)
+            editView: ({ query, view, biEditorState }) => {
+                actions.createTab(query, view, undefined, undefined, undefined, biEditorState)
             },
-            editInsight: ({ query, insight }) => {
-                actions.createTab(query, undefined, insight)
+            editInsight: ({ query, insight, biEditorState }) => {
+                actions.createTab(query, undefined, insight, undefined, undefined, biEditorState)
             },
-            createTab: async ({ query = '', view, insight, draft }) => {
+            createTab: async ({ query = '', view, insight, draft, metricName, biEditorState }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
                 const tabName = insight ? (insight.name ?? NEW_QUERY) : draft?.name || view?.name || NEW_QUERY
                 const tabDescription = insight?.description ?? ''
@@ -1711,6 +1911,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 key: `hogql-editor-${props.tabId}`,
                                 query: values.sourceQuery?.source.query ?? '',
                                 language: 'hogQL',
+                                indexUsage: true,
                             })
                         )
                     }
@@ -1723,6 +1924,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         description: tabDescription,
                         sourceQuery: insightVisualizationQuery,
                         draft: draft,
+                        metricName,
+                        biEditorState,
                     })
                 }
                 if (insightVisualizationQuery) {
@@ -1737,6 +1940,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else if (insightVisualizationQuery) {
                     actions.setQueryInput(insightVisualizationQuery.source.query || '')
                 }
+
+                // Opening another query can replace sourceQuery without changing the connection,
+                // so the selectedConnectionId subscription does not run again.
+                actions.enforceConnectionRawQueryMode()
 
                 // Focus the editor after creating a new tab
                 props.editor?.focus()
@@ -1769,12 +1976,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             enforceConnectionRawQueryMode: () => {
                 // Raw-only connections cannot compile HogQL — force raw SQL mode.
-                if (
-                    values.selectedConnectionId &&
-                    !values.selectedConnectionSupportsHogQL &&
-                    !values.sourceQuery.source.sendRawQuery
-                ) {
-                    actions.setSendRawQuery(true)
+                // The managed warehouse (auto-provisioned Duckgres) speaks DuckDB
+                // natively end-to-end, so raw mode is the better default for it too:
+                // it skips the HogQL reprint and reaches the engine verbatim.
+                if (values.selectedConnectionId && !values.sourceQuery.source.sendRawQuery) {
+                    const option = (values.connectionOptions ?? []).find(
+                        (option) => option.id === values.selectedConnectionId
+                    )
+                    const isManagedWarehouseSource =
+                        option?.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && option?.source_type === 'Postgres'
+
+                    if (!values.selectedConnectionSupportsHogQL || isManagedWarehouseSource) {
+                        actions.setSendRawQuery(true)
+                    }
                 }
             },
             // Options can load after a connection was restored from the URL.
@@ -1877,6 +2091,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             runQuery: ({ queryOverride, switchTab }) => {
+                captureBIEditorQueryRun(getActiveBIEditorState())
+
                 let query: string
                 if (queryOverride) {
                     // Explicit override (e.g. user selected text and pressed Cmd+Enter)
@@ -1939,17 +2155,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
-                const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]
-
-                // Ensure DAGs are loaded via dataModelingLogic
-                if (multiDagEnabled && values.dags.length === 0) {
-                    await dataModelingLogic.asyncActions.loadDags()
-                }
-
                 const isStaff = values.user?.is_staff ?? false
                 const candidates = resolveSaveCandidates()
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
+                }
+
+                // Checked once as the dialog opens rather than on every keystroke: it only depends
+                // on the SQL being saved, which cannot change while the dialog is up. A failure
+                // leaves the incremental fields hidden, so the view saves as a normal full refresh.
+                let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
+                if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
+                    try {
+                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
+                            query: selectedRef.current ?? values.queryInput ?? '',
+                        })
+                    } catch {
+                        incrementalCheck = null
+                    }
                 }
 
                 const folderOptions: { value: string | null; label: string }[] = [
@@ -1993,9 +2216,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         folderId: null,
                         isTest: false,
                         materializeAfterSave,
-                        dagId: multiDagEnabled
-                            ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
-                            : undefined,
+                        incrementalEnabled: false,
+                        incrementalKey: incrementalCheck?.key_candidates[0] ?? null,
+                        incrementalUniqueKey: [],
+                        incrementalLookbackSeconds: 0,
                     },
                     description: `View names must start with a letter, '_', or '$' and can only contain letters, numbers, '_', '.', or '$'. Spaces are not allowed.`,
                     content: (isLoading) =>
@@ -2042,40 +2266,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                             />
                                         )}
                                     </LemonField>
-                                    {multiDagEnabled && (
-                                        <LemonField name="dagId" label="Add to DAG" className="flex-1">
-                                            {({ value: dagId, onChange: setDagId }) => (
-                                                <DagSelector
-                                                    selectedDagId={dagId}
-                                                    onSelectDag={setDagId}
-                                                    onCreateDag={(onSelect) => {
-                                                        openCreateDagDialog({
-                                                            existingNames: new Set(
-                                                                dataModelingLogic.values.dags.map((d) => d.name)
-                                                            ),
-                                                            onSubmit: async (dagData) => {
-                                                                try {
-                                                                    const newDag =
-                                                                        await api.dataModelingDags.create(dagData)
-                                                                    await dataModelingLogic.asyncActions.loadDags()
-                                                                    onSelect(newDag.id)
-                                                                    lemonToast.success('DAG created')
-                                                                } catch (error) {
-                                                                    lemonToast.error(
-                                                                        error instanceof ApiError
-                                                                            ? (error.detail ?? 'Failed to create DAG')
-                                                                            : 'Failed to create DAG'
-                                                                    )
-                                                                    // Re-throw so the dialog stays open for the user to retry.
-                                                                    throw error
-                                                                }
-                                                            },
-                                                        })
-                                                    }}
-                                                />
-                                            )}
-                                        </LemonField>
-                                    )}
                                 </div>
                                 {isStaff && (
                                     <LemonField name="isTest" className="mt-2">
@@ -2096,17 +2286,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 )}
                                 <LemonField name="materializeAfterSave" className="mt-2">
                                     {({ value, onChange }) => (
-                                        <div className="flex items-center gap-2">
-                                            <LemonCheckbox
-                                                checked={value}
-                                                onChange={onChange}
-                                                data-attr="sql-editor-input-save-view-materialize"
-                                                label="Materialize this view"
-                                            />
-                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
-                                                <span className="text-muted cursor-pointer">&#9432;</span>
-                                            </Tooltip>
-                                        </div>
+                                        <>
+                                            <div className="flex items-center gap-2">
+                                                <LemonCheckbox
+                                                    checked={value}
+                                                    onChange={onChange}
+                                                    data-attr="sql-editor-input-save-view-materialize"
+                                                    label="Materialize this view"
+                                                />
+                                                <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                    <span className="text-muted cursor-pointer">&#9432;</span>
+                                                </Tooltip>
+                                            </div>
+                                            {value && <IncrementalConfigFields check={incrementalCheck} />}
+                                        </>
                                     )}
                                 </LemonField>
                                 <SaveTargetCycler
@@ -2119,27 +2312,41 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ),
                     errors: {
                         viewName: validateSavedQueryName,
-                        dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
+                        incrementalKey: (key, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !key ? 'Select the incremental column' : undefined,
+                        incrementalUniqueKey: (uniqueKey, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !uniqueKey?.length
+                                ? 'Select at least one unique key column'
+                                : undefined,
                     },
                     onSubmit: async ({
                         viewName,
-                        dagId,
                         folderId,
                         isTest,
                         materializeAfterSave: shouldMaterialize,
+                        incrementalEnabled,
+                        incrementalKey,
+                        incrementalUniqueKey,
+                        incrementalLookbackSeconds,
                     }) => {
+                        const incremental =
+                            shouldMaterialize && incrementalEnabled && incrementalKey && incrementalUniqueKey?.length
+                                ? {
+                                      enabled: true,
+                                      incremental_key: incrementalKey,
+                                      unique_key: incrementalUniqueKey,
+                                      lookback_seconds: incrementalLookbackSeconds ?? 0,
+                                  }
+                                : undefined
                         await asyncActions.saveAsViewSubmit(
                             viewName,
                             shouldMaterialize ?? false,
                             fromDraft,
-                            dagId,
                             folderId,
                             isTest ?? false,
-                            selectedRef.current
+                            selectedRef.current,
+                            incremental
                         )
-                        if (multiDagEnabled && dagId) {
-                            dataModelingLogic.actions.setSelectedDagId(dagId)
-                        }
                     },
                     shouldAwaitSubmit: true,
                 })
@@ -2148,11 +2355,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 name,
                 materializeAfterSave = false,
                 fromDraft,
-                dagId,
                 folderId,
                 isTest = false,
                 queryOverride,
+                incremental,
             }) => {
+                const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
 
                 const queryToSave = normalizeRawQuerySource({
@@ -2185,9 +2393,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         query: queryToSave,
                         types,
                         ...(folderId ? { folder_id: folderId } : {}),
-                        ...(dagId ? { dag_id: dagId } : {}),
                         ...(isTest ? { is_test: true } : {}),
+                        ...(incremental ? { incremental } : {}),
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
                     // Saved queries are unique by team,name
                     const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
@@ -2312,6 +2521,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             saveAsInsightSubmit: async ({ name, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
                 const effectiveVisualizationType = dataVisualizationLogic.findMounted({
                     key: values.dataLogicKey,
@@ -2342,6 +2552,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     saved: true,
                     ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                 })
+                captureBIEditorQuerySaved(biEditorState, 'insight', 'create', dashboardId !== null)
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
                     doNotLoad: true,
@@ -2415,6 +2626,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
                 try {
                     const endpoint = await api.endpoint.create({
                         name: slugify(name),
@@ -2424,11 +2636,124 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             query: queryOverride ?? values.queryInput ?? '',
                         }),
                     })
+                    captureBIEditorQuerySaved(biEditorState, 'endpoint', 'create')
                     lemonToast.success('Endpoint created')
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
                     router.actions.push(urls.endpoint(endpoint.name))
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to create endpoint')
+                }
+            },
+            saveAsMetric: async () => {
+                const candidates = resolveSaveCandidates()
+                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
+                LemonDialog.openForm({
+                    title: 'Save as metric',
+                    initialValues: {
+                        name: '',
+                        display_name: '',
+                        description: '',
+                        unit: '',
+                        ...values.metricPrefill,
+                    },
+                    content: (
+                        <>
+                            <LemonField name="name" label={METRIC_FIELD_COPY.name.label}>
+                                <LemonInput placeholder={METRIC_FIELD_COPY.name.placeholder} autoFocus />
+                            </LemonField>
+                            <LemonField
+                                name="display_name"
+                                label={METRIC_FIELD_COPY.displayName.label}
+                                className="mt-2"
+                            >
+                                <LemonInput placeholder={METRIC_FIELD_COPY.displayName.placeholder} />
+                            </LemonField>
+                            <LemonField name="description" label={METRIC_FIELD_COPY.description.label} className="mt-2">
+                                {/* stopPropagation keeps Enter from reaching the dialog form and submitting mid-sentence */}
+                                <LemonTextArea
+                                    placeholder={METRIC_FIELD_COPY.description.placeholder}
+                                    minRows={2}
+                                    stopPropagation
+                                />
+                            </LemonField>
+                            <LemonField name="unit" label={METRIC_FIELD_COPY.unit.label} className="mt-2">
+                                <LemonInput placeholder={METRIC_FIELD_COPY.unit.placeholder} />
+                            </LemonField>
+                            <SaveTargetCycler
+                                candidates={candidates}
+                                onChange={(q) => {
+                                    selectedRef.current = q
+                                }}
+                            />
+                        </>
+                    ),
+                    errors: {
+                        name: (name) => validateMetricName(name?.trim() || ''),
+                        description: (description) =>
+                            !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
+                    },
+                    onSubmit: async ({ name, display_name, description, unit }) =>
+                        actions.saveAsMetricSubmit(
+                            {
+                                name: name.trim(),
+                                display_name: display_name.trim(),
+                                description: description.trim(),
+                                unit: unit.trim(),
+                            },
+                            selectedRef.current
+                        ),
+                })
+            },
+            saveAsMetricSubmit: async ({ fields, queryOverride }) => {
+                const biEditorState = getActiveBIEditorState()
+                try {
+                    const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
+                        name: fields.name,
+                        display_name: fields.display_name || undefined,
+                        description: fields.description,
+                        unit: fields.unit || undefined,
+                        definition: normalizeRawQuerySource({
+                            ...(values.sourceQuery.source as HogQLQuery),
+                            query: queryOverride ?? values.queryInput ?? '',
+                        }) as unknown as Record<string, unknown>,
+                    })
+                    captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    actions.setMetricPrefill(null)
+                    lemonToast.success('Metric created')
+                    router.actions.push(urls.dataCatalogMetric(metric.name))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to create metric')
+                }
+            },
+            updateEditingMetric: async () => {
+                if (!values.editingMetricName || values.metricUpdating) {
+                    return
+                }
+                actions.setMetricUpdating(true)
+                const biEditorState = getActiveBIEditorState()
+                try {
+                    await dataCatalogMetricsPartialUpdate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        values.editingMetricName,
+                        {
+                            definition: normalizeRawQuerySource({
+                                ...(values.sourceQuery.source as HogQLQuery),
+                                query: values.queryInput ?? '',
+                            }) as unknown as Record<string, unknown>,
+                        }
+                    )
+                    captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
+                    lemonToast.success('Metric updated')
+                    router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to update metric')
+                } finally {
+                    actions.setMetricUpdating(false)
+                }
+            },
+            setEditingMetricName: ({ metricName }) => {
+                if (values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, metricName: metricName ?? undefined })
                 }
             },
             setEditingInsightName: ({ name }) => {
@@ -2447,6 +2772,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 actions.setInsightLoading(true)
+                const biEditorState = getActiveBIEditorState()
 
                 const insightName = values.activeTab?.name
                 const insightDescription = values.activeTab?.description
@@ -2482,6 +2808,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     throw e
                 }
                 actions.setInsightLoading(false)
+                captureBIEditorQuerySaved(biEditorState, 'insight', 'update', dashboardId !== null)
 
                 if (values.activeTab) {
                     actions.updateTab({
@@ -2575,6 +2902,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
                 if (values.activeTab?.view?.id === viewId && !values.activeTab?.draft) {
+                    // createTab() alone reuses the existing model and doesn't clear queryInput
+                    applyUndoableModelEdit(props.monaco, values.activeTab?.uri, '')
+                    actions.setQueryInput('')
                     actions.createTab()
                 }
             },
@@ -2607,16 +2937,44 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
             },
+            reviewViewUpdate: ({ view, draftId }) => {
+                // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate
+                // modal: show the saved query alongside the user's edits, and only run the update
+                // once they accept. Mirrors the conflict-review diff in updateView below.
+                const savedQuery = values.activeTab?.view?.query?.query ?? ''
+                const editedQuery = values.queryInput ?? ''
+                if (savedQuery === editedQuery) {
+                    actions.updateView(view, draftId)
+                    return
+                }
+                actions._setSuggestionPayload({
+                    suggestedValue: editedQuery,
+                    originalValue: savedQuery,
+                    acceptText: view.shouldRematerialize ? 'Update and re-materialize view' : 'Update view',
+                    rejectText: 'Cancel',
+                    diffShowRunButton: false,
+                    onAccept: () => {
+                        actions.updateView(view, draftId)
+                    },
+                    onReject: () => {},
+                })
+            },
             updateView: async ({ view, draftId }) => {
+                const biEditorState = getActiveBIEditorState()
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
-                // Only check for conflicts if there's an activity log (latest_history_id exists)
-                // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
-                // and we should allow the update to proceed without showing a false conflict
-                if (
+                // A real conflict means someone else changed the query text since this edit began.
+                // Detect it by comparing the server's current query against the baseline this edit
+                // started from (the tab's saved query) — not against the user's edited query, which
+                // always differs. Keying off history ids alone gives false positives when the
+                // editor's cached head has drifted from the server's (e.g. the head advanced for a
+                // non-query reason, or the view was opened without one), wrongly telling a sole
+                // editor the view was changed by someone else.
+                const baselineQuery = values.activeTab?.view?.query?.query
+                const foreignEdit =
                     latestView?.latest_history_id != null &&
-                    view.edited_history_id !== latestView.latest_history_id &&
-                    view.query?.query !== latestView?.query?.query
-                ) {
+                    baselineQuery != null &&
+                    latestView.query?.query !== baselineQuery
+                if (foreignEdit) {
                     actions._setSuggestionPayload({
                         suggestedValue: values.queryInput!,
                         originalValue: latestView?.query?.query,
@@ -2629,17 +2987,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 ...view,
                                 edited_history_id: latestView?.latest_history_id,
                             })
-                            actions.updateViewSuccess(view, draftId)
+                            actions.updateViewSuccess(view, draftId, biEditorState)
                         },
                         onReject: () => {},
                     })
                     lemonToast.error('View has been edited by another user. Review changes to update.')
                 } else {
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(view)
-                    actions.updateViewSuccess(view, draftId)
+                    // No foreign edit — send the server's current head so the backend's own
+                    // edited_history_id check accepts the save even if the editor's cached head drifted.
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                        ...view,
+                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
+                    })
+                    actions.updateViewSuccess(view, draftId, biEditorState)
                 }
             },
-            updateViewSuccess: async ({ view, draftId }) => {
+            updateViewSuccess: async ({ view, draftId, biEditorState }) => {
+                captureBIEditorQuerySaved(biEditorState, 'view', 'update')
                 if (draftId) {
                     actions.deleteDraft(draftId, view?.name)
                 }
@@ -2680,7 +3044,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         }
     }),
-    subscriptions(({ actions, values, cache }) => ({
+    subscriptions(({ actions, values, cache, props }) => ({
         queryInput: (queryInput: string | null) => {
             // Subquery validation results are keyed by subquery text — but the same text
             // may now refer to a subquery with different surrounding context, so drop
@@ -2764,8 +3128,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             cache.lastSelectedConnectionId = selectedConnectionId
+            claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
-            actions.loadDatabase()
+            actions.loadDatabase(schemaLoadOptions(values.featureFlags))
             if (selectedConnectionId) {
                 // Capability data must load wherever a connection is in play — including
                 // surfaces that never render the connection selector.
@@ -2826,6 +3191,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (s) => [s.activeTab],
             (activeTab: QueryTab | null) => {
                 return activeTab?.view
+            },
+        ],
+        editingMetricName: [
+            (s) => [s.activeTab],
+            (activeTab: QueryTab | null) => {
+                return activeTab?.metricName ?? null
             },
         ],
         changesToSave: [
@@ -2965,9 +3336,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (
                 searchParams.source === 'endpoint' ||
                 searchParams.source === 'insight' ||
-                searchParams.source === 'view'
+                searchParams.source === 'view' ||
+                searchParams.source === 'metric'
             ) {
                 actions.setEditorSource(searchParams.source)
+            }
+            const metricPrefillFromUrl = parseMetricPrefill(searchParams.metric_prefill)
+            if (metricPrefillFromUrl) {
+                actions.setMetricPrefill(metricPrefillFromUrl)
             }
             if (searchParams.dashboard) {
                 const parsed = parseInt(searchParams.dashboard, 10)
@@ -2988,6 +3364,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     !viewIdFromUrl &&
                     !insightShortIdFromUrl)
             const filtersFromUrl = hasFiltersHashParam ? parseFiltersFromUrl(hashParams.filters) : undefined
+            const biEditorStateFromUrl = parseBIEditorState(hashParams.mode, hashParams.bi)
             const applyFiltersFromUrl = (sourceQuery: DataVisualizationNode): DataVisualizationNode => {
                 if (!shouldApplyFiltersFromUrl) {
                     return sourceQuery
@@ -3019,11 +3396,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hashParams.insight &&
                 !hashParams.draft &&
                 !hashParams.output_tab &&
+                !hashParams.mode &&
+                !hashParams.bi &&
                 values.queryInput !== null
             ) {
                 if (shouldSyncDatabaseConnection && !values.databaseLoading) {
                     actions.setConnection(expectedDatabaseConnectionId)
-                    actions.loadDatabase()
+                    actions.loadDatabase(schemaLoadOptions(values.featureFlags))
                 }
                 return
             }
@@ -3088,7 +3467,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             ? values.dataWarehouseSavedQueryMapById[draft.saved_query_id]
                             : undefined
 
-                        actions.createTab(draft.query.query, associatedView, undefined, draft)
+                        actions.createTab(
+                            draft.query.query,
+                            associatedView,
+                            undefined,
+                            draft,
+                            undefined,
+                            biEditorStateFromUrl ?? undefined
+                        )
                     }
                     return
                 } else if (
@@ -3131,9 +3517,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')
 
                     if (outputTabFromUrl) {
-                        actions.createTab(queryToOpen, view)
+                        actions.createTab(
+                            queryToOpen,
+                            view,
+                            undefined,
+                            undefined,
+                            undefined,
+                            biEditorStateFromUrl ?? undefined
+                        )
                     } else {
-                        actions.editView(queryToOpen, view)
+                        actions.editView(queryToOpen, view, biEditorStateFromUrl ?? undefined)
                     }
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
@@ -3158,7 +3551,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const shortId = insightShortIdFromUrl
                     if (shortId === 'new') {
                         // Add new blank tab
-                        actions.createTab()
+                        actions.createTab(
+                            '',
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            biEditorStateFromUrl ?? undefined
+                        )
                         tabAdded = true
                         router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                         return
@@ -3188,7 +3588,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (insightVisualizationQuery) {
                         actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
                     }
-                    actions.editInsight(queryToOpen, insight)
+                    actions.editInsight(queryToOpen, insight, biEditorStateFromUrl ?? undefined)
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Visualization)
                     }
@@ -3210,6 +3610,47 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                } else if (searchParams.edit_metric) {
+                    // edit_metric binds the "Update metric" button to overwrite a named metric.
+                    // Both edit_metric and open_query are URL-controlled, so we never bind the
+                    // update target to URL-supplied SQL — a crafted link could otherwise overwrite
+                    // a teammate's metric with arbitrary HogQL. Load the metric server-side and open
+                    // its stored query, so the update target and its definition come from the same
+                    // authenticated response.
+                    try {
+                        // Validate before it reaches the request path: the value is interpolated
+                        // into the URL unencoded, so a name containing "../" could otherwise
+                        // traverse to a metric in another project. The name regex forbids slashes.
+                        if (validateMetricName(searchParams.edit_metric)) {
+                            throw new Error('Invalid metric name')
+                        }
+                        const metric = await dataCatalogMetricsRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            searchParams.edit_metric
+                        )
+                        const definition = metric.definition as Record<string, unknown> | null | undefined
+                        const metricQuery = typeof definition?.query === 'string' ? definition.query : ''
+                        actions.createTab(
+                            metricQuery,
+                            undefined,
+                            undefined,
+                            undefined,
+                            metric.name,
+                            biEditorStateFromUrl ?? undefined
+                        )
+                    } catch {
+                        // Invalid name, metric not found, or no access — open an unbound empty tab
+                        // rather than binding an update target we couldn't verify.
+                        actions.createTab(
+                            '',
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            biEditorStateFromUrl ?? undefined
+                        )
+                    }
+                    tabAdded = true
                 } else if (searchParams.open_query) {
                     // kea-router decodes JSON-shaped URL values to objects — a node here carries
                     // visualization settings (display, chartSettings) alongside the SQL
@@ -3218,7 +3659,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             ? toDataVisualizationNode(searchParams.open_query)
                             : undefined
                     if (openQueryNode) {
-                        actions.createTab(openQueryNode.source.query || '')
+                        actions.createTab(
+                            openQueryNode.source.query || '',
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            biEditorStateFromUrl ?? undefined
+                        )
                         actions.setSourceQuery(hasFiltersHashParam ? applyFiltersFromUrl(openQueryNode) : openQueryNode)
                         if (!outputTabFromUrl) {
                             actions.setActiveTab(OutputTab.Visualization)
@@ -3229,7 +3677,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         // kea-router also decodes numeric/JSON-shaped values; a non-node object is a
                         // malformed URL, so fall back to an empty query rather than "[object Object]"
                         actions.createTab(
-                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query)
+                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query),
+                            undefined,
+                            undefined,
+                            undefined,
+                            undefined,
+                            biEditorStateFromUrl ?? undefined
                         )
                     }
                     tabAdded = true
@@ -3243,10 +3696,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         values.queryInput !== String(hashParams.q))
                 ) {
                     // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
-                    actions.createTab(String(hashParams.q))
+                    actions.createTab(
+                        String(hashParams.q),
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        biEditorStateFromUrl ?? undefined
+                    )
                     tabAdded = true
                 } else if (values.queryInput === null) {
-                    actions.createTab('')
+                    actions.createTab('', undefined, undefined, undefined, undefined, biEditorStateFromUrl ?? undefined)
                     tabAdded = true
                 }
             }
@@ -3284,12 +3744,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
                 actions.setConnection(expectedDatabaseConnectionId)
-                actions.loadDatabase()
+                actions.loadDatabase(schemaLoadOptions(values.featureFlags))
             }
         },
     })),
     afterMount(({ actions, props, values, cache }) => {
         cache.lastSelectedConnectionId = values.selectedConnectionId
+        claimConnectionScope(props.tabId, values.selectedConnectionId)
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
 
@@ -3413,8 +3874,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 )
             }
 
-            // Single query — outline the innermost subquery at the cursor (which collapses
-            // to the whole SELECT when there is no nested subquery).
+            // Single query — outline the innermost subquery at the cursor. A flat query with no
+            // nested SELECT around the cursor gets no outline at all: `findInnermostSelectAtOffset`
+            // needs at least two enclosing SELECTs and returns null otherwise.
             if (queries.length <= 1) {
                 const singleQuery = queries.length === 1 ? queries[0] : null
                 // Offset must be the statement's start in the full text, not 0 — otherwise leading
@@ -3491,10 +3953,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // stuck true (a load that never settled), the plain guard would skip the reload and the
             // editor would sit on "Loading..." forever. On remount we still need data, so force a
             // fresh request to bypass any hung in-flight load.
-            actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
+            actions.loadDatabase(schemaLoadOptions(values.featureFlags, values.databaseLoading))
         }
     }),
-    beforeUnmount(({ cache, props }) => {
+    beforeUnmount(({ actions, values, cache, props }) => {
+        // The editor scopes the shared schema catalog to whichever connection it was querying, and
+        // that logic stays mounted after the editor closes. Hand it back unscoped so pages like the
+        // sources list don't render the connection's tables as if they were the project's own. Only
+        // once no mounted editor still wants that connection though, or closing one of two editors
+        // sharing a connection would leave the survivor with the wrong schema tree.
+        if (releaseConnectionScope(props.tabId, values.databaseConnectionId)) {
+            actions.resetConnectionScope()
+        }
+
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
         clearQueryOutlineOverlay(cache, props.editor)

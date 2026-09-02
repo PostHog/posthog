@@ -65,6 +65,32 @@ describe('buildDailyChartData', () => {
     })
 })
 
+describe('incompleteTail', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        initKeaTests()
+        jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+    })
+
+    // An open-ended relative window always ends in the bucket that is still collecting, and a window
+    // that closed in the past never does, so this holds whenever the suite runs.
+    it.each([
+        ['an open-ended window', '-30d', null, true],
+        ['a window that already closed', '2026-06-01', '2026-06-10', false],
+    ])('is %s: %s', async (_label, dateFrom, dateTo, expected) => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.setDateFilter(dateFrom, dateTo)
+        }).toFinishAllListeners()
+        // Seeded directly: with no rows the chart data short-circuits to empty, and an empty axis
+        // has no tail to dash either way.
+        logic.actions.loadDailyStatsSuccess([stat({ day: '2026-06-02 00:00:00', calls: 1 })])
+
+        expect(logic.values.incompleteTail).toBe(expected)
+    })
+})
+
 describe('failure drill-down', () => {
     beforeEach(() => {
         jest.clearAllMocks()

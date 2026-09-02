@@ -6,7 +6,7 @@ from unittest import mock
 
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.instantly import (
     WEBHOOK_PLAN_ERROR,
     WEBHOOK_SECRET_HEADER,

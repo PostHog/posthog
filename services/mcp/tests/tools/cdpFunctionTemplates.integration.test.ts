@@ -33,7 +33,7 @@ describe('Hog Function Templates', { concurrent: false }, () => {
             expect(typeof data.count).toBe('number')
             expect(Array.isArray(data.results)).toBe(true)
             expect(typeof data._posthogUrl).toBe('string')
-            expect(data._posthogUrl).toContain('/pipeline/templates')
+            expect(data._posthogUrl).toContain('/pipeline/new')
         })
 
         it('should return templates with required fields', async () => {

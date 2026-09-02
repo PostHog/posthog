@@ -25,6 +25,7 @@ class ErrorTrackingSpikeDetectionConfigSerializer(serializers.Serializer):
 
 class ErrorTrackingSpikeDetectionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["update_config"]
 
     @extend_schema(responses={200: ErrorTrackingSpikeDetectionConfigSerializer})
     def list(self, request, *args, **kwargs):

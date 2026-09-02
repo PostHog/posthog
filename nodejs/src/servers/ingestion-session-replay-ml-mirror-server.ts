@@ -1,4 +1,6 @@
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
@@ -19,10 +21,13 @@ import {
     SessionRecordingIngester,
     SessionRecordingIngesterCollaborators,
 } from '~/ingestion/pipelines/sessionreplay/consumer'
+import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
+import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
 import {
     MlMirrorConfig,
     getDefaultMlMirrorConfig,
     resolveMlAnonymizeMaxConcurrency,
+    resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
@@ -90,6 +95,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
+    private crawlHistoryClient?: DynamoDBClient
     private redisPool?: RedisPool
     private restrictionRedisPool?: RedisPool
 
@@ -116,7 +122,8 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
 
-        const pools = buildSessionReplayRedisPools(this.config)
+        // Another system writes the event restriction list, so every lane reads one copy of it.
+        const pools = buildSessionReplayRedisPools(this.config, resolveMlMirrorRedisConnection(this.config))
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
 
@@ -143,6 +150,10 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
         const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)
+        const urlProducerEnabled =
+            this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
+            this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
+        const urlCrawlHistory = urlProducerEnabled ? this.buildUrlCrawlHistory() : undefined
 
         // Cleartext crypto: no encryption, deletions not honored (every session stays cleartext).
         const keyStore = new CleartextKeyStore()
@@ -166,7 +177,29 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                         ),
                     },
                     this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
-                        ? { outputs, pseudonymSecret }
+                        ? {
+                              outputs,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                          }
+                        : undefined,
+                    {
+                        pseudonymSecret,
+                        // Producing the images is what makes collecting them useful, so the image
+                        // lane follows its producer flag. The URL lane collects on its own flag,
+                        // because collecting alone measures without sending anything anywhere.
+                        collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                        collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
+                    },
+                    // Producing needs collection: without it the anonymizer returns no URLs, and
+                    // the step would have nothing to send.
+                    urlProducerEnabled
+                        ? {
+                              outputs,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
+                              producedRefCacheWindowMs:
+                                  (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
+                              crawlHistory: urlCrawlHistory,
+                          }
                         : undefined
                 ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
@@ -199,12 +232,32 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         }
     }
 
+    private buildUrlCrawlHistory(): Pick<CrawlHistoryStore, 'read'> | undefined {
+        if (!this.config.SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED) {
+            return undefined
+        }
+        const tableName = this.config.AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE
+        const timeoutMs = this.config.SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS
+        if (!tableName || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+            logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_disabled', { tableConfigured: Boolean(tableName) })
+            return undefined
+        }
+        this.crawlHistoryClient = new DynamoDBClient({
+            region: this.config.SESSION_RECORDING_V2_S3_REGION || 'us-east-1',
+            endpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+            maxAttempts: 5,
+            requestHandler: new NodeHttpHandler(),
+        })
+        return new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+    }
+
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             additionalCleanup: async () => {
+                this.crawlHistoryClient?.destroy()
                 await this.producerRegistry?.disconnectAll()
             },
         }

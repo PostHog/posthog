@@ -14,6 +14,12 @@
 # Exact node version pinned to .nvmrc (24.13.0), matching the main Dockerfile's node stages, so the
 # build is reproducible instead of drifting with the floating major tag; renovate bumps it. -bookworm-slim
 # so glibc matches sharp's prebuilt binaries.
+#
+# ECR retention on posthog-ml-mirror-image-scrub has to outlive the gap between builds, because prod
+# pins an exact digest (PostHog/charts state/) and a master push only rebuilds this image when the
+# paths filtered in .github/workflows/ci-ml-mirror-image-scrub-container.yml change. Once a pinned
+# digest expires, running pods keep serving from their cached copy, so the loss only surfaces as new
+# nodes failing to pull.
 FROM node:24.13.0-bookworm-slim
 WORKDIR /code/app
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -51,11 +57,24 @@ RUN groupadd -g 10001 posthog && \
     useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
     chown -R posthog:posthog /code
 
-# One thread per native pool: the sidecar bounds parallelism by its request-concurrency ceiling
-# (IMAGE_SCRUB_CONCURRENCY), so per-op pools sized to host cores would oversubscribe a CPU-limited
-# pod. sharp is pinned at module load in src/blur.ts (sharp.concurrency(1) + cache(false), imported
-# by every scrub path); ORT is pinned per-session (ORT_THREADS).
+# Native pools are bounded so they cannot oversubscribe a CPU-limited pod. sharp is pinned to one
+# thread per operation at module load in src/blur.ts (sharp.concurrency(1) + cache(false), imported
+# by every scrub path), and OpenMP likewise. ORT is sized in src/cores.ts as cores/SCRUB_WORKERS,
+# since onnxruntime-node's run blocks its thread: each worker runs one inference at a time, so it is
+# threads times workers that has to fit the quota. With one worker per core that lands on 1 each.
 ENV OMP_NUM_THREADS=1
+
+# libuv reads this when it first creates its thread pool and never resizes, which happens before any
+# entry-module code under a loader like tsx, so it cannot be set from JS. The pool is process-wide
+# and shared by every worker thread, and each worker's sharp stages queue onto it, so size it by
+# SCRUB_WORKERS (one core per worker) rather than by request concurrency. Below the worker count the
+# sharp stages re-serialise on a pod with more cores than this.
+ENV UV_THREADPOOL_SIZE=8
+
+# Each worker loads its own three ONNX sessions, zxing wasm module and V8 isolate, because sessions
+# cannot be shared across isolates. Memory therefore scales with SCRUB_WORKERS, which defaults to the
+# core count: size the pod's memory limit against cores, not against a single process, or a
+# many-core node OOM-kills the sidecar into a crash loop. Set SCRUB_WORKERS to cap it explicitly.
 
 # Prove at build time that the models parse, the native/wasm runtimes load, and a scrub runs end to
 # end — a broken model download or prebuilt-binary mismatch fails the image build, not the deploy.

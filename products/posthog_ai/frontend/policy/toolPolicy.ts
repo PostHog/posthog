@@ -37,6 +37,9 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     // never a runtime tool, so the destructive `-execute` variant is what must be gated.
     'change-requests-approve-execute',
     'change-requests-reject-execute',
+    'cdp-functions-discard-draft',
+    'cdp-functions-publish',
+    'cdp-functions-restore-revision',
     'error-tracking-bypass-rules-create',
     'error-tracking-issues-merge-create',
     'error-tracking-issues-split-create',
@@ -44,24 +47,41 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     'experiment-ship-variant',
     'external-data-schemas-resync',
     'external-data-sources-repair-cdc-create',
+    'feature-requests-remove-evidence-create',
     'heatmaps-saved-regenerate',
     'inbox-reports-bulk-set-state',
     'inbox-reports-set-state',
     'llma-prompt-label-set',
+    'opt-outs-add',
+    'opt-outs-remove',
     'organization-enforce-2fa',
     'organization-enforce-2fa-execute',
+    'posthog-connection-forward',
     'scout-scratchpad-forget',
     'signals-scout-scratchpad-forget',
     'skill-archive',
     'user-interview-topics-remove-interviewee',
     'visual-review-runs-finalize-create',
+    'web-analytics-path-cleaning-suggestions-apply',
     'workflows-discard-draft',
     'workflows-publish',
     'workflows-restore-revision',
     'workflows-test-run',
 ])
 
-export function isPostHogDestructiveSubTool(subTool: string): boolean {
+/**
+ * `posthog-connection-call` runs another PostHog tool in a connected project, so it is exactly as
+ * destructive as that tool — which rides in its `tool` argument. Judging the wrapper by name alone
+ * would prompt on every cross-account read; judging it safe by name alone would let a cross-account
+ * delete through. An unreadable target is not provably safe, so it prompts.
+ */
+const POSTHOG_CONNECTION_CALL_TOOL = 'posthog-connection-call'
+
+export function isPostHogDestructiveSubTool(subTool: string, innerInput?: Record<string, unknown>): boolean {
+    if (subTool.toLowerCase() === POSTHOG_CONNECTION_CALL_TOOL) {
+        const forwardedTool = innerInput?.['tool']
+        return typeof forwardedTool !== 'string' || isPostHogDestructiveSubTool(forwardedTool)
+    }
     return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool) || POSTHOG_DESTRUCTIVE_SUB_TOOLS.has(subTool.toLowerCase())
 }
 
@@ -94,7 +114,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
     }
 
     const { toolName } = record
-    const { resolvedKey, innerToolName } = resolveToolCall(record.rawToolCall)
+    const { resolvedKey, innerToolName, innerInput } = resolveToolCall(record.rawToolCall)
 
     const isExec = isPostHogExecTool(toolName) || innerToolName != null || resolvedKey.startsWith('__posthog_exec_')
     if (isExec) {
@@ -103,7 +123,7 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
         }
         // A resolved `call <sub-tool>`: auto-approve only non-mutating sub-tools.
         if (innerToolName) {
-            return isPostHogDestructiveSubTool(innerToolName) ? 'prompt' : 'auto_allow'
+            return isPostHogDestructiveSubTool(innerToolName, innerInput) ? 'prompt' : 'auto_allow'
         }
         // Exec call we couldn't resolve to a concrete sub-tool — fail closed.
         return 'prompt'
@@ -143,12 +163,27 @@ const PERSIST_PROMPT_SUB_TOOLS = new Set([
     'cdp-functions-create',
     'workflows-create',
     'workflows-create-email-template',
+    'llma-parser-recipe-create',
 ])
 
-/** Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`. */
+/**
+ * Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`.
+ *
+ * Unwraps `posthog-connection-call` the same way `isPostHogDestructiveSubTool` does: the wrapper
+ * persists exactly what the tool in its `tool` argument persists, and a survey launched in someone
+ * else's project is no less worth a foreground prompt than one launched here. An unreadable target
+ * is not provably safe, so it prompts.
+ */
 export function isPersistPromptTool(record: PermissionRequestRecord): boolean {
-    const { innerToolName } = resolveToolCall(record.rawToolCall)
-    return innerToolName != null && PERSIST_PROMPT_SUB_TOOLS.has(innerToolName)
+    const { innerToolName, innerInput } = resolveToolCall(record.rawToolCall)
+    if (innerToolName == null) {
+        return false
+    }
+    if (innerToolName.toLowerCase() === POSTHOG_CONNECTION_CALL_TOOL) {
+        const forwardedTool = innerInput?.['tool']
+        return typeof forwardedTool !== 'string' || PERSIST_PROMPT_SUB_TOOLS.has(forwardedTool)
+    }
+    return PERSIST_PROMPT_SUB_TOOLS.has(innerToolName)
 }
 
 /** The optionId to auto-send when allowing — prefers the one-shot allow over `allow_always`. */

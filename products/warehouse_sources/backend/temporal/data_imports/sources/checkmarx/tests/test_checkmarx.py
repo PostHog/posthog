@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
     CHECKMARX_ENDPOINTS,
     ENDPOINTS,
+    RegionHosts,
 )
 
 TOKEN_PAYLOAD = {"access_token": "jwt-token", "expires_in": 1800}
@@ -145,7 +146,7 @@ class TestCheckmarx:
         ],
     )
     def test_get_region_hosts(self, region: str, api_host: str, iam_host: str) -> None:
-        assert get_region_hosts(region) == (api_host, iam_host)
+        assert get_region_hosts(region) == RegionHosts(api_base_url=api_host, iam_base_url=iam_host)
 
     def test_get_region_hosts_unknown_region(self) -> None:
         with pytest.raises(ValueError):

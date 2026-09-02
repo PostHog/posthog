@@ -6,9 +6,11 @@ import structlog
 from temporalio import activity
 
 from posthog.api.capture import capture_internal
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -63,9 +65,12 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "triggered_by_user_id": observation.triggered_by_user_id,
         "model_used": snapshot.model,
         "provider_used": snapshot.provider,
+        # Priced at emit time, so it can drift from quota.py's repriced-at-current-rates totals.
+        "credits": observation_credits_for_model(snapshot.model),
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
+        **_group_properties(team, observation),
     }
     distinct_id = (
         str(observation.triggered_by_user_id)
@@ -86,3 +91,30 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         event_uuid=str(observation.id),
     )
     result.raise_for_status()
+
+
+def _group_properties(team: Team, observation: ReplayObservation) -> dict:
+    """Group attribution for the recorded session: `$group_N` for group analytics, `$groups` for readers.
+
+    Ingestion only derives `$group_N` from `$groups` when it processes a person profile, which this event
+    deliberately doesn't, so the indexed keys are written here directly (the same rewrite ingestion would do).
+    """
+    group_keys = observation.session_group_keys or {}
+    if not group_keys:
+        return {}
+    properties: dict = {f"$group_{index}": key for index, key in group_keys.items()}
+    try:
+        index_to_type = {
+            mapping["group_type_index"]: mapping["group_type"]
+            for mapping in get_group_types_for_project(team.project_id, caller_tag="replay_vision/emit_observation")
+        }
+    except Exception:
+        # Named groups are a nicety for webhook and alert consumers; the indexed keys above already carry
+        # everything group analytics needs, so a group-type lookup failure must not lose them.
+        logger.warning("replay_vision.emit.group_types_lookup_failed", observation_id=str(observation.id))
+        return properties
+    # `int(index)` because the stored map round-tripped through JSON, where object keys are always strings.
+    named = {group_type: key for index, key in group_keys.items() if (group_type := index_to_type.get(int(index)))}
+    if named:
+        properties["$groups"] = named
+    return properties

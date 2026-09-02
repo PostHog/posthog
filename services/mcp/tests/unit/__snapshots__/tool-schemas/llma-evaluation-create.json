@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "An evaluation that scores LLM generations, traces, or sessions.",
     "properties": {
         "conditions": {
             "description": "Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.",
@@ -43,6 +44,17 @@
             "description": "Optional description of what this evaluation checks.",
             "type": "string"
         },
+        "directory_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Directory containing the evaluation. Pass null to move the evaluation to the top level."
+        },
         "enabled": {
             "description": "Whether the evaluation runs automatically on new $ai_generation events.",
             "type": "boolean"
@@ -75,7 +87,7 @@
                     "properties": {
                         "source": {
                             "default": "user_messages",
-                            "description": "Classify sentiment from user messages in the generation input.",
+                            "description": "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents.",
                             "enum": ["user_messages"],
                             "type": "string"
                         }
@@ -86,7 +98,7 @@
             "description": "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
         },
         "evaluation_type": {
-            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
+            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
             "enum": ["llm_judge", "hog", "sentiment"],
             "type": "string"
         },
@@ -167,22 +179,54 @@
             "type": "string"
         },
         "target": {
-            "description": "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n* `generation` - Generation\n* `trace` - Trace",
-            "enum": ["generation", "trace"],
+            "description": "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+            "enum": ["generation", "trace", "session"],
             "type": "string"
         },
         "target_config": {
-            "description": "Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.",
-            "properties": {
-                "window_seconds": {
-                    "default": 1800,
-                    "description": "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.",
-                    "maximum": 7200,
-                    "minimum": 10,
-                    "type": "number"
+            "anyOf": [
+                {
+                    "properties": {
+                        "strategy": {
+                            "description": "Wait a fixed window after the first matching generation, then evaluate.",
+                            "enum": ["fixed_window"],
+                            "type": "string"
+                        },
+                        "window_seconds": {
+                            "description": "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.",
+                            "maximum": 604800,
+                            "minimum": 10,
+                            "type": "number"
+                        }
+                    },
+                    "required": ["strategy"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "max_age_seconds": {
+                            "description": "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.",
+                            "maximum": 604800,
+                            "minimum": 60,
+                            "type": "number"
+                        },
+                        "quiet_period_seconds": {
+                            "description": "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.",
+                            "maximum": 86400,
+                            "minimum": 10,
+                            "type": "number"
+                        },
+                        "strategy": {
+                            "description": "Evaluate once the unit has had no new activity for the quiet period.",
+                            "enum": ["inactivity"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["strategy"],
+                    "type": "object"
                 }
-            },
-            "type": "object"
+            ],
+            "description": "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
         }
     },
     "required": ["name", "evaluation_type", "output_type"],

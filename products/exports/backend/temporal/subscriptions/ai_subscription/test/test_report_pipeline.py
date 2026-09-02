@@ -1,28 +1,41 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
+    ChartFailureReason,
+    ChartRenderFailure,
+    RenderedChart,
+    ValidatedChart,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
     AiReportStageError,
+    PlanExecution,
     QueryStepDiagnostic,
     _all_queries_failed_notice,
     _arequest_hogql_fix,
     _plan_to_freeze,
     _run_steps,
-    _safe_error_message,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHARTS_PER_REPORT,
     EnrichedPromptSpec,
     HogQLFix,
     QueryPlan,
     QueryPlanStep,
+    StepChart,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
@@ -30,6 +43,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     StoredPlanInvalidError,
 )
+from products.exports.backend.temporal.subscriptions.types import safe_error_message
+
+from ee.hogai.context.insight.query_executor import FormattedQueryResult
+from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -37,18 +54,31 @@ _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_gene
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
 
 _WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+_RESPONSE: dict = {"results": [], "columns": []}
+
+
+@pytest.fixture(autouse=True)
+def _charts_flag_on():
+    with patch(f"{_RP}.charts_enabled", return_value=True):
+        yield
 
 
 def _test_window() -> ReportWindow:
     return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
 
-_ALL_FAILED_RUN = (
-    ["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
-    1,
-    [QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
+_ALL_FAILED_RUN = PlanExecution(
+    rendered=["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
+    failed_count=1,
+    diagnostics=[QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
+    charts=[],
 )
-_OK_RUN = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)])
+_OK_RUN = PlanExecution(
+    rendered=["### s\n\nok"],
+    failed_count=0,
+    diagnostics=[QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)],
+    charts=[],
+)
 
 
 def _spec(steps: int = 1) -> EnrichedPromptSpec:
@@ -108,13 +138,14 @@ async def test_successful_report_emits_slo_success(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
 ) -> None:
     mock_bep.return_value = _spec(steps=2)
-    mock_run.return_value = (
-        ["### s0\n\nok", "### s1\n\nok"],
-        0,
-        [
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok", "### s1\n\nok"],
+        failed_count=0,
+        diagnostics=[
             QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None),
             QueryStepDiagnostic(description="s1", hogql="SELECT 2", ok=True, error_type=None),
         ],
+        charts=[],
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
@@ -138,10 +169,13 @@ async def test_degraded_report_still_synthesizes(
 ) -> None:
     # One step failed (failed_count=1) but the report still ships — graceful degradation.
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (
-        ["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"],
-        1,
-        [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"],
+        failed_count=1,
+        diagnostics=[
+            QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")
+        ],
+        charts=[],
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
@@ -170,10 +204,11 @@ async def test_synthesis_failure_wrapped_with_stage(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
 ) -> None:
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (
-        ["### s0\n\nok"],
-        0,
-        [QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+        charts=[],
     )
     mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
 
@@ -253,13 +288,46 @@ async def test_request_hogql_fix_grounds_prompt_in_project_schema(
 
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_executor_cls: MagicMock) -> None:
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("boom"))
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
-    assert failed == 1
-    assert "Query failed to run" in rendered[0]
-    assert diagnostics[0].ok is False
-    assert diagnostics[0].error_type == "RuntimeError"
-    assert diagnostics[0].hogql == "SELECT 1"
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=RuntimeError("boom"))
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+    assert execution.failed_count == 1
+    assert "Query failed to run" in execution.rendered[0]
+    assert execution.diagnostics[0].ok is False
+    assert execution.diagnostics[0].error_type == "RuntimeError"
+    assert execution.diagnostics[0].hogql == "SELECT 1"
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_cls: MagicMock) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=ClickHouseQueryMemoryLimitExceeded())
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+    assert execution.failed_count == 1
+    assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+    assert execution.diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    assert execution.diagnostics[0].human_readable_error is None
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
+    mock_hogql_fix: AsyncMock, mock_executor_cls: MagicMock
+) -> None:
+    error = MaxToolRetryableError("Memory limit exceeded")
+    error.__cause__ = ClickHouseQueryMemoryLimitExceeded()
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.failed_count == 1
+    assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+    assert execution.diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    mock_hogql_fix.assert_awaited_once()
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -269,11 +337,14 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
 ) -> None:
     # ResolutionError names the field the planner referenced — its message, not just the type name,
     # must reach the fix LLM so it can actually repair the query.
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(
-        side_effect=[ResolutionError("Unable to resolve field 'operaton'"), ("formatted table", None)]
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        side_effect=[
+            ResolutionError("Unable to resolve field 'operaton'"),
+            FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
+        ]
     )
     mock_fix.return_value = "SELECT fixed"
-    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
     assert mock_fix.await_args is not None
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
 
@@ -288,10 +359,13 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     # The marker is injected into the synthesis prompt from the same constant the placeholder renders, so
     # the prompt's "this is an error, not 'no data'" instruction can't drift from what _run_steps emits.
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (
-        ["### s0\n\nfailed"],
-        1,
-        [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nfailed"],
+        failed_count=1,
+        diagnostics=[
+            QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")
+        ],
+        charts=[],
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
@@ -307,18 +381,21 @@ async def test_synthesis_prompt_carries_the_failure_marker(
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, mock_fix: AsyncMock) -> None:
     # First attempt raises a retryable HogQL error, the LLM fix yields a new query, the rerun succeeds.
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(
-        side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        side_effect=[
+            ExposedHogQLError("bad query"),
+            FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
+        ]
     )
     mock_fix.return_value = "SELECT fixed"
     spec = _spec(steps=1)
-    rendered, failed, diagnostics = await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None)
-    assert failed == 0
-    assert "formatted table" in rendered[0]
+    execution = await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
+    assert execution.failed_count == 0
+    assert "formatted table" in execution.rendered[0]
     mock_fix.assert_awaited_once()
     # The diagnostic tracks the fixed query (current_hogql), not the original SELECT 1.
-    assert diagnostics[0].ok is True
-    assert diagnostics[0].hogql == "SELECT fixed"
+    assert execution.diagnostics[0].ok is True
+    assert execution.diagnostics[0].hogql == "SELECT fixed"
     # Proves the in-place write-back; test_freeze_carries_post_fix_hogql covers the guard -> freeze path.
     assert spec.plan.steps[0].hogql == "SELECT fixed"
 
@@ -330,18 +407,20 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
 ) -> None:
     # The fix LLM echoes the original query back — re-running it is pointless, so we must stop and
     # degrade rather than burn the retry budget on an identical query.
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ExposedHogQLError("bad query"))
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=ExposedHogQLError("bad query"))
     mock_fix.return_value = "SELECT 1"  # identical to QueryPlanStep.hogql in _spec()
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
-    assert failed == 1
-    assert "Query failed to run" in rendered[0]
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+    assert execution.failed_count == 1
+    assert "Query failed to run" in execution.rendered[0]
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
-    assert mock_executor_cls.return_value.arun_and_format_query.await_count == 1
+    assert mock_executor_cls.return_value.arun_format_and_capture.await_count == 1
     mock_fix.assert_awaited_once()
     # An ExposedHogQLError is safe to surface, so the diagnostic carries the human-readable reason
     # (not just the type) for the delivery viewer to show.
-    assert diagnostics[0].error_type == "ExposedHogQLError"
-    assert diagnostics[0].human_readable_error == "bad query"
+    assert execution.diagnostics[0].error_type == "ExposedHogQLError"
+    assert execution.diagnostics[0].human_readable_error == "bad query"
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
@@ -353,7 +432,7 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
     max_concurrent = 0
     saturated = asyncio.Event()
 
-    async def _track(_query: object) -> tuple[str, None]:
+    async def _track(_query: object) -> FormattedQueryResult:
         nonlocal concurrent, max_concurrent
         concurrent += 1
         max_concurrent = max(max_concurrent, concurrent)
@@ -361,11 +440,18 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
             saturated.set()  # cap reached — release the held steps so the rest can run
         await saturated.wait()
         concurrent -= 1
-        return ("formatted", None)
+        return FormattedQueryResult(formatted="formatted", fallback_used=False, response=_RESPONSE)
 
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_track)
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=_track)
 
-    await _run_steps(_spec(steps=_MAX_CONCURRENT_STEPS * 2), MagicMock(), MagicMock(), _test_window(), None)
+    await _run_steps(
+        _spec(steps=_MAX_CONCURRENT_STEPS * 2),
+        MagicMock(),
+        MagicMock(),
+        _test_window(),
+        None,
+        charts_enabled_for_team=True,
+    )
 
     assert max_concurrent == _MAX_CONCURRENT_STEPS
 
@@ -399,7 +485,26 @@ def _wrap(
     ],
 )
 def test_safe_error_message_only_surfaces_query_structure_errors(exc, expected):
-    assert _safe_error_message(exc) == expected
+    assert safe_error_message(exc) == expected
+
+
+def test_safe_error_message_respects_suppressed_context():
+    # `raise ... from None` (__suppress_context__) is the author explicitly severing the chain — an
+    # internal error they meant to hide must not surface via the wider insight-snapshot path.
+    inner = ResolutionError("internal resolution detail")
+    try:
+        try:
+            raise inner
+        except ResolutionError:
+            raise ValueError("sanitized outer") from None
+    except ValueError as outer:
+        assert safe_error_message(outer) is None
+
+
+def test_safe_error_message_strips_null_bytes():
+    # Persisted to jsonb, which rejects NUL — the safe field gets the same scrub as the raw message.
+    exc = ExposedHogQLError("bad\x00field")
+    assert safe_error_message(exc) == "badfield"
 
 
 def _frozen_plan() -> dict:
@@ -424,7 +529,12 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     # NEITHER LLM pass the live path uses — build_enriched_prompt wraps both the planner and the
     # event-selection model, so asserting it's never called proves both are skipped.
     mock_frozen.return_value = _spec(steps=1)
-    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=[],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
@@ -450,7 +560,12 @@ async def test_unfrozen_run_returns_plan_to_persist(
     # guards the persist↔reuse contract (drop relevant_events → frozen fixer goes schema-blind).
     spec = _spec_with_window_placeholder()
     mock_bep.return_value = spec
-    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=[],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -532,8 +647,11 @@ async def test_freeze_carries_post_fix_hogql(
     expected_frozen_hogql: str | None,
 ) -> None:
     mock_bep.return_value = _spec_with_window_placeholder()
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(
-        side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        side_effect=[
+            ExposedHogQLError("bad query"),
+            FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
+        ]
     )
     mock_fix.return_value = fixed_hogql
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
@@ -556,10 +674,10 @@ async def test_freeze_carries_post_fix_hogql(
     async def _reuse_execute(query):
         if "uniq(person_id)" not in query.query:
             raise ExposedHogQLError("bad query")
-        return ("formatted table", None)
+        return FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)
 
     reuse_executor = AsyncMock(side_effect=_reuse_execute)
-    mock_executor_cls.return_value.arun_and_format_query = reuse_executor
+    mock_executor_cls.return_value.arun_format_and_capture = reuse_executor
     with patch(f"{_SG}.build_context_blob", return_value="c"):
         reused = await generate_ai_report(
             team=MagicMock(),
@@ -580,11 +698,11 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
     # window advances) while the rest of the SQL is byte-identical (so the metric structure is frozen).
     captured: list[str] = []
 
-    async def _capture(query: object) -> tuple[str, None]:
+    async def _capture(query: object) -> FormattedQueryResult:
         captured.append(query.query)  # type: ignore[attr-defined]
-        return ("formatted", None)
+        return FormattedQueryResult(formatted="formatted", fallback_used=False, response=_RESPONSE)
 
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_capture)
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=_capture)
     spec = EnrichedPromptSpec(
         cleaned_prompt="p",
         context_blob="c",
@@ -596,8 +714,8 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
     early = ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
     later = ReportWindow(start=_WINDOW_END, end=_WINDOW_END + timedelta(days=1))
 
-    await _run_steps(spec, MagicMock(), MagicMock(), early, None)
-    await _run_steps(spec, MagicMock(), MagicMock(), later, None)
+    await _run_steps(spec, MagicMock(), MagicMock(), early, None, charts_enabled_for_team=True)
+    await _run_steps(spec, MagicMock(), MagicMock(), later, None, charts_enabled_for_team=True)
 
     assert "{{date_range}}" not in captured[0]  # placeholder fully resolved before execution
     assert captured[0] != captured[1]  # window advanced run-to-run
@@ -648,7 +766,12 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     # A stored plan that no longer validates (e.g. QueryPlan schema changed) must re-plan live, not fail
     # the delivery — otherwise a schema change would auto-disable every frozen subscription.
     mock_bep.return_value = _spec_with_window_placeholder()
-    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=[],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
@@ -658,3 +781,333 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     mock_bep.assert_called_once()  # self-healed by re-planning live
     assert result.markdown == "# Report"
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
+
+
+def _charted_spec(
+    charts: int = 1, chart_title: str | None = None, importances: list[int] | None = None
+) -> EnrichedPromptSpec:
+    return EnrichedPromptSpec(
+        cleaned_prompt="p",
+        context_blob="c",
+        plan=QueryPlan(
+            overall_intent="i",
+            steps=[
+                QueryPlanStep(
+                    description=f"s{n}",
+                    hogql="SELECT toDate(timestamp) AS day, count() AS signups FROM events WHERE {{date_range}}",
+                    chart=StepChart(
+                        display="ActionsLineGraph",
+                        title=chart_title,
+                        importance=importances[n] if importances else 1,
+                        x_column="day",
+                        y_columns=["signups"],
+                    ),
+                )
+                for n in range(charts)
+            ],
+        ),
+    )
+
+
+_CHART_RESPONSE: dict = {
+    "results": [["2026-08-01", 1], ["2026-08-02", 2], ["2026-08-03", 3]],
+    "columns": ["day", "signups"],
+}
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_a_charted_step_yields_a_chart_over_the_executed_sql(mock_executor_cls: MagicMock) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted", fallback_used=False, response=_CHART_RESPONSE)
+    )
+
+    execution = await _run_steps(
+        _charted_spec(), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert len(execution.charts) == 1
+    assert execution.charts[0].title == "s0"
+    assert execution.charts[0].step_index == 0
+    assert "{{date_range}}" not in execution.charts[0].hogql
+    assert execution.diagnostics[0].chart_dropped_reason is None
+
+
+@parameterized.expand(
+    [
+        ("planner_title", "New signups per day", "New signups per day"),
+        ("no_title_falls_back_to_description", None, "s0"),
+    ]
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_the_chart_caption_prefers_the_planner_title(
+    _name: str, chart_title: str | None, expected: str, mock_executor_cls: MagicMock
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted", fallback_used=False, response=_CHART_RESPONSE)
+    )
+
+    execution = await _run_steps(
+        _charted_spec(chart_title=chart_title),
+        MagicMock(),
+        MagicMock(),
+        _test_window(),
+        None,
+        charts_enabled_for_team=True,
+    )
+
+    assert execution.charts[0].title == expected
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_a_failed_step_yields_no_chart(mock_executor_cls: MagicMock) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=RuntimeError("boom"))
+
+    execution = await _run_steps(
+        _charted_spec(), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.failed_count == 1
+    assert execution.charts == []
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_a_dropped_chart_records_its_reason_and_keeps_the_step(mock_executor_cls: MagicMock) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(
+            formatted="formatted",
+            fallback_used=False,
+            response={"results": [["a", 1]], "columns": ["other", "signups"]},
+        )
+    )
+
+    execution = await _run_steps(
+        _charted_spec(), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.charts == []
+    assert execution.failed_count == 0
+    assert execution.diagnostics[0].ok is True
+    assert execution.diagnostics[0].chart_dropped_reason == "missing_columns"
+    assert "formatted" in execution.rendered[0]
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_every_validated_candidate_reaches_the_ranker(mock_executor_cls: MagicMock) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted", fallback_used=False, response=_CHART_RESPONSE)
+    )
+
+    execution = await _run_steps(
+        _charted_spec(charts=MAX_CHARTS_PER_REPORT + 2),
+        MagicMock(),
+        MagicMock(),
+        _test_window(),
+        None,
+        charts_enabled_for_team=True,
+    )
+
+    assert len(execution.charts) == MAX_CHARTS_PER_REPORT + 2
+
+
+def _charted_run(chart_dropped_reason: ChartFailureReason | None = None) -> PlanExecution:
+    return PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None, chart_dropped_reason=chart_dropped_reason)],
+        charts=[
+            ValidatedChart(
+                spec=StepChart(display="ActionsBar", x_column="a", y_columns=["b"]),
+                hogql="SELECT 1",
+                title="s0",
+                step_index=0,
+            )
+        ],
+    )
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_a_report_ships_when_every_chart_render_fails(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = _charted_run()
+    mock_render.return_value = ([], [ChartRenderFailure(step_index=0, reason=ChartFailureReason.RENDER_FAILED)])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert result.markdown == "# Report"
+    assert result.charts == ()
+    assert result.diagnostics[0].chart_dropped_reason == "render_failed"
+    assert result.diagnostics[0].ok is True
+    assert result.plan_to_persist is not None
+
+
+@parameterized.expand(
+    [
+        ("missing_columns", ChartFailureReason.MISSING_COLUMNS, None),
+        ("x_and_y_identical", ChartFailureReason.X_AND_Y_IDENTICAL, None),
+        ("non_numeric_series", ChartFailureReason.NON_NUMERIC_SERIES, None),
+        ("too_few_rows", ChartFailureReason.TOO_FEW_ROWS, "frozen"),
+        ("too_many_categories", ChartFailureReason.TOO_MANY_CATEGORIES, "frozen"),
+        ("no_results", ChartFailureReason.NO_RESULTS, "frozen"),
+    ]
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
+    _name: str,
+    reason: ChartFailureReason,
+    expectation: str | None,
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_render: AsyncMock,
+    mock_chat: MagicMock,
+    _capture: MagicMock,
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = _charted_run(chart_dropped_reason=reason)
+    mock_render.return_value = ([], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    if expectation == "frozen":
+        assert result.plan_to_persist is not None
+    else:
+        assert result.plan_to_persist is None
+
+
+@parameterized.expand([("flag_off", False), ("flag_on", True)])
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.charts_enabled")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_charts_render_only_for_a_flagged_team(
+    _name: str,
+    enabled: bool,
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_render: AsyncMock,
+    mock_enabled: MagicMock,
+    mock_chat: MagicMock,
+    _capture: MagicMock,
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = _charted_run()
+    mock_enabled.return_value = enabled
+    mock_render.return_value = ([], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert mock_run.call_args.kwargs["charts_enabled_for_team"] is enabled
+
+
+def _candidate(step_index: int, importance: int) -> ValidatedChart:
+    return ValidatedChart(
+        spec=StepChart(
+            display="ActionsBar", title=f"c{step_index}", importance=importance, x_column="a", y_columns=["b"]
+        ),
+        hogql="SELECT 1",
+        title=f"c{step_index}",
+        step_index=step_index,
+    )
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_only_the_most_important_charts_are_rendered(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
+) -> None:
+    candidates = [_candidate(0, 1), _candidate(1, 5), _candidate(2, 3)]
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=candidates,
+    )
+    mock_render.return_value = ([], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    rendered_arg = mock_render.call_args.args[0]
+    assert [chart.step_index for chart in rendered_arg] == [1, 2]
+
+
+_ONE_RENDERED = [RenderedChart(export_asset_id=1, title="c0", step_index=0)]
+_THREE_CANDIDATES = [_candidate(0, 5), _candidate(1, 4), _candidate(2, 1)]
+
+
+@parameterized.expand(
+    [
+        (
+            "more_charts_than_the_cap",
+            _THREE_CANDIDATES,
+            _ONE_RENDERED,
+            2,
+            "This report has 3 charts and shows the 1 most important",
+            True,
+        ),
+        ("every_render_failed", _THREE_CANDIDATES, [], 2, None, True),
+        ("fewer_charts_than_the_cap", [_candidate(0, 3)], _ONE_RENDERED, 6, None, False),
+    ]
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._capture_charts_truncated")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_the_report_only_mentions_truncation_when_charts_were_cut(
+    _name: str,
+    candidates: list,
+    rendered: list,
+    cap: int,
+    expected_footnote: Optional[str],
+    expect_event: bool,
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_render: AsyncMock,
+    mock_truncated: MagicMock,
+    mock_chat: MagicMock,
+    _capture: MagicMock,
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=candidates,
+    )
+    mock_render.return_value = (rendered, [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", cap):
+        result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    if expected_footnote is None:
+        assert result.markdown == "# Report"
+    else:
+        assert expected_footnote in result.markdown
+        assert "Split this prompt into separate subscriptions" in result.markdown
+    if expect_event:
+        assert mock_truncated.call_args.kwargs["requested"] == len(candidates)
+        assert mock_truncated.call_args.kwargs["selected"] == cap
+    else:
+        mock_truncated.assert_not_called()

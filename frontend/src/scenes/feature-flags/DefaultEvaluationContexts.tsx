@@ -64,7 +64,12 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
                                 type="success"
                                 icon={<IconBolt />}
                                 closable
-                                onClose={() => removeContext(ctx.name)}
+                                disabledReason={restrictedReason}
+                                onClose={() => {
+                                    if (!restrictedReason) {
+                                        removeContext(ctx.name)
+                                    }
+                                }}
                             >
                                 {ctx.name}
                             </LemonTag>

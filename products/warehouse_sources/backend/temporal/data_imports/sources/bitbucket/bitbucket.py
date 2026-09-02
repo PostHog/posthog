@@ -9,13 +9,13 @@ from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import (
     BITBUCKET_ENDPOINTS,
     BitbucketEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 BITBUCKET_BASE_URL = "https://api.bitbucket.org/2.0"
 
@@ -44,8 +44,8 @@ class BitbucketAuth:
     or a workspace/repository access token (Bearer)."""
 
     email: str | None = None
-    api_token: str | None = None
-    access_token: str | None = None
+    api_token: str | None = dataclasses.field(default=None, repr=False)
+    access_token: str | None = dataclasses.field(default=None, repr=False)
 
 
 def _make_session(auth: BitbucketAuth) -> requests.Session:

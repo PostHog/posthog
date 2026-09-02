@@ -1,0 +1,116 @@
+---
+title: Internal and test users
+sidebar: Docs
+showTitle: true
+---
+
+Your own team's traffic skews your data.
+Developers on localhost, staff accounts, contractors, and QA runs all get captured alongside real users.
+
+PostHog lets you define who counts as internal for a project, then filter those people out of your analytics.
+
+For a step-by-step walkthrough of setting up your first filter, see [how to filter out internal users](/tutorials/filter-internal-users).
+
+## Defining who counts as internal
+
+Go to **Settings → Project → Filter out internal and test users**.
+You need to be a project admin to change these settings.
+
+The filters you add here describe the people you want to exclude.
+Each entry is a property filter, and you can add as many as you need.
+An event or person is treated as internal if it matches any of them.
+
+Three kinds of entry are supported:
+
+| Kind            | Example                                 | Notes                                                           |
+| --------------- | --------------------------------------- | --------------------------------------------------------------- |
+| Person property | `email` does not contain `@example.com` | Works everywhere, including CDP destinations                    |
+| Event property  | `$host` does not contain `localhost`    | Useful for excluding local development traffic                  |
+| Cohort          | `id` not in `Internal team`             | See [using cohorts as filters](#using-cohorts-as-filters) below |
+
+Available operators include `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `gt`, `lt`, `gte`, `lte`, `is_set`, `is_not_set`, `in`, and `not_in`.
+
+These settings are per project.
+If you use more than one project, set them up in each one.
+
+## Where the filter applies
+
+Once defined, the same filter list is used by product analytics insights, web analytics, revenue analytics, session replay, and [CDP destinations](/docs/cdp).
+
+Defining the filters does not switch them on by itself.
+For insights, filtering is a per-insight setting, so you control which insights use it.
+
+## Turning the filter on for insights
+
+There are three controls, and they do different things.
+
+### On a single insight
+
+Every insight has a **Filter out internal and test users** toggle in its filter panel.
+This is the setting the other two controls write to.
+
+### As the default for new insights
+
+**Enable this filter on all new insights** in project settings sets the starting value for insights created from then on.
+It does not change insights that already exist.
+
+### On the insights you already have
+
+Under **Existing insights** in project settings, **Turn on for existing insights** and **Turn off for existing insights** apply your choice across every insight in the project.
+
+Use this after setting up your filters for the first time, so your existing dashboards and insights stop counting internal traffic.
+
+Some insights are left as they are:
+
+- **SQL insights**, which have no such toggle. Write the exclusion into the query itself if you need it.
+- **Insights you can't edit.** An organization admin can run it to cover those, or you can ask for edit access to them. See [access control](/docs/settings/access-control).
+- **Insights saved in an older format.** These keep whatever they were set to. Open one and save it to convert it, then run this again.
+
+After each run you get a summary of how many insights were changed, how many already matched, and how many were left alone.
+
+Dashboards show whatever their insights are set to.
+The exception is a dashboard with its own override for this filter, which keeps that override and ignores the change to the underlying insight.
+
+### Getting a previous setting back
+
+There is no bulk undo.
+Running it the other way sets every insight to the opposite value, rather than restoring the mix that was there before.
+
+To recover a single insight, open its activity log.
+Each change is recorded with the insight's previous query, so you can see what it was set to and put it back by hand.
+
+## Using cohorts as filters
+
+Inline person property filters work on every surface, including real-time CDP destinations.
+
+Cohorts work for analytics queries such as insights and dashboards.
+In CDP destinations they only work if the cohort is built exclusively from person property filters.
+A cohort that uses behavioral filters, or has no properties defined, causes CDP destinations to error.
+
+If you need one filter list that works everywhere, use inline person property filters.
+
+Cohort filters have also been reported to exclude anonymous users along with the cohort members.
+See [issue #39835](https://github.com/PostHog/posthog/issues/39835) for the current status.
+
+## API
+
+You can apply the filter to existing insights over the API:
+
+```bash
+curl -X POST 'https://us.posthog.com/api/projects/:project_id/insights/bulk_set_test_account_filter/' \
+  -H 'Authorization: Bearer <POSTHOG_PERSONAL_API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled": true}'
+```
+
+The key needs the `insight:write` scope, and its owner has to be a project admin, the same as in the UI.
+The response counts the outcomes:
+
+```json
+{ "updated": 42, "unchanged": 3, "unsupported": 2, "skipped": 0, "legacy": 0 }
+```
+
+Insights are updated in batches, so a request that fails part way through leaves the finished batches applied.
+Running it again is safe and picks up the rest.
+
+See the [API reference](/docs/api) for more.

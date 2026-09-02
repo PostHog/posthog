@@ -1,7 +1,7 @@
 import { CSSProperties, useMemo } from 'react'
 import { List } from 'react-window'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconMinusSmall, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -22,6 +22,8 @@ interface FacetProps {
     title: string
     options: FacetOption[]
     selected: string[]
+    /** Values in the excluded state — matching records are filtered out. Disjoint from `selected`. */
+    excluded?: string[]
     onToggle: (value: string) => void
     loading?: boolean
     emptyLabel?: string
@@ -35,6 +37,10 @@ interface FacetProps {
     maxHeight?: number
     /** For fixed facets: render zero-count values dimmed, and disabled unless already selected. */
     dimZeroCounts?: boolean
+    /** When set, renders a remove control in the header — for user-added custom facets only. */
+    onRemove?: () => void
+    /** Disables the remove control (with this explanation) while a custom-facet update is in flight. */
+    removeDisabledReason?: string
 }
 
 /** A single rail facet: a collapsible field title and its selectable values (multi-select = OR), each with a count. */
@@ -42,6 +48,7 @@ export function Facet({
     title,
     options,
     selected,
+    excluded = [],
     onToggle,
     loading = false,
     emptyLabel = 'No values',
@@ -52,26 +59,40 @@ export function Facet({
     onToggleCollapsed,
     maxHeight,
     dimZeroCounts = false,
+    onRemove,
+    removeDisabledReason,
 }: FacetProps): JSX.Element {
     const slug = title.toLowerCase().replace(/\s+/g, '-')
 
     const rowProps = useMemo<FacetValueRowProps>(
-        () => ({ options, selected, slug, onToggle, dimZeroCounts }),
-        [options, selected, slug, onToggle, dimZeroCounts]
+        () => ({ options, selected, excluded, slug, onToggle, dimZeroCounts }),
+        [options, selected, excluded, slug, onToggle, dimZeroCounts]
     )
 
     return (
         <div className="mb-3">
-            <button
-                type="button"
-                onClick={onToggleCollapsed}
-                disabled={!onToggleCollapsed}
-                className="flex items-center gap-1 w-full px-1 mb-1 text-[10px] font-semibold uppercase tracking-wide text-secondary hover:text-default"
-                data-attr={`logs-facet-${slug}-header`}
-            >
-                {collapsed ? <IconChevronRight /> : <IconChevronDown />}
-                <span>{title}</span>
-            </button>
+            <div className="flex items-center gap-1 w-full px-1 mb-1">
+                <button
+                    type="button"
+                    onClick={onToggleCollapsed}
+                    disabled={!onToggleCollapsed}
+                    className="flex items-center gap-1 flex-1 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-secondary hover:text-default"
+                    data-attr={`logs-facet-${slug}-header`}
+                >
+                    {collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                    <span className="truncate">{title}</span>
+                </button>
+                {onRemove && (
+                    <LemonButton
+                        size="small"
+                        icon={<IconX />}
+                        onClick={onRemove}
+                        disabledReason={removeDisabledReason}
+                        tooltip="Remove custom facet"
+                        data-attr={`logs-facet-${slug}-remove`}
+                    />
+                )}
+            </div>
             {!collapsed && onSearchChange && (
                 <div className="px-1 pb-1">
                     <LemonInput
@@ -110,6 +131,7 @@ export function Facet({
                                         key={option.value}
                                         option={option}
                                         selected={selected.includes(option.value)}
+                                        excluded={excluded.includes(option.value)}
                                         slug={slug}
                                         onToggle={onToggle}
                                         dimZeroCounts={dimZeroCounts}
@@ -126,6 +148,7 @@ export function Facet({
 interface FacetValueRowProps {
     options: FacetOption[]
     selected: string[]
+    excluded: string[]
     slug: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
@@ -136,6 +159,7 @@ function FacetValueRow({
     style,
     options,
     selected,
+    excluded,
     slug,
     onToggle,
     dimZeroCounts,
@@ -151,6 +175,7 @@ function FacetValueRow({
             <FacetValueButton
                 option={option}
                 selected={selected.includes(option.value)}
+                excluded={excluded.includes(option.value)}
                 slug={slug}
                 onToggle={onToggle}
                 dimZeroCounts={dimZeroCounts}
@@ -162,33 +187,55 @@ function FacetValueRow({
 function FacetValueButton({
     option,
     selected,
+    excluded,
     slug,
     onToggle,
     dimZeroCounts,
 }: {
     option: FacetOption
     selected: boolean
+    excluded: boolean
     slug: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
 }): JSX.Element {
     // A fixed facet value with no matches in the current scope: dim it, and disable it unless it's
-    // already selected (so a selected-but-now-empty value can still be toggled off).
+    // already active (selected or excluded), so an active-but-now-empty value can still be cycled off.
+    const isActive = selected || excluded
     const isZero = dimZeroCounts && option.count === 0
+    // The tri-state is otherwise only visual (checkbox / red minus / line-through), so spell the
+    // current state out for screen readers — the button cycles included → excluded → not filtered.
+    const stateLabel = excluded ? 'excluded' : selected ? 'included' : 'not filtered'
     return (
         <LemonButton
             type="tertiary"
             size="small"
             fullWidth
             className={cn(isZero && 'opacity-50')}
-            disabledReason={isZero && !selected ? 'No matching logs for the current filters' : undefined}
-            icon={<LemonCheckbox checked={selected} className="pointer-events-none" />}
+            disabledReason={isZero && !isActive ? 'No matching logs for the current filters' : undefined}
+            aria-label={`${option.label}, ${stateLabel}`}
+            icon={
+                excluded ? (
+                    // Deliberately not LemonCheckbox's `indeterminate` — that means "partially
+                    // selected", while this box means "negated".
+                    <span
+                        aria-hidden
+                        className="flex items-center justify-center w-4 h-4 rounded border-[1.5px] border-danger text-danger shrink-0 pointer-events-none"
+                    >
+                        <IconMinusSmall className="text-sm" />
+                    </span>
+                ) : (
+                    <span aria-hidden className="flex">
+                        <LemonCheckbox checked={selected} className="pointer-events-none" />
+                    </span>
+                )
+            }
             onClick={() => onToggle(option.value)}
             data-attr={`logs-facet-${slug}-${option.value}`}
         >
             <span className="flex items-center gap-2 min-w-0 w-full">
                 {option.color && <span className={cn('w-1 h-3.5 rounded-full shrink-0', option.color)} />}
-                <span className="truncate flex-1">{option.label}</span>
+                <span className={cn('truncate flex-1', excluded && 'line-through text-muted')}>{option.label}</span>
                 {option.count != null && (
                     <span className="shrink-0 text-muted tabular-nums">{humanFriendlyLargeNumber(option.count)}</span>
                 )}

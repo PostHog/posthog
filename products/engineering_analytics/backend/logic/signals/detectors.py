@@ -4,6 +4,7 @@ They compose the ``logic/queries/`` read modules instead of authoring SQL, so de
 MCP read surface can never disagree (SPEC §7). Thresholds are overridable arguments.
 """
 
+import re
 import hashlib
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
@@ -50,14 +51,33 @@ BROKEN_DEFAULT_BRANCH_WINDOW_HOURS = 24
 BROKEN_DEFAULT_BRANCH_MIN_RUNS = 3
 BROKEN_DEFAULT_BRANCH_MAX_SUCCESS_RATE = 0.5
 # Duration regression: needs a relative AND absolute p95 jump so a 2s→4s blip doesn't fire.
+# Calibrated on observed week-over-week p95 movement in PostHog/posthog: stable high-volume
+# workflows drift under ~10% a week, while the regressions worth a signal land at +25-35% on
+# 15-25 minute workflows. The relative gate sits between those two bands.
 DURATION_WINDOW_DAYS = 7
 DURATION_MIN_RUNS = 20
-DURATION_MIN_PCT_INCREASE = 0.5
+DURATION_MIN_PCT_INCREASE = 0.2
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
 
+# A sharded job reports one GitHub job per shard, labeled `(i/N)`. turbo-discover.js builds the
+# label into the matrix group and ci-backend.yml wraps the group mid-name for product tests, so
+# the match cannot be anchored to the end of the string.
+SHARD_LABEL_RE = re.compile(r"\s*\((\d+)/\d+\)")
+
+
+def _base_job_name(job_name: str) -> str:
+    """The job name with its shard label removed.
+
+    The flaky thing is the job, not the shard, and the shard count moves between runs, so a
+    raw-name key splits one flaky job into a signal per shard, each gated separately by
+    min_flaky_runs. Falls back to the raw name if stripping would leave nothing.
+    """
+    return SHARD_LABEL_RE.sub("", job_name) or job_name
+
+
 def _job_key(row: FlakyJobRun) -> tuple[str, str, str, str]:
-    return (row.repo_owner, row.repo_name, row.workflow_name, row.job_name)
+    return (row.repo_owner, row.repo_name, row.workflow_name, _base_job_name(row.job_name))
 
 
 def _observation_week(now: datetime) -> str:
@@ -104,12 +124,20 @@ def detect_flaky_checks(
 
     findings: list[CISignalFinding] = []
     for (repo_owner, repo_name, workflow_name, job_name), rows in sorted(by_job.items()):
-        flaky_count = len(rows)
+        # One run recovering on several shards is one flaky run: counting rows would let a single
+        # bad run clear min_flaky_runs on its own.
+        flaky_count = len({row.run_id for row in rows})
         if flaky_count < min_flaky_runs:
             continue
         repo = f"{repo_owner}/{repo_name}"
         # The flaky thing is the job, not any one rerun: one worked example plus a count.
         latest = max(rows, key=lambda row: row.run_id)
+        # Which shard holds the offending test is still evidence, so keep it on the worked example
+        # even though it's out of the key. Distinct indices, not names: `(1/4)` and `(1/6)` are the
+        # same shard slot under a drifted count.
+        shard_indices = {match.group(1) for row in rows if (match := SHARD_LABEL_RE.search(row.job_name))}
+        shard_note = f", spread over {len(shard_indices)} shards of the job" if len(shard_indices) > 1 else ""
+        latest_shard = f" (shard '{latest.job_name}')" if latest.job_name != job_name else ""
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_FLAKY_CHECK,
@@ -120,15 +148,18 @@ def detect_flaky_checks(
                     # Grouping titles a split report from the first line, so keep ids out of it.
                     f"CI job '{job_name}' in workflow '{workflow_name}' is flaky on {repo}\n"
                     f"It failed and then passed on a rerun of the same commit {flaky_count} time(s) in the "
-                    f"last {window_days}d. Most recent: run {latest.run_id} for commit {latest.head_sha} "
-                    f"failed on attempt {latest.failed_attempt} and passed on attempt {latest.passed_attempt}."
+                    f"last {window_days}d{shard_note}. Most recent: run {latest.run_id} for commit "
+                    f"{latest.head_sha}{latest_shard} failed on attempt {latest.failed_attempt} and passed on "
+                    f"attempt {latest.passed_attempt}."
                 ),
                 weight=SIGNAL_WEIGHT,
                 extra=EngineeringAnalyticsCIFlakyCheckSignalExtra(
                     repo_owner=repo_owner,
                     repo_name=repo_name,
                     workflow_name=workflow_name,
-                    job_name=job_name,
+                    # The worked example's real job name, not the shard-stripped key: downstream
+                    # investigation queries filter warehouse rows on the rendered name.
+                    job_name=latest.job_name,
                     run_id=latest.run_id,
                     head_sha=latest.head_sha,
                     failed_attempt=latest.failed_attempt,
@@ -160,7 +191,12 @@ def detect_broken_default_branch(
 ) -> list[CISignalFinding]:
     now = datetime.now(UTC)
     date_from = now - timedelta(hours=window_hours)
-    default_branches = query_default_branches(curated=curated, date_from=date_from, workload=Workload.OFFLINE)
+    default_branches = query_default_branches(curated=curated, workload=Workload.OFFLINE)
+    if not default_branches:
+        # No PR evidence for any repo, so there is no branch to judge. Skipping is correct, but a
+        # silent skip is indistinguishable from healthy CI — the failure mode has to be observable.
+        logger.warning("ci_signal_default_branch_unresolved")
+        return []
     findings: list[CISignalFinding] = []
     for branch in sorted(set(default_branches.values())):
         for item in query_workflow_health(
@@ -176,10 +212,8 @@ def detect_broken_default_branch(
                 continue
             if item.conclusive_run_count < min_runs or not item.latest_run_failed:
                 continue
-            # `success_rate` counts cancelled/skipped in its denominator, which pins any
-            # heavy-cancel workflow under the floor and makes this guard a no-op.
-            conclusive_success_rate = item.successful_run_count / item.conclusive_run_count
-            if conclusive_success_rate > max_success_rate:
+            success_rate = item.success_rate
+            if success_rate is None or success_rate > max_success_rate:
                 continue
             repo = f"{item.repo.owner}/{item.repo.name}"
             latest_conclusion = item.latest_run_conclusion or "failure"
@@ -193,7 +227,7 @@ def detect_broken_default_branch(
                     ),
                     description=(
                         f"CI workflow '{item.workflow_name}' is failing on {branch} for {repo}\n"
-                        f"{conclusive_success_rate:.0%} success over the last {window_hours}h "
+                        f"{success_rate:.0%} success over the last {window_hours}h "
                         f"({item.conclusive_run_count} runs that reached a verdict), latest completed run "
                         f"'{latest_conclusion}'. The default branch is red, so every PR branched from it "
                         f"inherits the failure."
@@ -204,7 +238,7 @@ def detect_broken_default_branch(
                         repo_name=item.repo.name,
                         workflow_name=item.workflow_name,
                         branch=branch,
-                        conclusive_success_rate=conclusive_success_rate,
+                        conclusive_success_rate=success_rate,
                         conclusive_run_count=int(item.conclusive_run_count),
                         latest_conclusion=latest_conclusion,
                         window_hours=window_hours,

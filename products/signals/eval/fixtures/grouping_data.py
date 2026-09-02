@@ -1820,4 +1820,62 @@ GROUP_DATA = [
             ),
         ],
     ),
+    # --- Group 47: Same empty-i18n-key defect surfacing across different components ---
+    # One shared guard in the missing-key handler resolves every one of these, so they
+    # belong in ONE report/PR. They surface in different components (calendar, settings,
+    # event views), which previously fragmented them into many near-identical reports —
+    # the "judge by symptom surface, not by the fix" failure the specificity gate had.
+    EvalGroupSpec(
+        scenario="An empty i18n translation key reaches the missing-key handler from several UI surfaces; one guard fixes them all",
+        signals=[
+            EvalSignalSpec(
+                source=E,
+                title="[i18n] Missing Key: common:",
+                body=(
+                    "An empty translation key ('common:') is reported to error tracking from the calendar "
+                    "event render path.\n"
+                    "handleMissingKey in src/lib/i18n/I18nErrorTracking.ts line 42\n"
+                    "missingKeyHandler in src/lib/i18n/I18n.ts line 88\n"
+                    "renderEventContent in src/components/WorkOrders/CalendarV2/components/OperationEvent/index.tsx line 51\n"
+                    "A dynamic t() key was blank at render time. 1 occurrence, 1 user."
+                ),
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="[i18n] Missing Key: common:",
+                body=(
+                    "Empty translation key ('common:') reported to error tracking from the scheduling "
+                    "calendar.\n"
+                    "handleMissingKey in src/lib/i18n/I18nErrorTracking.ts line 42\n"
+                    "missingKeyHandler in src/lib/i18n/I18n.ts line 88\n"
+                    "Calendar in src/components/Scheduling/components/Calendar/index.tsx line 133\n"
+                    "Same empty/undefined key handed to t() in a different calendar surface."
+                ),
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="[i18n] Missing Key: common:",
+                body=(
+                    "Empty translation key ('common:') reported to error tracking from the event type "
+                    "selector in settings.\n"
+                    "handleMissingKey in src/lib/i18n/I18nErrorTracking.ts line 42\n"
+                    "missingKeyHandler in src/lib/i18n/I18n.ts line 88\n"
+                    "EventTypeSelector in src/components/Settings/EventTypeSelector.tsx line 27\n"
+                    "A t('') placeholder call fires the missing-key handler with an empty key."
+                ),
+            ),
+            EvalSignalSpec(
+                source=E,
+                title="[i18n] Missing Key: common:",
+                body=(
+                    "Empty translation key ('common:') reported to error tracking from the FullCalendar "
+                    "event render.\n"
+                    "handleMissingKey in src/lib/i18n/I18nErrorTracking.ts line 42\n"
+                    "missingKeyHandler in src/lib/i18n/I18n.ts line 88\n"
+                    "eventDidMount in src/components/WorkOrders/CalendarV2/components/OperationEvent/render.tsx line 74\n"
+                    "Same defect: guard empty keys once in the missing-key handler."
+                ),
+            ),
+        ],
+    ),
 ]

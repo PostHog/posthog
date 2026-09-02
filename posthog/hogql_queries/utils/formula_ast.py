@@ -25,70 +25,81 @@ class FormulaAST:
             map = {}
             for index, value in enumerate(consts):
                 map[chr(ord("`") + index + 1)] = value
-            result = self._evaluate(node.lower(), map)
+            result = self._evaluate(node.strip().lower(), map)
             res.append(result)
         return res
 
     def _evaluate(self, node, const_map: dict[str, Any]):
-        if isinstance(node, list | tuple):
-            return [self._evaluate(sub_node, const_map) for sub_node in node]
+        match node:
+            case list() | tuple():
+                return [self._evaluate(sub_node, const_map) for sub_node in node]
 
-        elif isinstance(node, str):
-            return self._evaluate(ast.parse(node), const_map)
+            case str():
+                return self._evaluate(ast.parse(node), const_map)
 
-        elif isinstance(node, ast.Module):
-            values = []
-            for body in node.body:
-                values.append(self._evaluate(body, const_map))
-            if len(values) == 1:
-                values = values[0]
-            return values
+            case ast.Module(body=body):
+                values = []
+                for sub_node in body:
+                    values.append(self._evaluate(sub_node, const_map))
+                if len(values) == 1:
+                    values = values[0]
+                return values
 
-        elif isinstance(node, ast.Expr):
-            return self._evaluate(node.value, const_map)
+            case ast.Expr(value=value):
+                return self._evaluate(value, const_map)
 
-        elif isinstance(node, ast.BinOp):
-            left = self._evaluate(node.left, const_map)
-            op = node.op
-            right = self._evaluate(node.right, const_map)
-            # Handle None values that may come from empty query results
-            if left is None:
-                left = 0
-            if right is None:
-                right = 0
-            try:
-                return self.op_map[type(op)](left, right)
-            except ZeroDivisionError:
-                return 0
-            except KeyError:
-                raise ValueError(f"Operator {op.__class__.__name__} not supported")
+            case ast.BinOp(left=left_node, op=op, right=right_node):
+                left = self._evaluate(left_node, const_map)
+                right = self._evaluate(right_node, const_map)
+                # Handle None values that may come from empty query results
+                if left is None:
+                    left = 0
+                if right is None:
+                    right = 0
+                try:
+                    return self.op_map[type(op)](left, right)
+                except ZeroDivisionError:
+                    return 0
+                except KeyError:
+                    raise ExposedHogQLError(
+                        f"Formulas only support arithmetic ( + - * / % ** ) between series, not {op.__class__.__name__}"
+                    )
 
-        elif isinstance(node, ast.UnaryOp):
-            operand = self._evaluate(node.operand, const_map)
-            # Handle None values that may come from empty query results
-            if operand is None:
-                operand = 0
-            unary_op = node.op
-            if isinstance(unary_op, ast.USub):
-                return -operand
-            elif isinstance(unary_op, ast.UAdd):
-                return operand
-            raise ValueError(f"Operator {unary_op.__class__.__name__} not supported")
-
-        elif (
-            isinstance(node, ast.Constant) and isinstance(node.value, int | float) and not isinstance(node.value, bool)
-        ):
-            return node.value
-
-        elif isinstance(node, ast.Name):
-            try:
-                return const_map[node.id]
-            except KeyError:
-                available = sorted(k.upper() for k in const_map if k.isalpha() and len(k) == 1)
-                series_word = "series is" if len(available) == 1 else "series are"
+            case ast.UnaryOp(op=unary_op, operand=operand_node):
+                operand = self._evaluate(operand_node, const_map)
+                # Handle None values that may come from empty query results
+                if operand is None:
+                    operand = 0
+                if isinstance(unary_op, ast.USub):
+                    return -operand
+                elif isinstance(unary_op, ast.UAdd):
+                    return operand
                 raise ExposedHogQLError(
-                    f"Formula references series {node.id.upper()}, "
-                    f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
+                    f"Formulas only support arithmetic ( + - * / % ** ) between series, not {unary_op.__class__.__name__}"
                 )
 
-        raise TypeError(f"Unsupported operation: {node.__class__.__name__}")
+            case ast.Constant(value=int() | float() as value) if not isinstance(value, bool):
+                return value
+
+            case ast.Name(id=name):
+                try:
+                    return const_map[name]
+                except KeyError:
+                    available = sorted(k.upper() for k in const_map if k.isalpha() and len(k) == 1)
+                    series_word = "series is" if len(available) == 1 else "series are"
+                    raise ExposedHogQLError(
+                        f"Formula references series {name.upper()}, "
+                        f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
+                    )
+
+            case ast.Call(func=func):
+                called = f"{func.id.upper()}()" if isinstance(func, ast.Name) else "function calls"
+                raise ExposedHogQLError(
+                    f"Formulas only support arithmetic between series (like (A + B) / 2), not {called}. "
+                    f"To aggregate a series, set its measurement (for example median or p95) on the series itself."
+                )
+
+            case _:
+                raise ExposedHogQLError(
+                    f"Formulas only support arithmetic between series, not {node.__class__.__name__}"
+                )

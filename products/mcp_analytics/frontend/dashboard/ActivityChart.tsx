@@ -28,8 +28,10 @@ export function ActivityChart({
     timezone: string
     interval: TimeInterval
     // When true, the final bucket is the current in-progress interval — dash that segment so the
-    // partial period reads as "not finished yet" rather than a drop in tool calls.
-    incompleteTail?: boolean
+    // partial period reads as "not finished yet" rather than a drop in tool calls. Required rather
+    // than optional: an omitted prop silently renders a solid partial bucket, which is the failure
+    // this had.
+    incompleteTail: boolean
 }): JSX.Element {
     const series = useMemo<Series[]>(() => {
         const totals = daily.successes.map((s, i) => s + (daily.errors[i] ?? 0))

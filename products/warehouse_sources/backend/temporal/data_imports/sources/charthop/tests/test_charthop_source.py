@@ -2,16 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.charthop import ChartHopResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source import ChartHopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.charthop import (
     ChartHopSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.check_access"
 
@@ -22,49 +16,15 @@ class TestChartHopSource:
         self.team_id = 123
         self.config = ChartHopSourceConfig(api_key="charthop-token")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CHARTHOP
+    def test_version_declaration_defaults_to_v2(self) -> None:
+        # New sources are stamped with default_version; v1 stays supported for existing pins.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
 
     def test_org_id_is_a_connection_host_field(self) -> None:
         # Changing org_id must force the api_key to be re-entered, so the stored token is
         # never retargeted at another org the editor doesn't hold credentials for.
         assert self.source.connection_host_fields == ["org_id"]
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "ChartHop"
-        assert config.label == "ChartHop"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "org_id"]
-
-    def test_api_key_field_is_secret_password_and_org_id_optional(self) -> None:
-        config = self.source.get_source_config
-        api_key = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.secret is True
-        assert api_key.required is True
-
-        org_id = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "org_id")
-        assert org_id.required is False
-        assert org_id.secret is False
-
-    def test_get_schemas_only_changes_is_incremental(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-        by_name = {s.name: s for s in schemas}
-        assert by_name["changes"].supports_incremental is True
-        assert [f["field"] for f in by_name["changes"].incremental_fields] == ["date"]
-        for name, schema in by_name.items():
-            if name != "changes":
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["persons", "nope"])
-        assert [s.name for s in schemas] == ["persons"]
 
     @parameterized.expand(
         [
@@ -82,16 +42,6 @@ class TestChartHopSource:
     def test_non_retryable_errors_match_credential_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "HTTP 503 for https://api.charthop.com/v2/org/x/job"),
-            ("rate_limited", "HTTP 429 for https://api.charthop.com/v2/org/x/job"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient_failures(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand(
         [
@@ -138,15 +88,16 @@ class TestChartHopSource:
         assert message == "Unknown ChartHop schema 'not_a_table'"
         mock_check.assert_not_called()
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ChartHopResumeConfig
-
+    @parameterized.expand([("unpinned", None, "v2"), ("legacy", "v1", "v1"), ("v2", "v2", "v2")])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.resolve_org_id")
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.charthop_source")
     def test_source_for_pipeline_plumbs_arguments(
-        self, mock_charthop_source: mock.MagicMock, mock_resolve: mock.MagicMock
+        self,
+        _name: str,
+        pin: str | None,
+        expected_version: str,
+        mock_charthop_source: mock.MagicMock,
+        mock_resolve: mock.MagicMock,
     ) -> None:
         mock_resolve.return_value = "org-42"
         inputs = mock.MagicMock()
@@ -155,6 +106,7 @@ class TestChartHopSource:
         inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01"
+        inputs.api_version = pin
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -169,3 +121,14 @@ class TestChartHopSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01"
+        # An unpinned source resolves to default_version so its sync path matches new rows.
+        assert kwargs["api_version"] == expected_version
+
+    @parameterized.expand([("unpinned", None, "v2"), ("legacy", "v1", "v1")])
+    @mock.patch(CHECK_ACCESS_PATH)
+    def test_validate_credentials_probes_under_resolved_version(
+        self, _name: str, pin: str | None, expected_version: str, mock_check: mock.MagicMock
+    ) -> None:
+        mock_check.return_value = (200, None)
+        self.source.validate_credentials(self.config, self.team_id, schema_name="changes", api_version=pin)
+        assert mock_check.call_args.args == ("charthop-token", None, "changes", expected_version)

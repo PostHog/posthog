@@ -1,23 +1,17 @@
 from typing import Any, Optional
 
-from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snyk import SnykSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.settings import (
     ENDPOINTS,
     SNYK_ENDPOINTS,
     SnykScope,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.snyk import SnykResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source import SnykSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -47,36 +41,11 @@ class TestSnykSource:
         self.source = SnykSource()
         self.team_id = 1
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SNYK
-
     def test_credential_retargeting_fields_force_token_reentry(self) -> None:
         # `region` picks the host the token is sent to and `organization_id` picks the tenant it
         # reads; dropping either from this list would let an editor retarget the preserved token
         # without re-entering it.
         assert self.source.connection_host_fields == ["region", "organization_id"]
-
-    def test_source_config_basics(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Snyk"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_token", "region", "organization_id"]
-
-        token_field = config.fields[0]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.required is True
-        assert token_field.secret is True
-
-        region_field = config.fields[1]
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.defaultValue == "us"
-        assert [o.value for o in region_field.options] == ["us", "eu", "au"]
-
-        org_field = config.fields[2]
-        assert isinstance(org_field, SourceFieldInputConfig)
-        assert org_field.required is False
 
     def test_generated_config_parses_fields(self) -> None:
         # Guards the generated-config round trip: form fields must map to config attributes.
@@ -84,10 +53,6 @@ class TestSnykSource:
         assert config.api_token == "tok_123"
         assert config.region == "us"
         assert config.organization_id is None
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -104,10 +69,6 @@ class TestSnykSource:
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["issues", "projects"])
-        assert {s.name for s in schemas} == {"issues", "projects"}
-
     def test_publishes_table_catalog_for_public_docs(self) -> None:
         # `lists_tables_without_credentials` gates whether the static endpoint catalog reaches the
         # posthog.com "Supported tables" section; dropping it would silently empty that section.
@@ -117,31 +78,6 @@ class TestSnykSource:
         issues = next(t for t in tables if t["name"] == "issues")
         assert "Incremental" in issues["sync_methods"]
         assert issues["description"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source.validate_snyk_credentials"
-    )
-    def test_validate_credentials_plumbs_config(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        config = SnykSourceConfig.from_dict({"api_token": "tok", "region": "eu", "organization_id": "org-1"})
-        ok, error = self.source.validate_credentials(config, self.team_id)
-        assert ok is True
-        assert error is None
-        mock_validate.assert_called_once_with("eu", "tok", "org-1")
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source.validate_snyk_credentials"
-    )
-    def test_validate_credentials_failure(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Snyk API token")
-        ok, error = self.source.validate_credentials(SnykSourceConfig.from_dict({"api_token": "bad"}), self.team_id)
-        assert ok is False
-        assert error == "Invalid Snyk API token"
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SnykResumeConfig
 
     @parameterized.expand(
         [
@@ -168,31 +104,6 @@ class TestSnykSource:
             SnykSourceConfig.from_dict({"api_token": "tok"}), manager, _source_inputs("issues")
         )
         assert response.sort_mode == "desc"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source.snyk_source")
-    def test_incremental_value_only_passed_when_enabled(self, mock_snyk_source: MagicMock) -> None:
-        config = SnykSourceConfig.from_dict({"api_token": "tok"})
-        manager = MagicMock()
-        inputs = _source_inputs(
-            "issues",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="2026-01-01",
-            incremental_field="updated_at",
-        )
-        self.source.source_for_pipeline(config, manager, inputs)
-        disabled_kwargs = mock_snyk_source.call_args.kwargs
-        assert disabled_kwargs["db_incremental_field_last_value"] is None
-
-        inputs = _source_inputs(
-            "issues",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01",
-            incremental_field="updated_at",
-        )
-        self.source.source_for_pipeline(config, manager, inputs)
-        enabled_kwargs = mock_snyk_source.call_args.kwargs
-        assert enabled_kwargs["db_incremental_field_last_value"] == "2026-01-01"
-        assert enabled_kwargs["incremental_field"] == "updated_at"
 
     def test_fan_out_children_carry_organization_id_in_primary_key(self) -> None:
         # Fan-out children aggregate rows from every org, so the injected org id must be part of

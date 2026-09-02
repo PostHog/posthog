@@ -6,7 +6,6 @@ import dataclasses
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.ducklake.common import duckgres_data_modeling_schema, get_duckgres_server_for_organization, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -22,9 +21,20 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.endpoints.backend.facade.temporal import prepare_executable_query
+from products.managed_warehouse.backend.facade.api import (
+    duckgres_data_modeling_schema,
+    has_provisioned_warehouse,
+    is_dev_mode,
+)
+from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
 
 from ..metrics import get_node_suspended_metric
-from .utils import CONSECUTIVE_FAILURES_TO_SUSPEND, clear_node_suspension_for_engine, maybe_suspend_node_for_engine
+from .utils import (
+    CONSECUTIVE_FAILURES_TO_SUSPEND,
+    bind_data_modeling_log_context,
+    clear_node_suspension_for_engine,
+    maybe_suspend_node_for_engine,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -66,7 +76,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
 
         return os.environ.get("DUCKGRES_SHADOW_ENABLED", "").lower() in ("1", "true")
 
-    if get_duckgres_server_for_organization(str(team.organization_id)) is None:
+    if not has_provisioned_warehouse(str(team.organization_id)):
         return False
 
     try:
@@ -88,19 +98,18 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
 
-def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str, dict[str, object]]:
+def _compile_hogql_for_ducklake(hogql_query: str, team_id: int) -> DuckLakeCompiledQuery:
     from posthog.schema import HogQLQuery
 
-    from posthog.ducklake.client import compile_hogql_to_ducklake_sql
+    from products.managed_warehouse.backend.facade.client import compile_hogql_to_ducklake_sql
 
-    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(
+    return compile_hogql_to_ducklake_sql(
         team_id,
         HogQLQuery(query=hogql_query),
         # Userless shadow materialization; mirror ClickHouse materialization so the
         # model query can resolve its warehouse source tables/views.
         bypass_warehouse_access_control=True,
     )
-    return postgres_sql, values
 
 
 @database_sync_to_async_pool
@@ -159,6 +168,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     logger = LOGGER.bind()
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
+    bind_data_modeling_log_context(inputs.team_id, saved_query.id)
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = duckgres_data_modeling_schema(team.pk)
     table_name = saved_query.normalized_name
@@ -173,17 +183,21 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     start_time = time.monotonic()
     sql: str = ""
     values: dict[str, object] = {}
+    s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     try:
         if inputs.dangerously_execute_raw_sql:
             sql = hogql_query
         else:
-            sql, values = await database_sync_to_async_pool(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
+            compiled = await database_sync_to_async_pool(_compile_hogql_for_ducklake)(hogql_query, team.pk)
+            sql = compiled.sql
+            values = compiled.values
+            s3_secrets = compiled.s3_secrets
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
-        from posthog.ducklake.client import execute_ducklake_create_table
+        from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table
 
         result = await database_sync_to_async_pool(execute_ducklake_create_table)(
-            team.pk, sql, schema_name, table_name, values
+            team.pk, sql, schema_name, table_name, values, s3_secrets=s3_secrets
         )
         duration = time.monotonic() - start_time
 

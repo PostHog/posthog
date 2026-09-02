@@ -17,6 +17,7 @@ HARMONIC_COMPANY_ENRICHMENT_QUERY = """
 mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
     enrichCompanyByIdentifiers(identifiers: $identifiers) {
         companyFound
+        enrichmentUrn
         company {
             name
             companyType
@@ -26,6 +27,17 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
             }
             headcount
             description
+            ownershipStatus
+            customerType
+            fundingAttributeNullStatus
+            relatedCompanies {
+                acquiredBy {
+                    companyUrn
+                }
+                subsidiaryOf {
+                    companyUrn
+                }
+            }
             location {
                 city
                 country

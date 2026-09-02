@@ -218,6 +218,54 @@ describe('events utils', () => {
                 })
             ).toEqual('clicked button with aria label "Close "main" dialog"')
         })
+
+        it.each([
+            [
+                'SVG using link text',
+                [{ tag_name: 'svg' } as ElementType, { tag_name: 'a', text: 'View documentation' } as ElementType],
+                'clicked link with text "View documentation"',
+            ],
+            [
+                'SVG using button aria-label',
+                [
+                    { tag_name: 'svg' } as ElementType,
+                    {
+                        tag_name: 'button',
+                        attributes: { 'attr__aria-label': 'Play video' },
+                    } as ElementType,
+                ],
+                'clicked button with aria label "Play video"',
+            ],
+            [
+                'labeled SVG inside an unlabeled link',
+                [
+                    {
+                        tag_name: 'svg',
+                        attributes: { 'attr__aria-label': 'Documentation' },
+                    } as ElementType,
+                    { tag_name: 'a' } as ElementType,
+                ],
+                'clicked link with aria label "Documentation"',
+            ],
+            [
+                'labeled image inside an unlabeled button',
+                [
+                    {
+                        tag_name: 'img',
+                        attributes: { 'attr__aria-label': 'Delete' },
+                    } as ElementType,
+                    { tag_name: 'button' } as ElementType,
+                ],
+                'clicked image with aria label "Delete"',
+            ],
+        ])('describes a clicked %s', (_, elements, expected) => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements,
+                })
+            ).toEqual(expected)
+        })
     })
 
     describe('getPrimaryPropertyForEvent', () => {
@@ -226,7 +274,7 @@ describe('events utils', () => {
             ['$pageleave', '$pathname'],
             ['$screen', '$screen_name'],
             ['$feature_flag_called', '$feature_flag'],
-            ['$exception', '$exception_type'],
+            ['$exception', '$exception_types'],
             ['$ai_generation', '$ai_model'],
             ['$ai_trace', '$ai_span_name'],
             ['$ai_span', '$ai_span_name'],

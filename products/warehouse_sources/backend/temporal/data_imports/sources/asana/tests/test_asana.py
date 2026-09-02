@@ -254,9 +254,13 @@ class TestAsanaSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
+    # Creation-time fields that never change after a row is written — safe to partition on.
+    # A mutable field (modified_at, lastSeen) would rewrite partitions on every sync.
+    STABLE_CREATION_FIELDS = {"created_at", "run_started_at"}
+
     @pytest.mark.parametrize("config", list(ASANA_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config) -> None:
         if config.partition_key:
-            assert config.partition_key == "created_at"
+            assert config.partition_key in self.STABLE_CREATION_FIELDS
             # The partition field must be opted into the response, else partitioning fails.
             assert config.partition_key in config.opt_fields

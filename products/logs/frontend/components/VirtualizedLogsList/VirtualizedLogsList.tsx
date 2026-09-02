@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -12,7 +12,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
-import { isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
+import { columnExpression, isPinnedColumn } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -29,6 +29,7 @@ import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/Lo
 import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
 import { VirtualizedTableColumn } from 'products/logs/frontend/components/VirtualizedLogsList/types'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
+import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -201,12 +202,19 @@ export function VirtualizedLogsList({
 
     const { customColumnAliases } = useValues(logsViewerDataLogic({ id }))
 
-    // Server aliases are keyed by the expression that produced them, so map each custom column
-    // to its alias by expression. This stays correct when columns are reordered without a re-fetch.
-    const aliasById = useMemo(() => {
-        const customConfigs = columnConfigs.filter((config) => config.type === 'custom' && !!config.expression?.trim())
-        return new Map(customConfigs.map((config) => [config.id, customColumnAliases?.[config.expression!.trim()]]))
-    }, [columnConfigs, customColumnAliases])
+    // Server aliases are keyed by the expression that produced them, so map each server-computed
+    // column to its alias by expression. This stays correct when columns are reordered without a
+    // re-fetch.
+    const aliasById = useMemo(
+        () =>
+            new Map(
+                columnConfigs.flatMap((config) => {
+                    const expression = columnExpression(config)
+                    return expression ? [[config.id, customColumnAliases?.[expression]] as const] : []
+                })
+            ),
+        [columnConfigs, customColumnAliases]
+    )
 
     // Columns memoized on structural deps only — per-row state (selection,
     // expansion, prettify) is read from kea inside cell components. Everything after the
@@ -349,10 +357,16 @@ export function VirtualizedLogsList({
                     <h4 className="font-semibold m-0">No logs found</h4>
                     <p className="text-muted text-sm mt-1 mb-0 max-w-80">
                         Try adjusting your filters, expanding the time range, or checking that your app is sending logs.
+                        Drop rules can also remove logs before they are stored.
                     </p>
-                    <Link to="https://posthog.com/docs/logs/" target="_blank">
-                        View documentation
-                    </Link>
+                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+                        <Link to={logsDropRulesSettingsUrl()} data-attr="logs-empty-state-drop-rules">
+                            Check drop rules
+                        </Link>
+                        <Link to="https://posthog.com/docs/logs/" target="_blank">
+                            View documentation
+                        </Link>
+                    </div>
                 </div>
                 {onExpandTimeRange && (
                     <LemonButton type="secondary" size="small" onClick={onExpandTimeRange}>

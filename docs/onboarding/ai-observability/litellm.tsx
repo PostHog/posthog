@@ -13,8 +13,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <Blockquote>
                     <Markdown>
-                        **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability
-                        requires LiteLLM version 1.77.3 or higher.
+                        **Note:** Use LiteLLM as a Python SDK or as a proxy server. PostHog observability requires
+                        LiteLLM version 1.77.3 or higher.
                     </Markdown>
                 </Blockquote>
             ),
@@ -110,8 +110,11 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        Now, when you use LiteLLM to call various LLM providers, PostHog automatically captures an
-                        `$ai_generation` event.
+                        {dedent`
+                            When you use LiteLLM to call an LLM provider, PostHog automatically captures an
+                            \`$ai_generation\` event. Identity and trace data travel through \`metadata\`, since
+                            LiteLLM has no dedicated \`posthog_trace_id\` parameter.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -120,18 +123,24 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'python',
                                 file: 'SDK',
                                 code: dedent`
+                                    from posthog import Posthog
+                                    import time, uuid, json
+
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
+
+                                    trace_id = str(uuid.uuid4())
+
                                     response = litellm.completion(
                                         model="gpt-5-mini",
-                                        messages=[
-                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                        ],
+                                        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                        tools=tools,
                                         metadata={
-                                            "user_id": "user_123",  # Maps to PostHog distinct_id
-                                            "company": "company_id_in_your_db"  # Custom property
-                                        }
+                                            "user_id": "user_123",                # Maps to PostHog distinct_id
+                                            "company": "company_id_in_your_db",   # Custom property
+                                            "$ai_session_id": "conversation-abc",
+                                            "$ai_trace_id": trace_id,
+                                        },
                                     )
-
-                                    print(response.choices[0].message.content)
                                 `,
                             },
                             {
@@ -151,7 +160,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         ],
                                         "metadata": {
                                           "user_id": "user_123",
-                                          "company": "company_id_in_your_db" # Custom property
+                                          "company": "company_id_in_your_db", # Custom property
+                                          "$ai_session_id": "conversation-abc" # Groups calls into one session
                                         }
                                       }'
                                 `,
@@ -165,7 +175,9 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 **Notes:**
                                 - This works with streaming responses by setting \`stream=True\`.
                                 - To disable logging for specific requests, add \`{"no-log": true}\` to metadata.
-                                - If you want to capture LLM events anonymously, **don't** pass a \`user_id\` in metadata.
+                                - Pass \`$ai_session_id\` in metadata to group calls from the same conversation into
+                                  one PostHog session.
+                                - If you want to capture LLM events anonymously, **do not** pass a \`user_id\` in metadata.
 
                                 See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                             `}
@@ -179,6 +191,50 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            Capture each tool call as a span yourself, as the example below does right after the
+                            generation that triggered it.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            for call in response.choices[0].message.tool_calls or []:
+                                start = time.time()
+                                result = run_tool(call.function.name, json.loads(call.function.arguments))
+
+                                posthog.capture(
+                                    distinct_id="user_123",
+                                    event="$ai_span",
+                                    properties={
+                                        "$ai_trace_id": trace_id,
+                                        "$ai_session_id": "conversation-abc",
+                                        "$ai_span_id": str(uuid.uuid4()),
+                                        "$ai_span_name": call.function.name,
+                                        "$ai_input_state": call.function.arguments,
+                                        "$ai_output_state": result,
+                                        "$ai_latency": time.time() - start,
+                                    },
+                                )
+                        `}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                            properties.
+                        `}
+                    </Markdown>
                 </>
             ),
         },

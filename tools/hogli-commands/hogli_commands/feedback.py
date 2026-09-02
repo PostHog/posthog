@@ -29,6 +29,12 @@ from hogli.manifest import get_manifest
 _EVENT = "hogli_feedback"
 _DEFAULT_HOST = "https://us.i.posthog.com"
 _CATEGORIES = ("bug", "idea", "praise", "question", "other")
+_CLOUD_TASK_ENV_VARS = ("POSTHOG_TASK_ID", "POSTHOG_TASK_RUN_ID")
+
+
+def _is_cloud_task() -> bool:
+    """Whether hogli is running inside a PostHog cloud agent task."""
+    return any(os.environ.get(name) for name in _CLOUD_TASK_ENV_VARS)
 
 
 def _endpoint() -> tuple[str, str]:
@@ -141,6 +147,15 @@ def devex_feedback(message: tuple[str, ...], category: str | None, yes: bool) ->
     environment context hogli telemetry already attaches. Run interactively to
     confirm before sending.
     """
+    # This command is for local development feedback. Cloud agents inherit the
+    # repository's AGENTS.md and may otherwise treat its encouragement as an
+    # instruction to send feedback from the agent-server sandbox. Silently skip
+    # there: a successful no-op prevents retries while guaranteeing no network or
+    # telemetry side effects.
+    if _is_cloud_task():
+        click.secho("Skipping devex feedback in a cloud agent task.", fg="yellow", err=True)
+        return
+
     interactive = _stdin_is_tty()
     text = " ".join(message).strip()
 

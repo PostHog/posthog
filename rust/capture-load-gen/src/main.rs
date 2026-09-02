@@ -83,6 +83,16 @@ struct Cli {
     #[arg(long, default_value_t = 256)]
     prop_bytes: usize,
 
+    /// Percentage of events that are person updates (carry a `$set` payload).
+    /// Together with `--percent-merges` must not exceed 100.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
+    percent_person_updates: u8,
+
+    /// Percentage of events that are merges (`$identify` folding a fresh
+    /// anonymous distinct id into a pool user).
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
+    percent_merges: u8,
+
     /// Per-request HTTP timeout in seconds.
     #[arg(long, default_value_t = 30)]
     timeout_secs: u64,
@@ -238,11 +248,24 @@ async fn main() -> Result<()> {
     if cli.concurrency == 0 {
         bail!("--concurrency must be > 0");
     }
+    if cli
+        .percent_person_updates
+        .saturating_add(cli.percent_merges)
+        > 100
+    {
+        bail!(
+            "--percent-person-updates ({}) + --percent-merges ({}) must not exceed 100",
+            cli.percent_person_updates,
+            cli.percent_merges
+        );
+    }
 
     let factory = Arc::new(EventFactory::new(
         cli.distinct_ids,
         cli.event_names.clone(),
         cli.prop_bytes,
+        cli.percent_person_updates,
+        cli.percent_merges,
     ));
 
     if cli.dry_run {

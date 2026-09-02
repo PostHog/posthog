@@ -128,6 +128,43 @@ class BatchExportDestination(UUIDTModel):
     )
 
 
+class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
+    """A model for the source of the data that a PostHog BatchExport will export.
+
+    This model answers the question: what data are we exporting? For now it holds a
+    HogQL query whose results are exported, but it's designed to grow into the single
+    place that captures how a batch export selects its data (data warehouse view
+    references, export mode, data interval field, primary and version keys) in future.
+    """
+
+    class Meta:
+        db_table = "posthog_batchexportsource"
+
+    # `db_constraint=False`: a real FK constraint to the hot `posthog_team` table would
+    # take a lock on it while being created. Team scoping is enforced at the app level
+    # via `TeamScopedRootMixin`. See products/README.md "Adding or moving backend models
+    # and migrations".
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        help_text="The team this belongs to.",
+    )
+    hogql_query = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The HogQL query whose results are exported.",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this BatchExportSource was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this BatchExportSource was last updated.",
+    )
+
+
 class BatchExportRun(UUIDTModel):
     """A single run of a PostHog batch export defined by its data interval bounds.
 
@@ -242,13 +279,15 @@ class BatchExportRun(UUIDTModel):
         raise ValueError("One of batch export or batch export on demand must always be defined")
 
 
-BATCH_EXPORT_INTERVALS = [
-    ("hour", "hour"),
-    ("day", "day"),
-    ("week", "week"),
-    ("every 5 minutes", "every 5 minutes"),
-    ("every 15 minutes", "every 15 minutes"),
-]
+class BatchExportInterval(models.TextChoices):
+    HOUR = "hour", "hour"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+    EVERY_5_MINUTES = "every 5 minutes", "every 5 minutes"
+    EVERY_15_MINUTES = "every 15 minutes", "every 15 minutes"
+
+
+BATCH_EXPORT_INTERVALS = BatchExportInterval.choices
 
 BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
     "hour": timedelta(minutes=15),
@@ -280,6 +319,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         EVENTS = "events"
         PERSONS = "persons"
         SESSIONS = "sessions"
+        HOGQL = "hogql"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
@@ -287,6 +327,13 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         "BatchExportDestination",
         on_delete=models.CASCADE,
         help_text="The destination to export data to.",
+    )
+    source = models.ForeignKey(
+        "BatchExportSource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The source of the data to export. When set, takes precedence over `model`.",
     )
     interval = models.CharField(
         max_length=64,
@@ -440,6 +487,24 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             offset_in_hours = self.interval_offset // 3600
             return offset_in_hours % 24
         return None
+
+
+def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
+    """Return a list of batch exports using integration_id.
+
+    This is used to check when destroying an integration if it is not in use,
+    as otherwise users could get themselves into an undesired state.
+
+    We only consider batch exports that are not deleted, as deleted batch
+    exports are not relevant to users.
+    """
+    return list(
+        BatchExport.objects.filter(
+            team_id=team_id,
+            deleted=False,
+            destination__in=BatchExportDestination.objects.filter(integration_id=integration_id),
+        ).only("id", "name")
+    )
 
 
 class BatchExportBackfill(UUIDTModel):
@@ -618,12 +683,20 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         EVENTS = "events"
         PERSONS = "persons"
         SESSIONS = "sessions"
+        HOGQL = "hogql"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     destination = models.ForeignKey(
         "BatchExportDestination",
         on_delete=models.CASCADE,
         help_text="The destination to export data to.",
+    )
+    source = models.ForeignKey(
+        "BatchExportSource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The source of the data to export. When set, takes precedence over `model`.",
     )
     deleted = models.BooleanField(default=False, help_text="Whether this is deleted or not.")
     created_at = models.DateTimeField(

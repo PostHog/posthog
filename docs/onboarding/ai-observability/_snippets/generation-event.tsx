@@ -48,9 +48,11 @@ export const GenerationEvent = (): JSX.Element => {
                             </td>
                             <td>
                                 <p>
-                                    <em>(Optional)</em> Groups related traces together. Use this to organize traces by
-                                    whatever grouping makes sense for your application (user sessions, workflows,
-                                    conversations, or other logical boundaries).
+                                    <em>(Optional)</em> Groups related traces into a session, which is what the Sessions
+                                    tab reads. Set it if your product has multi-turn conversations. A workload that
+                                    finishes in a single trace does not need it. Send it as null to say so explicitly,
+                                    which tells the instrumentation checklist the workload is complete rather than
+                                    missing a session id.
                                     <br />
                                     Example: <code>session-abc-123</code>, <code>conv-user-456</code>
                                 </p>
@@ -371,6 +373,18 @@ export const GenerationEvent = (): JSX.Element => {
                                 </p>
                             </td>
                         </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cost_passthrough</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Set this when your provider reports the real cost, such as an
+                                    LLM gateway. We keep your <code>$ai_total_cost_usd</code> and leave the input and
+                                    output costs unset.
+                                </p>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -424,7 +438,20 @@ export const GenerationEvent = (): JSX.Element => {
                             </td>
                             <td>
                                 <p>
-                                    <em>(Optional)</em> Price per cached token write
+                                    <em>(Optional)</em> Price per cached token write. For custom Anthropic pricing, this
+                                    applies to both cache TTLs unless <code>$ai_cache_write_1h_token_price</code> is
+                                    set.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cache_write_1h_token_price</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Price per token written to Anthropic's 1-hour cache. Takes
+                                    precedence over <code>$ai_cache_write_token_price</code> for 1-hour writes.
                                 </p>
                             </td>
                         </tr>
@@ -501,6 +528,30 @@ export const GenerationEvent = (): JSX.Element => {
                             <td>
                                 <p>
                                     <em>(Optional)</em> Number of tokens written to cache (Anthropic-specific)
+                                    <br />
+                                    When both TTL-specific counts are present, PostHog uses them instead of this
+                                    aggregate. The aggregate should equal their sum; if either count is missing, PostHog
+                                    uses the aggregate.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cache_creation_5m_input_tokens</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Number of tokens written to Anthropic's 5-minute cache
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cache_creation_1h_input_tokens</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Number of tokens written to Anthropic's 1-hour cache
                                 </p>
                             </td>
                         </tr>

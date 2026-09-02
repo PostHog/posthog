@@ -6,9 +6,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.settings import (
     DEFAULT_REGION,
     PENDO_ENDPOINTS,
@@ -32,8 +32,11 @@ class PendoRetryableError(Exception):
 
 @dataclasses.dataclass
 class PendoResumeConfig:
-    # Number of rows already yielded for this schema; on resume we skip past them.
+    # Number of rows already yielded for a list endpoint schema; on resume we skip past them.
     offset: int = 0
+    # Sort-field value of the last row yielded for an aggregation endpoint schema. Pendo's
+    # aggregation pipeline has no skip/offset stage, so resuming re-filters for values past this.
+    last_id: Optional[str] = None
 
 
 def get_base_url(region: Optional[str]) -> str:
@@ -115,6 +118,13 @@ def _iter_list_endpoint(
         resumable_source_manager.save_state(PendoResumeConfig(offset=offset))
 
 
+def _escape_filter_string(value: str) -> str:
+    # Pendo's filter grammar uses JS-style string literals. `last_id` comes from a row's sort
+    # field (e.g. visitorId, which a customer's own tracking code can set to an arbitrary
+    # string), so escape backslashes and quotes before splicing it into the filter expression.
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _iter_aggregation(
     session: requests.Session,
     base_url: str,
@@ -122,23 +132,27 @@ def _iter_aggregation(
     sort_field: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PendoResumeConfig],
-    start_offset: int,
+    start_after: Optional[str],
 ) -> Iterator[list[dict[str, Any]]]:
     url = f"{base_url}{AGGREGATION_PATH}"
-    offset = start_offset
+    last_id = start_after
 
     while True:
+        # Sort on a stable id and page via a `>` filter cursor: Pendo's aggregation pipeline
+        # has no skip/offset stage (a "skip" step returns a 400 "unknown step type" error).
+        pipeline: list[dict[str, Any]] = [
+            {"source": {aggregation_source: None}},
+            {"sort": [sort_field]},
+        ]
+        if last_id is not None:
+            pipeline.append({"filter": f'{sort_field}>"{_escape_filter_string(last_id)}"'})
+        pipeline.append({"limit": AGGREGATION_PAGE_SIZE})
+
         body = {
             "response": {"mimeType": "application/json"},
             "request": {
                 "requestId": f"posthog-{aggregation_source}",
-                "pipeline": [
-                    {"source": {aggregation_source: None}},
-                    # Sort on a stable id so skip/limit paging is deterministic across requests.
-                    {"sort": [sort_field]},
-                    {"skip": offset},
-                    {"limit": AGGREGATION_PAGE_SIZE},
-                ],
+                "pipeline": pipeline,
             },
         }
         response = _request(session, "POST", url, logger, json=body)
@@ -149,8 +163,8 @@ def _iter_aggregation(
             break
 
         yield rows
-        offset += len(rows)
-        resumable_source_manager.save_state(PendoResumeConfig(offset=offset))
+        last_id = str(rows[-1][sort_field])
+        resumable_source_manager.save_state(PendoResumeConfig(last_id=last_id))
 
         if len(rows) < AGGREGATION_PAGE_SIZE:
             break
@@ -169,13 +183,13 @@ def get_rows(
     session = make_tracked_session(headers=_get_headers(integration_key), redact_values=(integration_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_offset = resume.offset if resume else 0
-    if start_offset:
-        logger.debug(f"Pendo: resuming endpoint={endpoint} from offset={start_offset}")
 
     if config.is_aggregation:
         if config.aggregation_source is None:
             raise ValueError(f"Endpoint '{endpoint}' is marked as aggregation but has no aggregation_source")
+        start_after = resume.last_id if resume else None
+        if start_after is not None:
+            logger.debug(f"Pendo: resuming endpoint={endpoint} after id={start_after}")
         yield from _iter_aggregation(
             session,
             base_url,
@@ -183,11 +197,14 @@ def get_rows(
             config.primary_keys[0],
             logger,
             resumable_source_manager,
-            start_offset,
+            start_after,
         )
     else:
         if config.path is None:
             raise ValueError(f"Endpoint '{endpoint}' is not an aggregation but has no path")
+        start_offset = resume.offset if resume else 0
+        if start_offset:
+            logger.debug(f"Pendo: resuming endpoint={endpoint} from offset={start_offset}")
         yield from _iter_list_endpoint(
             session,
             base_url,

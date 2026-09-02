@@ -3,21 +3,20 @@
 # Custom rules are processed before default rules. Default rules already handle:
 #   - .cargo/config, .cargo/config.toml → mark-changed = "all"
 #   - Cargo.toml (workspace root) → mark-changed = "all"
-#   - Cargo.lock → mark-changed = [] (ignored — we override below)
+#   - Cargo.lock → mark-changed = [] (ignored; the graph diff covers it)
 #   - README, LICENSE, .gitignore, etc. → mark-changed = []
 #
 # Paths are workspace-relative (strip the `rust/` repo prefix before passing).
 
 use-default-rules = true
 
-# Cargo.lock: the determinator diffs resolved package graphs but does NOT
-# detect per-crate feature narrowing as a change — a crate whose enabled
-# feature set shrinks (or grows) only shows up in Cargo.lock, not in the
-# determinator's affected set. Force rebuild-all whenever Cargo.lock changes.
-# This overrides the default determinator rule (mark-changed = []).
-[[path-rule]]
-globs = ["Cargo.lock"]
-mark-changed = "all"
+# Cargo.lock intentionally has no rule: the default (mark-changed = []) is
+# correct, because the determinator's graph diff already re-simulates each
+# member's feature sets and marks every dependent of a changed dependency.
+# Do not re-add mark-changed = "all" — it fires on every lockfile touch, so one
+# added dev-dependency rebuilds the whole workspace and blows the build timeout.
+# When the old graph is missing there is nothing to diff, and compute_affected()
+# forces rebuild-all in code instead.
 
 # Dockerfiles and CI image config — cross-cutting build changes.
 [[path-rule]]
@@ -29,10 +28,19 @@ mark-changed = "all"
 globs = [".sqlx/**"]
 mark-changed = "all"
 
-# Proto files trigger the two build-script crates that read them.
+# Proto files trigger every build-script crate that reads them. The
+# proto_build_scripts_are_in_determinator_rules test fails if a crate compiles
+# protos and is missing here, so keep this list complete rather than counted.
 [[path-rule]]
 globs = ["../proto/**"]
-mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
+mark-changed = [
+    "personhog-proto",
+    "kafka-assigner-proto",
+    "cymbal-proto",
+    "ingestion-worker-proto",
+    "prometheus-rw-proto",
+    "usage-ingestion-proto",
+]
 
 # Hypercache contract: Python serializer changes may break Rust deserialization.
 # Must come BEFORE the catch-all rule below.
@@ -83,7 +91,6 @@ mark-changed = []
 globs = [
     "persons_migrations/**",
     "behavioral_cohorts_migrations/**",
-    "cyclotron-core/migrations/**",
     "cyclotron-node-migrations/**",
     "flags_read_store_migrations/**",
     "bin/migrate-*",
@@ -95,6 +102,11 @@ mark-changed = []
 # deps like personhog-proto flow through the graph already). Mark the
 # harness affected whenever a service it spawns changes so the CI gate
 # runs against those changes.
+#
+# The merge queue needs the same edge to keep a harness change out of a lane
+# parallel to one of these services. It gets it from here: the lane script
+# (.github/scripts/trunk-impacted-targets.js) takes this binary's affected set
+# as its rust:crate: answer, so this rule is the edge's only home.
 [[package-rule]]
 on-affected = [
     "personhog-replica",

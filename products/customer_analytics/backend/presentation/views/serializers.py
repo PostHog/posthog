@@ -19,25 +19,43 @@ by the sibling ``organization_members`` module.
 """
 
 import json
+from typing import Any
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
+from products.customer_analytics.backend.facade.api import (
+    AccountEmailThreadMessage,
+    AccountEmailThreadSummary,
+    ConversationMessageSender,
+    ConversationMessageSummary,
+    EmailThreadAddress,
+    EmailThreadParticipantSummary,
+    SupportTicketMessage,
+    TicketSummary,
+)
 from products.customer_analytics.backend.facade.constants import (
     CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
     CUSTOM_PROPERTY_OPTION_COLORS,
+    SLACK_SUMMARY_CADENCE_CHOICES,
 )
 from products.customer_analytics.backend.facade.contracts import (
     AccountAssignment,
+    AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
     AccountRelationship,
     AccountRelationshipDefinition,
+    AccountTableField,
+    AccountTrackRuleFieldKind,
+    AccountTrackRulePreview,
+    AccountTrackRuleRunView,
     AccountView,
+    CalendarSyncStatus,
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
@@ -46,7 +64,124 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertySourceView,
     CustomPropertySyncRunView,
     EventStreamView,
+    FeatureRequestAccountLinkView,
+    FeatureRequestAccountView,
+    FeatureRequestEvidenceView,
+    FeatureRequestHistoryView,
+    FeatureRequestProductAreaView,
+    FeatureRequestStatusHistoryView,
+    FeatureRequestView,
+    MeetingParticipantView,
+    MeetingView,
 )
+
+
+class AccountTrackRuleFieldSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=[kind.value for kind in AccountTrackRuleFieldKind])
+    field = serializers.ChoiceField(
+        choices=[field.value for field in AccountTableField], required=False, allow_null=True
+    )
+    definition_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def to_internal_value(self, data):
+        return {key: value for key, value in super().to_internal_value(data).items() if value is not None}
+
+    def to_representation(self, instance):
+        return {key: value for key, value in super().to_representation(instance).items() if value is not None}
+
+
+class AccountTrackRuleConditionSerializer(serializers.Serializer):
+    field = AccountTrackRuleFieldSerializer()
+    operator = serializers.CharField()
+    values = serializers.ListField(child=serializers.JSONField(), required=False, default=list)
+
+
+class AccountTrackRuleGroupSerializer(serializers.Serializer):
+    conditions = AccountTrackRuleConditionSerializer(many=True)
+
+
+@extend_schema_serializer(many=False)
+class AccountTrackRulesConfigSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField()
+    version = serializers.IntegerField(min_value=0)
+    enabled = serializers.BooleanField()
+    groups = AccountTrackRuleGroupSerializer(many=True)
+
+
+class AccountTrackRuleSampleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    external_id = serializers.CharField(read_only=True, allow_null=True)
+    rule_values = serializers.DictField(child=serializers.JSONField(), read_only=True)
+
+
+class AccountTrackRulePreviewSerializer(DataclassSerializer):
+    tracked_samples = AccountTrackRuleSampleSerializer(many=True, read_only=True)
+    ignored_samples = AccountTrackRuleSampleSerializer(many=True, read_only=True)
+
+    class Meta:
+        dataclass = AccountTrackRulePreview
+        fields = [
+            "config_version",
+            "eligible_active",
+            "skipped_churned",
+            "tracked",
+            "ignored",
+            "newly_ignored",
+            "restored",
+            "tracked_samples",
+            "ignored_samples",
+            "validation_errors",
+        ]
+
+
+class AccountTrackRuleRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True)
+    config_version = serializers.IntegerField(read_only=True, min_value=0)
+    trigger = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    eligible_active = serializers.IntegerField(read_only=True, min_value=0)
+    skipped_churned = serializers.IntegerField(read_only=True, min_value=0)
+    tracked = serializers.IntegerField(read_only=True, min_value=0)
+    ignored = serializers.IntegerField(read_only=True, min_value=0)
+    newly_ignored = serializers.IntegerField(read_only=True, min_value=0)
+    restored = serializers.IntegerField(read_only=True, min_value=0)
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    error = serializers.CharField(read_only=True, allow_null=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = AccountTrackRuleRunView
+        fields = [
+            "id",
+            "config_version",
+            "trigger",
+            "status",
+            "eligible_active",
+            "skipped_churned",
+            "tracked",
+            "ignored",
+            "newly_ignored",
+            "restored",
+            "started_at",
+            "finished_at",
+            "error",
+            "created_by",
+            "created_at",
+        ]
+
+
+class AccountTrackRuleRunRequestSerializer(serializers.Serializer):
+    idempotency_key = serializers.UUIDField()
+    confirmed = serializers.BooleanField()
+
+    def validate_confirmed(self, value: bool) -> bool:
+        if not value:
+            raise serializers.ValidationError("Confirm before running Track Rules.")
+        return value
+
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
 # here rather than read off the model so this module imports no product models — the
@@ -60,25 +195,25 @@ _PROFILE_CONFIG_SCOPE_CHOICES = [
     ("group_4", "Group 4"),
 ]
 
-# JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
-# serializer so the generated ``AccountApiProperties`` component is unchanged.
-_ACCOUNT_ASSIGNMENT_SCHEMA = {
-    "type": "object",
-    "nullable": True,
-    "properties": {
-        "id": {"type": "integer"},
-        "email": {"type": "string"},
-    },
-    "required": ["id", "email"],
-}
-
 _ACCOUNT_PROPERTIES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "csm": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_executive": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_owner": _ACCOUNT_ASSIGNMENT_SCHEMA,
+        "website_domain": {
+            "type": "string",
+            "nullable": True,
+            "description": "Primary company website hostname used for account identity and logo lookup.",
+        },
+        "email_domains": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
+        },
+        "known_emails": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Individual email addresses pinned to this account, matched before the domain fallback.",
+        },
         "stripe_customer_id": {"type": "string", "nullable": True},
         "hubspot_deal_id": {"type": "string", "nullable": True},
         "billing_id": {"type": "string", "nullable": True},
@@ -86,6 +221,7 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "zendesk_id": {"type": "string", "nullable": True},
         "slack_channel_id": {"type": "string", "nullable": True},
         "usage_dashboard_link": {"type": "string", "nullable": True},
+        "metabase_link": {"type": "string", "nullable": True},
     },
 }
 
@@ -93,6 +229,624 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
 @extend_schema_field(_ACCOUNT_PROPERTIES_SCHEMA)
 class AccountPropertiesField(serializers.JSONField):
     pass
+
+
+_FEATURE_REQUEST_STATUS_CHOICES = [
+    ("requested", "Requested"),
+    ("planned", "Planned"),
+    ("completed", "Completed"),
+    ("wont_fix", "Won't fix"),
+    ("duplicate", "Duplicate"),
+]
+_FEATURE_REQUEST_PRIORITY_CHOICES = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
+_FEATURE_REQUEST_PRIORITY_FILTER_CHOICES = [*_FEATURE_REQUEST_PRIORITY_CHOICES, ("none", "No priority")]
+_FEATURE_REQUEST_ARCHIVE_CHOICES = [("active", "Active"), ("archived", "Archived"), ("all", "All")]
+_FEATURE_REQUEST_ORDERING_CHOICES = [
+    ("-updated_at", "Last updated: newest"),
+    ("updated_at", "Last updated: oldest"),
+    ("-created_at", "Date created: newest"),
+    ("created_at", "Date created: oldest"),
+    ("-priority", "Priority: high to low"),
+    ("priority", "Priority: low to high"),
+    ("title", "Title: A to Z"),
+    ("-title", "Title: Z to A"),
+    ("account", "Accounts: A to Z"),
+    ("-account", "Accounts: Z to A"),
+    ("product_area", "Product areas: A to Z"),
+    ("-product_area", "Product areas: Z to A"),
+    ("status", "Status: A to Z"),
+    ("-status", "Status: Z to A"),
+    ("created_by", "Created by: A to Z"),
+    ("-created_by", "Created by: Z to A"),
+    ("evidence_count", "Evidence: low to high"),
+    ("-evidence_count", "Evidence: high to low"),
+]
+
+
+class FeatureRequestProductAreaSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable product area ID.")
+    name = serializers.CharField(max_length=200, help_text="Team-maintained product area name.")
+    display_order = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+        help_text="Position in product area selectors. Lower values appear first.",
+    )
+    is_active = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether editors can select this product area for new requests.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the product area was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the product area was last updated.")
+
+    class Meta:
+        dataclass = FeatureRequestProductAreaView
+        ref_name = "FeatureRequestProductArea"
+        fields = ["id", "name", "display_order", "is_active", "created_at", "updated_at"]
+
+
+class FeatureRequestProductAreaListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include inactive product areas. Defaults to false.",
+    )
+
+
+class FeatureRequestAccountSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the affected Customer Analytics account.")
+    name = serializers.CharField(read_only=True, help_text="Name of the affected account.")
+
+    class Meta:
+        dataclass = FeatureRequestAccountView
+        ref_name = "FeatureRequestAccount"
+        fields = ["id", "name"]
+
+
+class FeatureRequestEvidenceSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable evidence ID.")
+    summary = serializers.CharField(read_only=True, help_text="Internal summary of this account's request evidence.")
+    customer_quote = serializers.CharField(read_only=True, help_text="Customer quote kept with this evidence item.")
+    evidence_source = serializers.CharField(
+        read_only=True,
+        max_length=200,
+        help_text="Free-form name of the source where this evidence was recorded.",
+    )
+    source_url = serializers.URLField(read_only=True, help_text="HTTP or HTTPS link to the source, or an empty string.")
+    requested_on = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="Date the account made the request, or null when unknown.",
+    )
+    image_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="Uploaded image IDs attached to this evidence item, in display order.",
+    )
+    created_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the user who added the evidence."
+    )
+    updated_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the last user to update the evidence."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the evidence was added.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the evidence was last updated.")
+
+    class Meta:
+        dataclass = FeatureRequestEvidenceView
+        ref_name = "FeatureRequestEvidence"
+        fields = [
+            "id",
+            "summary",
+            "customer_quote",
+            "evidence_source",
+            "source_url",
+            "requested_on",
+            "image_ids",
+            "created_by",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class FeatureRequestAccountLinkSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable link ID between the request and account.")
+    account = FeatureRequestAccountSerializer(read_only=True, help_text="Affected Customer Analytics account.")
+    evidence = FeatureRequestEvidenceSerializer(
+        many=True,
+        read_only=True,
+        help_text="Evidence recorded for this account and request. List responses omit these items.",
+    )
+    evidence_count = serializers.IntegerField(
+        read_only=True,
+        min_value=0,
+        help_text="Total evidence items recorded for this account and request.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the account was first linked.")
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the account link was last changed.",
+    )
+
+    class Meta:
+        dataclass = FeatureRequestAccountLinkView
+        ref_name = "FeatureRequestAccountLink"
+        fields = ["id", "account", "evidence", "evidence_count", "created_at", "updated_at"]
+
+
+class FeatureRequestSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable feature request ID.")
+    title = serializers.CharField(read_only=True, help_text="Customer-facing request title.")
+    description = serializers.CharField(read_only=True, help_text="Customer-facing request description in Markdown.")
+    request_status = serializers.ChoiceField(
+        read_only=True,
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Current customer-facing lifecycle status.",
+    )
+    request_priority = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=_FEATURE_REQUEST_PRIORITY_CHOICES,
+        help_text="Manual request priority. Null means no priority.",
+    )
+    is_archived = serializers.BooleanField(read_only=True, help_text="Whether the request is archived.")
+    archived_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the request was archived, or null while active.",
+    )
+    archived_by = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who archived the request, or null while active.",
+    )
+    version = serializers.IntegerField(
+        read_only=True,
+        min_value=1,
+        help_text="Version required for optimistic concurrency on mutations.",
+    )
+    can_update = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the caller can update this request and all its active account links.",
+    )
+    account = FeatureRequestAccountSerializer(
+        read_only=True,
+        help_text="First visible account retained for client compatibility. Use account_links for the complete list.",
+    )
+    account_links = FeatureRequestAccountLinkSerializer(
+        many=True,
+        read_only=True,
+        help_text="Active account links visible to the caller, with account-specific evidence.",
+    )
+    evidence_count = serializers.IntegerField(
+        read_only=True,
+        min_value=0,
+        help_text="Total evidence items recorded across visible account links.",
+    )
+    product_areas = FeatureRequestProductAreaSerializer(
+        many=True,
+        read_only=True,
+        help_text="Product areas affected by this request.",
+    )
+    created_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the user who created the request."
+    )
+    updated_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the last user to update the request."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the request was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the request was last updated.")
+
+    class Meta:
+        dataclass = FeatureRequestView
+        ref_name = "FeatureRequest"
+        fields = [
+            "id",
+            "title",
+            "description",
+            "request_status",
+            "request_priority",
+            "is_archived",
+            "archived_at",
+            "archived_by",
+            "version",
+            "can_update",
+            "account",
+            "account_links",
+            "evidence_count",
+            "product_areas",
+            "created_by",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+_FEATURE_REQUEST_HISTORY_VALUE_SCHEMA = {
+    "nullable": True,
+    "oneOf": [
+        {"type": "string"},
+        {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+                "id": {"type": "string", "format": "uuid", "nullable": True},
+                "name": {"type": "string"},
+            },
+        },
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": {"type": "string", "format": "uuid"},
+                    "name": {"type": "string"},
+                },
+            },
+        },
+        {
+            "type": "object",
+            "required": [
+                "id",
+                "account",
+                "summary",
+                "customer_quote",
+                "source",
+                "source_url",
+                "requested_on",
+            ],
+            "properties": {
+                "id": {"type": "string", "format": "uuid"},
+                "account": {
+                    "type": "object",
+                    "required": ["id", "name"],
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "name": {"type": "string"},
+                    },
+                },
+                "summary": {"type": "string"},
+                "customer_quote": {"type": "string"},
+                "source": {"type": "string"},
+                "source_url": {"type": "string"},
+                "requested_on": {"type": "string", "format": "date", "nullable": True},
+                "image_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "format": "uuid"},
+                },
+            },
+        },
+    ],
+}
+
+
+@extend_schema_field(_FEATURE_REQUEST_HISTORY_VALUE_SCHEMA)
+class FeatureRequestHistoryValueField(serializers.JSONField):
+    pass
+
+
+class FeatureRequestHistoryChangeSerializer(serializers.Serializer):
+    field = serializers.ChoiceField(
+        read_only=True,
+        choices=[
+            ("status", "Status"),
+            ("priority", "Priority"),
+            ("account", "Account"),
+            ("accounts", "Accounts"),
+            ("evidence", "Evidence"),
+            ("product_areas", "Product areas"),
+        ],
+        help_text="Request field represented by this change.",
+    )
+    before = FeatureRequestHistoryValueField(
+        read_only=True,
+        help_text="Value before the update, including relation snapshots.",
+    )
+    after = FeatureRequestHistoryValueField(
+        read_only=True,
+        help_text="Value after the update, including relation snapshots.",
+    )
+
+
+class FeatureRequestHistorySerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable request history entry ID.")
+    changes = FeatureRequestHistoryChangeSerializer(
+        many=True,
+        read_only=True,
+        help_text="Tracked fields changed together in one successful save.",
+    )
+    is_initial = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this entry records the request's initial values.",
+    )
+    change_source = serializers.ChoiceField(
+        read_only=True,
+        choices=[("manual", "Manual")],
+        help_text="System that recorded the request change.",
+    )
+    actor_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who changed the request, if known.",
+    )
+    actor_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Display name of the user who changed the request, if known.",
+    )
+    changed_at = serializers.DateTimeField(read_only=True, help_text="When the request changed.")
+
+    class Meta:
+        dataclass = FeatureRequestHistoryView
+        ref_name = "FeatureRequestHistory"
+        fields = [
+            "id",
+            "changes",
+            "is_initial",
+            "change_source",
+            "actor_id",
+            "actor_name",
+            "changed_at",
+        ]
+
+
+class FeatureRequestStatusHistorySerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable status history entry ID.")
+    previous_status = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Status before this change. Null identifies the initial status.",
+    )
+    request_status = serializers.ChoiceField(
+        read_only=True,
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Status after this change.",
+    )
+    change_source = serializers.ChoiceField(
+        read_only=True,
+        choices=[("manual", "Manual")],
+        help_text="System that recorded the status change.",
+    )
+    actor_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who changed the status, if known.",
+    )
+    actor_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Display name of the user who changed the status, if known.",
+    )
+    changed_at = serializers.DateTimeField(read_only=True, help_text="When the status changed.")
+
+    class Meta:
+        dataclass = FeatureRequestStatusHistoryView
+        ref_name = "FeatureRequestStatusHistory"
+        fields = [
+            "id",
+            "previous_status",
+            "request_status",
+            "change_source",
+            "actor_id",
+            "actor_name",
+            "changed_at",
+        ]
+
+
+class CommaSeparatedListField(serializers.ListField):
+    def to_internal_value(self, data: Any) -> list[Any]:
+        if isinstance(data, str):
+            data = data.split(",")
+        elif isinstance(data, list):
+            data = [item for value in data for item in (value.split(",") if isinstance(value, str) else [value])]
+        return super().to_internal_value(data)
+
+
+class FeatureRequestListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Case-insensitive text to find in request titles and descriptions.",
+    )
+    statuses = CommaSeparatedListField(
+        required=False,
+        child=serializers.ChoiceField(choices=_FEATURE_REQUEST_STATUS_CHOICES),
+        help_text="Lifecycle statuses to include. Multiple values use OR semantics.",
+    )
+    priorities = CommaSeparatedListField(
+        required=False,
+        child=serializers.ChoiceField(choices=_FEATURE_REQUEST_PRIORITY_FILTER_CHOICES),
+        help_text="Priorities to include. Use none for requests without a priority.",
+    )
+    product_area_ids = CommaSeparatedListField(
+        required=False,
+        child=serializers.UUIDField(),
+        help_text="Product area IDs to include. Multiple values use OR semantics.",
+    )
+    account_ids = CommaSeparatedListField(
+        required=False,
+        child=serializers.UUIDField(),
+        help_text="Accessible account IDs to include. Multiple values use OR semantics.",
+    )
+    created_by_ids = CommaSeparatedListField(
+        required=False,
+        child=serializers.IntegerField(min_value=1),
+        help_text="Creator user IDs to include. Multiple values use OR semantics.",
+    )
+    archive_state = serializers.ChoiceField(
+        required=False,
+        default="active",
+        choices=_FEATURE_REQUEST_ARCHIVE_CHOICES,
+        help_text="Whether to return active requests, archived requests, or all requests.",
+    )
+    request_ordering = serializers.ChoiceField(
+        required=False,
+        default="-updated_at",
+        choices=_FEATURE_REQUEST_ORDERING_CHOICES,
+        help_text="Stable ordering for the result list.",
+    )
+
+
+class FeatureRequestEvidencePayloadSerializer(serializers.Serializer):
+    summary = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text="Internal summary of this account's request evidence.",
+    )
+    customer_quote = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text="Customer quote kept with this evidence item.",
+    )
+    evidence_source = serializers.CharField(
+        max_length=200,
+        help_text="Free-form name of the source where this evidence was recorded.",
+    )
+    source_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text="Optional HTTP or HTTPS link to the source.",
+    )
+    requested_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Date the account made the request, or null when unknown.",
+    )
+    image_ids = serializers.ListField(
+        required=False,
+        child=serializers.UUIDField(),
+        help_text="Uploaded image IDs from this project to attach in display order.",
+    )
+
+
+class FeatureRequestCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=400,
+        trim_whitespace=True,
+        help_text="Required customer-facing request title.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text="Optional customer-facing request description in Markdown.",
+    )
+    account_id = serializers.UUIDField(help_text="ID of the affected Customer Analytics account.")
+    product_area_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="One or more active product area IDs. Duplicate IDs are ignored.",
+    )
+    idempotency_key = serializers.UUIDField(
+        help_text="Client-generated key that makes retries return the original request instead of creating a duplicate.",
+    )
+    evidence = FeatureRequestEvidencePayloadSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional first evidence item to create for the selected account.",
+    )
+
+
+class FeatureRequestUpdateSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+    title = serializers.CharField(
+        required=False,
+        max_length=400,
+        trim_whitespace=True,
+        help_text="Updated customer-facing request title.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        help_text="Updated optional customer-facing request description in Markdown.",
+    )
+    account_id = serializers.UUIDField(
+        required=False,
+        help_text="Deprecated single affected account ID. Use account_ids.",
+    )
+    account_ids = serializers.ListField(
+        required=False,
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="One or more affected account IDs. Removed accounts are unlinked without deleting their evidence.",
+    )
+    product_area_ids = serializers.ListField(
+        required=False,
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="One or more product area IDs. Existing inactive areas can remain linked.",
+    )
+    request_status = serializers.ChoiceField(
+        required=False,
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Updated customer-facing lifecycle status.",
+    )
+    request_priority = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=_FEATURE_REQUEST_PRIORITY_CHOICES,
+        help_text="Updated manual priority. Pass null to remove the priority.",
+    )
+
+
+class FeatureRequestEvidenceWriteSerializer(FeatureRequestEvidencePayloadSerializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+
+
+class FeatureRequestAddAccountSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+    account_id = serializers.UUIDField(help_text="Accessible account to link to this feature request.")
+    evidence = FeatureRequestEvidencePayloadSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional first evidence item to create for the account in the same change.",
+    )
+
+
+class FeatureRequestEvidenceCreateSerializer(FeatureRequestEvidenceWriteSerializer):
+    account_link_id = serializers.UUIDField(help_text="Active account link that owns this evidence.")
+
+
+class FeatureRequestEvidenceUpdateSerializer(FeatureRequestEvidenceWriteSerializer):
+    evidence_id = serializers.UUIDField(help_text="Evidence item to replace.")
+
+
+class FeatureRequestEvidenceDeleteSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+    evidence_id = serializers.UUIDField(help_text="Evidence item to delete.")
+
+
+class FeatureRequestVersionSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
 
 
 class CustomerProfileConfigSerializer(DataclassSerializer):
@@ -170,10 +924,12 @@ class AccountSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Typed account properties: assignment fields (csm, account_executive, account_owner) "
-            "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
-            "object. Unknown keys are rejected."
+            "Typed account properties: website_domain, external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
+            "usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains "
+            "(the company's email domains) and known_emails (individual addresses pinned to the "
+            "account). Defaults to an empty object. Unknown keys are rejected. User assignments "
+            "live on account relationships, not here."
         ),
     )
     tags = serializers.ListField(
@@ -189,6 +945,25 @@ class AccountSerializer(DataclassSerializer):
             "call notes, and other free-form context. Empty list if no notebooks have been created for the account."
         ),
     )
+    slack_summary_cadence = serializers.ChoiceField(
+        choices=SLACK_SUMMARY_CADENCE_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How often to generate an AI summary of the account's bound Slack channel "
+            "(daily, weekly, or monthly). Null means summaries are off."
+        ),
+    )
+    churned_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the account churned. Null means the account has not churned.",
+    )
+    ignored_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When Track Rules ignored the account. Null means the account is tracked.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -203,6 +978,9 @@ class AccountSerializer(DataclassSerializer):
             "properties",
             "tags",
             "notebooks",
+            "slack_summary_cadence",
+            "churned_at",
+            "ignored_at",
             "created_at",
             "created_by",
             "updated_at",
@@ -227,12 +1005,20 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
     )
+    last_login = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the member last signed in, or null if they have never signed in.",
+    )
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user"]
-        read_only_fields = ["id", "user"]
-        extra_kwargs = {"id": {"help_text": "Organization membership ID."}}
+        fields = ["id", "user", "level", "last_login"]
+        read_only_fields = ["id", "user", "level"]
+        extra_kwargs = {
+            "id": {"help_text": "Organization membership ID."},
+            "level": {"help_text": "Organization access level: member, admin, or owner."},
+        }
 
 
 class AccountNotebookSerializer(DataclassSerializer):
@@ -294,6 +1080,362 @@ class AccountNoteSerializer(DataclassSerializer):
         fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
+class ChannelSummaryMessageSerializer(serializers.Serializer):
+    """Metadata for one message a channel summary covered — never the message text."""
+
+    author = serializers.CharField(read_only=True, help_text="Display name of the message author.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="When the message was sent.")
+    permalink = serializers.CharField(read_only=True, help_text="Slack permalink to the message.")
+
+
+class AccountChannelSummarySerializer(DataclassSerializer):
+    """An AI summary of one closed period of the account's bound Slack channel (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the summary.")
+    slack_channel_id = serializers.CharField(
+        read_only=True, help_text="Slack channel the summary covered — kept even if the account is later rebound."
+    )
+    cadence = serializers.ChoiceField(
+        read_only=True,
+        choices=SLACK_SUMMARY_CADENCE_CHOICES,
+        help_text="Cadence the summarized period belongs to (daily, weekly, or monthly).",
+    )
+    period_start = serializers.DateTimeField(read_only=True, help_text="Start of the summarized period (inclusive).")
+    period_end = serializers.DateTimeField(read_only=True, help_text="End of the summarized period (exclusive).")
+    content = serializers.CharField(
+        read_only=True, help_text="Markdown summary citing the original Slack messages with permalinks."
+    )
+    message_count = serializers.IntegerField(
+        read_only=True, help_text="Number of channel messages the summary covered."
+    )
+    messages = ChannelSummaryMessageSerializer(
+        many=True,
+        read_only=True,
+        help_text="The messages the summary covered, in transcript order — metadata only, no message text.",
+    )
+    generated_at = serializers.DateTimeField(read_only=True, help_text="When the summary was generated.")
+
+    class Meta:
+        dataclass = AccountChannelSummaryView
+        ref_name = "AccountChannelSummary"
+        fields = [
+            "id",
+            "slack_channel_id",
+            "cadence",
+            "period_start",
+            "period_end",
+            "content",
+            "message_count",
+            "messages",
+            "generated_at",
+        ]
+
+
+class ConversationMessageSenderSerializer(DataclassSerializer):
+    name = serializers.CharField(read_only=True, help_text="Display name of the message sender.")
+    email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email address of the message sender, when available.",
+    )
+    person_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="UUID of the matched PostHog person, when available.",
+    )
+    distinct_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Distinct ID of the sender, when available.",
+    )
+
+    class Meta:
+        dataclass = ConversationMessageSender
+        ref_name = "ConversationMessageSender"
+        fields = ["name", "email", "person_id", "distinct_id"]
+
+
+class ConversationMessageSummarySerializer(DataclassSerializer):
+    sender = ConversationMessageSenderSerializer(read_only=True, help_text="Sender of the message.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="Timestamp from the message source.")
+    direction = serializers.ChoiceField(
+        read_only=True,
+        choices=[("inbound", "Inbound"), ("outbound", "Outbound")],
+        help_text="Whether PostHog received or sent the message.",
+    )
+
+    class Meta:
+        dataclass = ConversationMessageSummary
+        ref_name = "ConversationMessageSummary"
+        fields = ["sender", "sent_at", "direction"]
+
+
+class SupportTicketMessageSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the support ticket message.")
+    content = serializers.CharField(read_only=True, allow_blank=True, help_text="Plain-text message content.")
+    author_name = serializers.CharField(read_only=True, help_text="Display name of the message author.")
+    direction = serializers.ChoiceField(
+        read_only=True,
+        choices=[("inbound", "Inbound"), ("outbound", "Outbound")],
+        help_text="Whether PostHog received or sent the message.",
+    )
+    is_private = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the message is an internal note hidden from the customer.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the message was created.")
+
+    class Meta:
+        dataclass = SupportTicketMessage
+        ref_name = "AccountSupportTicketMessage"
+        fields = ["id", "content", "author_name", "direction", "is_private", "created_at"]
+
+
+class SupportTicketSerializer(DataclassSerializer):
+    """A support ticket linked to an account, sourced from the conversations product (read-only)."""
+
+    id = serializers.CharField(read_only=True, help_text="UUID of the support ticket.")
+    ticket_number = serializers.IntegerField(read_only=True, help_text="Human-readable ticket number.")
+    status = serializers.CharField(read_only=True, help_text="Current status of the ticket (e.g. 'new', 'open').")
+    last_message_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the most recent message was sent on this ticket."
+    )
+    last_message_text = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Truncated preview of the most recent message."
+    )
+    last_message = ConversationMessageSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Sender, timestamp, and direction of the latest public message, when available.",
+    )
+    deep_link = serializers.CharField(read_only=True, help_text="Absolute URL to open this ticket in the app.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the ticket conversation started.")
+    started_by = serializers.CharField(read_only=True, help_text="Display name of the customer who started the ticket.")
+    distinct_id = serializers.CharField(read_only=True, help_text="Distinct ID of the customer who started the ticket.")
+
+    class Meta:
+        dataclass = TicketSummary
+        ref_name = "SupportTicket"
+        fields = [
+            "id",
+            "ticket_number",
+            "status",
+            "last_message_at",
+            "last_message_text",
+            "last_message",
+            "deep_link",
+            "created_at",
+            "started_by",
+            "distinct_id",
+        ]
+
+
+class EmailThreadParticipantSerializer(DataclassSerializer):
+    email = serializers.EmailField(read_only=True, help_text="Email address of the thread participant.")
+    display_name = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Display name from the captured email headers.",
+    )
+    kind = serializers.ChoiceField(
+        read_only=True,
+        choices=[("internal", "Internal"), ("customer", "Customer")],
+        help_text="Whether the participant belongs to the PostHog organization or the customer.",
+    )
+    person_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="UUID of the matched PostHog person for a customer participant, when available.",
+    )
+
+    class Meta:
+        dataclass = EmailThreadParticipantSummary
+        ref_name = "AccountEmailThreadParticipant"
+        fields = ["email", "display_name", "kind", "person_id"]
+
+
+class AccountEmailThreadSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the captured email thread.")
+    subject = serializers.CharField(read_only=True, allow_blank=True, help_text="Email thread subject.")
+    preview = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Plain-text preview of the latest captured message.",
+    )
+    first_message_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Source timestamp of the first captured message.",
+    )
+    first_message = ConversationMessageSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Sender, timestamp, and direction of the first captured message, when available.",
+    )
+    last_message_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Source timestamp of the latest captured message.",
+    )
+    last_message = ConversationMessageSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Sender, timestamp, and direction of the latest captured message, when available.",
+    )
+    message_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of captured messages in the thread.",
+    )
+    participants = EmailThreadParticipantSerializer(
+        many=True,
+        read_only=True,
+        help_text="Participants included in the email thread.",
+    )
+
+    class Meta:
+        dataclass = AccountEmailThreadSummary
+        ref_name = "AccountEmailThread"
+        fields = [
+            "id",
+            "subject",
+            "preview",
+            "first_message_at",
+            "first_message",
+            "last_message_at",
+            "last_message",
+            "message_count",
+            "participants",
+        ]
+
+
+class EmailThreadAddressSerializer(DataclassSerializer):
+    name = serializers.CharField(read_only=True, allow_blank=True, help_text="Name from the email header.")
+    email = serializers.EmailField(read_only=True, help_text="Email address from the email header.")
+
+    class Meta:
+        dataclass = EmailThreadAddress
+        ref_name = "AccountEmailThreadAddress"
+        fields = ["name", "email"]
+
+
+class AccountEmailThreadMessageSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the captured email message.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="Timestamp from the source email.")
+    sender = EmailThreadAddressSerializer(read_only=True, help_text="Sender from the email From header.")
+    to_recipients = EmailThreadAddressSerializer(
+        many=True,
+        read_only=True,
+        help_text="Recipients from the email To header.",
+    )
+    cc_recipients = EmailThreadAddressSerializer(
+        many=True,
+        read_only=True,
+        help_text="Recipients from the email Cc header.",
+    )
+    sender_authenticated = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether Mailgun authentication verified the sender domain.",
+    )
+    direction = serializers.ChoiceField(
+        read_only=True,
+        choices=[("inbound", "Inbound"), ("outbound", "Outbound")],
+        help_text="Whether PostHog received or sent the message.",
+    )
+    content = serializers.CharField(read_only=True, allow_blank=True, help_text="Plain-text email content.")
+
+    class Meta:
+        dataclass = AccountEmailThreadMessage
+        ref_name = "AccountEmailThreadMessage"
+        fields = [
+            "id",
+            "sent_at",
+            "sender",
+            "to_recipients",
+            "cc_recipients",
+            "sender_authenticated",
+            "direction",
+            "content",
+        ]
+
+
+class CalendarSyncStatusSerializer(DataclassSerializer):
+    """Sync state of one connected calendar (read-only)."""
+
+    integration_id = serializers.IntegerField(read_only=True, help_text="Id of the google-calendar integration.")
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the last sync run completed; null before the first sync."
+    )
+    is_syncing = serializers.BooleanField(read_only=True, help_text="Whether a sync run is currently in flight.")
+
+    class Meta:
+        dataclass = CalendarSyncStatus
+        ref_name = "CalendarSyncStatus"
+        fields = ["integration_id", "last_synced_at", "is_syncing"]
+
+
+class CalendarSyncTriggerSerializer(serializers.Serializer):
+    """Request body of the calendar sync-now trigger."""
+
+    integration_id = serializers.IntegerField(help_text="Id of the google-calendar integration to sync.")
+
+
+class CalendarSyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the calendar sync-now trigger."""
+
+    status = serializers.ChoiceField(
+        choices=[("started", "started"), ("already_running", "already_running")],
+        help_text="'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).",
+    )
+
+
+class MeetingParticipantSerializer(DataclassSerializer):
+    """One attendee of a synced calendar meeting (read-only)."""
+
+    email = serializers.CharField(read_only=True, help_text="Email address of the attendee.")
+    display_name = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Display name from the calendar event; may be empty."
+    )
+    response_status = serializers.CharField(
+        read_only=True,
+        help_text="The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'.",
+    )
+    is_organizer = serializers.BooleanField(read_only=True, help_text="Whether this attendee organized the meeting.")
+    person_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="UUID of the PostHog person resolved for this attendee, if any."
+    )
+
+    class Meta:
+        dataclass = MeetingParticipantView
+        ref_name = "MeetingParticipant"
+        fields = ["email", "display_name", "response_status", "is_organizer", "person_id"]
+
+
+class MeetingSerializer(DataclassSerializer):
+    """A calendar meeting synced from a connected employee calendar (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the meeting.")
+    title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
+    gong_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Gong call URL matched through the calendar event id; null when no Gong call is available.",
+    )
+    start_time = serializers.DateTimeField(read_only=True, help_text="When the meeting starts.")
+    end_time = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the meeting ends.")
+    organizer_email = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Email address of the meeting organizer; may be empty."
+    )
+    status = serializers.CharField(
+        read_only=True, help_text="Meeting status: 'confirmed', 'tentative', or 'cancelled'."
+    )
+    participants = MeetingParticipantSerializer(many=True, read_only=True, help_text="Attendees of the meeting.")
+
+    class Meta:
+        dataclass = MeetingView
+        ref_name = "Meeting"
+        fields = ["id", "title", "gong_url", "start_time", "end_time", "organizer_email", "status", "participants"]
+
+
 class CustomPropertyReferenceSerializer(DataclassSerializer):
     """A place that uses a custom property definition (read-only)."""
 
@@ -324,14 +1466,67 @@ class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
     )
 
 
+class CustomPropertySyncRunListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.",
+    )
+
+
 class CustomPropertySyncRunSerializer(DataclassSerializer):
-    """One person- or group-property sync or backfill run. Read-only: runs are created by the
-    sync/backfill pipeline, never through the API."""
+    """One warehouse-backed custom property sync run."""
 
     id = serializers.UUIDField(read_only=True)
+    job_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Warehouse import or materialization job associated with the run, if any.",
+    )
+    account_segment = serializers.ChoiceField(
+        choices=[("tracked", "tracked"), ("ignored", "ignored")],
+        read_only=True,
+        allow_null=True,
+        help_text="Account segment processed by this run. Person and group property runs return null.",
+    )
+    sync_phase = serializers.ChoiceField(
+        choices=[
+            ("staging", "staging"),
+            ("dispatching", "dispatching"),
+            ("syncing", "syncing"),
+            ("completed", "completed"),
+        ],
+        read_only=True,
+        allow_null=True,
+        help_text="Current account sync phase. Person and group property runs return null.",
+    )
+    attempt = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Latest Temporal activity attempt for the current account sync phase.",
+    )
+    workflow_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Temporal workflow identifier associated with the current account sync phase.",
+    )
+    workflow_run_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Temporal run identifier associated with the current account sync phase.",
+    )
+    temporal_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.",
+    )
     trigger = serializers.CharField(
         read_only=True,
-        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+        help_text=(
+            "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync "
+            "started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the "
+            "automatic backfill run when a mapping is created or re-enabled)."
+        ),
     )
     status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")
@@ -342,14 +1537,14 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     changed = serializers.IntegerField(read_only=True, help_text="Rows whose mapped values changed since the last run.")
     existing = serializers.IntegerField(
         read_only=True,
-        help_text="Person or group profiles updated (changed rows that matched an existing person/group).",
+        help_text="Changed rows that matched an existing account, person, or group.",
     )
     produced = serializers.IntegerField(
-        read_only=True, help_text="Property-update intents produced to the ingestion pipeline."
+        read_only=True, help_text="Property updates written or produced to the ingestion pipeline."
     )
     skipped_missing_person = serializers.IntegerField(
         read_only=True,
-        help_text="Changed rows dropped because no existing person/group matched the key column value.",
+        help_text="Changed rows skipped because no existing account, person, or group matched the key column value.",
     )
     error = serializers.CharField(
         read_only=True, allow_null=True, help_text="Error summary if the run failed, else null."
@@ -361,6 +1556,13 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
         ref_name = "CustomPropertySyncRun"
         fields = [
             "id",
+            "job_id",
+            "account_segment",
+            "sync_phase",
+            "attempt",
+            "workflow_id",
+            "workflow_run_id",
+            "temporal_url",
             "trigger",
             "status",
             "started_at",
@@ -376,9 +1578,10 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
 
 
 class CustomPropertySourceSerializer(DataclassSerializer):
-    """Binds a data-warehouse source to a custom property definition. Account sources read a
-    materialized view column and sync onto matching accounts; person and group sources read a
-    warehouse schema and sync onto matching persons or groups on each warehouse sync."""
+    """Binds warehouse columns to a custom property definition. Account sources read a materialized
+    view column and sync onto matching accounts; person and group sources read either an imported
+    warehouse table or a materialized view, and sync onto matching persons or groups on every
+    warehouse run of what they read."""
 
     id = serializers.UUIDField(read_only=True)
     definition = serializers.UUIDField(
@@ -388,16 +1591,17 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Account sources only: UUID of the data-warehouse saved query (materialized view) to read "
-            "values from. Mutually exclusive with external_data_schema."
+            "UUID of the data-warehouse saved query to read from. Required for an account source. For a "
+            "person or group source it must be a materialized view, and is one of the two binding "
+            "options. Mutually exclusive with external_data_schema."
         ),
     )
     external_data_schema = serializers.UUIDField(
         required=False,
         allow_null=True,
         help_text=(
-            "Person and group sources only: UUID of the warehouse schema (raw incremental table) to "
-            "read from. Mutually exclusive with saved_query."
+            "Person and group sources only: UUID of the warehouse schema (an imported table) to read "
+            "from. Mutually exclusive with saved_query; a person or group source sets exactly one."
         ),
     )
     source_column = serializers.CharField(
@@ -418,7 +1622,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Person sources only: {warehouse_column: description} giving each mapped column a "
+            "Person and group sources only: {warehouse_column: description} giving each mapped column a "
             "human-facing description, seeded from the warehouse column's information_schema "
             "description. Optional per column. Create-only."
         ),
@@ -454,23 +1658,49 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "Person and group sources only: how often the underlying warehouse schema syncs, in "
-            "seconds. Null for account sources or when unavailable."
+            "Person and group sources only: how often the bound table or view runs, in seconds. Null "
+            "for account sources, or when the schedule is unavailable — including a view whose "
+            "frequency is set on its data-modeling DAG."
         ),
     )
     next_sync_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
         help_text=(
-            "Person and group sources only: approximate time of the next scheduled sync (last synced + "
-            "interval). Approximate — drifts if the schedule was paused. Null for account sources or if "
-            "never synced."
+            "Person and group sources only: approximate time of the next scheduled run (last run + "
+            "interval). Approximate — drifts if the schedule was paused. Null for account sources, if "
+            "never run, or when the interval is unavailable."
         ),
     )
     latest_run = CustomPropertySyncRunSerializer(
         read_only=True,
         allow_null=True,
         help_text="Person and group sources only: the most recent sync/backfill run, or null if none yet.",
+    )
+    external_data_source = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Table-bound person and group sources only: UUID of the warehouse source owning the schema, "
+            "so the UI can link to the table. Null for account sources, view-bound sources, or when "
+            "unavailable."
+        ),
+    )
+    table_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: what this source reads, as it is named in HogQL — the "
+            "imported table, or the view. Null for account sources or when unavailable."
+        ),
+    )
+    saved_query_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "View-bound person and group sources only: the materialized view's name, so the UI can tell "
+            "a view-backed source from a table-backed one. Null for account and table-bound sources."
+        ),
     )
 
     class Meta:
@@ -495,6 +1725,9 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "sync_frequency_interval_seconds",
             "next_sync_at",
             "latest_run",
+            "external_data_source",
+            "table_name",
+            "saved_query_name",
         ]
 
 
@@ -545,8 +1778,8 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     display_type = serializers.ChoiceField(
         choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
-            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', 'boolean', or 'select'."
+            "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', "
+            "'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL."
         ),
     )
     target_type = serializers.ChoiceField(
@@ -588,13 +1821,24 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         allow_null=True,
         help_text="The data-warehouse view-sync binding feeding this property, or null when values are set manually.",
     )
+    is_canonical = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when PostHog writes this property itself. Its name and display type are fixed — "
+            "an update changing either is rejected."
+        ),
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
     references = CustomPropertyReferenceSerializer(
         many=True,
         read_only=True,
-        help_text="Workflows that use this property, resolved by definition id.",
+        help_text="Workflows that use this property, resolved by definition id when the caller can view workflows.",
+    )
+    has_workflow_reference = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a workflow updates this property. Always returned, even when workflow details are hidden.",
     )
 
     def validate(self, attrs):
@@ -622,12 +1866,14 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "target_type",
             "group_type_index",
             "is_big_number",
+            "is_canonical",
             "options",
             "source",
             "created_at",
             "created_by",
             "updated_at",
             "references",
+            "has_workflow_reference",
         ]
 
 
@@ -670,7 +1916,8 @@ class CustomPropertyValueWriteSerializer(serializers.Serializer):
     value = CustomPropertyValueField(
         help_text=(
             "Value to store, matching the definition's type: a number for number/currency/percent, a "
-            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+            "boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, "
+            "or text for text properties."
         )
     )
 

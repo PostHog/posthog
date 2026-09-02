@@ -149,3 +149,9 @@ map to verdicts. Use these to calibrate your interpretation of query results.
   Check the session's timestamp against the project's retention period.
 - If `$has_recording` is true but the user can't find it, check if it's filtered out
   by duration, activity threshold, or playlist filters.
+
+## Related skills
+
+- **`diagnosing-sdk-health`** — an outdated SDK is a common root cause and blunts the diagnostic signals
+- **`finding-sessions-to-watch`** — once capture works, pick the sessions worth watching
+- **`investigating-replay`** — analyze the recording once it exists

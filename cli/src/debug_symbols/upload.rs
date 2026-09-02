@@ -7,9 +7,9 @@ use crate::{
     api::{
         self,
         releases::ReleaseBuilder,
-        symbol_sets::{SymbolSetUpload, MAX_FILE_SIZE},
+        symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload, MAX_FILE_SIZE},
     },
-    debug_symbols::{dedup_uploads_by_chunk_id, discover, package_dsym_bundles, report_problems},
+    debug_symbols::{discover, package_dsym_bundles, report_problems},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
 };
@@ -45,7 +45,7 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         include_source,
     } = args;
-    let release_args = release;
+    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -123,13 +123,14 @@ pub fn upload(args: &Args) -> Result<()> {
     // --include-source implies force unless the user explicitly asked to keep
     // existing symbol sets with --skip-on-conflict.
     let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
-    api::symbol_sets::upload_with_retry(
+    let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
         release_args.skip_release_on_fail,
         effective_force,
         conflict.skip_on_conflict,
-    )?;
+    );
+    upload_result?;
     info!("Debug symbol upload complete");
 
     Ok(())
@@ -150,6 +151,8 @@ fn merge_uploads_prefer_dsym(
         .partition(|upload| upload.data.len() <= max_file_size);
     preferred_dsyms.extend(native_uploads);
     preferred_dsyms.extend(oversized_dsyms);
+    // Casing must never be normalized here: the SDK matches chunk_ids case-sensitively, per
+    // format, and lowercase ELF ids never collide with uppercase Mach-O ones.
     dedup_uploads_by_chunk_id(preferred_dsyms)
 }
 
@@ -164,6 +167,7 @@ mod tests {
             chunk_id: chunk_id.to_string(),
             release_id: None,
             data: data.to_vec(),
+            content_hash: None,
         };
 
         let uploads = merge_uploads_prefer_dsym(
@@ -183,6 +187,7 @@ mod tests {
             chunk_id: uuid.to_string(),
             release_id: None,
             data: data.to_vec(),
+            content_hash: None,
         };
 
         let uploads =

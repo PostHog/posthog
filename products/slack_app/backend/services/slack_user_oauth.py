@@ -6,18 +6,19 @@ Single home for the whole user-link feature surface:
   (``resolve_slack_user`` etc.) before falling back to email matching.
 * Signed-state Pydantic models (``InviteToken``, ``CallbackState``) that
   flow through Slack's OAuth redirects.
-* The Sign-in-with-Slack OAuth dance: authorize URL builder, code exchange,
-  ``users.identity`` call, kept thin and pure so the view layer can compose
-  it with login state / templates / follow-up messages.
+* The Sign-in-with-Slack (OpenID Connect) dance: authorize URL builder,
+  code exchange, ``openid.connect.userInfo`` call, kept thin and pure so
+  the view layer can compose it with login state / templates / follow-up
+  messages.
 * Block Kit invite-message poster the resolver uses when email matching
   fails and the user has a recovery affordance to offer.
 
 Distinct from the workspace install flow in
 ``posthog.models.integration.OauthIntegration``: that one mints workspace-
 level bot tokens and persists them as an ``Integration`` row. This one runs
-the user-token flow (``user_scope=identity.basic,identity.email``) and
-stores the resulting credential on a ``UserIntegration(kind="slack")`` row
-in symmetry with the GitHub personal integration.
+Slack's OIDC sign-in flow (``scope=openid email profile``) and stores the
+resulting credential on a ``UserIntegration(kind="slack")`` row in symmetry
+with the GitHub personal integration.
 """
 
 from typing import Any
@@ -27,12 +28,11 @@ from uuid import UUID
 from django.conf import settings
 from django.core import signing
 
-import requests
 import structlog
 from pydantic import BaseModel, ValidationError
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
+from slack_sdk.errors import SlackApiError, SlackClientError
 
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -224,18 +224,17 @@ def build_invite_url(
 
 
 # ---------------------------------------------------------------------------
-# Sign-in-with-Slack OAuth flow
+# Sign-in-with-Slack (OpenID Connect) flow
 # ---------------------------------------------------------------------------
 
-SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
-SLACK_TOKEN_URL = "https://slack.com/api/oauth.v2.access"
+SLACK_AUTHORIZE_URL = "https://slack.com/openid/connect/authorize"
 
-# `identity.basic` returns `{user: {id, name}, team: {id}}` — the bare
-# minimum we need to bind a Slack user to a PostHog user. `identity.email`
-# powers the support diagnostics field stored alongside the link. The user
-# token issued for these scopes is persisted on the UserIntegration row in
-# symmetry with the GitHub personal flow.
-USER_IDENTITY_SCOPES = "identity.basic,identity.email"
+# `openid` identifies the user (`https://slack.com/user_id` + `team_id`
+# claims) — the bare minimum we need to bind a Slack user to a PostHog user.
+# `email` powers the support diagnostics field stored alongside the link;
+# `profile` adds the team name. The legacy `identity.*` user scopes these
+# replace are rejected by Slack Marketplace review.
+OIDC_SCOPES = "openid email profile"
 
 
 class SlackUserOAuthError(Exception):
@@ -244,7 +243,7 @@ class SlackUserOAuthError(Exception):
 
 
 class SlackIdentity(BaseModel):
-    """Result of ``oauth.v2.access`` + ``users.identity`` for the user flow.
+    """Result of ``openid.connect.token`` + ``openid.connect.userInfo``.
 
     ``user_refresh_token`` is only populated when the Slack app has
     ``token_rotation_enabled``; with rotation off (today) Slack omits the
@@ -258,6 +257,10 @@ class SlackIdentity(BaseModel):
     slack_email: str | None = None
     user_access_token: str
     user_refresh_token: str | None = None
+    # What Slack actually granted, space-delimited. Normally OIDC_SCOPES verbatim —
+    # the consent screen grants them together — so this is a record of what an older
+    # link was created with rather than something to branch on.
+    user_scopes: str = ""
 
 
 def _credentials() -> tuple[str, str]:
@@ -273,15 +276,16 @@ def _credentials() -> tuple[str, str]:
 
 
 def build_authorize_url(*, redirect_uri: str, state: str) -> str:
-    """The full Slack URL the user is redirected to. ``user_scope`` is the
-    Sign-in-with-Slack lever — bot scopes stay empty so the user doesn't see
-    a permissions prompt for things the bot already has.
+    """The full Slack OIDC URL the user is redirected to. Only identity
+    scopes are requested — bot scopes belong to the separate workspace
+    install flow, so the user doesn't see a permissions prompt for things
+    the bot already has.
     """
     client_id, _ = _credentials()
     params = {
         "client_id": client_id,
-        "user_scope": USER_IDENTITY_SCOPES,
-        "scope": "",
+        "scope": OIDC_SCOPES,
+        "response_type": "code",
         "redirect_uri": redirect_uri,
         "state": state,
     }
@@ -289,70 +293,64 @@ def build_authorize_url(*, redirect_uri: str, state: str) -> str:
 
 
 def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
-    """Trade the auth code for a user token, then call ``users.identity`` to
-    learn who that token belongs to. The token is returned on ``SlackIdentity``
-    so the caller can persist it alongside the link.
+    """Trade the auth code for a user token at ``openid.connect.token``, then
+    call ``openid.connect.userInfo`` to learn who that token belongs to. The
+    token is returned on ``SlackIdentity`` so the caller can persist it
+    alongside the link.
+
+    ``userInfo`` is used instead of decoding the ``id_token`` JWT — the
+    claims are the same, and asking Slack directly over the server-to-server
+    channel we just authenticated on avoids carrying JWT-verification code.
 
     ``redirect_uri`` must match the one used on ``build_authorize_url``
     exactly; Slack rejects the exchange otherwise.
     """
     client_id, client_secret = _credentials()
     try:
-        response = requests.post(
-            SLACK_TOKEN_URL,
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "code": code,
-                "redirect_uri": redirect_uri,
-            },
-            timeout=10,
+        token_response = WebClient(source="slack_user_oauth", app_id="posthog").openid_connect_token(
+            client_id=client_id,
+            client_secret=client_secret,
+            code=code,
+            redirect_uri=redirect_uri,
         )
-    except requests.RequestException as exc:
-        raise SlackUserOAuthError("Slack OAuth request failed") from exc
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise SlackUserOAuthError("Slack OAuth returned non-JSON response") from exc
-
-    if not payload.get("ok"):
-        logger.warning("slack_app_user_link_oauth_exchange_failed", error=payload.get("error"))
-        raise SlackUserOAuthError(f"Slack OAuth exchange failed: {payload.get('error')}")
-
-    authed_user = payload.get("authed_user") or {}
-    user_token = authed_user.get("access_token")
-    if not user_token:
-        raise SlackUserOAuthError("Slack OAuth response missing authed_user.access_token")
-
-    # `authed_user.id` and `team.id` from `oauth.v2.access` are authoritative,
-    # but we still call `users.identity` to pick up the email + team name in
-    # the same request the user already authorized. Slack returns these
-    # under the user-token scope, not the bot token, so we have to use the
-    # token we just received.
-    try:
-        identity_response = WebClient(token=user_token).users_identity()
     except SlackApiError as exc:
         error = exc.response.get("error") if exc.response else None
-        logger.warning("slack_app_user_link_users_identity_failed", error=error)
-        raise SlackUserOAuthError(f"Slack users.identity failed: {error}") from exc
+        logger.warning("slack_app_user_link_oidc_token_failed", error=error)
+        raise SlackUserOAuthError(f"Slack openid.connect.token failed: {error}") from exc
+    except (SlackClientError, OSError) as exc:
+        raise SlackUserOAuthError("Slack OIDC token request failed") from exc
 
-    user_info = identity_response.get("user") or {}
-    team_info = identity_response.get("team") or {}
-    slack_user_id = user_info.get("id") or authed_user.get("id")
-    slack_team_id = team_info.get("id") or (payload.get("team") or {}).get("id")
+    user_token = token_response.get("access_token")
+    if not user_token:
+        raise SlackUserOAuthError("Slack OIDC token response missing access_token")
+
+    try:
+        userinfo = WebClient(token=user_token, source="slack_user_oauth", app_id="posthog").openid_connect_userInfo()
+    except SlackApiError as exc:
+        error = exc.response.get("error") if exc.response else None
+        logger.warning("slack_app_user_link_oidc_userinfo_failed", error=error)
+        raise SlackUserOAuthError(f"Slack openid.connect.userInfo failed: {error}") from exc
+    except (SlackClientError, OSError) as exc:
+        raise SlackUserOAuthError("Slack OIDC userInfo request failed") from exc
+
+    # Slack namespaces its non-standard OIDC claims under the
+    # `https://slack.com/` prefix; `email` and `name` follow the standard
+    # claim names and are only present when their scopes were granted.
+    slack_user_id = userinfo.get("https://slack.com/user_id")
+    slack_team_id = userinfo.get("https://slack.com/team_id")
     if not slack_user_id or not slack_team_id:
-        raise SlackUserOAuthError("Slack identity response missing user.id or team.id")
+        raise SlackUserOAuthError("Slack userInfo response missing user or team id")
 
     return SlackIdentity(
         slack_user_id=slack_user_id,
         slack_team_id=slack_team_id,
-        slack_team_name=team_info.get("name") or (payload.get("team") or {}).get("name"),
-        slack_email=user_info.get("email"),
+        slack_team_name=userinfo.get("https://slack.com/team_name"),
+        slack_email=userinfo.get("email"),
         user_access_token=user_token,
         # `refresh_token` is only present when the Slack app has
         # `token_rotation_enabled`; falls back to None in today's manifest.
-        user_refresh_token=authed_user.get("refresh_token"),
+        user_refresh_token=token_response.get("refresh_token"),
+        user_scopes=token_response.get("scope") or "",
     )
 
 

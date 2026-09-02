@@ -1,5 +1,6 @@
-import { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn } from '@storybook/react'
 import { HttpResponse, delay } from 'msw'
+import { useEffect } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -9,8 +10,20 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { InviteSignup } from './InviteSignup'
 import { inviteSignupLogic } from './inviteSignupLogic'
 
-const meta: Meta = {
-    title: 'Scenes-Other/InviteSignup',
+const MOCK_INVITE_ID = '1234'
+
+type StoryArgs = {
+    scenario: 'new-user' | 'existing-account' | 'invalid-link'
+    cloud: boolean
+    googleOAuth: boolean
+    github: boolean
+    gitlab: boolean
+    ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+}
+
+const meta: Meta<StoryArgs> = {
+    title: 'Scenes-Other/Invite Signup',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -18,239 +31,117 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/users/@me': () => [500, null],
-                '/api/signup/1234/': () => [
+                [`/api/signup/${MOCK_INVITE_ID}/`]: () => [
                     200,
                     {
-                        id: '1234',
-                        target_email: 'b*@posthog.com',
+                        id: MOCK_INVITE_ID,
+                        target_email: 'jane@acme.com',
                         first_name: 'Jane Doe',
-                        organization_name: 'PostHog',
+                        organization_name: 'Acme Corp',
                     },
                 ],
+                '/api/signup/not-found/': () => [404, { detail: 'Invite not found or already used.' }],
             },
             post: {
                 '/api/signup': async () => {
                     await delay(1000)
                     return HttpResponse.json({ success: true })
                 },
-                '/api/signup/1234': async () => {
+                [`/api/signup/${MOCK_INVITE_ID}`]: async () => {
                     await delay(1000)
                     return HttpResponse.json({ success: true })
                 },
-                '/api/login/precheck': { sso_enforcement: null, saml_available: false },
             },
         }),
     ],
+    argTypes: {
+        scenario: {
+            control: 'select',
+            name: 'Scenario',
+            options: ['new-user', 'existing-account', 'invalid-link'],
+        },
+        cloud: { control: 'boolean', name: 'Cloud' },
+        googleOAuth: { control: 'boolean', name: 'Google OAuth' },
+        github: { control: 'boolean', name: 'GitHub' },
+        gitlab: { control: 'boolean', name: 'GitLab' },
+        ssoEnforcement: {
+            control: 'select',
+            name: 'SSO enforcement',
+            options: ['none', 'google-oauth2', 'github', 'gitlab', 'saml'],
+        },
+    },
+    args: {
+        scenario: 'new-user',
+        cloud: true,
+        googleOAuth: true,
+        github: true,
+        gitlab: true,
+        ssoEnforcement: 'none',
+    },
 }
 export default meta
 
-type Story = StoryObj<{}>
+const Template: StoryFn<StoryArgs> = ({ scenario, cloud, googleOAuth, github, gitlab, ssoEnforcement }) => {
+    const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
+    const isExistingAccount = scenario === 'existing-account'
+    const inviteId = scenario === 'invalid-link' ? 'not-found' : MOCK_INVITE_ID
 
-export const SelfHosted: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: false,
-                    realm: 'hosted-clickhouse',
-                    available_social_auth_providers: {
-                        github: false,
-                        gitlab: false,
-                        'google-oauth2': false,
-                        saml: false,
-                    },
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud,
+                realm: cloud ? 'cloud' : 'hosted-clickhouse',
+                is_debug: cloud,
+                can_create_org: cloud,
+                available_social_auth_providers: {
+                    'google-oauth2': googleOAuth,
+                    github,
+                    gitlab,
+                    saml: false,
                 },
             },
-        })
+            '/api/users/@me': isExistingAccount
+                ? () => [200, { email: 'jane@acme.com', first_name: 'Jane Doe', organization: { name: 'Acme Corp' } }]
+                : () => [500, null],
+        },
+        post: {
+            '/api/login/precheck': { sso_enforcement: enforcement, saml_available: false },
+        },
+    })
 
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('1234')
-        })
+    useDelayedOnMountEffect(() => {
+        inviteSignupLogic.actions.prevalidateInvite(inviteId)
+    })
 
-        return <InviteSignup />
-    },
+    useEffect(() => {
+        if (enforcement) {
+            inviteSignupLogic.actions.prevalidateInvite(inviteId)
+        }
+    }, [enforcement, inviteId])
+
+    return <InviteSignup />
 }
 
-export const Cloud: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-                },
-            },
-        })
+export const Default: StoryFn<StoryArgs> = Template.bind({})
 
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('1234')
-        })
+export const NewUserCloud: StoryFn<StoryArgs> = Template.bind({})
+NewUserCloud.args = { scenario: 'new-user', cloud: true }
 
-        return <InviteSignup />
-    },
+export const NewUserSelfHosted: StoryFn<StoryArgs> = Template.bind({})
+NewUserSelfHosted.args = {
+    scenario: 'new-user',
+    cloud: false,
+    googleOAuth: false,
+    github: false,
+    gitlab: false,
 }
 
-export const CloudEU: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    region: 'EU',
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-                },
-            },
-        })
+export const ExistingAccount: StoryFn<StoryArgs> = Template.bind({})
+ExistingAccount.args = { scenario: 'existing-account' }
 
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('1234')
-        })
+export const InvalidLink: StoryFn<StoryArgs> = Template.bind({})
+InvalidLink.args = { scenario: 'invalid-link' }
 
-        return <InviteSignup />
-    },
-}
-
-export const InvalidLink: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-                },
-            },
-        })
-
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('not-found')
-        })
-
-        return <InviteSignup />
-    },
-}
-
-export const LoggedIn: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-                },
-                '/api/users/@me': () => [
-                    200,
-                    {
-                        email: 'ben@posthog.com',
-                        first_name: 'Ben White',
-                        organization: {
-                            name: 'Other org',
-                        },
-                    },
-                ],
-            },
-        })
-
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('1234')
-        })
-
-        return <InviteSignup />
-    },
-}
-
-export const LoggedInWrongUser: Story = {
-    render: () => {
-        useStorybookMocks({
-            get: {
-                '/_preflight': {
-                    ...preflightJson,
-                    cloud: true,
-                    realm: 'cloud',
-                    can_create_org: true,
-                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
-                },
-                '/api/users/@me': () => [
-                    200,
-                    {
-                        email: 'ben@posthog.com',
-                        first_name: 'Ben White',
-                        organization: {
-                            name: 'Other org',
-                        },
-                    },
-                ],
-                '/api/signup/1234/': () => [
-                    400,
-                    {
-                        code: 'invalid_recipient',
-                    },
-                ],
-            },
-        })
-
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('1234')
-        })
-
-        return (
-            <div>
-                <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
-                <InviteSignup />
-            </div>
-        )
-    },
-}
-
-export const SSOEnforcedSaml: Story = {
-    render: () => {
-        useStorybookMocks({
-            post: {
-                '/api/login/precheck': { sso_enforcement: 'saml', saml_available: true },
-            },
-        })
-
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('1234')
-        })
-
-        return (
-            <div>
-                <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
-                <InviteSignup />
-            </div>
-        )
-    },
-}
-
-export const SSOEnforcedGoogle: Story = {
-    render: () => {
-        useStorybookMocks({
-            post: { '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false } },
-        })
-
-        useDelayedOnMountEffect(() => {
-            inviteSignupLogic.actions.prevalidateInvite('1234')
-        })
-
-        return (
-            <div>
-                <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
-                <InviteSignup />
-            </div>
-        )
-    },
-}
+export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
+SSOEnforced.args = { ssoEnforcement: 'google-oauth2' }

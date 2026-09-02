@@ -1,9 +1,20 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 VAPI_BASE_URL = "https://api.vapi.ai"
+
+# Vapi's "v2" is a selective, per-resource scheme, not an account-wide or header-selected
+# version: only some resources gained a distinct `/v2/<resource>` route, and the rest keep
+# serving the same path and shape under both labels. Of the resources this source reads, only
+# phone numbers diverge (see `version_overrides` below). `v1` is the legacy unversioned API
+# existing rows are pinned to. See https://docs.vapi.ai/changelog/2025-09-17.
+VAPI_VERSION_V1 = UNVERSIONED_API_VERSION
+VAPI_VERSION_V2 = "v2"
+SUPPORTED_VERSIONS = (VAPI_VERSION_V1, VAPI_VERSION_V2)
+DEFAULT_VERSION = VAPI_VERSION_V2
 
 # Vapi caps `limit` at 1000 (default 100). Call/chat objects can be large (full transcripts,
 # message arrays, cost breakdowns), so keep pages at 100 rows to bound per-request memory.
@@ -26,6 +37,15 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
+@dataclass(frozen=True)
+class VapiEndpointVersion:
+    """Per-version override of an endpoint's request path and pagination style, for a resource
+    the vendor serves at a different route/shape under a newer API version."""
+
+    path: str
+    pagination: VapiPaginationStyle
+
+
 @dataclass
 class VapiEndpointConfig:
     name: str
@@ -36,6 +56,10 @@ class VapiEndpointConfig:
     partition_key: Optional[str] = "createdAt"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
+    # Versions that serve this resource at a different path/pagination than the version-
+    # independent fields above, keyed by version label. Everything else (incremental fields,
+    # partitioning, primary keys) is identical across versions for the resources we read.
+    version_overrides: dict[str, VapiEndpointVersion] = field(default_factory=dict)
 
 
 VAPI_ENDPOINTS: dict[str, VapiEndpointConfig] = {
@@ -62,6 +86,11 @@ VAPI_ENDPOINTS: dict[str, VapiEndpointConfig] = {
         name="phone_numbers",
         path="/phone-number",
         pagination="created_at_cursor",
+        version_overrides={
+            # v2 replaces the bare createdAt-descending array at /phone-number with a
+            # page-numbered {results, metadata} envelope served at /v2/phone-number.
+            VAPI_VERSION_V2: VapiEndpointVersion(path="/v2/phone-number", pagination="page"),
+        },
     ),
     "squads": VapiEndpointConfig(
         name="squads",
@@ -106,6 +135,16 @@ VAPI_ENDPOINTS: dict[str, VapiEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(VAPI_ENDPOINTS.keys())
+
+
+def resolve_endpoint(endpoint: str, api_version: str) -> VapiEndpointConfig:
+    """Endpoint config for a resolved version pin, swapping in any per-version path/pagination."""
+    config = VAPI_ENDPOINTS[endpoint]
+    override = config.version_overrides.get(api_version)
+    if override is None:
+        return config
+    return replace(config, path=override.path, pagination=override.pagination)
+
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in VAPI_ENDPOINTS.items()

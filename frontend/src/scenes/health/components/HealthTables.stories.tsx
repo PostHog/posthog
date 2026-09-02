@@ -17,6 +17,7 @@ function createMockIssue(
         severity: 'warning' as HealthIssueSeverity,
         status: 'active',
         dismissed: false,
+        snoozed_until: null,
         created_at: '2025-01-14T18:30:00Z',
         updated_at: '2025-01-14T18:30:00Z',
         resolved_at: null,
@@ -252,38 +253,49 @@ const meta: Meta = {
 }
 export default meta
 
+const DATA_MODELING_SNOOZED: HealthIssue[] = DATA_MODELING_ISSUES.map((issue) => ({
+    ...issue,
+    snoozed_until: '2025-02-14T18:30:00Z',
+}))
+
 export const DataModelingDefault: StoryFn = () => (
-    <DataModelingHealthTable issues={DATA_MODELING_ISSUES} onDismiss={noop} onUndismiss={noop} />
+    <DataModelingHealthTable issues={DATA_MODELING_ISSUES} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
+)
+
+export const DataModelingSnoozed: StoryFn = () => (
+    <DataModelingHealthTable issues={DATA_MODELING_SNOOZED} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const DataModelingEmpty: StoryFn = () => (
-    <DataModelingHealthTable issues={[]} onDismiss={noop} onUndismiss={noop} />
+    <DataModelingHealthTable issues={[]} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const DataModelingWithDismissed: StoryFn = () => (
-    <DataModelingHealthTable issues={DATA_MODELING_DISMISSED} onDismiss={noop} onUndismiss={noop} />
+    <DataModelingHealthTable issues={DATA_MODELING_DISMISSED} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const IngestionWarningsDefault: StoryFn = () => (
-    <IngestionWarningTable issues={INGESTION_WARNING_ISSUES} onDismiss={noop} onUndismiss={noop} />
+    <IngestionWarningTable issues={INGESTION_WARNING_ISSUES} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const IngestionWarningsEmpty: StoryFn = () => (
-    <IngestionWarningTable issues={[]} onDismiss={noop} onUndismiss={noop} />
+    <IngestionWarningTable issues={[]} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const PipelineDefault: StoryFn = () => (
-    <PipelineHealthTable issues={PIPELINE_ISSUES} onDismiss={noop} onUndismiss={noop} />
+    <PipelineHealthTable issues={PIPELINE_ISSUES} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
-export const PipelineEmpty: StoryFn = () => <PipelineHealthTable issues={[]} onDismiss={noop} onUndismiss={noop} />
+export const PipelineEmpty: StoryFn = () => (
+    <PipelineHealthTable issues={[]} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
+)
 
 export const WebAnalyticsAllChecks: StoryFn = () => (
-    <WebAnalyticsHealthTable issues={WEB_ANALYTICS_ISSUES} onDismiss={noop} onUndismiss={noop} />
+    <WebAnalyticsHealthTable issues={WEB_ANALYTICS_ISSUES} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const WebAnalyticsEmpty: StoryFn = () => (
-    <WebAnalyticsHealthTable issues={[]} onDismiss={noop} onUndismiss={noop} />
+    <WebAnalyticsHealthTable issues={[]} onSnooze={noop} onDismiss={noop} onUndismiss={noop} />
 )
 
 export const SdkOutdatedDefault: StoryFn = () => <SdkOutdatedRenderer issue={SDK_OUTDATED_ISSUE} />
@@ -295,6 +307,7 @@ export const DetailHealthy: StoryFn = () => (
         issues={[]}
         statusSummary={{ count: 0, worstSeverity: null, isHealthy: true }}
         isLoading={false}
+        onSnooze={noop}
         onDismiss={noop}
         onUndismiss={noop}
         onRefresh={noop}
@@ -308,6 +321,7 @@ export const DetailWithIssues: StoryFn = () => (
         issues={DATA_MODELING_ISSUES}
         statusSummary={{ count: 3, worstSeverity: 'critical', isHealthy: false }}
         isLoading={false}
+        onSnooze={noop}
         onDismiss={noop}
         onUndismiss={noop}
         onRefresh={noop}

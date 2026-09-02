@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -11,17 +12,18 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.harvey import (
     HarveyResumeConfig,
@@ -30,15 +32,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.har
     validate_credentials as validate_harvey_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
+    HARVEY_API_VERSION_V1,
     HARVEY_ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class HarveySource(ResumableSource[HarveySourceConfig, HarveyResumeConfig]):
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
+    # v1's Usage and Query History APIs were retired on 2025-06-30. The source already reads the v2
+    # endpoints for both labels, so v1 stays supported (pinned rows keep working) while carrying the
+    # sunset date that lights up the generic in-product deprecation warning.
+    deprecated_versions = (VersionDeprecation(version=HARVEY_API_VERSION_V1, sunset_at=datetime.date(2025, 6, 30)),)
     api_docs_url = "https://developers.harvey.ai/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

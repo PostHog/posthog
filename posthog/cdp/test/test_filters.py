@@ -228,6 +228,45 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 6}}).result is True
         assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 7}}).result is False
 
+    @parameterized.expand(
+        [
+            (True, True),
+            ("true", True),
+            (1, True),
+            (False, False),
+            ("false", False),
+            (0, False),
+        ]
+    )
+    def test_multi_value_exact_filter_matches_mcp_error_encodings(
+        self, property_value: bool | str | int, expected: bool
+    ) -> None:
+        filters = {
+            "events": [
+                {
+                    "id": "$mcp_tool_call",
+                    "type": "events",
+                    "properties": [
+                        {
+                            "key": "$mcp_is_error",
+                            "value": ["true", True, 1],
+                            "operator": "exact",
+                            "type": "event",
+                        }
+                    ],
+                }
+            ]
+        }
+        bytecode = compile_filters_bytecode(filters, self.team)["bytecode"]
+
+        assert (
+            execute_bytecode(
+                bytecode,
+                {"event": "$mcp_tool_call", "properties": {"$mcp_is_error": property_value}},
+            ).result
+            is expected
+        )
+
     def test_filters_full(self):
         bytecode = self.filters_to_bytecode(filters=self.filters)
         assert bytecode == [

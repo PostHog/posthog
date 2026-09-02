@@ -12,6 +12,7 @@ personhog-proto = { path = "../personhog-proto" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 k8s-awareness = { path = "../common/k8s-awareness" }
 common-alloc = { path = "../common/alloc" }
+keyed-stash = { path = "../common/keyed-stash" }
 metrics-exporter-prometheus = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 kube = { version = "0.98", features = ["client", "runtime"] }
@@ -37,6 +38,11 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+# Test-only: the store layer emits the etcd payload histogram from both
+# this binary and every binary on the shared recorder, so the two bucket
+# ladders have to match or the series cannot be aggregated across jobs.
+# A dev-dependency binds them without pulling the crate into the build.
+common-metrics = { path = "../common/metrics" }
 dashmap = { workspace = true }
 flate2 = { workspace = true }
 prost = { workspace = true }

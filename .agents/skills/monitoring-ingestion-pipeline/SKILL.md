@@ -192,7 +192,7 @@ agent pool, KMinion instance, and topic namespace:
 | `warpstream-logs`                | `ingestion-logs`, `clickhouse_logs`                                                                                                                                                                                                                                                                                                  | `kminion-warpstream-logs`                |
 | `warpstream-traces`              | `ingestion-traces`, `clickhouse_traces`                                                                                                                                                                                                                                                                                              | `kminion-warpstream-traces`              |
 | `warpstream-shared`              | `clickhouse_document_embeddings`, error tracking fingerprint/issue topics, `document_embeddings_input`                                                                                                                                                                                                                               | `kminion-warpstream-shared`              |
-| `warpstream-calculated-events`   | `clickhouse_precalculated_person_properties`, `clickhouse_prefiltered_events`, `cohort_membership_changed` (US only)                                                                                                                                                                                                                 | `kminion-warpstream-calculated-events`   |
+| `warpstream-calculated-events`   | `cohort_membership_changed` (US only)                                                                                                                                                                                                                                                                                                | `kminion-warpstream-calculated-events`   |
 | `warpstream-cyclotron`           | CDP topics (`cdp_cyclotron_hog*`, `cdp_internal_events`, etc.)                                                                                                                                                                                                                                                                       | `kminion-warpstream-cyclotron`           |
 | `warpstream-warehouse-pipelines` | `data_warehouse_source_webhooks`, `data_warehouse_sources_jobs` (US only)                                                                                                                                                                                                                                                            | `kminion-warpstream-warehouse-pipelines` |
 
@@ -297,36 +297,31 @@ Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 
 ### Grafana dashboards
 
-| UID                                    | Title                                       | Focus                                               |
-| -------------------------------------- | ------------------------------------------- | --------------------------------------------------- |
-| `ingestion-general`                    | Ingestion - General                         | Cross-service overview, E2E lag, topic flow         |
-| `ingestion-analytics`                  | Ingestion - Analytics                       | Per-pipeline analytics breakdown                    |
-| `ingestion-health`                     | Ingestion - Health                          | Health overview across all ingestion services       |
-| `ingestion-pipelines`                  | Ingestion - Pipelines                       | Per-lane pipeline step breakdown                    |
-| `ingestion-pipeline-performance`       | Ingestion - Pipeline Performance            | Step latency, batch utilization                     |
-| `ingestion-reliability`                | Ingestion - Reliability                     | Error rates, DLQ, drop causes                       |
-| `ingestion-autoscaling`                | Ingestion - Autoscaling                     | HPA/KEDA scaling                                    |
-| `ingestion-person-processing`          | Ingestion -- Person Processing              | Person store, merge, cache                          |
-| `ingestion-group-processing`           | Ingestion -- Group Processing               | Group store                                         |
-| `ingestion-session-recordings`         | Session Replay -- Ingestion                 | Replay blob pipeline                                |
-| `dffkdlee8ub5s0a`                      | Ingestion - Capture Golden                  | Capture-specific ingestion metrics (golden chart)   |
-| `cesaxfujkyl8gf`                       | Ingestion - Deduplication                   | Event deduplication pipeline                        |
-| `pl-ingestion-slas`                    | Ingestion — SLIs / SLOs / SLAs              | Dynamic SLI/SLO view from `ingestion_sli_*` metrics |
-| `warpstream`                           | Warpstream Agent Overview                   | Agent health, control plane ops, file cache         |
-| `dbfj5c31spa1ogf`                      | MSK vs Warpstream — Active Produce Topics   | Side-by-side produce volume comparison              |
-| `8e93b023-a544-4a3b-8fac-123459d4eb84` | WarpStream: ClickHouse Consumer Lag         | CH consumer lag on WarpStream topics (US only)      |
-| `ws-coarse-lag-explore`                | WarpStream Coarse Lag — Explore             | Agent-reported lag (US only, personal dashboard)    |
-| `ceef2kuqw66tca`                       | Ingestion copy for warpstream               | Legacy WarpStream migration view                    |
-| `personhog-service`                    | Personhog service                           | PersonHog latency decomposition                     |
-| `dbfgkwxs3gw8owd`                      | KMinion Consumer Group Lag                  | Consumer lag by group (including CH groups)         |
-| `logs`                                 | Logs (product)                              | Logs ingestion                                      |
-| `vm-clickhouse-cluster-overview`       | ClickHouse (cluster overview)               | QPS, memory, disk, replication, parts, merges       |
-| `8aa35a4a-091a-4645-ac8f-ae46901f0060` | ClickHouse Ingestion Layer - Resource Usage | K8s resources for `chi-ingestion-*` pods            |
-| `ddpxkllwxg268e`                       | ClickHouse - Kafka consumption              | CH Kafka engine consumption stats                   |
-| `clickhouse-keeper`                    | ClickHouse Keeper                           | ZooKeeper replacement health                        |
-| `ef7h2todfg4xsd`                       | New ClickHouse Cluster Merge Overview       | Merge throughput                                    |
-| `cdzv7o1635n9ca`                       | Kafka Connect                               | Kafka Connect tasks, lag, DuckLake sink             |
-| `deoz13wy08wsga`                       | ClickHouse - Disk capacity (EU ONLY)        | EU-specific disk dashboard                          |
+| UID                                      | Title                                     | Focus                                                 |
+| ---------------------------------------- | ----------------------------------------- | ----------------------------------------------------- |
+| `ingestion-analytics`                    | Ingestion - Analytics                     | Per-pipeline analytics breakdown                      |
+| `ingestion-health`                       | Ingestion - Health                        | Health overview across all ingestion services         |
+| `ingestion-pipelines`                    | Ingestion - Pipelines                     | Per-lane pipeline step breakdown                      |
+| `ingestion-reliability`                  | Ingestion - Reliability                   | Event trends, processing-lag SLOs, restarts, E2E lag  |
+| `ingestion-person-processing`            | Ingestion -- Person Processing            | Person store, merge, cache                            |
+| `ingestion-group-processing`             | Ingestion -- Group Processing             | Group store                                           |
+| `ingestion-sessionreplay`                | Ingestion - Session Replay                | Replay blob pipeline                                  |
+| `capture`                                | Capture                                   | Capture-side ingestion metrics (overview)             |
+| `bexr9fnja75z4f`                         | Kafka Deduplicator                        | Event deduplication pipeline                          |
+| `pl-ingestion-slas`                      | Ingestion — SLIs / SLOs / SLAs            | SLI/SLO view from `ingestion_sli_*` metrics (US only) |
+| `warpstream`                             | Warpstream Agent Overview                 | Agent health, control plane ops, file cache           |
+| `dbfj5c31spa1ogf`                        | MSK vs Warpstream — Active Produce Topics | Side-by-side produce volume comparison                |
+| `8e93b023-a544-4a3b-8fac-123459d4eb84`   | WarpStream: ClickHouse Consumer Lag       | CH consumer lag on WarpStream topics (US only)        |
+| `ws-coarse-lag-explore`                  | WarpStream Coarse Lag — Explore           | Agent-reported lag (US only, personal dashboard)      |
+| `personhog-service`                      | Personhog service                         | PersonHog latency decomposition                       |
+| `dbfgkwxs3gw8owd`                        | KMinion Consumer Group Lag                | Consumer lag by group (including CH groups)           |
+| `logs`                                   | Logs (product)                            | Logs ingestion                                        |
+| `vm-clickhouse-cluster-overview`         | ClickHouse (cluster overview)             | QPS, memory, disk, replication, parts, merges         |
+| `clickhouse-ingestion-overview-20260615` | ClickHouse Ingestion Layer Overview       | Ingestion-layer CH cluster health and resources       |
+| `clickhouse-keeper`                      | ClickHouse Keeper                         | ZooKeeper replacement health                          |
+| `fe469e59-e10a-465a-9dac-ac8f6f82dc9a`   | ClickHouse Stuck Merge Loop Investigation | Merges that stop making progress                      |
+| `cdzv7o1635n9ca`                         | Kafka Connect                             | Kafka Connect tasks, lag, DuckLake sink               |
+| `fdrcd04np3hfkf`                         | ClickHouse - Kafka consumption            | CH Kafka engine consumption stats (EU only)           |
 
 ## Discovery workflows
 
@@ -356,7 +351,7 @@ Repeat with other prefixes: `consumed_batch_*`, `person_*`, `personhog_*`,
 ### Dashboards
 
 1. `search_dashboards` — query `"ingestion"` or `"clickhouse"` or a specific deployment name
-2. `get_dashboard_by_uid` — use a known UID (e.g. `"ingestion-general"`) to get panel details
+2. `get_dashboard_by_uid` — use a known UID (e.g. `"ingestion-health"`) to get panel details
 3. `get_dashboard_panel_queries` — extract PromQL from existing panels
 
 ### Redis / ElastiCache
@@ -385,7 +380,7 @@ Repeat with other prefixes: `consumed_batch_*`, `person_*`, `personhog_*`,
   **Important:** scope with `app_kubernetes_io_instance="kminion-warpstream-ingestion"` for the
   WarpStream path (primary) or `"kminion-msk-analytics"` for the MSK path.
 - Logs: `{namespace="clickhouse"} |= "Exception"` or `{namespace="kafka-connect"}`
-- Dashboards: `vm-clickhouse-cluster-overview`, `8aa35a4a-091a-4645-ac8f-ae46901f0060`,
+- Dashboards: `vm-clickhouse-cluster-overview`, `clickhouse-ingestion-overview-20260615`,
   `cdzv7o1635n9ca`, `8e93b023-a544-4a3b-8fac-123459d4eb84` (WarpStream CH consumer lag)
 
 ## Key metric domains

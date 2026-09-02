@@ -154,6 +154,16 @@ class TestFailLoud:
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(cohere_source("key", "datasets", team_id=1, job_id="j"))
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_body_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Cohere returns a bare {} for an empty collection (an account with no datasets) rather than
+        # {"datasets": []}; that empty body is a valid 0-row page, not a shape change.
+        _wire(session, [_response(None, None)])
+
+        assert _rows(cohere_source("key", "datasets", team_id=1, job_id="j")) == []
+        assert session.send.call_count == 1
+
 
 class TestRetry:
     @mock.patch(CLIENT_SESSION_PATCH)

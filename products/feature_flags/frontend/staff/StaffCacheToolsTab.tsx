@@ -1,10 +1,11 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 
-import { IconEye } from '@posthog/icons'
+import { IconEye, IconPencil } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDialog,
+    LemonInput,
     LemonSwitch,
     LemonTable,
     LemonTableColumns,
@@ -13,15 +14,19 @@ import {
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { truncate } from 'lib/utils/strings'
 
+import { featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax } from '../generated/api.zod'
 import {
     CACHE_LABELS,
     featureFlagsStaffToolsLogic,
+    parseFlagLimit,
     StaffCacheEntryStatus,
     StaffCacheKind,
     StaffReadableCacheKind,
+    StaffTeamConfig,
     StaffTeamResult,
     StaffWarmRun,
 } from './featureFlagsStaffToolsLogic'
@@ -29,6 +34,9 @@ import { StaffCacheEntryModal } from './StaffCacheEntryModal'
 import { StaffTeamSearchInput } from './StaffTeamSearchInput'
 
 const NO_SELECTION_REASON = 'Select at least one team'
+
+// Sourced from the generated zod schema so the input bound can't drift from the serializer's.
+const MAX_FLAG_LIMIT = featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax
 
 const ALL_CACHES: StaffCacheKind[] = ['evaluation', 'definitions']
 
@@ -146,6 +154,38 @@ function CacheStatusCell({ status, onView }: { status?: StaffCacheEntryStatus; o
     )
 }
 
+function openFlagLimitDialog(
+    team: StaffTeamResult,
+    config: StaffTeamConfig,
+    setMaxFeatureFlagsOverride: (teamId: number, maxFeatureFlagsOverride: number | null) => Promise<void>
+): void {
+    LemonDialog.openForm({
+        title: `Flag limit for ${team.name}`,
+        description: `This team has ${config.feature_flag_count.toLocaleString()} flags, with a limit of ${config.effective_max_feature_flags.toLocaleString()}. Leave the field empty to use the default limit. A limit at or below the current count blocks all new flags for this team, including the ones surveys and experiments create.`,
+        initialValues: { maxFeatureFlags: config.max_feature_flags_override ?? '' },
+        shouldAwaitSubmit: true,
+        content: (
+            <LemonField name="maxFeatureFlags" label="Maximum flags">
+                <LemonInput type="number" min={1} max={MAX_FLAG_LIMIT} placeholder="Use the default" autoFocus />
+            </LemonField>
+        ),
+        errors: {
+            maxFeatureFlags: (value) => {
+                const limit = parseFlagLimit(value)
+                if (limit === null || (Number.isInteger(limit) && limit >= 1 && limit <= MAX_FLAG_LIMIT)) {
+                    return undefined
+                }
+                return `Enter a whole number between 1 and ${MAX_FLAG_LIMIT.toLocaleString()}, or leave the field empty to use the default.`
+            },
+        },
+        onSubmit: async ({ maxFeatureFlags }) => {
+            // Null clears the override, which the backend reads as "fall back to the global default".
+            // Awaited so the dialog keeps its submit button in a loading state until the write lands.
+            await setMaxFeatureFlagsOverride(team.id, parseFlagLimit(maxFeatureFlags))
+        },
+    })
+}
+
 export function StaffCacheToolsTab(): JSX.Element {
     const {
         selectedTeams,
@@ -159,6 +199,8 @@ export function StaffCacheToolsTab(): JSX.Element {
     } = useValues(featureFlagsStaffToolsLogic)
     const { rebuildCache, clearCache, loadCacheStatus, viewCacheEntry, setMinimalFlagCalledEvents } =
         useActions(featureFlagsStaffToolsLogic)
+    // Async so the dialog can await the write and keep its submit button loading meanwhile.
+    const { setMaxFeatureFlagsOverride } = useAsyncActions(featureFlagsStaffToolsLogic)
 
     const hasSelection = selectedTeamIds.length > 0
     const mutating = rebuildResultLoading || clearResultLoading
@@ -207,6 +249,47 @@ export function StaffCacheToolsTab(): JSX.Element {
                         disabledReason={pending ? 'Update in progress' : !config ? 'Loading current value…' : undefined}
                         data-attr="ff-staff-team-config-minimal-flag-called-events"
                     />
+                )
+            },
+        },
+        {
+            title: 'Flag limit',
+            key: 'max_feature_flags_override',
+            render: (_, team) => {
+                const config = teamConfigByTeamId[team.id]
+                const pending = pendingTeamConfigTeamIds.includes(team.id)
+                if (!config) {
+                    return <span className="text-secondary">Loading…</span>
+                }
+                const hasOverride = config.max_feature_flags_override !== null
+                // Search returns environment teams too, and the endpoint refuses an override on
+                // one. Keying on parent_team_id matches what the backend enforces on, so the
+                // button is disabled for exactly the rows whose write would be rejected.
+                const rootTeamId = team.parent_team_id
+                return (
+                    <span className="flex items-center gap-2">
+                        <span>{config.effective_max_feature_flags.toLocaleString()} limit</span>
+                        <LemonTag type={hasOverride ? 'completion' : 'muted'}>
+                            {hasOverride ? 'Override' : 'Default'}
+                        </LemonTag>
+                        <span className="text-secondary">{config.feature_flag_count.toLocaleString()} in use</span>
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            noPadding
+                            loading={pending}
+                            disabledReason={
+                                pending
+                                    ? 'Update in progress'
+                                    : rootTeamId !== null
+                                      ? `The flag limit is set on the project's root team (#${rootTeamId})`
+                                      : undefined
+                            }
+                            tooltip="Edit this team's flag limit"
+                            onClick={() => openFlagLimitDialog(team, config, setMaxFeatureFlagsOverride)}
+                            data-attr="ff-staff-team-config-max-feature-flags-override"
+                        />
+                    </span>
                 )
             },
         },

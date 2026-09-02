@@ -725,10 +725,12 @@ class TestGetBackfillInfoForSessions:
             end_time: dt.datetime | None = None,
             count: int = 10,
             count_other_team: int = 0,
+            inserted_at: dt.datetime | None = None,
         ):
             """Generate events with unique session IDs and derive sessions from them.
 
             Each event gets a unique $session_id, so the number of sessions equals count.
+            Events are ingested at their event time unless `inserted_at` says otherwise.
             """
             for i in range(count):
                 event_time = start_time + dt.timedelta(seconds=i)
@@ -739,7 +741,7 @@ class TestGetBackfillInfoForSessions:
                     start_time=event_time,
                     end_time=(end_time or event_time + dt.timedelta(minutes=2)),
                     count=1,
-                    inserted_at=event_time,
+                    inserted_at=inserted_at or event_time,
                     table="sharded_events",
                     event_name="test-event",
                     count_outside_range=0,
@@ -815,6 +817,32 @@ class TestGetBackfillInfoForSessions:
 
         assert result.adjusted_start_at == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC).isoformat()
         assert result.total_records_count == 8
+
+    async def test_counts_late_ingested_sessions_by_event_time(
+        self, generate_sessions, create_batch_export, run_get_backfill_info
+    ):
+        """The estimate must mirror backfill runs, which select sessions by event time: a
+        session whose events were ingested late counts towards the backfill range covering
+        its $end_timestamp, not the one covering its ingestion time."""
+        event_time = dt.datetime(2021, 1, 10, 12, 0, 0, tzinfo=dt.UTC)
+        ingested_time = dt.datetime(2021, 1, 20, 6, 30, 0, tzinfo=dt.UTC)
+        await generate_sessions(start_time=event_time, count=3, inserted_at=ingested_time)
+
+        batch_export = await create_batch_export()
+        result_event_range = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 11, 0, 0, 0, tzinfo=dt.UTC),
+        )
+        result_ingestion_range = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 21, 0, 0, 0, tzinfo=dt.UTC),
+        )
+
+        assert result_event_range.adjusted_start_at == dt.datetime(2021, 1, 10, 12, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result_event_range.total_records_count == 3
+        assert result_ingestion_range.total_records_count == 0
 
     async def test_counts_only_sessions_before_end_at(
         self, generate_sessions, create_batch_export, run_get_backfill_info

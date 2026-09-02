@@ -221,7 +221,6 @@ export function SessionAttributionExplorer(): JSX.Element {
                                     openSupportForm({
                                         kind: 'feedback',
                                         isEmailFormOpen: true,
-                                        target_area: 'web_analytics',
                                     })
                                 }
                             >

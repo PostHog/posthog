@@ -1,8 +1,9 @@
 """HogQL rollups of per-test CI spans by owning team.
 
 Ownership is stamped on the spans at emission time: the CI reporter resolves each test's
-file path against the repo's ownership map (``products/*/product.yaml`` + CODEOWNERS) and
-sets ``test.owner_team``, so no server-side ownership map exists. Spans without a stamp
+file path through ``posthog_owners`` (the repo's distributed ``owners.yaml`` files, with
+``products/*/product.yaml`` as an alias) and sets ``test.owner_team``, so no server-side
+ownership map exists. Spans without a stamp
 aggregate under the literal team ``'unowned'``, an honest first-class bucket that surfaces
 ownership gaps instead of dropping them.
 
@@ -24,11 +25,13 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CITestRunner,
     TeamCIActivity,
     TeamCIHealthItem,
     TeamCIHealthList,
     TeamTestSignal,
 )
+from products.engineering_analytics.backend.logic._shared import _prior_window
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
     run_evidence,
@@ -58,6 +61,7 @@ _ROSTER_SELECT = f"""
         max(last_signal) AS last_seen_at
     FROM (
         SELECT
+            runner,
             nodeid,
             argMax(owner_team, run_signal_at) AS owner_team,
             countIf(recovered_in_run AND is_current) AS recovery_runs_current,
@@ -74,9 +78,10 @@ _ROSTER_SELECT = f"""
                 AS blast_radius_prior,
             max(run_signal_at) AS last_signal
         FROM ({_RUN_EVIDENCE})
-        GROUP BY nodeid
+        GROUP BY runner, nodeid
     )
     GROUP BY owner_team
+    __OWNER_FILTER__
     ORDER BY
         (flaky_test_count + regression_test_count) DESC,
         (flaky_test_count_prior + regression_test_count_prior) DESC,
@@ -86,18 +91,19 @@ _ROSTER_SELECT = f"""
 
 _TEST_SIGNAL_SELECT = f"""
     SELECT
+        runner,
         nodeid,
         anyIf(selector, selector != '') AS selector,
         countIf(is_current AND (failed_in_run OR recovered_in_run)) AS signal_count,
         countIf(NOT is_current AND (failed_in_run OR recovered_in_run)) AS signal_count_prior,
         max(run_signal_at) AS last_seen_at
     FROM ({_RUN_EVIDENCE})
-    GROUP BY nodeid
+    GROUP BY runner, nodeid
     -- Latest stamp owns the whole test, exactly as the roster counts it, so this drill-in never
     -- shows different rows than the summary that opened it.
     HAVING argMax(owner_team, run_signal_at) = {{owner_team}}
         AND (signal_count > 0 OR signal_count_prior > 0)
-    ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC
+    ORDER BY greatest(signal_count, signal_count_prior) DESC, signal_count DESC, nodeid ASC, runner ASC
     LIMIT {{test_limit_plus_one}}
 """
 
@@ -106,10 +112,9 @@ def _window_placeholders(
     *, curated: CuratedGitHubSource, date_from: datetime, date_to: datetime | None
 ) -> dict[str, ast.Expr]:
     # The prior window twins the current one: [scan_from, date_from) vs [date_from, date_to].
-    resolved_to = date_to or datetime.now(tz=date_from.tzinfo)
-    prior_from = date_from - (resolved_to - date_from)
+    window = _prior_window(date_from, date_to)
     return scan_placeholders(
-        repository=curated.repository, date_from=date_from, scan_from=prior_from, date_to=resolved_to
+        repository=curated.repository, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
     )
 
 
@@ -120,6 +125,7 @@ def query_team_ci_health(
     date_to: datetime | None,
     min_failed_prs: int,
     limit: int,
+    owner_team: str | None = None,
 ) -> TeamCIHealthList:
     # Fail closed, same as flaky_tests: without a repository identity another connected
     # repo's spans would leak into this roster.
@@ -129,9 +135,13 @@ def query_team_ci_health(
     placeholders = _window_placeholders(curated=curated, date_from=date_from, date_to=date_to)
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
+    if owner_team is not None:
+        placeholders["roster_owner_team"] = ast.Constant(value=owner_team)
 
     response = curated.run(
-        _ROSTER_SELECT,
+        _ROSTER_SELECT.replace(
+            "__OWNER_FILTER__", "HAVING owner_team = {roster_owner_team}" if owner_team is not None else ""
+        ),
         query_type="engineering_analytics.team_ci_health",
         placeholders=placeholders,
         workload=Workload.LOGS,
@@ -198,13 +208,14 @@ def query_team_ci_activity(
         owner_team=owner_team,
         tests=[
             TeamTestSignal(
+                runner=CITestRunner(runner),
                 nodeid=nodeid,
                 selector=selector or selector_from_nodeid(nodeid),
                 signal_count=signal_count,
                 signal_count_prior=signal_count_prior,
                 last_seen_at=last_seen_at,
             )
-            for nodeid, selector, signal_count, signal_count_prior, last_seen_at in test_rows[:test_limit]
+            for runner, nodeid, selector, signal_count, signal_count_prior, last_seen_at in test_rows[:test_limit]
         ],
         truncated_tests=len(test_rows) > test_limit,
     )

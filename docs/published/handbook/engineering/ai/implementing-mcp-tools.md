@@ -21,8 +21,9 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
-# 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
+# 3. For read/list tools backed by PostHog database rows, add a HogQL system table
+#    in posthog/hogql/database/schema/system.py and a model reference in
+#    products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -78,8 +79,13 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ## SQL-first MCP: HogQL system tables
 
-Every list/get endpoint exposed as an MCP tool must have a corresponding HogQL system table.
+Most list/get endpoints exposed as MCP tools should have a corresponding HogQL system table.
 This lets agents query PostHog data via SQL in addition to (or instead of) the REST API tools.
+
+Exceptions are OK when the tool intentionally proxies service-owned data,
+aggregates data that is not represented as a team-scoped PostHog table,
+or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
+For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
@@ -261,6 +267,8 @@ Product teams own their definitions and control which operations are exposed as 
    #### Custom input schemas
 
    By default, tool input schemas are auto-derived from OpenAPI via Orval.
+   The generated exports in `src/generated/<product>/api.ts` are builder functions, so call them (`FeatureFlagsCreateBody()`) wherever you import one.
+   A schema then exists only while a call uses it, and the server does not keep every schema in memory.
    When the auto-derived schema isn't ideal for an LLM tool interface,
    you can override it at two levels:
 
@@ -303,7 +311,7 @@ Product teams own their definitions and control which operations are exposed as 
    - `message` (required) – prompt text shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args at runtime.
    - `action_label` (optional) – short human-readable label for the action (e.g. "delete project"). Surfaced in refusal messages. Defaults to the tool's title.
 
-   **Security model:** the prepare step signs the validated args, user identity, tool purpose, the active project/organization scope, a TTL, and a single-use nonce into an HMAC-SHA256 token. The execute step has a strict confirmation-only schema, verifies the signature, re-checks that the active scope still matches the one signed at prepare time, burns the nonce, and only then runs the original handler with the signed payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
+   **Security model:** the prepare step stashes the validated args and the active project/organization scope in Redis, and signs their SHA-256 digest together with the user identity, tool purpose, a TTL, and a single-use nonce into an HMAC-SHA256 token. The token stays small and constant-size no matter how large the args are, because the model relays only a reference to the payload. The execute step has a strict confirmation-only schema, verifies the signature, fetches-and-burns the stashed payload (the burn is the single-use enforcement), checks it against the signed digest, re-checks that the active scope still matches the one bound at prepare time, and only then runs the original handler with the verified payload. Action args belong only on prepare; extra execute-time fields are rejected, and a confirmation prepared while one project was active can't be replayed against another after `switch-project`.
 
    The confirmation word is supplied through model-authored tool arguments. This is an instruction-backed workflow guard, not client-attested proof that the human typed the word. API scopes remain the authorization boundary.
 
@@ -374,6 +382,19 @@ see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blo
   without it, drf-spectacular can't discover the request body
   and the generated tool gets an empty schema with zero parameters.
   `ModelViewSet` with `serializer_class` works automatically.
+
+### Root-router viewsets
+
+Viewsets mounted at root URLs (no `team_id`/`project_id` in the path) set
+`param_derived_from_user_current_team` and are excluded from the OpenAPI schema by default,
+which means they are invisible to frontend type generation and MCP tool scaffolding.
+If your viewset is one of these and you want to expose it,
+set `force_include_in_api_docs = True` on the class. See `ee/api/billing.py` for an example.
+This flag only controls schema inclusion.
+Runtime access still comes from the viewset's `scope_object`,
+`scope_object_read_actions`, `scope_object_write_actions`,
+and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
+Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
 
 ## HogQL query schemas (WIP)
 

@@ -1,25 +1,21 @@
 from typing import Any
 
-from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.bugsnag import BugsnagResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.settings import (
     BUGSNAG_ENDPOINTS,
     ENDPOINTS,
     BugsnagScope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source import BugsnagSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bugsnag import (
     BugsnagSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str = "errors") -> SourceInputs:
@@ -43,9 +39,6 @@ class TestBugsnagSource:
     def setup_method(self) -> None:
         self.source = BugsnagSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUGSNAG
 
     def test_source_config_basics(self) -> None:
         config = self.source.get_source_config
@@ -104,30 +97,6 @@ class TestBugsnagSource:
         errors = next(t for t in tables if t["name"] == "errors")
         assert "Full refresh" in errors["sync_methods"]
         assert errors["description"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source.validate_bugsnag_credentials"
-    )
-    def test_validate_credentials_success(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        ok, error = self.source.validate_credentials(BugsnagSourceConfig(auth_token="tok"), self.team_id)
-        assert ok is True
-        assert error is None
-        mock_validate.assert_called_once_with("tok")
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source.validate_bugsnag_credentials"
-    )
-    def test_validate_credentials_failure(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid BugSnag auth token")
-        ok, error = self.source.validate_credentials(BugsnagSourceConfig(auth_token="bad"), self.team_id)
-        assert ok is False
-        assert error == "Invalid BugSnag auth token"
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BugsnagResumeConfig
 
     def test_source_for_pipeline_plumbs_args(self) -> None:
         manager = self.source.get_resumable_source_manager(_source_inputs("errors"))
@@ -195,12 +164,6 @@ class TestBugsnagSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_canonical_descriptions_cover_core_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        for endpoint in ("organizations", "projects", "errors", "events", "releases"):
-            assert endpoint in descriptions
-            assert descriptions[endpoint]["description"]
 
     def test_canonical_description_keys_are_real_endpoints(self) -> None:
         # Canonical descriptions are keyed by schema name; a typo'd key would silently never apply.

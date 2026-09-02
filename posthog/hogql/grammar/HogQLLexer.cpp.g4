@@ -8,11 +8,17 @@ lexer grammar HogQLLexer;
 
 @members {
 
+/* ctype classifiers are UB outside [0,255]+EOF; LA() returns raw UTF-32 code
+   points, so guard to ASCII before delegating (C-locale semantics). */
+static bool isAsciiAlpha(int ch) { return ch >= 0 && ch < 128 && std::isalpha(ch); }
+static bool isAsciiAlnum(int ch) { return ch >= 0 && ch < 128 && std::isalnum(ch); }
+static bool isAsciiSpace(int ch) { return ch >= 0 && ch < 128 && std::isspace(ch); }
+
 /** Skip over whitespace and end-of-line comments (`// …`, `-- …`, `# …`). */
 void skipWsAndComments(std::size_t& i) {
     for (;;) {
         int ch = _input->LA(i);
-        if (std::isspace(ch)) {                       // regular whitespace
+        if (isAsciiSpace(ch)) {                       // regular whitespace
             ++i;
             continue;
         }
@@ -42,14 +48,14 @@ void skipWsAndComments(std::size_t& i) {
 bool isOpeningTag() {
     /* first char after '<' */
     int la1 = _input->LA(1);
-    if (!std::isalpha(la1) && la1 != '_')
+    if (!isAsciiAlpha(la1) && la1 != '_')
         return false;
 
     /* skip the tag name ([a-zA-Z0-9_-]*) */
     std::size_t i = 2;
     while (true) {
         int ch = _input->LA(i);
-        if (std::isalnum(ch) || ch == '_' || ch == '-')
+        if (isAsciiAlnum(ch) || ch == '_' || ch == '-')
             ++i;
         else
             break;
@@ -62,11 +68,11 @@ bool isOpeningTag() {
         return true;
 
     /*  If the next char is whitespace, look further  */
-    if (std::isspace(ch)) {
+    if (isAsciiSpace(ch)) {
         skipWsAndComments(++i); // step past first space
         ch = _input->LA(i);
         /* tag iff next non-ws/non-comment char is alnum/underscore */
-        return std::isalnum(ch) || ch == '_' || ch == '>' || ch == '/';
+        return isAsciiAlnum(ch) || ch == '_' || ch == '>' || ch == '/';
     }
 
     /* anything else (operator chars, ')', '+', …) → not a tag */

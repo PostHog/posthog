@@ -1,9 +1,17 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
+import { z } from 'zod'
 
 import { ModifiedRequest } from '~/common/api/router'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
+import { LogRecord } from '~/logs/log-record-avro'
+import {
+    DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS,
+    buildLogRecordGlobals,
+    executeLogTransformation,
+    resolveLogTransformationInputs,
+} from '~/logs/transformations/hog-log-exec'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -28,7 +36,9 @@ import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
-import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
+import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogInputsService } from './services/hog-inputs.service'
 import {
     BatchResolverState,
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -44,19 +54,28 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import {
+    HogWatcherService,
+    HogWatcherState,
+    sameWatcherState,
+    sameWatcherStates,
+} from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import {
     convertToHogFunctionInvocationGlobals,
+    isConvertibleClickHouseEvent,
     isNativeHogFunction,
     isSegmentPluginHogFunction,
     sanitizeLogMessage,
 } from './utils'
+import { dualRead, dualWrite } from './utils/dual-store'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
-import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
+import { buildHogFunctionInvocations } from './utils/invocation-utils'
+import { PosthogJwtAudience } from './utils/jwt-utils'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -105,7 +124,8 @@ export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
 export class CdpApi {
-    private hogExecutor: HogExecutorService
+    private hogExecutorAsync: HogExecutorAsyncService
+    private hogInputsService: HogInputsService
     private nativeDestinationExecutorService: NativeDestinationExecutorService
     private segmentDestinationExecutorService: SegmentDestinationExecutorService
 
@@ -114,6 +134,7 @@ export class CdpApi {
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
+    private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private rerunJobManager: RerunJobManager | null = null
@@ -125,10 +146,12 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
-    // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
-    // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
-    // isn't provisioned — the route then fails closed.
-    private rescheduleJwt: JWT | null
+    // Scoped auth for the reschedule_parked and cancel routes (exempted from the shared
+    // internal-secret middleware): Django mints per-call JWTs pinned to a team + workflow,
+    // one audience per route. Disabled when the key isn't provisioned — the routes then fail closed.
+    private rescheduleJwt: ScopedServiceJwt
+    private cancelInvocationsJwt: ScopedServiceJwt
+    private cancelBatchJwt: ScopedServiceJwt
 
     constructor(
         private config: PluginsServerConfig,
@@ -141,11 +164,13 @@ export class CdpApi {
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
-        this.hogExecutor = services.hogExecutor
+        this.hogExecutorAsync = services.hogExecutorAsync
+        this.hogInputsService = services.hogInputsService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
+        this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -172,14 +197,24 @@ export class CdpApi {
             deps.teamManager,
             this.groupsManager,
             this.hogFunctionManager,
-            this.hogExecutor,
+            this.hogExecutorAsync,
             this.hogWatcher,
-            this.invocationResultsService
+            this.invocationResultsService,
+            this.hogWatcherMirror
         )
         this.batchResolverProducer = batchResolverProducer
-        this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
-            ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
-            : null
+        this.rescheduleJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED,
+            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+        )
+        this.cancelInvocationsJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
+        this.cancelBatchJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
     }
 
     public get service(): PluginServerService {
@@ -214,6 +249,7 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
+            this.invocationResultsService.stop(),
         ])
     }
 
@@ -250,6 +286,14 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/reschedule_parked',
             asyncHandler(this.postHogFlowRescheduleParked)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/invocations/cancel',
+            asyncHandler(this.postHogFlowCancelInvocations)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/batch_jobs/:batch_job_id/cancel',
+            asyncHandler(this.postHogFlowCancelBatchJob)
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
@@ -293,7 +337,12 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await dualRead(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror.getPersistedState(id),
+                sameWatcherState
+            )
 
             res.json(summary)
         }
@@ -310,7 +359,12 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await dualRead(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror.getPersistedState(id),
+                sameWatcherState
+            )
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
             if (!hogFunction) {
@@ -321,20 +375,36 @@ export class CdpApi {
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(hogFunction, state)
+                await dualWrite(
+                    'hog-watcher.forceStateChange',
+                    () => this.hogWatcher.forceStateChange(hogFunction, state),
+                    () => this.hogWatcherMirror.forceStateChange(hogFunction, state)
+                )
             }
 
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.getPersistedState(id))
+            res.json(
+                await dualRead(
+                    'hog-watcher.getPersistedState',
+                    () => this.hogWatcher.getPersistedState(id),
+                    () => this.hogWatcherMirror.getPersistedState(id),
+                    sameWatcherState
+                )
+            )
         }
 
     private getFunctionStates =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
-                const allStates = await this.hogWatcher.getAllFunctionStates()
+                const allStates = await dualRead(
+                    'hog-watcher.getAllFunctionStates',
+                    () => this.hogWatcher.getAllFunctionStates(),
+                    () => this.hogWatcherMirror.getAllFunctionStates(),
+                    sameWatcherStates
+                )
 
                 // Transform the data for better consumption by Grafana and sort by tokens ascending
                 const statesArray = Object.entries(allStates)
@@ -400,11 +470,19 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Team not found' })
             }
 
-            globals = clickhouse_event
+            globals = isConvertibleClickHouseEvent(clickhouse_event)
                 ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
-            if (!globals || !globals.event) {
+            const functionType: string | undefined = configuration?.type ?? hogFunction?.type
+
+            if (functionType === 'transformation_log') {
+                // Log transformations run against a log record, not an event
+                if (!globals?.record || typeof globals.record !== 'object' || Array.isArray(globals.record)) {
+                    res.status(400).json({ error: 'Missing record' })
+                    return
+                }
+            } else if (!globals || !globals.event) {
                 res.status(400).json({ error: 'Missing event' })
                 return
             }
@@ -441,7 +519,7 @@ export class CdpApi {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
-                } = await this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+                } = await buildHogFunctionInvocations(this.hogInputsService, [compoundConfiguration], triggerGlobals)
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {
@@ -461,7 +539,7 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                    const sensitiveValues = this.hogExecutorAsync.hogExecutor.getSensitiveValues(
                         invocation.hogFunction,
                         invocation.state.globals.inputs ?? {}
                     )
@@ -470,7 +548,7 @@ export class CdpApi {
                         logs,
                         sensitiveValues
                     )
-                    options.sendEmailsInline = true
+                    options.isTest = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -478,7 +556,7 @@ export class CdpApi {
                     } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
                         response = await this.segmentDestinationExecutorService.execute(invocation)
                     } else {
-                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                        response = await this.hogExecutorAsync.executeWithAsyncFunctions(invocation, options)
                     }
 
                     logs = logs.concat(response.logs)
@@ -530,6 +608,101 @@ export class CdpApi {
                     errors: errors.map((e) => String(e)),
                     logs: logs,
                 })
+            } else if (compoundConfiguration.type === 'transformation_log') {
+                const mock = globals.record as Record<string, unknown>
+
+                const toStringMap = (value: unknown): Record<string, string> => {
+                    const map: Record<string, string> = {}
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+                            if (entry !== null && entry !== undefined) {
+                                map[key] = typeof entry === 'string' ? entry : JSON.stringify(entry)
+                            }
+                        }
+                    }
+                    return map
+                }
+
+                // Mock log record from the request; trace/span ids stay null (they are
+                // read-only in transformations and not meaningful for a test run).
+                const record: LogRecord = {
+                    uuid: invocationID,
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: typeof mock.timestamp === 'number' ? mock.timestamp : DateTime.now().toMillis() * 1e6,
+                    observed_timestamp: typeof mock.observed_timestamp === 'number' ? mock.observed_timestamp : null,
+                    body: typeof mock.body === 'string' ? mock.body : null,
+                    severity_text: typeof mock.severity_text === 'string' ? mock.severity_text : null,
+                    severity_number: typeof mock.severity_number === 'number' ? mock.severity_number : null,
+                    service_name: typeof mock.service_name === 'string' ? mock.service_name : null,
+                    resource_attributes: toStringMap(mock.resource_attributes),
+                    instrumentation_scope:
+                        typeof mock.instrumentation_scope === 'string' ? mock.instrumentation_scope : null,
+                    event_name: typeof mock.event_name === 'string' ? mock.event_name : null,
+                    attributes: toStringMap(mock.attributes),
+                    bytes_uncompressed: null,
+                }
+
+                const hogGlobals = buildLogRecordGlobals(record, triggerGlobals.project, {})
+
+                try {
+                    hogGlobals.inputs = resolveLogTransformationInputs(
+                        compoundConfiguration,
+                        hogGlobals,
+                        DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS
+                    ).inputs
+                } catch (e) {
+                    return res.json({
+                        result: null,
+                        status: 'error',
+                        errors: [String(e)],
+                        logs,
+                    })
+                }
+
+                // Derive from the resolved inputs (which merge inputs + encrypted_inputs) like the
+                // destination test path does — Django resolves stored secrets into `inputs`, so
+                // collecting from `encrypted_inputs` alone would leave them unredacted in test logs.
+                const sensitiveValues = this.hogExecutorAsync.hogExecutor.getSensitiveValues(
+                    compoundConfiguration,
+                    (hogGlobals.inputs ?? {}) as Record<string, any>
+                )
+
+                const outcome = executeLogTransformation(compoundConfiguration.bytecode, record, hogGlobals, {
+                    sensitiveValues,
+                })
+
+                logs = logs.concat(
+                    outcome.logs.map((message) => ({
+                        level: 'info' as const,
+                        timestamp: DateTime.now(),
+                        message,
+                    }))
+                )
+
+                if (outcome.status === 'failed') {
+                    errors.push(outcome.error)
+                } else if (outcome.status === 'dropped') {
+                    logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: 'Record dropped by transformation.',
+                    })
+                }
+
+                // Same record shape the function saw (hex ids, string maps) — null when dropped
+                result =
+                    outcome.status === 'dropped'
+                        ? null
+                        : buildLogRecordGlobals(record, triggerGlobals.project, {}).record
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
             } else {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
@@ -576,7 +749,7 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Hog flow not found' })
             }
 
-            const globals: HogFunctionInvocationGlobals | null = clickhouse_event
+            const globals: HogFunctionInvocationGlobals | null = isConvertibleClickHouseEvent(clickhouse_event)
                 ? convertToHogFunctionInvocationGlobals(
                       clickhouse_event,
                       team,
@@ -624,9 +797,15 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
 
-            invocation.state.currentAction = current_action_id
+            // Real event ingestion evaluates trigger filters before creating an invocation. A test run has to
+            // execute the trigger action itself so callers can verify whether their supplied globals match.
+            // Without this explicit position, executeCurrentAction starts after the trigger by design.
+            const startingActionId =
+                current_action_id ??
+                compoundConfiguration.actions?.find((action: HogFlowAction) => action.type === 'trigger')?.id
+            invocation.state.currentAction = startingActionId
                 ? {
-                      id: current_action_id,
+                      id: startingActionId,
                       startedAtTimestamp: Date.now(),
                   }
                 : undefined
@@ -661,13 +840,20 @@ export class CdpApi {
                 })
             }
 
-            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
-            options.sendEmailsInline = true
+            // Redact the flow's decrypted secret inputs from the mocked async-function logs, so a test
+            // run can't echo a stored credential (e.g. an Authorization header) back to the caller.
+            const sensitiveValues = await this.hogFlowExecutor.getSensitiveValues(compoundConfiguration)
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
+                mock_async_functions,
+                logs,
+                sensitiveValues
+            )
+            options.isTest = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
-                nextActionId: result.invocation.state.currentAction?.id,
-                status: result.error ? 'error' : 'success',
+                nextActionId: result.skipped ? null : result.invocation.state.currentAction?.id,
+                status: result.error ? 'error' : result.skipped ? 'skipped' : 'success',
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
@@ -857,6 +1043,36 @@ export class CdpApi {
         }
     }
 
+    // Shared gate for the per-call scoped JWTs Django mints (reschedule, cancel): verifies the
+    // token and requires its claims to match the URL's team + workflow, so a leaked token can't
+    // touch another team or flow. Routes scoped tighter than a workflow (batch cancel) pass the
+    // narrower claims via extraClaims and every one must match too. Writes the 401 itself and
+    // returns false on any mismatch.
+    private verifyScopedWorkflowJwt(
+        jwt: ScopedServiceJwt,
+        req: ModifiedRequest,
+        res: express.Response,
+        label: string,
+        extraClaims?: Record<string, string>
+    ): boolean {
+        const { team_id, id } = req.params
+        const authHeader = req.headers['authorization']
+        const token =
+            typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+        let claims: Record<string, unknown> | undefined
+        try {
+            claims = token ? (jwt.verify(token) as typeof claims) : undefined
+        } catch {
+            claims = undefined
+        }
+        const extrasMatch = !extraClaims || Object.entries(extraClaims).every(([key, value]) => claims?.[key] === value)
+        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id || !extrasMatch) {
+            res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
+            return false
+        }
+        return true
+    }
+
     // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django
     // calls this (via a Celery task) when a published/saved change shortened a delay or moved a
     // wait window; one call is one slice, and the caller loops with the returned bounds until
@@ -872,7 +1088,7 @@ export class CdpApi {
                     error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
                 })
             }
-            if (!this.rescheduleJwt) {
+            if (!this.rescheduleJwt.enabled) {
                 return res.status(503).json({
                     error: 'Reschedule auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
                 })
@@ -880,17 +1096,8 @@ export class CdpApi {
 
             const { team_id, id } = req.params
 
-            const authHeader = req.headers['authorization']
-            const token =
-                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-            const claims = token
-                ? (this.rescheduleJwt.verify(token, PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED, {
-                      ignoreVerificationErrors: true,
-                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
-                : undefined
-            // The claims pin the token to one team + workflow, so a leaked token can't sweep anything else.
-            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
-                return res.status(401).json({ error: 'Unauthorized: Invalid reschedule token' })
+            if (!this.verifyScopedWorkflowJwt(this.rescheduleJwt, req, res, 'reschedule')) {
+                return
             }
 
             const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
@@ -949,6 +1156,145 @@ export class CdpApi {
         }
     }
 
+    // Flag a workflow's in-flight cyclotron jobs for cancellation. The workers own the actual
+    // termination (terminal status + lifecycle row + metric + log) when they observe the flag;
+    // this endpoint only marks rows and wakes parked ones. See CyclotronV2Manager.cancelJobs.
+    //
+    // Auth mirrors postHogFlowRescheduleParked: a per-call JWT minted by Django, pinned to this
+    // team + workflow, on its own audience, never the fleet-wide internal secret.
+    private postHogFlowCancelInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.cancelInvocationsJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+
+            if (!this.verifyScopedWorkflowJwt(this.cancelInvocationsJwt, req, res, 'cancel')) {
+                return
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            // Deliberately no hogFlowManager lookup beyond team pinning: cancel must keep working
+            // for flows that were deleted with runs still parked. The JWT claims already bind the
+            // request to this flow id, and cancelJobs filters on (team_id, function_id).
+
+            // UUID-shaped ids only: cancelJobs binds them as ::uuid[], so a malformed id must be a
+            // 400 here rather than a Postgres cast error surfaced as a 500. The cap is the same
+            // env-driven one the Django cancel serializer validates against, so raising the env
+            // var lifts both sides together instead of leaving Django accepting ids this route
+            // then rejects with a 400 (which Django surfaces as a 500).
+            const maxInvocationIds = this.config.HOG_INVOCATION_RERUN_MAX_COUNT
+            const idsMessage = `invocation_ids must be a non-empty array of up to ${maxInvocationIds} invocation UUIDs`
+            const parsed = z
+                .object({
+                    invocation_ids: z
+                        .array(z.string().uuid(idsMessage))
+                        .min(1, idsMessage)
+                        .max(maxInvocationIds, idsMessage)
+                        .optional(),
+                    all: z.boolean().optional(),
+                })
+                .refine((body) => (body.invocation_ids !== undefined) !== (body.all === true), {
+                    message: 'Provide exactly one of invocation_ids or all=true',
+                })
+                .safeParse(req.body ?? {})
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body' })
+            }
+            const { invocation_ids: invocationIds, all } = parsed.data
+
+            const result = await this.batchResolverProducer.cancelJobs({
+                teamId: team.id,
+                functionId: id,
+                jobIds: invocationIds,
+                all: all === true ? true : undefined,
+                // Batch-resolver jobs orchestrate audience fan-out rather than being runs;
+                // flagging one would silently stall a batch with no terminal reporting.
+                // Stopping a batch run is its own feature with its own endpoint.
+                excludeQueueNames: [HOGFLOW_BATCH_RESOLVE_QUEUE],
+            })
+            return res.json({
+                marked: result.marked,
+                remaining: result.remaining,
+                done: result.done,
+            })
+        } catch (e) {
+            logger.error('Error cancelling hog flow invocations', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Stop a batch run: flag its resolver orchestration job and every child run for
+    // cancellation in one sweep — they share parent_run_id, so one selector covers both.
+    // The resolver's in-transaction tombstone check plus Django's repeat-until-done loop
+    // make this converge: once the resolver is flagged it can commit at most the one page
+    // that already held its row lock, and that page's children surface in the next sweep's
+    // remaining count.
+    //
+    // Auth mirrors the other workflows CDP calls: a per-call JWT minted by Django, pinned
+    // to this team + workflow, on its own audience.
+    private postHogFlowCancelBatchJob = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.cancelBatchJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id, batch_job_id } = req.params
+
+            // batch_job_id is pinned in the claims too: without it, a captured token could stop
+            // any sibling batch of the same workflow for the token's lifetime.
+            if (!this.verifyScopedWorkflowJwt(this.cancelBatchJwt, req, res, 'cancel', { batch_job_id })) {
+                return
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            if (batch_job_id.length > 200) {
+                return res.status(400).json({ error: 'batch_job_id is too long' })
+            }
+
+            const result = await this.batchResolverProducer.cancelJobs({
+                teamId: team.id,
+                functionId: id,
+                parentRunId: batch_job_id,
+            })
+            return res.json({
+                marked: result.marked,
+                remaining: result.remaining,
+                done: result.done,
+            })
+        } catch (e) {
+            logger.error('Error cancelling hog flow batch job', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id, parent_run_id } = req.params
@@ -978,6 +1324,7 @@ export class CdpApi {
                 throw new Error('Batch resolver producer is not configured (missing CYCLOTRON_NODE_DATABASE_URL)')
             }
 
+            const audienceType = req.body.filters?.audience_type ?? hogFlow.trigger.filters.audience_type
             const initialState: BatchResolverState = {
                 batchJobId: parent_run_id,
                 teamId: team.id,
@@ -986,10 +1333,16 @@ export class CdpApi {
                     // Prefer the audience snapshot validated at dispatch time - re-reading the live
                     // trigger here would let an edit landing after the confirm check widen the send.
                     // Fallback covers callers that predate the snapshot.
+                    audience_type: audienceType,
                     properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
                     filter_test_accounts:
                         req.body.filters?.filter_test_accounts ??
                         (hogFlow.trigger.filters.filter_test_accounts || false),
+                    tag_names: req.body.filters?.tag_names ?? hogFlow.trigger.filters.tag_names,
+                    assigned_to_user_ids:
+                        req.body.filters?.assigned_to_user_ids ?? hogFlow.trigger.filters.assigned_to_user_ids,
+                    all_roles_unassigned:
+                        req.body.filters?.all_roles_unassigned ?? hogFlow.trigger.filters.all_roles_unassigned,
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
@@ -997,7 +1350,8 @@ export class CdpApi {
                 // `{{ person.properties.email }}`. Custom recipients (work_email, computed Liquid, static
                 // strings) would make the dedupe key diverge from the actual send target — better to skip
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
-                dedupeKey: canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
+                // Account audiences carry no person (and external ids are already unique), so never dedupe.
+                dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

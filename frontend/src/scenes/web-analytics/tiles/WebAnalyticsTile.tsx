@@ -2,11 +2,12 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import * as starPng from '@posthog/brand/hoggies/png/star'
 import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
-import { StarHog } from 'lib/components/hedgehogs'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -68,6 +69,7 @@ import {
     ProductKey,
     QuerySchema,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
@@ -146,6 +148,8 @@ const buildOpenUrl = (
     }
 }
 
+const HedgehogStar = pngHoggie(starPng)
+
 const PathValueWithHoverLink = ({
     children,
     breakdownBy,
@@ -179,6 +183,39 @@ const PathValueWithHoverLink = ({
                 </Tooltip>
             </Link>
         </span>
+    )
+}
+
+// Outbound clicks come through as a `url` column (not `breakdown_value`), so they don't get the
+// PathValueWithHoverLink affordance. The value is already a full external URL.
+const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (typeof value !== 'string' || !value) {
+        return <>{value}</>
+    }
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
+        return <>{value}</>
+    }
+
+    const url = value.startsWith('http') ? value : `https://${value}`
+
+    // The URL text itself is the click target so it stays discoverable on touch and keyboard focus,
+    // and works even when the cell's max-width clips the trailing icon. The icon is a hover-only hint.
+    return (
+        <Link
+            to={url}
+            target="_blank"
+            subtle
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className="inline-flex items-center gap-1"
+        >
+            {value}
+            <Tooltip title="Open URL">
+                <IconExternal className="text-base opacity-0 transition-opacity [[data-row-key]:hover_&]:opacity-100" />
+            </Tooltip>
+        </Link>
     )
 }
 
@@ -321,6 +358,22 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>URL</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
+        case WebStatsBreakdown.FirstPageviewChannelType:
+            return <>Channel Type (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
+            return <>Referring Domain (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+            return <>UTM Source (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+            return <>UTM Campaign (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+            return <>UTM Medium (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+            return <>UTM Term (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMContent:
+            return <>UTM Content (First Pageview)</>
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+            return <>Source / Medium / Campaign (First Pageview)</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -445,6 +498,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             return <NotSetBreakdownLabel />
         case WebStatsBreakdown.InitialReferringDomain:
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
             // NULL referrer is canonically "Direct" in PostHog (matches the channel-type
             // bucketing in sessions_v2). Keep that wording to stay consistent across tiles.
             if (value == null) {
@@ -468,6 +522,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             }
             break
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
             if (typeof value === 'string') {
                 return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
@@ -477,6 +532,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.InitialUTMCampaign:
         case WebStatsBreakdown.InitialUTMTerm:
         case WebStatsBreakdown.InitialUTMContent:
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+        case WebStatsBreakdown.FirstPageviewUTMContent:
             return typeof value === 'string' ? <>{value}</> : <NotSetBreakdownLabel />
     }
 
@@ -606,6 +666,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: VariationCell(),
             align: 'right',
         },
+        url: {
+            render: UrlValueCell,
+        },
         action_name: {
             title: 'Action',
         },
@@ -616,6 +679,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                 const dateRange = source?.dateRange
                 const breakdownBy = source?.breakdownBy
                 const value = record[0] ?? ''
+                const doPathCleaning = source?.doPathCleaning
 
                 return (
                     <div className="flex flex-row items-center justify-end">
@@ -626,9 +690,10 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                             properties={source?.properties}
                             filter_test_accounts={source?.filterTestAccounts}
+                            doPathCleaning={doPathCleaning}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
-                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} doPathCleaning={doPathCleaning} />
                         <CreateSurveyButton value={value} />
                     </div>
                 )
@@ -1059,6 +1124,8 @@ export const WebStatsTableTile = ({
         ]
     )
 
+    const canFilterRow = !includeHost && productTab !== ProductTab.PAGE_REPORTS
+
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
             // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
@@ -1071,7 +1138,7 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return { onClick: () => onClick(breakdownValue) }
+            return { onClick: () => onClick(breakdownValue), ...(canFilterRow && { title: 'Filter by this value' }) }
         }
 
         return {
@@ -1081,7 +1148,7 @@ export const WebStatsTableTile = ({
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
             showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination, canFilterRow])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
@@ -1347,19 +1414,23 @@ interface HogQLTableTileProps {
     headerSlot?: React.ReactNode
 }
 
-// Bot tiles get their own variant so botAnalyticsLogic only mounts on the Bot Analytics tab —
-// `HogQLTableTile` is reused for any HogQLQuery DataTableNode and shouldn't depend on bot state.
-const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
-
-const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
-    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
-    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
-
-    const context = useMemo((): QueryContext => {
-        // Single-select toggle: clicking the same value clears it, any other click replaces.
+const useSingleSelectDrilldownContext = ({
+    insightProps,
+    filters,
+    setFilters,
+    filterKey,
+    filterType,
+}: {
+    insightProps: InsightLogicProps
+    filters: WebAnalyticsPropertyFilters
+    setFilters: (filters: WebAnalyticsPropertyFilters) => void
+    filterKey: string | undefined
+    filterType: PropertyFilterType.Event | PropertyFilterType.Session
+}): QueryContext =>
+    useMemo((): QueryContext => {
         const toggleFilter = (key: string, value: string): void => {
-            const existing = rawBotAnalyticsFilters.find((f) => 'key' in f && f.key === key)
-            const otherFilters = rawBotAnalyticsFilters.filter((f) => !('key' in f && f.key === key))
+            const existing = filters.find((f) => 'key' in f && f.key === key)
+            const otherFilters = filters.filter((f) => !('key' in f && f.key === key))
             const existingValues =
                 existing && 'value' in existing
                     ? Array.isArray(existing.value)
@@ -1367,28 +1438,19 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
                         : [existing.value]
                     : []
             if (existingValues.length === 1 && existingValues[0] === value) {
-                setBotAnalyticsFilters(otherFilters)
+                setFilters(otherFilters)
                 return
             }
-            setBotAnalyticsFilters([
-                ...otherFilters,
-                {
-                    key,
-                    value: [value],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Event,
-                },
-            ])
+            setFilters([...otherFilters, { key, value: [value], operator: PropertyOperator.Exact, type: filterType }])
         }
 
-        const filterKey = tileId === TileId.BOT_CRAWLERS ? '$virt_bot_name' : '$pathname'
         return {
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             rowProps: (record: unknown) => {
                 const result = (record as { result?: unknown[] })?.result
                 const value = Array.isArray(result) ? (result[0] as string) : null
-                if (!value) {
+                if (!value || !filterKey) {
                     return {}
                 }
                 return {
@@ -1397,7 +1459,21 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
                 }
             },
         }
-    }, [insightProps, tileId, rawBotAnalyticsFilters, setBotAnalyticsFilters])
+    }, [insightProps, filters, setFilters, filterKey, filterType])
+
+const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
+
+const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
+    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
+    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
+
+    const context = useSingleSelectDrilldownContext({
+        insightProps,
+        filters: rawBotAnalyticsFilters,
+        setFilters: setBotAnalyticsFilters,
+        filterKey: tileId === TileId.BOT_CRAWLERS ? '$virt_bot_name' : '$pathname',
+        filterType: PropertyFilterType.Event,
+    })
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context, uniqueKey })
 
     return (
@@ -1658,7 +1734,7 @@ const FrustrationMetricsEmptyState = (
             <div className="flex items-center gap-8 w-full justify-center">
                 <div>
                     <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
-                        <StarHog />
+                        <HedgehogStar />
                     </div>
                     <p>No frustrating pages found! Keep up the great work!</p>
                 </div>

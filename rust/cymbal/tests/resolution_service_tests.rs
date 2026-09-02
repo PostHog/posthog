@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::Duration;
 
@@ -24,11 +24,14 @@ use futures::StreamExt;
 use tokio::sync::Semaphore;
 use tonic::transport::{Channel, Server};
 use tonic::Request;
+use uuid::Uuid;
 
 #[derive(Default)]
 struct FakeResolver {
     fail_unhandled: bool,
     resolved_frames: Vec<Frame>,
+    release_id: Option<Uuid>,
+    release_refs: Arc<Mutex<Vec<String>>>,
 }
 
 #[async_trait]
@@ -61,6 +64,15 @@ impl SymbolResolver for FakeResolver {
         _minified_name: &str,
     ) -> Result<String, ResolveError> {
         unreachable!("fake resolver does not need dart name resolution for these tests")
+    }
+
+    async fn latest_release_id(
+        &self,
+        _team_id: TeamId,
+        symbol_set_refs: &[String],
+    ) -> Result<Option<Uuid>, UnhandledError> {
+        *self.release_refs.lock().expect("release refs poisoned") = symbol_set_refs.to_vec();
+        Ok(self.release_id)
     }
 }
 
@@ -316,8 +328,8 @@ async fn raw_frames_are_resolved_into_done_payload() {
     let mut resolver_frame = sample_resolved_frame(&raw_frame);
     resolver_frame.frame_id = raw_frame.frame_id(123, 99, &[]);
     let service = make_service(FakeResolver {
-        fail_unhandled: false,
         resolved_frames: vec![resolver_frame],
+        ..Default::default()
     });
     let mut exc = raw_exception("RuntimeError");
     exc.stack = Some(Stacktrace::Raw {
@@ -340,6 +352,53 @@ async fn raw_frames_are_resolved_into_done_payload() {
     )
     .expect("deserialize expected wire frame");
     assert_eq!(frames, vec![expected_wire_frame]);
+}
+
+#[tokio::test]
+async fn the_release_rides_the_outcome_and_is_looked_up_by_distinct_symbol_set_ref() {
+    let release_id = Uuid::from_u128(7);
+    let release_refs = Arc::new(Mutex::new(Vec::new()));
+    let service = make_service(FakeResolver {
+        release_id: Some(release_id),
+        release_refs: release_refs.clone(),
+        ..Default::default()
+    });
+    let mut exc = raw_exception("RuntimeError");
+    // Two frames from one chunk and one from another: the lookup sees each ref once.
+    exc.stack = Some(Stacktrace::Raw {
+        frames: vec![
+            js_raw_frame("chunk-a"),
+            js_raw_frame("chunk-a"),
+            js_raw_frame("chunk-b"),
+        ],
+    });
+
+    let outcomes = resolve_items(service, vec![make_item(1, &exc)]).await;
+    let resolve_outcome::Result::Done(done) = outcome_result(&outcomes[0]) else {
+        panic!("expected Done outcome, got {:?}", outcomes[0]);
+    };
+
+    assert_eq!(done.release_id, release_id.to_string());
+    assert_eq!(
+        *release_refs.lock().expect("release refs poisoned"),
+        vec!["chunk-a".to_string(), "chunk-b".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn no_bound_release_leaves_the_outcome_release_id_empty() {
+    let service = make_service(FakeResolver::default());
+    let mut exc = raw_exception("RuntimeError");
+    exc.stack = Some(Stacktrace::Raw {
+        frames: vec![sample_raw_frame()],
+    });
+
+    let outcomes = resolve_items(service, vec![make_item(1, &exc)]).await;
+    let resolve_outcome::Result::Done(done) = outcome_result(&outcomes[0]) else {
+        panic!("expected Done outcome, got {:?}", outcomes[0]);
+    };
+
+    assert!(done.release_id.is_empty());
 }
 
 #[tokio::test]
@@ -507,6 +566,19 @@ fn java_exception_for_overload() -> Exception {
     }
 }
 
+fn js_raw_frame(chunk_id: &str) -> RawFrame {
+    let json = serde_json::json!({
+        "platform": "web:javascript",
+        "filename": "a.js",
+        "function": "f",
+        "in_app": true,
+        "lineno": 1,
+        "colno": 1,
+        "chunk_id": chunk_id,
+    });
+    serde_json::from_value(json).expect("valid raw frame")
+}
+
 fn sample_raw_frame() -> RawFrame {
     let json = serde_json::json!({
         "platform": "web:javascript",
@@ -537,7 +609,6 @@ fn sample_resolved_frame(raw_frame: &RawFrame) -> Frame {
         junk_drawer: None,
         code_variables: None,
         context: None,
-        release: None,
     }
 }
 

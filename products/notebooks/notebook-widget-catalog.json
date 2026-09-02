@@ -1,0 +1,388 @@
+{
+    "viewConventions": {
+        "summary": "Compact read-only overview for reports and mixed-product notebooks.",
+        "detail": "Full read-only product view for notebooks focused on this object.",
+        "editor": "Inline controls for changing the object.",
+        "results": "Measured outcomes, responses, or experiment results.",
+        "preview": "The object as an end user would see it.",
+        "conditions": "Targeting, audience, or evaluation conditions.",
+        "implementation": "Setup instructions or integration code.",
+        "activity": "Chronological events and changes for the object."
+    },
+    "widgets": {
+        "FeatureFlag": {
+            "label": "Feature flag",
+            "description": "Feature flag configuration, targeting, and implementation.",
+            "nodeType": "ph-feature-flag",
+            "idProp": "id",
+            "idDescription": "Feature flag numeric ID or key.",
+            "idExample": 123,
+            "picker": "feature-flag",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable feature flag overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the flag status, type, and release condition count."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the flag status and release conditions in the notebook."
+                },
+                "conditions": {
+                    "label": "Conditions",
+                    "description": "Show the flag release conditions."
+                },
+                "implementation": {
+                    "label": "Implementation",
+                    "description": "Show SDK implementation instructions."
+                }
+            }
+        },
+        "Survey": {
+            "label": "Survey",
+            "description": "Survey configuration, appearance, display conditions, and responses.",
+            "nodeType": "ph-survey",
+            "idProp": "id",
+            "idDescription": "Survey ID.",
+            "idExample": "survey-id",
+            "picker": "survey",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable survey overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the survey status, display mode, and question count."
+                },
+                "preview": {
+                    "label": "Preview",
+                    "description": "Show the first page of the survey."
+                },
+                "conditions": {
+                    "label": "Conditions",
+                    "description": "Show when and where the survey appears."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show survey responses and question results."
+                }
+            }
+        },
+        "Experiment": {
+            "label": "Experiment",
+            "description": "Experiment configuration, status, and results.",
+            "nodeType": "ph-experiment",
+            "idProp": "id",
+            "idDescription": "Experiment numeric ID.",
+            "idExample": 456,
+            "picker": "experiment",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable experiment overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the experiment status and result significance."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show experiment exposures and primary metric results."
+                }
+            }
+        },
+        "EarlyAccessFeature": {
+            "label": "Early access feature",
+            "description": "Early access feature stage, documentation, and enrollment.",
+            "nodeType": "ph-early-access-feature",
+            "idProp": "id",
+            "idDescription": "Early access feature ID.",
+            "idExample": "feature-id",
+            "picker": "early-access-feature",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable early access feature overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the feature stage, name, and description."
+                }
+            }
+        },
+        "Cohort": {
+            "label": "Cohort",
+            "description": "Cohort definition, size, and matching people.",
+            "nodeType": "ph-cohort",
+            "idProp": "id",
+            "idDescription": "Cohort numeric ID.",
+            "idExample": 789,
+            "picker": "cohort",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable cohort overview and matching people."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the cohort name, size, and type."
+                }
+            }
+        },
+        "Insight": {
+            "label": "Insight",
+            "description": "Saved insight visualization, configuration, and query results.",
+            "nodeType": "ph-query",
+            "idProp": "id",
+            "idDescription": "Insight short ID.",
+            "idExample": "insight-id",
+            "picker": "insight",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the saved insight visualization."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the insight name, description, and type."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the insight query and visualization settings."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show the insight visualization and query results."
+                }
+            }
+        },
+        "Recording": {
+            "label": "Session recording",
+            "description": "Session recording playback and session context.",
+            "nodeType": "ph-recording",
+            "idProp": "id",
+            "idDescription": "Session recording ID.",
+            "idExample": "recording-id",
+            "picker": "recording",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the session recording player."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show a compact session recording preview."
+                }
+            }
+        },
+        "RecordingPlaylist": {
+            "label": "Recording playlist",
+            "description": "Saved recording playlist, matching recordings, and filter conditions.",
+            "nodeType": "ph-recording-playlist",
+            "idProp": "id",
+            "idDescription": "Recording playlist short ID.",
+            "idExample": "playlist-id",
+            "picker": "recording-playlist",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show recordings that belong to the playlist."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the playlist name, type, and recording count."
+                },
+                "conditions": {
+                    "label": "Conditions",
+                    "description": "Show the filters that define the playlist."
+                }
+            }
+        },
+        "Person": {
+            "label": "Person",
+            "description": "Person properties, account context, and recent activity.",
+            "nodeType": "ph-person",
+            "idProp": "id",
+            "idDescription": "Person UUID.",
+            "idExample": "person-uuid",
+            "picker": "person",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show person properties and account context."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the person's display name and identifying properties."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show the person's recent events."
+                }
+            }
+        },
+        "Group": {
+            "label": "Group",
+            "description": "Group properties, account context, and recent activity.",
+            "nodeType": "ph-group",
+            "idProp": "id",
+            "idDescription": "Group key.",
+            "idExample": "group-key",
+            "picker": "group",
+            "extraProps": {
+                "groupTypeIndex": {
+                    "description": "Numeric group type index.",
+                    "example": 0
+                }
+            },
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show group properties and account context."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the group name, key, and type."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show the group's recent events."
+                }
+            }
+        },
+        "ErrorTrackingIssue": {
+            "label": "Error tracking issue",
+            "description": "Error tracking issue status, exception details, and occurrences.",
+            "nodeType": "ph-error-tracking-issue",
+            "idProp": "id",
+            "idDescription": "Error tracking issue ID.",
+            "idExample": "issue-id",
+            "picker": "error-tracking-issue",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the latest exception details."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the issue status, first seen time, and occurrence count."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show recent exceptions grouped into this issue."
+                }
+            }
+        },
+        "LLMTrace": {
+            "label": "LLM trace",
+            "description": "LLM trace usage, latency, cost, and chronological operations.",
+            "nodeType": "ph-llm-trace",
+            "idProp": "id",
+            "idDescription": "LLM trace ID.",
+            "idExample": "trace-id",
+            "picker": "llm-trace",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show expanded trace operations and content."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show trace usage, latency, cost, and errors."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show the chronological trace operations."
+                }
+            }
+        },
+        "Dashboard": {
+            "label": "Dashboard",
+            "description": "Dashboard description, insights, and current results.",
+            "nodeType": "ph-dashboard-widget",
+            "idProp": "id",
+            "idDescription": "Dashboard numeric ID.",
+            "idExample": 123,
+            "picker": "dashboard",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the dashboard and its insight results."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the dashboard description and insight count."
+                }
+            }
+        },
+        "Action": {
+            "label": "Action",
+            "description": "Action definition, matching steps, and editor.",
+            "nodeType": "ph-action",
+            "idProp": "id",
+            "idDescription": "Action numeric ID.",
+            "idExample": 123,
+            "picker": "action",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the action definition and matching conditions."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the action name, description, and step count."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the action definition in the notebook."
+                }
+            }
+        },
+        "Workflow": {
+            "label": "Workflow",
+            "description": "Workflow status, steps, editor, and run results.",
+            "nodeType": "ph-workflow",
+            "idProp": "id",
+            "idDescription": "Workflow ID.",
+            "idExample": "workflow-id",
+            "picker": "workflow",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the workflow steps and trigger."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the workflow status, trigger, and step count."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the workflow in the notebook."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show workflow runs and outcomes."
+                }
+            }
+        }
+    }
+}

@@ -1,4 +1,5 @@
 import { type FeatureFlagKey } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -6,10 +7,10 @@ import type { ProductSetupStatus } from './types'
 
 /**
  * A cheap, declarative approximation of a product's setup status, resolvable at
- * app boot from event counts alone. A product declares its probe as `setupProbe`
+ * app boot from event definitions. A product declares its probe as `setupProbe`
  * in its manifest; `build-products.mjs` aggregates them into `productSetupProbes`
- * (see `~/products`), and all of them are answered by ONE combined ClickHouse
- * count query (see `productSetupPreloadLogic`), so statuses are known before the
+ * (see `~/products`), and each one is answered by a Postgres-backed API call
+ * (see `productSetupPreloadLogic`), so statuses are known before the
  * user first opens the product and the loading spinner rarely shows.
  *
  * Keep each probe's semantics in sync with the product's own detection logic
@@ -18,23 +19,51 @@ import type { ProductSetupStatus } from './types'
  */
 export interface ProductSetupProbe {
     productKey: ProductKey
-    /** Any of these events existing (within the preload lookback window) means the product has real data. */
+    /** Any of these event definitions existing means the product has real data. */
     hasDataEvents: string[]
     /** Any of these existing (without `hasDataEvents`) means instrumented but no traffic yet. */
     waitingEvents?: string[]
+    /**
+     * Ignore definitions whose last ingested occurrence is older than this many
+     * days, so a product that stopped sending long ago reads as needing setup
+     * again. Definitions that were never stamped (`last_seen_at` null) count as
+     * fresh. Omit to match on bare existence, for products where any history
+     * means set up. Keep in sync with the staleness window the product's own
+     * detection logic uses.
+     */
+    staleAfterDays?: number
     /** Only probe when this flag is enabled. */
     featureFlag?: FeatureFlagKey
 }
 
-export function statusFromProbeCounts(
+/** The slice of an event definition a probe needs to answer. */
+export interface ProbeEventDefinition {
+    name: string
+    last_seen_at?: string | null
+}
+
+export function statusFromProbeDefinitions(
     probe: ProductSetupProbe,
-    countsByEvent: Record<string, number>
+    definitions: ProbeEventDefinition[]
 ): ProductSetupStatus {
-    if (probe.hasDataEvents.some((event) => (countsByEvent[event] ?? 0) > 0)) {
+    const freshNames = new Set(
+        definitions
+            .filter(
+                (definition) =>
+                    probe.staleAfterDays === undefined ||
+                    !definition.last_seen_at ||
+                    // Seconds, to match the `isDefinitionStale` the products themselves use:
+                    // a `has-data` published here cannot be replaced by a later `needs-setup`.
+                    dayjs().diff(dayjs(definition.last_seen_at), 'second') <= probe.staleAfterDays * 24 * 60 * 60
+            )
+            .map((definition) => definition.name)
+    )
+
+    if (probe.hasDataEvents.some((event) => freshNames.has(event))) {
         return 'has-data'
     }
 
-    if (probe.waitingEvents?.some((event) => (countsByEvent[event] ?? 0) > 0)) {
+    if (probe.waitingEvents?.some((event) => freshNames.has(event))) {
         return 'waiting-for-data'
     }
 

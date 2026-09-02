@@ -81,6 +81,29 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
+    it('redirects /project/new to the create-project flow instead of a 404', async () => {
+        router.actions.push('/project/new')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectCreateFirst())
+    })
+
+    it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
+        router.actions.push('/data-warehouse/new')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+    })
+
+    it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
+        router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.codeReview())
+        // ?review=<report id> is a permanent public contract baked into GitHub PR comments — the
+        // redirect must carry it across so those links keep opening the right report. The hash
+        // carries global side-panel state, so it has to survive the redirect too.
+        expect(router.values.searchParams.review).toEqual('r-9')
+        expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
             component: expect.any(Function),
@@ -185,6 +208,43 @@ describe('sceneLogic', () => {
             }
             expect(bootstrappedHomepagePathname).toEqual(urls.dashboard(42))
             expect(redirectedPathname).toEqual(urls.dashboard(42))
+        })
+
+        // A homepage saved against a since-removed scene must be dropped, not followed. Following it
+        // sends every `/` visit to a dead route, and once that route has a compatibility redirect
+        // pointing back home the two bounce off each other forever.
+        it('ignores a bootstrapped homepage whose scene no longer ships', async () => {
+            logic.unmount()
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            let hadBootstrappedHomepage = true
+            let redirectedPathname = ''
+            try {
+                initKeaTests()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    homepage: {
+                        ...dashboardHomepage,
+                        id: 'homepage-removed-scene',
+                        pathname: '/removed-scene',
+                        sceneId: 'RemovedScene',
+                    },
+                } as unknown as AppContext
+                ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                router.actions.push(urls.eventDefinitions())
+                const bootstrappedLogic = sceneLogic.build({ scenes: testScenes })
+                bootstrappedLogic.mount()
+                hadBootstrappedHomepage = bootstrappedLogic.values.homepage !== null
+                router.actions.push(urls.projectHomepage())
+                await expectLogic(bootstrappedLogic).delay(1)
+                redirectedPathname = removeProjectIdIfPresent(router.values.location.pathname)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
+            expect(hadBootstrappedHomepage).toBe(false)
+            expect(redirectedPathname).toEqual(urls.projectHomepage())
         })
 
         it('forwards allow-listed query params onto the homepage redirect and drops the rest', async () => {

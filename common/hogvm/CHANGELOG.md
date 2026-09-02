@@ -1,5 +1,42 @@
 # HogQL bytecode changelog
 
+## 2026-08-27 - 1.0.69
+
+The VM checks the argument count of a standard library function before it calls it. No bytecode
+operations changed.
+
+A call with too few or too many arguments fails with `Function <name> requires at least N arguments`
+or `Function <name> requires at most N arguments`. The VM applied this check only to a standard
+library function held in a variable. A direct call skipped it and ran with the wrong number of
+arguments.
+
+Three functions now accept argument counts that they always supported but that the VM refused:
+
+```bash
+jsonStringify(value, indent)   # second argument indents the output
+JSONLength(value)              # path arguments are optional
+and(a), or(a, b, c)            # both take one or more arguments
+```
+
+## 2026-08-04 - 1.0.68
+
+Added SHA-1 primitives to the standard library. No bytecode operations changed.
+
+```bash
+sha1Hex(data)                  # SHA-1 of a string, hex encoded
+sha1(data, encoding)           # SHA-1 of a string, encoding defaults to 'hex'
+sha1HmacChainHex(data)         # HMAC-SHA1 chained over an array of strings, hex encoded
+sha1HmacChain(data, encoding)  # same, encoding defaults to 'hex'
+```
+
+`encoding` is one of `hex`, `base64`, `base64url`, or `binary`, matching `md5`, `sha256`, and
+`sha256HmacChain`. A two element chain is a plain HMAC-SHA1 of a key and a message, which is what
+webhook signature verification needs.
+
+SHA-1 is broken for collision resistance and must not be picked for new work. HMAC-SHA1 is still
+sound for message authentication, and it is here only because some vendors sign their webhooks
+with it.
+
 ## 2023-06-30 - 1.0.2
 
 Rolled back cohort matching instructions.

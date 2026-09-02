@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status)\n            SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5\n            FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)\n            ON CONFLICT (op_id, person_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int8Array",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "867fbc06ae766c181011a8a95527f8396c8866c06f8f0a567dc1f1bf699abd0a"
+}

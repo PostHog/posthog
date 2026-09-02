@@ -9,6 +9,36 @@
 - pods can scale up and down without service disruptions or inconsistent writes
 - crashed pods can be recovered from with minimal downtime
 
+### API contract: every RPC must be safe under at-least-once delivery
+
+A leader-path request can be delivered more than once: clients retry
+`UNAVAILABLE` after ambiguous failures, and the router internally
+replays fence- and transport-bounced requests. Neither layer can know
+whether an ambiguous first delivery applied, so the safety burden sits
+here, on the RPC's semantics — not in any retry policy.
+
+Be precise about what "safe" means today. Reads are pure.
+`UpdatePersonProperties` is a merge command with no request-level
+identity: re-applying the same merge converges to the same state
+*unless a different caller wrote the same field between the original
+apply and the replay*, in which case the replay clobbers the newer
+write. That interleaved case is the accepted at-least-once residual —
+the exposure is identical under client-driven retries, which the
+platform has always had — and its planned closure is operation
+identity: the router stamps each logical request with an op id, the
+leader keeps a short ring of recently applied ids on the cached person
+entry, and the id rides the produced record so warming rebuilds the
+ring on a new owner (scoped with the epoch-fencing work; the stamp and
+the ring land together).
+
+Future RPCs must clear the same bar: convergent under redelivery
+(tombstone-style deletes, max-merge version floors, re-appliable
+merges), or carrying explicit operation identity. An RPC that is
+neither (an unguarded increment, an append) is broken in this
+architecture regardless of router behavior and must not be added; this
+is a review requirement for new leader RPCs (see the
+`adding-personhog-rpc` skill).
+
 ### To Implement
 
 ### Known Implementation Details
@@ -83,6 +113,21 @@ update:
    earlier state (uuid parses, team_id fits the column's integer,
    created_at within sane bounds) — corrupt state must never reach the
    changelog.
+
+The merge saga's fold (`FoldPersonDocument`) cannot reject for size — the
+saga would re-drive it forever — so its oversized path always completes:
+trim candidates are the fold's own contribution (a within-limit target
+never loses a key it held), the target's own keys join only when its
+stored document already exceeded the limit, and a trim that cannot reach
+the hysteresis target retries against the hard ceiling, since any document
+at or under the threshold is still applyable. The residual — a stored
+document whose protected keys alone exceed the ceiling, so no applyable
+fold document exists — completes without producing: the person keeps its
+pre-fold state, the fold's property and scalar effects are skipped, and
+the case is surfaced via `personhog_leader_folds_total{outcome=
+"unapplyable"}`, an error log, and a size-violation warning. This is an
+accepted gap: the alternatives are wedging the saga (reject) or halting
+the writer (produce an unapplyable record).
 
 Trims and rejections emit `person_properties_size_violation` ingestion
 warnings (`src/warnings.rs`), throttled per (team, type) to match the Node

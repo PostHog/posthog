@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
@@ -18,6 +19,7 @@ import { ToolExecutor } from '@/hono/tool-executor'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -47,6 +49,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -55,6 +58,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -64,9 +68,11 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
@@ -186,33 +192,32 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
-        // Env-context (active project metadata + tool-domain index) must reach the model
-        // on the exec `command` for clients that don't otherwise receive the `instructions`
-        // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
-        // web/desktop report `true` but silently ignore it. Claude Code and Cowork strip
-        // it here because it arrives via `instructions` instead.
+        // Active project metadata reaches the model on the exec `command` for every
+        // single-exec client, including the ones that honor `instructions`: that payload is
+        // capped at MCP_INSTRUCTIONS_CHAR_BUDGET and spends all of it on the tool-domain
+        // index, so env-context would be the first thing a client-side truncation ate. The
+        // command description has no cap. The domain index is the mirror image — it stays
+        // out of the command description except for Claude web/desktop, which ignores
+        // `instructions` and has nowhere else to receive it.
         it.each([
             {
                 label: 'Claude web/desktop (ignores instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: true,
-                expectEnv: true,
             },
             {
                 label: 'Codex (supportsInstructions: false)',
                 supportsInstructions: false,
                 isClaudeChatHost: false,
-                expectEnv: true,
             },
             {
                 label: 'Claude Code / Cowork (consume instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: false,
-                expectEnv: false,
             },
         ])(
-            'injects project metadata into the exec command for $label → $expectEnv',
-            async ({ supportsInstructions, isClaudeChatHost, expectEnv }) => {
+            'injects project metadata into the exec command for $label',
+            async ({ supportsInstructions, isClaudeChatHost }) => {
                 const tools = catalog
                     .getPreBuiltEntries()
                     .slice(0, 5)
@@ -242,11 +247,7 @@ describe('ToolExecutor', () => {
                 expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
                 expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
-                if (expectEnv) {
-                    expect(commandDesc).toContain(metadataMarker)
-                } else {
-                    expect(commandDesc).not.toContain(metadataMarker)
-                }
+                expect(commandDesc).toContain(metadataMarker)
             }
         )
 
@@ -288,13 +289,16 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
 
             // The advertised schema is derived from the zod validation schema —
-            // pin the contract the agent writes calls against.
+            // pin the contract the agent writes calls against. The analytics
+            // client injects a required `context` intent parameter into every
+            // advertised tool (surfaced as `$mcp_intent`).
             const renderUiEntry = result.tools[1]!
             const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
             expect(properties.tool_name!.enum).toEqual(['survey-get'])
             expect(properties.tool_name!.description).toBeTruthy()
             expect(properties.tool_input!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name'])
+            expect(properties.context!.description).toBeTruthy()
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
         })
 
         it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {
@@ -329,6 +333,63 @@ describe('ToolExecutor', () => {
 
             expect(result.isError).toBe(true)
             expect(result.content[0].text).toContain('not found')
+        })
+    })
+
+    // A render-ui app loads its own data with a direct `tools/call`, reading
+    // `structuredContent` and ignoring the text channel. The formatted-table
+    // suppression that serves text-reading CLI clients must not reach that fetch,
+    // or the app has nothing to draw and shows its error state instead of the chart.
+    describe('structuredContent on a UI-app data fetch', () => {
+        const formattedTable = 'date|count\n2026-08-31|28'
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it.each([
+            {
+                label: 'keeps it for a render-ui host, where this call is the app',
+                useSingleExec: true,
+                renderUiEnabled: true,
+                expectStructuredContent: true,
+            },
+            {
+                label: 'drops it for a CLI client without render-ui, which reads the table',
+                useSingleExec: true,
+                renderUiEnabled: false,
+                expectStructuredContent: false,
+            },
+            {
+                label: 'drops it in tools mode, where a direct call may be the model',
+                useSingleExec: false,
+                renderUiEnabled: true,
+                expectStructuredContent: false,
+            },
+        ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent }) => {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => ({
+                        results: [{ count: 28, label: '$pageview' }],
+                        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedTable,
+                    }),
+                    _meta: uiAppTool._meta,
+                },
+            } as any)
+
+            const state = makeState([uiAppTool], { useSingleExec, renderUiEnabled })
+            vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+
+            const result = (await executor.handleToolCall({ name: 'survey-get', arguments: {} }, state)) as any
+
+            expect(result.content[0].text).toContain(formattedTable)
+            expect('structuredContent' in result).toBe(expectStructuredContent)
         })
     })
 })

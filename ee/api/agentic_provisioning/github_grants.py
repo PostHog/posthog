@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from django.core.cache import cache
@@ -29,7 +29,7 @@ from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.oauth import OAuthApplication
 
-from . import GITHUB_GRANT_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
 
 logger = structlog.get_logger(__name__)
 
@@ -60,8 +60,8 @@ class GitHubGrant:
     gh_id: int
     gh_login: str
     email: str | None
-    access_token: str
-    refresh_token: str | None
+    access_token: str = field(repr=False)
+    refresh_token: str | None = field(repr=False)
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
     created_at: str

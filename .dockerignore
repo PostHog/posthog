@@ -3,7 +3,6 @@
 !.devcontainer
 !.kearc
 !bin
-!common/alerting
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
@@ -14,6 +13,7 @@
 !common/plugin_transpiler/src
 !common/tailwind
 !packages/quill
+!packages/llm-normalizer
 !dags
 !docs/onboarding
 !ee
@@ -50,20 +50,10 @@
 !services/mcp/types.d.ts
 !services/mcp/worker-configuration.d.ts
 !services/mcp/public
-!services/agents
-!services/agent-ingress
-!services/agent-runner
-!services/agent-janitor
-!services/agent-shared
-!services/agent-tools
-!services/agent-sandbox-host
 !packages/quill
 services/agent-*/node_modules
 services/agent-*/dist
 services/agent-*/.next
-services/agents/node_modules
-services/agents/dist
-services/agent-tests
 !services/agent-proxy
 !services/agent-proxy/package.json
 !services/agent-proxy/tsconfig.json
@@ -86,7 +76,6 @@ services/agent-tests
 !tools/hogli
 !tools/openapi-codegen
 !tools/owners
-!tools/pr-approval-agent
 !tsconfig.json
 !unit.json.tpl
 common/*/*/node_modules
@@ -95,7 +84,16 @@ common/*/*/dist
 common/*/dist
 packages/quill/**/node_modules
 packages/quill/**/dist
+packages/llm-normalizer/**/node_modules
+packages/llm-normalizer/**/dist
 products/**/node_modules
+# Nested standalone workspace, not imported by any server image; `!products` above
+# would otherwise pull ~56 MiB of desktop assets into every image build context.
+products/desktop/*
+!products/desktop/packages
+products/desktop/packages/*
+!products/desktop/packages/agent-shadow
+!products/desktop/packages/agent-shadow/**
 nodejs/node_modules
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.
@@ -118,9 +116,6 @@ docs/**/node_modules
 **/__pycache__
 rust/.env
 rust/.github
-rust/cyclotron-node/dist
-rust/cyclotron-node/index.node
-rust/cyclotron-node/node_modules
 rust/docker
 rust/target
 **/__snapshots__

@@ -223,11 +223,11 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
                 language.as_str(),
                 response.schema_hash
             );
-            println!(
+            crate::safe_println!(
                 "\n✓ {} schema is already up to date!",
                 language.display_name()
             );
-            println!("  No changes detected - skipping file write.");
+            crate::safe_println!("  No changes detected - skipping file write.");
             return Ok(());
         }
     }
@@ -258,9 +258,9 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     config.save()?;
     info!("✓ Updated posthog.json");
 
-    println!("✓ Schema sync complete!");
-    println!("\nNext steps:");
-    println!("{}", language.next_steps_text(&output_path));
+    crate::safe_println!("✓ Schema sync complete!");
+    crate::safe_println!("\nNext steps:");
+    crate::safe_println!("{}", language.next_steps_text(&output_path));
 
     Ok(())
 }
@@ -322,31 +322,31 @@ fn normalize_output_path(path: &str, language: Language) -> String {
 
 pub fn status() -> Result<()> {
     // Check authentication
-    println!("\nPostHog Schema Sync Status\n");
+    crate::safe_println!("\nPostHog Schema Sync Status\n");
 
-    println!("Authentication:");
+    crate::safe_println!("Authentication:");
     let config = context().config.clone();
-    println!("  ✓ Authenticated");
-    println!("  Host: {}", config.host);
-    println!("  Project ID: {}", config.env_id);
+    crate::safe_println!("  ✓ Authenticated");
+    crate::safe_println!("  Host: {}", config.host);
+    crate::safe_println!("  Project ID: {}", config.env_id);
     let masked_token = format!(
         "{}****{}",
         &config.api_key[..4],
         &config.api_key[config.api_key.len() - 4..]
     );
-    println!("  Token: {masked_token}");
+    crate::safe_println!("  Token: {masked_token}");
 
-    println!();
+    crate::safe_println!();
 
     // Check schema status
-    println!("Schema:");
+    crate::safe_println!("Schema:");
     let config = SchemaConfig::load();
 
     if config.languages.is_empty() {
-        println!("  ✗ No schemas synced");
-        println!("  Run: posthog-cli exp schema pull");
+        crate::safe_println!("  ✗ No schemas synced");
+        crate::safe_println!("  Run: posthog-cli exp schema pull");
     } else {
-        println!("  ✓ Schemas synced\n");
+        crate::safe_println!("  ✓ Schemas synced\n");
 
         for (language_str, lang_config) in &config.languages {
             // Parse language to get display name, fallback to raw string if unknown
@@ -354,21 +354,21 @@ pub fn status() -> Result<()> {
                 .map(|l| l.display_name())
                 .unwrap_or(language_str.as_str());
 
-            println!("  {display}:");
-            println!("    Hash: {}", lang_config.schema_hash);
-            println!("    Updated: {}", lang_config.updated_at);
-            println!("    Events: {}", lang_config.event_count);
+            crate::safe_println!("  {display}:");
+            crate::safe_println!("    Hash: {}", lang_config.schema_hash);
+            crate::safe_println!("    Updated: {}", lang_config.updated_at);
+            crate::safe_println!("    Events: {}", lang_config.event_count);
 
             if Path::new(&lang_config.output_path).exists() {
-                println!("    File: ✓ {}", lang_config.output_path);
+                crate::safe_println!("    File: ✓ {}", lang_config.output_path);
             } else {
-                println!("    File: ! {} (missing)", lang_config.output_path);
+                crate::safe_println!("    File: ! {} (missing)", lang_config.output_path);
             }
-            println!();
+            crate::safe_println!();
         }
     }
 
-    println!();
+    crate::safe_println!();
 
     Ok(())
 }

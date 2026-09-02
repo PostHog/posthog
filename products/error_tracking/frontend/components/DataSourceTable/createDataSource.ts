@@ -14,9 +14,21 @@ function defaultCreateKey<Props extends DataSourceLogicProps<DataNode>>({ queryK
     return queryKey
 }
 
-export function createDataSourceLogic<Props extends DataSourceLogicProps<DataNode>, T>(
+type DataSourceResponse<Row> = {
+    results: Row[]
+}
+
+function hasResults<Row>(response: unknown): response is DataSourceResponse<Row> {
+    return (
+        typeof response === 'object' &&
+        response !== null &&
+        Array.isArray((response as DataSourceResponse<Row>).results)
+    )
+}
+
+export function createDataSourceLogic<Props extends DataSourceLogicProps<DataNode>, T, Row = unknown[]>(
     createPath: (key: KeyType) => KeyType[],
-    createRecord: (row: any[]) => T,
+    createRecord: (row: Row) => T,
     createKey: (props: Props) => KeyType = defaultCreateKey
 ): LogicWrapper<DataSourceLogic<T>> {
     return buildKea<DataSourceLogic<T>>([
@@ -45,8 +57,8 @@ export function createDataSourceLogic<Props extends DataSourceLogicProps<DataNod
         selectors({
             items: [
                 (s) => [s.response],
-                (response: any) => {
-                    if (response && response.results) {
+                (response: unknown) => {
+                    if (hasResults<Row>(response)) {
                         return response.results.map(createRecord)
                     }
                     return []

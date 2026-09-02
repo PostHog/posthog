@@ -7,17 +7,44 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from posthog.security import pinned_requests as pr
+from posthog.security.url_validation import PinnedUrlVerdict
 
 
 class TestPinnedRequest:
     def test_blocked_url_raises_before_any_connection(self):
         with (
-            patch.object(pr, "validate_url_and_pin_ips", return_value=(False, "Loopback host", set())),
+            patch.object(
+                pr,
+                "validate_url_and_pin_ips",
+                return_value=PinnedUrlVerdict(allowed=False, reason="Loopback host", pinned_ips=set()),
+            ),
             patch.object(pr.requests, "Session") as session_cls,
         ):
             with pytest.raises(pr.SSRFBlockedError, match="Loopback host"):
                 pr.pinned_request("GET", "http://127.0.0.1/admin", timeout=5)
         session_cls.assert_not_called()
+
+
+class TestSelectPinnedIP:
+    # Pinning replaces the resolver's address selection, so picking an AAAA record when an A
+    # record exists strands the request on any IPv4-only host ("Network is unreachable") instead
+    # of falling back. That is what IPv4-only CI runners do, and it fails the whole request.
+    @pytest.mark.parametrize(
+        "ips,expected",
+        [
+            ({"2600:1f18::1", "93.184.216.34"}, "93.184.216.34"),
+            ({"93.184.216.34"}, "93.184.216.34"),
+            ({"2600:1f18::1"}, "2600:1f18::1"),
+            # Deterministic within a family, so a broken pin reproduces instead of flapping.
+            ({"93.184.216.34", "10.1.1.1", "203.0.113.9"}, "10.1.1.1"),
+        ],
+    )
+    def test_prefers_ipv4_and_is_deterministic(self, ips, expected):
+        chosen = pr.select_pinned_ip({ipaddress.ip_address(ip) for ip in ips})
+        assert chosen == ipaddress.ip_address(expected)
+
+    def test_empty_set_pins_nothing(self):
+        assert pr.select_pinned_ip(set()) is None
 
 
 class TestPinnedIPAdapter:

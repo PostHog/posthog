@@ -402,50 +402,29 @@ export function SharingModalContent({
                                                 )}
 
                                                 {dashboardId && (
-                                                    <>
-                                                        <LemonField name="hideExtraDetails">
-                                                            {({ value, onChange }) => (
-                                                                <LemonSwitch
-                                                                    fullWidth
-                                                                    bordered
-                                                                    label={
-                                                                        <div className="flex items-center">
-                                                                            <span>Show insight details</span>
-                                                                            <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
-                                                                                <IconInfo className="ml-1.5 text-secondary text-lg" />
-                                                                            </Tooltip>
-                                                                        </div>
-                                                                    }
-                                                                    onChange={() => onChange(!value)}
-                                                                    checked={!value}
+                                                    <LemonField
+                                                        name="theme"
+                                                        inline
+                                                        className="items-center justify-between col-span-2"
+                                                    >
+                                                        {({ value, onChange }) => (
+                                                            <>
+                                                                <LemonLabel htmlFor="sharing-theme-select">
+                                                                    Theme
+                                                                </LemonLabel>
+                                                                <LemonSelect
+                                                                    id="sharing-theme-select"
+                                                                    value={value ?? 'system'}
+                                                                    onSelect={(theme) => onChange(theme)}
+                                                                    options={[
+                                                                        { value: 'system', label: 'System' },
+                                                                        { value: 'light', label: 'Light' },
+                                                                        { value: 'dark', label: 'Dark' },
+                                                                    ]}
                                                                 />
-                                                            )}
-                                                        </LemonField>
-
-                                                        <LemonField
-                                                            name="theme"
-                                                            inline
-                                                            className="items-center justify-between col-span-2"
-                                                        >
-                                                            {({ value, onChange }) => (
-                                                                <>
-                                                                    <LemonLabel htmlFor="sharing-theme-select">
-                                                                        Theme
-                                                                    </LemonLabel>
-                                                                    <LemonSelect
-                                                                        id="sharing-theme-select"
-                                                                        value={value ?? 'system'}
-                                                                        onSelect={(theme) => onChange(theme)}
-                                                                        options={[
-                                                                            { value: 'system', label: 'System' },
-                                                                            { value: 'light', label: 'Light' },
-                                                                            { value: 'dark', label: 'Dark' },
-                                                                        ]}
-                                                                    />
-                                                                </>
-                                                            )}
-                                                        </LemonField>
-                                                    </>
+                                                            </>
+                                                        )}
+                                                    </LemonField>
                                                 )}
                                             </div>
 

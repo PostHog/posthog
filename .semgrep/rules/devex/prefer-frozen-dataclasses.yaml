@@ -1,0 +1,69 @@
+rules:
+    - id: prefer-frozen-dataclasses
+      message: |
+          Bare `@dataclass` without an explicit `frozen=` choice.
+
+          House default for value/result objects is `@frozen` from `posthog.dataclasses`
+          (frozen, kw_only, slots; every flag overridable, e.g. `@frozen(slots=False)`
+          for `functools.cached_property`):
+
+              from posthog.dataclasses import frozen
+
+              @frozen
+              class BillingPeriod:
+                  start: datetime
+                  end: datetime
+
+          If mutability is intentional, say so explicitly with `@dataclass(frozen=False, ...)`.
+          The `posthog/test/repo_invariants/test_dataclass_defaults.py` ratchet blocks new undeclared uses;
+          existing ones are grandfathered in its baseline and migrated over time.
+          Informational, not blocking. For a genuine exception, add
+          `# nosemgrep: prefer-frozen-dataclasses -- <reason>` on the class line.
+      severity: WARNING
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'dags/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - '**/migrations/**'
+              - '**/.semgrep/**'
+              # Standalone PEP 723 script bundle. Other repos vendor it, and it runs from a
+              # sandbox checkout. It cannot import posthog.dataclasses, so the house decorator that
+              # this rule points at is unavailable to it.
+              - '**/packages/pr-approval-agent/**'
+      patterns:
+          - pattern-either:
+                # Bare @dataclass is ambiguous: skip it when pydantic's decorator
+                # (with its own validation semantics) is imported under that name.
+                - patterns:
+                      - pattern-either:
+                            - pattern: |
+                                  @dataclass
+                                  class $C: ...
+                            - pattern: |
+                                  @dataclass(...)
+                                  class $C: ...
+                      - pattern-not-inside: |
+                            from pydantic.dataclasses import dataclass
+                            ...
+                # The module-attribute form is always the stdlib decorator.
+                - pattern: |
+                      @dataclasses.dataclass
+                      class $C: ...
+                - pattern: |
+                      @dataclasses.dataclass(...)
+                      class $C: ...
+          - pattern-not: |
+                @dataclass(..., frozen=$V, ...)
+                class $C: ...
+          - pattern-not: |
+                @dataclasses.dataclass(..., frozen=$V, ...)
+                class $C: ...
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

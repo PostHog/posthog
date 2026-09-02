@@ -1,16 +1,18 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-PaginatorKind = Literal["single", "cursor", "next_url", "search", "substream", "scroll"]
+PaginatorKind = Literal["single", "cursor", "next_url", "pages", "search", "substream", "scroll"]
 PartitionMode = Literal["md5", "datetime"]
 HttpMethod = Literal["GET", "POST"]
 SortMode = Literal["asc", "desc"]
 
 
-@dataclass
+@frozen
 class IntercomEndpointConfig:
     name: str
     path: str
@@ -175,6 +177,82 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="substream",
         parent_endpoint="conversations",
         partition_key="created_at",
+    ),
+    "help_centers": IntercomEndpointConfig(
+        # `GET /help_center/help_centers` — one row per Help Center site. A workspace
+        # has a handful at most and the response carries no `pages` block, so it's a
+        # single-page read. Decodes `collections.help_center_id`.
+        name="help_centers",
+        path="/help_center/help_centers",
+        data_selector="data",
+        paginator_kind="single",
+        partition_key="id",
+        partition_mode="md5",
+        partition_format=None,
+    ),
+    "collections": IntercomEndpointConfig(
+        # `GET /help_center/collections` — the Help Center structure behind the
+        # `articles` table (articles carry `parent_id`, collections carry
+        # `parent_id`/`help_center_id`). Intercom documents the order as descending
+        # on `updated_at` and offers no server-side timestamp filter, so this is
+        # full refresh.
+        name="collections",
+        path="/help_center/collections",
+        data_selector="data",
+        paginator_kind="pages",
+        sort_mode="desc",
+    ),
+    "ticket_types": IntercomEndpointConfig(
+        # `GET /ticket_types` — decodes the `ticket_type` id carried on `tickets`.
+        # Workspace-level config list with no `pages` block.
+        name="ticket_types",
+        path="/ticket_types",
+        data_selector="data",
+        paginator_kind="single",
+        partition_key="id",
+        partition_mode="md5",
+        partition_format=None,
+    ),
+    "ticket_states": IntercomEndpointConfig(
+        # `GET /ticket_states` — decodes the ticket state id carried on `tickets`,
+        # and carries the customer-facing vs internal labels for each state.
+        name="ticket_states",
+        path="/ticket_states",
+        data_selector="data",
+        paginator_kind="single",
+        partition_key="id",
+        partition_mode="md5",
+        partition_format=None,
+    ),
+    "subscription_types": IntercomEndpointConfig(
+        # `GET /subscription_types` — the consent/subscription types a contact can
+        # opt in or out of. Rows have no timestamps, so partition on the id.
+        name="subscription_types",
+        path="/subscription_types",
+        data_selector="data",
+        paginator_kind="single",
+        partition_key="id",
+        partition_mode="md5",
+        partition_format=None,
+    ),
+    "news_items": IntercomEndpointConfig(
+        # `GET /news/news_items` — product announcements published to newsfeeds.
+        # No server-side timestamp filter, so full refresh.
+        name="news_items",
+        path="/news/news_items",
+        data_selector="data",
+        paginator_kind="pages",
+    ),
+    "newsfeeds": IntercomEndpointConfig(
+        # `GET /news/newsfeeds` — the feeds news items are assigned to. A workspace
+        # has very few, so partition on the id rather than by week.
+        name="newsfeeds",
+        path="/news/newsfeeds",
+        data_selector="data",
+        paginator_kind="pages",
+        partition_key="id",
+        partition_mode="md5",
+        partition_format=None,
     ),
     "company_segments": IntercomEndpointConfig(
         # Substream of `companies`. Intercom doesn't expose a server-side

@@ -9,11 +9,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from snowflake.connector.errors import DatabaseError, HttpError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
 )
@@ -175,6 +175,12 @@ class TestBuildQuery:
         # None last-value triggers fallback to incremental_type_to_initial_value
         _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
         assert params[1] is not None
+
+    def test_incremental_field_with_space_is_quoted_not_rejected(self):
+        # Real Snowflake column names can contain spaces (e.g. "Date Established").
+        sql, _ = _build_query("DB", "PUBLIC", "t", True, "Date Established", IncrementalFieldType.DateTime, None)
+        assert 'WHERE "Date Established"' in sql
+        assert 'ORDER BY "Date Established" ASC' in sql
 
 
 class TestBuildQueryRowFilters:
@@ -565,6 +571,28 @@ class TestGetPrimaryKeysForTable:
         cursor.execute.side_effect = Exception("does not exist or not authorized")
         assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
 
+    @pytest.mark.parametrize(
+        "error_msg,expect_capture",
+        [
+            # Table/schema dropped, renamed, or grant revoked after discovery — already classified
+            # as user/upstream and non-retryable by SnowflakeSource; not worth reporting as a bug.
+            (
+                "002003 (42S02): 01c5ed45-0a1f-ee98-0067-5f032313bb4a: SQL compilation error:\n"
+                "Table 'DB.PUBLIC.T' does not exist or not authorized.",
+                False,
+            ),
+            # Anything else is unexpected and should still be surfaced.
+            ("some other driver failure", True),
+        ],
+    )
+    def test_captures_only_unexpected_show_failures(self, impl, cursor, error_msg, expect_capture):
+        cursor.execute.side_effect = Exception(error_msg)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.capture_exception"
+        ) as mock_capture:
+            assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
+        assert mock_capture.called is expect_capture
+
 
 class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):
@@ -873,17 +901,70 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Encrypted-key passphrase error should be non-retryable: {error_msg}"
 
+    def test_unencrypted_key_with_passphrase_is_non_retryable(self, source):
+        # A passphrase supplied for an unencrypted key (cryptography TypeError) — the inverse of the
+        # encrypted-key cases above. Fails to parse before reaching Snowflake, so retrying can't help.
+        error_msg = "Password was given but private key is not encrypted."
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unencrypted-key-with-passphrase error should be non-retryable: {error_msg}"
+
     @pytest.mark.parametrize(
         "error_msg",
         [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
+            # 502 proxy failure exhausting the connector's internal retry budget — transient, not a
+            # user config error; the retry count varies so only the stable prefix is matched.
+            "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Error should remain retryable: {error_msg}"
+
+
+class TestSnowflakeSourceRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return SnowflakeSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # The real shape from production: the connector's BadRequest formats as "<errno>: <errno>: <msg>".
+            "290400: 290400: HTTP 400: Bad Request",
+            "HTTP 400: Bad Request",
+        ],
+    )
+    def test_chunk_download_bad_request_is_retryable(self, source, error_msg):
+        # Downloading a query result chunk got HTTP 400, and the connector's own retry budget
+        # (`result_batch.py::_download`) was already exhausted before `BadRequest` re-raised. Without
+        # this classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering failure.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Chunk-download bad-request error should be classified retryable: {error_msg}"
+
+    def test_login_internal_error_is_retryable(self, source):
+        # The real shape from production: the login-request endpoint responded with a generic
+        # internal-error message instead of a credential/config-specific one.
+        error_msg = (
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Internal error:  [f189e7a4-177b-4b96-a5cf-50a7193e2fff]"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
+
+    def test_backend_connection_failure_after_retries_is_retryable(self, source):
+        # The real shape from production: the connector exhausted its 11-attempt login retry budget
+        # after a proxy returned 502 Bad Gateway. The attempt count is volatile; the stable prefix is matched.
+        error_msg = "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Proxy-502 backend-connection failure should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:
@@ -928,6 +1009,22 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "passphrase" in message
+        mock_capture.assert_not_called()
+
+    def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
+        # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a
+        # user config error that should surface an actionable message, not be captured.
+        error = TypeError("Password was given but private key is not encrypted.")
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "not encrypted" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):

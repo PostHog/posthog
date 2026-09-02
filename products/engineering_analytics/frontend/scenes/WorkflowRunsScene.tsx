@@ -198,7 +198,7 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'pr',
             width: 80,
             render: (_, run) =>
-                run.prNumber > 0 ? (
+                run.prNumber != null ? (
                     <Link
                         to={withScope(
                             urls.engineeringAnalyticsPullRequest(run.repoOwner, run.repoName, run.prNumber),
@@ -256,7 +256,7 @@ export function WorkflowRunsScene(): JSX.Element {
 
     if (loadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
@@ -271,7 +271,7 @@ export function WorkflowRunsScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
             <SceneTitleSection
                 name="Workflow"
@@ -315,8 +315,8 @@ export function WorkflowRunsScene(): JSX.Element {
                 <MetricTile
                     label="Pass rate"
                     tooltip={`${humanFriendlyNumber(healthSummary.passedRuns)} of ${humanFriendlyNumber(
-                        healthSummary.completedRuns
-                    )} completed runs passed.`}
+                        healthSummary.conclusiveRuns
+                    )} runs with a pass-or-fail result passed.`}
                     value={percent(healthSummary.passRate)}
                     loading={runsLoading}
                 />
@@ -333,7 +333,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 />
                 <MetricTile
                     label="Duration p50"
-                    tooltip="Wall-clock, over completed runs."
+                    tooltip="Wall-clock, over successful runs."
                     value={
                         healthSummary.medianSeconds != null ? humanFriendlyDuration(healthSummary.medianSeconds) : '—'
                     }

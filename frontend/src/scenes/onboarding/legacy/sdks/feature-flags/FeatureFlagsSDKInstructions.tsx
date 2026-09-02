@@ -11,6 +11,7 @@ import {
     FramerInstallation,
     GoInstallation,
     IOSInstallation,
+    KMPInstallation,
     WebInstallation,
     LaravelInstallation,
     MultivariateFlagSnippet,
@@ -232,6 +233,12 @@ const FeatureFlagsFlutterInstructionsWrapper = withMobileReplay({
     onboardingContext: 'flags-onboarding',
     snippets: FLAG_IMPLEMENTATION_SNIPPETS,
 })
+const FeatureFlagsKMPInstructionsWrapper = withMobileReplay({
+    Installation: KMPInstallation,
+    sdkKey: SDKKey.KMP,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
 const FeatureFlagsRNInstructionsWrapper = withMobileReplay({
     Installation: ReactNativeInstallation,
     sdkKey: SDKKey.REACT_NATIVE,
@@ -279,6 +286,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.FRAMER]: FeatureFlagsFramerInstructionsWrapper,
     [SDKKey.GO]: FeatureFlagsGoInstructionsWrapper,
     [SDKKey.IOS]: FeatureFlagsIOSInstructionsWrapper,
+    [SDKKey.KMP]: FeatureFlagsKMPInstructionsWrapper,
     [SDKKey.LARAVEL]: FeatureFlagsLaravelInstructionsWrapper,
     [SDKKey.NEXT_JS]: FeatureFlagsNextJSInstructionsWrapper,
     [SDKKey.NODE_JS]: FeatureFlagsNodeInstructionsWrapper,

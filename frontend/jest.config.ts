@@ -89,6 +89,7 @@ function rootDirectories(): string[] {
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
+        '<rootDir>/../packages/llm-normalizer/src',
     ]
 }
 
@@ -183,8 +184,13 @@ const config: Config = {
         // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
         // so mock them to the styleMock string instead of executing them.
         '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
+        // devHmrStreamAbort subscribes to Vite HMR events via import.meta, which Sucrase passes
+        // through into CJS and Jest then cannot compile ("Cannot use 'import.meta' outside a module").
+        // It is dev-server-only behavior, so stub it out rather than transform it.
+        devHmrStreamAbort$: '<rootDir>/src/test/mocks/emptyMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
+        '^(.+)\\.md\\?raw$': '$1.md',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
         // @posthog/hogvm ships as ESM-only; map to the TS source so Jest (Sucrase) can handle it.
@@ -212,6 +218,8 @@ const config: Config = {
         '^common/(.*)$': '<rootDir>/../common/$1',
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/llm-normalizer$': '<rootDir>/../packages/llm-normalizer/src/index.ts',
+        '^@posthog/llm-normalizer/(.*)$': '<rootDir>/../packages/llm-normalizer/src/$1',
         '^@posthog/quill$': '<rootDir>/../packages/quill/packages/quill/src/index.ts',
         '^@posthog/quill-blocks$': '<rootDir>/../packages/quill/packages/blocks/src/index.ts',
         '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',
@@ -305,8 +313,7 @@ const config: Config = {
         '/services/mcp/',
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
-        '/products/agent_platform/services/',
-        '/products/agent_platform/packages/',
+        '/products/desktop/',
     ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
@@ -328,7 +335,10 @@ const config: Config = {
     transform: {
         // Include .mjs/.cjs so ESM dependencies allowed through transformIgnorePatterns (e.g. MSW's) are transpiled.
         '\\.[cm]?[jt]sx?$': '@sucrase/jest-plugin',
+        // The transformer just wraps file text as a string module, so it serves any raw
+        // text import, not only YAML.
         '\\.yaml$': '<rootDir>/src/test/yamlRawTransformer.js',
+        '\\.md$': '<rootDir>/src/test/yamlRawTransformer.js',
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation

@@ -5,13 +5,21 @@ A faithful port, not a redesign: the formula, its weights, and its quirks are ow
 recompute historical orgs from the fetch archive under a new version without disturbing this
 one. Behaviour is pinned to Clay's JS semantics — see `compute_icp_score`.
 
+clay-parity-2's est_revenue can source from the signer's Clearbit person-profile block (see
+enrichment/clearbit.py), which is not part of the fetch archive — an archive-driven recompute
+of a v2 score can therefore diverge from what was written live. company_type sources from
+Harmonic's ownershipStatus, which is archived.
+
 Deterministic and I/O-free: callers resolve the inputs (see bridge.py for the Clay-owned ones).
 """
 
 import dataclasses
 from typing import Optional
 
-SCORE_VERSION = "clay-parity-1"
+# clay-parity-2: same formula as clay-parity-1; est_revenue may source from the signer's
+# Clearbit person-profile block instead of the Clay bridge at recheck time, and company_type
+# from Harmonic's ownershipStatus instead of the bridge.
+SCORE_VERSION = "clay-parity-2"
 
 # Exempt from the -5 penalty. Matched case-sensitively against ISO alpha-2, as Clay does —
 # `country_name_to_iso_code` already normalises provider names to this casing.

@@ -81,8 +81,13 @@ const NOTIFICATION_PARAMS_BY_METHOD: { [M in keyof PosthogNotificationParamsByMe
     '_posthog/status': [
         { sessionId: 'sess_a1b2c3', status: 'compacting' },
         { sessionId: 'sess_a1b2c3', status: 'compacting', isComplete: true },
+        { sessionId: 'sess_a1b2c3', status: 'clearing' },
+        { sessionId: 'sess_a1b2c3', status: 'clearing', isComplete: true },
+        { sessionId: 'sess_a1b2c3', status: 'clearing_failed', error: 'Conversation clear timed out after 30000ms' },
     ],
     '_posthog/compact_boundary': [{ sessionId: 'sess_a1b2c3', trigger: 'auto', preTokens: 168000, contextSize: 54000 }],
+    // The fresh agent session the `/clear` swapped in, not the one the run booted with.
+    '_posthog/conversation_cleared': [{ sessionId: 'sess_d4e5f6' }],
     '_posthog/task_notification': [
         {
             sessionId: 'sess_a1b2c3',

@@ -1,8 +1,9 @@
 from typing import Any
 
-from django.db import models
+from django.db import models, router
 
 from posthog.models.activity_logging.utils import activity_storage, get_changed_fields_local
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.signals import model_activity_signal
 
 
@@ -93,8 +94,18 @@ class ModelActivityMixin(models.Model):
         if isinstance(soft_deleted_manager, models.Manager) and soft_deleted_manager not in managers:
             managers.append(soft_deleted_manager)
 
+        # Read the before-state from the write database: a replica can still serve the row as it
+        # was before an earlier write, which would make the logged changes wrong.
+        write_db = router.db_for_write(self.__class__)
+
+        queryset: models.QuerySet
         for manager in managers:
-            before_update = manager.filter(pk=self.pk).first()
+            # A read by primary key of a row the caller holds needs no team filter, and a fail-closed
+            # manager refuses to build a queryset without team context, which a save outside a request
+            # has none of. Same shape as the _get_before_update overrides on Loop and SignalScoutConfig.
+            queryset = manager.unscoped() if isinstance(manager, TeamScopedManager) else manager.all()
+
+            before_update = queryset.using(write_db).filter(pk=self.pk).first()
             if before_update:
                 break
 
@@ -186,3 +197,30 @@ class ImpersonatedContext:
                 activity_storage.set_was_impersonated(True)
             else:
                 activity_storage.clear_was_impersonated()
+
+
+class ActingUserContext:
+    """Attributes signal-driven activity logging to an explicit user outside request/middleware
+    context (background jobs, webhook handlers) where activity_storage would otherwise be empty
+    and the resulting log entries would record no actor. A `None` user makes this a no-op.
+    """
+
+    def __init__(self, user):
+        self.user = user
+        self.previous = None
+
+    def __enter__(self):
+        if self.user is not None:
+            # Save and restore rather than clear on exit, so a nested context can't
+            # silently erase an enclosing context's attribution.
+            self.previous = activity_storage.get_user()
+            activity_storage.set_user(self.user)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.user is None:
+            return
+        if self.previous is not None:
+            activity_storage.set_user(self.previous)
+        else:
+            activity_storage.clear_user()

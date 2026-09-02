@@ -8,7 +8,9 @@ import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { SessionPlayerState } from '~/types'
@@ -68,10 +70,18 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
     )
 }
 
+// Failures that a fresh load attempt can fix (a snapshot API or blob fetch that failed in transit),
+// as opposed to a recording whose data is genuinely unplayable.
+const RECOVERABLE_SNAPSHOT_ERRORS = [
+    'loadSnapshotsForSourceFailure',
+    'loadSnapshotSourcesFailure',
+    'snapshotSourceLoadExhausted',
+]
+
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion } =
+    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion, sessionPlayerMetaData } =
         useValues(sessionRecordingPlayerLogic)
-    const { setPlay } = useActions(sessionRecordingPlayerLogic)
+    const { setPlay, retryLoadingSnapshots } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
         e.stopPropagation()
@@ -85,18 +95,66 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const showActionsOnOverlay = playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
-    if (currentPlayerState === SessionPlayerState.ERROR) {
-        const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
+    if (currentPlayerState === SessionPlayerState.ERROR && playerError === 'recordingTooLarge') {
+        const totalSize = sessionPlayerMetaData?.total_size
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
                 <IconWarning className="text-danger text-5xl" />
                 <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
                 <div className="text-secondary text-sm text-center">
+                    It contains {totalSize ? `${humanizeBytes(totalSize)} of` : 'too much'} snapshot data in very large
+                    chunks, more than the player can render. This usually comes from pages with rapidly changing
+                    content. You can exclude those elements from capture to keep future recordings playable.
+                </div>
+                <LemonButton
+                    targetBlank
+                    to="https://posthog.com/docs/session-replay/privacy"
+                    type="primary"
+                    fullWidth
+                    center
+                >
+                    Learn how to exclude elements
+                </LemonButton>
+            </div>
+        )
+    } else if (currentPlayerState === SessionPlayerState.ERROR) {
+        const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
+        const isUnauthorized = playerError === 'snapshotUnauthorized'
+        const isRecoverable = !!playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)
+        content = (
+            <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
+                <IconWarning className="text-danger text-5xl" />
+                <div className="font-bold text-text-3000 text-lg">
+                    {isRecoverable ? "We couldn't load this recording" : "We're unable to play this recording"}
+                </div>
+                <div className="text-secondary text-sm text-center">
                     {isMissingFullSnapshot
                         ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
-                        : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                        : isUnauthorized
+                          ? 'Your session has expired. Sign in again to keep watching this recording.'
+                          : isRecoverable
+                            ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
+                            : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
-                {!isMissingFullSnapshot && (
+                {isUnauthorized && (
+                    <LemonButton to={urls.login()} type="primary" fullWidth center>
+                        Sign in
+                    </LemonButton>
+                )}
+                {isRecoverable && (
+                    <LemonButton
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            retryLoadingSnapshots()
+                        }}
+                        type="primary"
+                        fullWidth
+                        center
+                    >
+                        Retry
+                    </LemonButton>
+                )}
+                {!isMissingFullSnapshot && !isUnauthorized && !isRecoverable && (
                     <LemonButton
                         onClick={() => {
                             window.location.reload()

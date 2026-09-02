@@ -1,4 +1,5 @@
 import datetime as dt
+from dataclasses import dataclass
 from functools import cached_property
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -27,21 +28,39 @@ FACET_FIELDS: frozenset[str] = frozenset({"severity_text", "service_name"})
 
 DEFAULT_FACET_LIMIT = 100
 
-# Resource-attribute facets read the pre-aggregated log_attributes rollup; cap the read and return
+# Attribute facets read the pre-aggregated log_attributes rollup; cap the read and return
 # partial results rather than erroring, matching LogValuesQueryRunner.
-MAX_RESOURCE_READ_BYTES = 5_000_000_000
+MAX_ATTRIBUTE_READ_BYTES = 5_000_000_000
+
+
+@dataclass(frozen=True, kw_only=True)
+class _AttributeFacet:
+    """A facet over an attribute map key, served from the log_attributes rollup.
+
+    `attribute_type` is the rollup's own discriminator: 'resource' for OTel resource attributes,
+    'log' for log-body attributes. Both fields are strings, so keyword-only construction keeps
+    them from being swapped at the call site.
+    """
+
+    attribute_type: str
+    key: str
 
 
 class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     """Per-value counts for a single facet.
 
-    A column facet (severity_text/service_name) groups the logs table directly. A resource-attribute
-    facet (e.g. k8s.namespace.name) reads the pre-aggregated log_attributes rollup instead of the
-    logs Map column — orders of magnitude cheaper, and the only way to keep the query under the read
-    cap at scale. Both exclude the facet's own filter so selecting a value re-scopes the *other*
-    facets. Resource-attribute facet counts honour service_name, severity levels and other
-    resource-attribute filters (severity_text lives on the rollup), but not body-search / log-attribute
-    filters (those dimensions aren't in the rollup).
+    A column facet (severity_text/service_name) groups the logs table directly. An attribute facet —
+    a resource attribute like k8s.namespace.name, or a log-body attribute like log.iostream — reads
+    the pre-aggregated log_attributes rollup instead of the logs Map column: orders of magnitude
+    cheaper, and the only way to keep the query under the read cap at scale.
+
+    Cross-filtering (a facet's counts reflect every *other* active filter, so selecting a value
+    re-scopes its siblings rather than itself) is exact for column facets, which strip their own
+    WHERE clause. On the rollup it depends on what the rollup carries. Every attribute facet honours
+    service_name, severity levels and resource-attribute filters, but not body search or
+    log-attribute filters — those dimensions aren't there. And only a resource-attribute facet can
+    strip its own filter, because rollup rows for a resource key share a resource_fingerprint; log
+    attributes have no equivalent grouping column, so a log-attribute facet can't exclude itself.
     """
 
     query: LogsQuery
@@ -53,30 +72,36 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         *args,
         facet_field: str | None = None,
         facet_resource_attribute: str | None = None,
+        facet_attribute: str | None = None,
         facet_search: str | None = None,
         **kwargs,
     ):
         super().__init__(query, *args, **kwargs)
-        # A facet targets either a top-level column (severity_text/service_name) or a resource
-        # attribute map key (e.g. k8s.namespace.name). Exactly one must be supplied.
-        if bool(facet_field) == bool(facet_resource_attribute):
-            raise ValueError("Provide exactly one of facet_field or facet_resource_attribute")
+        # A facet targets a top-level column (severity_text/service_name), a resource attribute map
+        # key (e.g. k8s.namespace.name), or a log-body attribute map key (e.g. log.iostream).
+        # Exactly one must be supplied.
+        if sum(1 for target in (facet_field, facet_resource_attribute, facet_attribute) if target) != 1:
+            raise ValueError("Provide exactly one of facet_field, facet_resource_attribute or facet_attribute")
         if facet_field is not None and facet_field not in FACET_FIELDS:
             raise ValueError(f"Unsupported facet field: {facet_field!r}")
         self.facet_field = facet_field
-        self.facet_resource_attribute = facet_resource_attribute
+        self.attribute_facet: _AttributeFacet | None = None
+        if facet_resource_attribute:
+            self.attribute_facet = _AttributeFacet(attribute_type="resource", key=facet_resource_attribute)
+        elif facet_attribute:
+            self.attribute_facet = _AttributeFacet(attribute_type="log", key=facet_attribute)
         # Type-ahead over the facet's *own* values (e.g. service name contains "kafka"), distinct from
         # query.searchTerm which searches log bodies. Lets a dynamic facet search past the LIMIT window.
         self.facet_search = (facet_search or "").strip() or None
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        if self.facet_resource_attribute is not None:
+        if self.attribute_facet is not None:
             # The rollup is small; "break" returns partial results instead of erroring if we ever
             # hit the cap (mirrors LogValuesQueryRunner).
             return HogQLGlobalSettings(
                 read_overflow_mode="break",
-                max_bytes_to_read=MAX_RESOURCE_READ_BYTES,
+                max_bytes_to_read=MAX_ATTRIBUTE_READ_BYTES,
             )
         # Column facets still group the logs table — fail fast rather than scan unbounded data.
         return HogQLGlobalSettings(
@@ -112,8 +137,8 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         return LogsQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
-        if self.facet_resource_attribute is not None:
-            return self._resource_attribute_query()
+        if self.attribute_facet is not None:
+            return self._attribute_query(self.attribute_facet)
         return self._column_facet_query()
 
     def _column_facet_query(self) -> ast.SelectQuery:
@@ -165,12 +190,12 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _resource_attribute_query(self) -> ast.SelectQuery:
+    def _attribute_query(self, facet: _AttributeFacet) -> ast.SelectQuery:
         # Served from the pre-aggregated log_attributes rollup (sum(attribute_count)) rather than
-        # grouping the logs Map column, which reads the whole resource_attributes column and blows
-        # past the read cap at scale. The rollup carries severity_text and service_name, so severity
-        # levels, service_name and other resource-attribute filters re-scope the counts; body-search
-        # and log-attribute filters still aren't in the rollup.
+        # grouping the logs Map column, which reads the whole attribute column and blows past the
+        # read cap at scale. The rollup carries severity_text and service_name, so severity levels,
+        # service_name and resource-attribute filters re-scope the counts; body-search, log-attribute
+        # filters and personId scoping still aren't in the rollup.
         date_range = self._attributes_query_date_range
         where_exprs: list[ast.Expr] = []
         if self.query.serviceNames:
@@ -193,14 +218,19 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                     },
                 )
             )
-        # Cross-filter by other resource attributes, excluding this facet's own key so selecting a
-        # value doesn't collapse the facet to that single value.
+        # Cross-filter by resource attributes. A resource-attribute facet excludes its own key so
+        # selecting a value doesn't collapse the facet to that single value; a log-attribute facet
+        # has nothing to exclude here, since its own filter isn't a resource one.
         filter_builder = LogsFilterBuilder(
             self.query,
             self.team,
             date_range,
-            exclude_resource_attribute=self.facet_resource_attribute,
+            exclude_resource_attribute=facet.key if facet.attribute_type == "resource" else None,
         )
+        # Level and service also arrive as `log` filters in filterGroup, which is where the viewer
+        # keeps a facet selection. Nothing is stripped here: an attribute facet never owns a column,
+        # and a column facet is served by _column_facet_query, which passes exclude_facet_field.
+        where_exprs.extend(filter_builder.column_filter_exprs())
         where_exprs.append(filter_builder.resource_filter(existing_filters=where_exprs))
 
         query = parse_select(
@@ -219,8 +249,8 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             LIMIT {limit}
             """,
             placeholders={
-                "attribute_type": ast.Constant(value="resource"),
-                "attribute_key": ast.Constant(value=cast(str, self.facet_resource_attribute)),
+                "attribute_type": ast.Constant(value=facet.attribute_type),
+                "attribute_key": ast.Constant(value=facet.key),
                 # ilike_pattern(None) -> '%', i.e. match every value when no facet search is given.
                 "search": ast.Constant(value=ilike_pattern(self.facet_search)),
                 "where": ast.And(exprs=where_exprs),

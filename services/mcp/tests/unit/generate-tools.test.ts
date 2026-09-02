@@ -214,7 +214,7 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('const parsedParams = ThingsCreateSchema.parse(params)')
+        expect(result.code).toContain('const parsedParams = ThingsCreateSchema().parse(params)')
         expect(result.code).toContain('body: parsedParams')
     })
 
@@ -236,7 +236,7 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('const parsedParams = ThingsListSchema.parse(params)')
+        expect(result.code).toContain('const parsedParams = ThingsListSchema().parse(params)')
         expect(result.code).toContain('query: parsedParams')
     })
 
@@ -260,7 +260,7 @@ describe('generateToolCode with input_schema', () => {
         )
 
         expect(result.code).toContain(
-            "const thingsList = (): ToolBase<typeof ThingsListSchema, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
+            "const thingsList = (): ToolBase<ReturnType<typeof ThingsListSchema>, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
         )
         expect(result.code).toContain(
             "const result = await context.api.request<Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>({"
@@ -358,6 +358,52 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
         expect(result.code).toMatchSnapshot()
+    })
+
+    it('applies list enrichment without inserting a path slash before a query-string prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '?tab=alerts&alert_id={id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things?tab=alerts&alert_id=${item.id}`')
+    })
+
+    it('applies list enrichment without inserting a path slash before a fragment prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '#tab-{id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things#tab-${item.id}`')
     })
 
     it('extends the custom schema with a selectable `fields` param and narrows the response', () => {
@@ -988,6 +1034,53 @@ describe('rename_params', () => {
         expect(result.code).toContain('body["$unset"] = params.property_key')
         expect(result.code).not.toContain('params.$unset')
     })
+
+    it('keeps the path param when the renamed body field shares its name', () => {
+        // The body part is merged over the path part, so a writable body field that shares a
+        // path param's name collapses into one input: the URL and the new value become the same
+        // string, and the resource can never be renamed. Renaming must drop only the body copy.
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            rename_params: { name: 'new_name' },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            path: '/api/projects/{project_id}/things/{name}/',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const composed = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+        expect(composed.schemaExpr).toContain("ThingsPartialUpdateBody.omit({ 'name': true })")
+        expect(composed.schemaExpr).not.toContain("ThingsPartialUpdateParams.omit({ 'name': true })")
+        expect(composed.renamedFields).toEqual({ new_name: 'name' })
+
+        const generated = generateToolCode(
+            'things-partial-update',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(generated.code).toContain('body["name"] = params.new_name')
+        expect(generated.code).toContain('String(params.name)')
+    })
 })
 
 describe('param_overrides aliases', () => {
@@ -1023,7 +1116,7 @@ describe('param_overrides aliases', () => {
 
         expect(result.castHelperImports.has('normalizeParamAliases')).toBe(true)
         expect(result.code).toContain(
-            "const ThingsGetSchema = z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))"
+            "const ThingsGetSchema = () => {\n    const ThingsRetrieveParams = orvalSchemas.ThingsRetrieveParams()\n    return z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))\n}"
         )
     })
 })
@@ -1627,7 +1720,9 @@ describe('generateToolCode with informational response wrapping', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('ToolBase<typeof ThingsGetSchema, WithInformationalResponse<unknown>>')
+        expect(result.code).toContain(
+            'ToolBase<ReturnType<typeof ThingsGetSchema>, WithInformationalResponse<unknown>>'
+        )
         const filteringIndex = result.code.indexOf('const filtered =')
         const wrappingIndex = result.code.indexOf('withInformationalResponse(')
         expect(filteringIndex).toBeGreaterThan(-1)

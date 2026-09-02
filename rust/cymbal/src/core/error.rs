@@ -1,3 +1,4 @@
+use std::error::Error as _;
 use std::sync::Arc;
 
 use aws_sdk_s3::primitives::ByteStreamError;
@@ -119,6 +120,9 @@ pub enum JsResolveErr {
     // For redirect loops or too many redirects
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
+    // The url pointed at an address we refuse to fetch from, e.g. localhost or a private IP
+    #[error("Refusing to fetch from non-public address: {0}")]
+    BlockedUrl(String),
     #[error("JSDataError: {0}")]
     JSDataError(#[from] SymbolDataError),
     #[error("Invalid Source and Map")]
@@ -244,6 +248,7 @@ impl JsResolveErr {
             | Self::HttpStatus(..)
             | Self::NetworkError(_)
             | Self::RedirectError(_) => "network_error",
+            Self::BlockedUrl(_) => "blocked_url",
             Self::InvalidSourceMap(_)
             | Self::InvalidSourceUrl(_)
             | Self::InvalidSourceMapHeader(_)
@@ -362,6 +367,12 @@ impl From<reqwest::Error> for JsResolveErr {
         }
 
         if e.is_redirect() {
+            // Our redirect policy rejects hops with its own error, which reqwest wraps. Unwrap it
+            // so a blocked hop keeps its reason and names the host, instead of being flattened
+            // into a generic redirect failure.
+            if let Some(inner) = e.source().and_then(|s| s.downcast_ref::<JsResolveErr>()) {
+                return inner.clone();
+            }
             return JsResolveErr::RedirectError(e.to_string());
         }
 

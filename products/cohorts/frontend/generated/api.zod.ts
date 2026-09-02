@@ -48,6 +48,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                 properties: zod
                     .record(zod.string(), zod.unknown())
                     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
@@ -89,6 +90,7 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
                 properties: zod
                     .record(zod.string(), zod.unknown())
                     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
@@ -130,6 +132,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 properties: zod
                     .record(zod.string(), zod.unknown())
                     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])

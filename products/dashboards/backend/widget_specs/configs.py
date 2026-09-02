@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator, model_validator
 
 from posthog.schema import PropertyOperator
 
+from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES,
@@ -33,6 +35,7 @@ EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
 EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
 SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
+CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
 
 ActivityEventsPropertyKey = Annotated[
     str,
@@ -59,6 +62,18 @@ LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
+ConversationsTicketStatus = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": [*Status.values, "all"]}),
+]
+ConversationsTicketPriority = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": list(Priority.values)}),
+]
+ConversationsTicketChannel = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": [*Channel.values, "all"]}),
+]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -66,6 +81,31 @@ class WidgetAssigneeFilter(BaseModel):
 
     id: str | int
     type: WidgetAssigneeType
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_id(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        assignee_id = value.get("id")
+        assignee_type = value.get("type")
+        if isinstance(assignee_id, bool) or not isinstance(assignee_id, str | int):
+            raise ValueError("Assignee id must be a user ID or role UUID.")
+        if assignee_type == "user":
+            try:
+                int(assignee_id)
+            except ValueError as err:
+                raise ValueError("User assignee id must be an integer.") from err
+        if assignee_type == "role":
+            try:
+                UUID(str(assignee_id))
+            except ValueError as err:
+                raise ValueError("Role assignee id must be a UUID.") from err
+        return value
+
+
+ConversationsAssigneeFilter = Literal["me", "unassigned"] | WidgetAssigneeFilter
 
 
 class ActivityEventsPropertyFilter(BaseModel):
@@ -227,6 +267,70 @@ class LogsListWidgetConfig(WidgetDateRangeConfigBase):
             "severity, service, and property filters; only orderBy and limit still apply."
         ),
     )
+
+    @field_validator("savedViewId", mode="before")
+    @classmethod
+    def validate_saved_view_id(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise ValueError("savedViewId must be a string.")
+        return value
+
+
+class ConversationsRecentTicketsWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of tickets to return.")
+    status: ConversationsTicketStatus = Field(default="all", description="Ticket status filter.")
+    priorities: list[ConversationsTicketPriority] = Field(
+        default_factory=list,
+        description="Only show tickets with these priorities. Empty shows all priorities.",
+    )
+    channel: ConversationsTicketChannel = Field(default="all", description="Ticket channel filter.")
+    assignees: list[ConversationsAssigneeFilter] = Field(
+        default_factory=list,
+        max_length=100,
+        description=(
+            "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' "
+            "means tickets without an assignment. Empty shows all assignees."
+        ),
+    )
+    search: str = Field(
+        default="",
+        max_length=200,
+        description="Search requester name or email, ticket subject, message text, or ticket number.",
+    )
+    savedViewId: str | None = Field(
+        default=None,
+        max_length=12,
+        description=(
+            "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket "
+            "filters; the widget still sorts by most recently updated and applies its limit."
+        ),
+    )
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in {*Status.values, "all"}:
+            raise ValueError("Ticket status filter is invalid.")
+        return value
+
+    @field_validator("priorities")
+    @classmethod
+    def validate_priorities(cls, values: list[str]) -> list[str]:
+        invalid_values = set(values).difference(Priority.values)
+        if invalid_values:
+            raise ValueError("Ticket priority filter is invalid.")
+        return values
+
+    @field_validator("channel")
+    @classmethod
+    def validate_channel(cls, value: str) -> str:
+        if value not in {*Channel.values, "all"}:
+            raise ValueError("Ticket channel filter is invalid.")
+        return value
 
     @field_validator("savedViewId", mode="before")
     @classmethod

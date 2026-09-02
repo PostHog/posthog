@@ -124,7 +124,8 @@ function PatternExpandedRow({
                         ))}
                     </div>
                     <div className="text-muted text-xs">
-                        Examples are sampled lines, shown as mined (whitespace-collapsed and truncated).
+                        Examples are sampled lines, shown as mined: whitespace-collapsed and truncated, with the message
+                        field extracted from JSON bodies.
                     </div>
                 </>
             ) : (
@@ -252,12 +253,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             render: (_, row) =>
                 row.sparkline.length ? (
                     <div className="w-24 h-6">
-                        <Sparkline
-                            data={row.sparkline}
-                            labels={sparklineLabels}
-                            className="w-full h-full"
-                            maximumIndicator={false}
-                        />
+                        <Sparkline data={row.sparkline} labels={sparklineLabels} className="w-full h-full" />
                     </div>
                 ) : (
                     <span className="text-muted">-</span>

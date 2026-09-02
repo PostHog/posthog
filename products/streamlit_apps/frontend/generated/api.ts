@@ -14,7 +14,8 @@ import type {
     AppContractApi,
     AppVersionContractApi,
     CreateAppInputApi,
-    PaginatedAppContractListApi,
+    CreateVersionFromSourceInputApi,
+    PaginatedAppSummaryContractListApi,
     PatchedUpdateAppInputApi,
     StreamlitAppStatusApi,
     StreamlitAppVersionListApi,
@@ -47,8 +48,8 @@ export const streamlitAppsList = async (
     projectId: string,
     params?: StreamlitAppsListParams,
     options?: RequestInit
-): Promise<PaginatedAppContractListApi> => {
-    return apiMutator<PaginatedAppContractListApi>(getStreamlitAppsListUrl(projectId, params), {
+): Promise<PaginatedAppSummaryContractListApi> => {
+    return apiMutator<PaginatedAppSummaryContractListApi>(getStreamlitAppsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -188,6 +189,27 @@ export const streamlitAppsConnectInfoRetrieve = async (
     return apiMutator<StreamlitConnectInfoApi>(getStreamlitAppsConnectInfoRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getStreamlitAppsCreateVersionFromSourceCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/streamlit_apps/${shortId}/create_version_from_source/`
+}
+
+/**
+ * @summary Create an app version from source code
+ */
+export const streamlitAppsCreateVersionFromSourceCreate = async (
+    projectId: string,
+    shortId: string,
+    createVersionFromSourceInputApi: CreateVersionFromSourceInputApi,
+    options?: RequestInit
+): Promise<AppVersionContractApi> => {
+    return apiMutator<AppVersionContractApi>(getStreamlitAppsCreateVersionFromSourceCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createVersionFromSourceInputApi),
     })
 }
 

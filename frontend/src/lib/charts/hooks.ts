@@ -1,50 +1,47 @@
 import { useValues } from 'kea'
-import { type DependencyList, useCallback, useMemo } from 'react'
+import { type DependencyList, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { DEFAULT_CHART_CONFIG } from '@posthog/quill-charts'
 import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { themeLogic } from 'lib/logic/themeLogic'
 
 import { buildTheme } from './utils/theme'
 
-const REFRESHED_CONFIG_DEFAULTS = {
-    curve: 'monotone',
-    showAxisLines: true,
-    showTickMarks: true,
-    showCrosshair: true,
-    showGrid: true,
-    barCornerRadius: 4,
-} as const
+/** `buildTheme()` reads CSS variables, so it can't be keyed on `isDarkModeOn`: `useThemedHtml` applies
+ *  the theme by writing `document.body[theme]` from an effect, which runs after the render that
+ *  flipped the value. Reading at render time therefore returns the outgoing theme's variables, and
+ *  nothing recomputes them until the next reload — leaving axis labels in the previous mode's text
+ *  color. Watching the attribute is independent of that ordering. */
+function useCssVarTheme(): ChartTheme {
+    const [theme, setTheme] = useState<ChartTheme>(buildTheme)
 
-function refreshedThemeOverrides(isDarkModeOn: boolean): Partial<ChartTheme> {
-    return {
-        gridColor: isDarkModeOn ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-        gridDashPattern: [3, 3],
-        axisLineColor: isDarkModeOn ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)',
-        crosshairColor: isDarkModeOn ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
-        crosshairDashPattern: [3, 3],
-    }
+    useEffect(() => {
+        let applied = document.body.getAttribute('theme')
+        const reread = (): void => {
+            const next = document.body.getAttribute('theme')
+            if (next !== applied) {
+                applied = next
+                setTheme(buildTheme())
+            }
+        }
+        // The attribute may already have been written between the first render and here.
+        reread()
+
+        const observer = new MutationObserver(reread)
+        observer.observe(document.body, { attributeFilter: ['theme'] })
+        return () => observer.disconnect()
+    }, [])
+
+    return theme
 }
 
-export function useChartStyleRefreshEnabled(): boolean {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
-}
-
-/** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo keys on
- *  `isDarkModeOn` to re-read them when the app theme flips. Behind `QUILL_CHART_STYLE_REFRESH` it
- *  also applies the refreshed chart colors (faint dashed grid, muted axis lines); caller `overrides`
- *  win over both. Pass a stable (memoized or module-level) `overrides` object — a fresh object every
- *  render defeats the memo. */
+/** Theme for app quill charts. Pass a stable (memoized or module-level) `overrides` object — a fresh
+ *  object every render defeats the memo. */
 export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const refreshEnabled = useChartStyleRefreshEnabled()
-    return useMemo(
-        () => buildTheme({ ...(refreshEnabled ? refreshedThemeOverrides(isDarkModeOn) : {}), ...overrides }),
-        [isDarkModeOn, refreshEnabled, overrides]
-    )
+    const cssVarTheme = useCssVarTheme()
+    return useMemo(() => ({ ...cssVarTheme, ...overrides }), [cssVarTheme, overrides])
 }
 
 /** The single rollout gate for chart drag-to-zoom, applied inside `useDateRangeZoom` so every
@@ -82,21 +79,21 @@ export function useDateRangeZoom(
     return enabled && dates?.length && onZoom ? handler : undefined
 }
 
-/** Drop-in replacement for the `useMemo` that builds a chart's config object. On top of memoizing,
- *  it applies app-level rendering defaults — currently the refreshed style (monotone curve, axis
- *  lines, tick marks, crosshair, grid) behind `QUILL_CHART_STYLE_REFRESH`. Keys the config sets
- *  explicitly (non-undefined) always win over the defaults. */
+/** Builds a chart's config object, memoized on `deps`, applying `DEFAULT_CHART_CONFIG` for any
+ *  key the factory leaves undefined. Keys the factory sets explicitly always win over the defaults.
+ *  `tooltip` merges key by key instead of being replaced wholesale. */
 export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined {
-    const refreshEnabled = useChartStyleRefreshEnabled()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const config = useMemo(factory, deps)
     return useMemo(() => {
-        if (!refreshEnabled || !config) {
+        const config = factory()
+        if (!config) {
             return config
         }
         const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))
-        return { ...REFRESHED_CONFIG_DEFAULTS, ...defined } as T
-    }, [refreshEnabled, config])
+        // Nested, so a chart that sets any tooltip field would otherwise replace the whole default.
+        const tooltip = { ...DEFAULT_CHART_CONFIG.tooltip, ...defined.tooltip }
+        return { ...DEFAULT_CHART_CONFIG, ...defined, tooltip } as T
+    }, deps)
 }

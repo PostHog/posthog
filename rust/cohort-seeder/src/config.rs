@@ -161,6 +161,34 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub seeder_max_chunk_attempts: u32,
 
+    /// The first retry's wait ceiling after a chunk fails; it doubles per attempt up to
+    /// [`Config::seeder_retry_backoff_cap_secs`]. Without a wait, the poll loop re-claims a chunk
+    /// that failed for a durable reason within seconds and spends its whole attempt budget on the
+    /// same failure, which fails the run.
+    #[envconfig(default = "30")]
+    pub seeder_retry_backoff_base_secs: u64,
+
+    /// The longest a failed chunk waits before it is claimable again.
+    ///
+    /// This bounds how long a durably-failing chunk holds its run open, and the bound is a sum over
+    /// attempts rather than the cap alone: the ceilings double from
+    /// [`Config::seeder_retry_backoff_base_secs`] until they reach the cap, and the jitter draws
+    /// uniformly from `[0, ceiling]`, so the expected drain is half the worst case. At the defaults
+    /// (base 30s, cap 1800s) the doubling reaches the cap on the 7th attempt, so the sum is about
+    /// 15 minutes at 5 attempts and 3.5 hours at 12 — the cap times the attempt count is a real
+    /// upper bound but a loose one, and reading it as the answer overstates a small budget by an
+    /// order of magnitude.
+    ///
+    /// A run cannot complete until every chunk is `confirmed`, so that whole window is time the run
+    /// holds its cohort's uniqueness slot against every future backfill for that cohort.
+    /// `charts/apps/cohort-seeder/values.prod-us.yaml` is where the deployed
+    /// `SEEDER_MAX_CHUNK_ATTEMPTS` lives; the two must be sized together.
+    ///
+    /// The chunk lease budget is not the comparison to make. A `failed` chunk holds no lease and
+    /// cannot heartbeat, so the two quantities never meet in any predicate.
+    #[envconfig(default = "1800")]
+    pub seeder_retry_backoff_cap_secs: u64,
+
     #[envconfig(default = "3000")]
     pub seeder_tiles_per_sec: u32,
 
@@ -177,6 +205,70 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
 
+    /// Enable the person-property seed path: discovery widens to `person_property` runs and the
+    /// planning/scan/emission pipeline arms. Default off — the processor's decode arm and
+    /// `COHORT_SEED_PERSON_APPLY_ENABLED` must be deployed everywhere first, or an old processor
+    /// skip-and-commits the seeds.
+    #[envconfig(default = "false")]
+    pub seeder_person_seeds_enabled: bool,
+
+    /// Enable the person-property *reconcile* path: completion discovery widens to `person_property`
+    /// runs, so a fully-seeded one transitions `seeding -> reconciling` and produces
+    /// `reconcile_person` tiles. The orchestrator also needs `SEEDER_PERSON_SEEDS_ENABLED` before
+    /// this does anything, since there is no person seed path to reconcile without it; the CLI
+    /// reads this flag on its own and will dispatch a person run's tiles with seeds off.
+    ///
+    /// Deploy order, in this order, no overlap:
+    ///   1. Roll the processor fleet-wide with a build that decodes `reconcile_person` tiles and
+    ///      loads the person shape-hash map. An older processor routes the person kind to
+    ///      `UnknownKind` and skip-commits it without a marker, stranding the run as a shortfall.
+    ///   2. Flip `SEEDER_PERSON_SEEDS_ENABLED` and let person runs seed.
+    ///   3. Flip this once step 1 is confirmed everywhere.
+    ///   4. Set `REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY=events_or_calculation_stamp` on every
+    ///      region's flags service, then flip Django's
+    ///      `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`. Until that gate opens the finalizer
+    ///      skips person runs, so they stay `reconciling` after step 3 and
+    ///      `seeder_runs_reconciling{kind="person_property"}` climbs. That is expected, not a
+    ///      stalled dispatch.
+    ///
+    /// Flipping this back off does not undo a bad rollout: a run already in `reconciling` stops
+    /// being discovered, so it never reaches `reconcile_observed_at` and never finalizes. Recovery
+    /// is an operator re-dispatch through the CLI after the fleet is upgraded.
+    #[envconfig(default = "false")]
+    pub seeder_person_reconcile_dispatch_enabled: bool,
+
+    /// Person-seed produce rate, shared across concurrent person chunks and separate from
+    /// `seeder_tiles_per_sec` so the two throughputs tune independently.
+    #[envconfig(default = "2000")]
+    pub seeder_person_seeds_per_sec: u32,
+
+    /// Target persons per planned UUID-range chunk; the planning scan keeps every Nth id as a
+    /// range boundary. Sized so one chunk's paced emission completes in single-digit minutes —
+    /// settings validation refuses a value the ClickHouse execution-time budget cannot cover.
+    #[envconfig(default = "1000000")]
+    pub seeder_persons_per_chunk: u64,
+
+    /// The person path's own chunk-slot budget, so a person scan never occupies a behavioral slot.
+    #[envconfig(default = "1")]
+    pub seeder_person_max_concurrent_chunks: usize,
+
+    /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
+    /// only a point-read on absent records (the consumer's no-create rule).
+    #[envconfig(default = "true")]
+    pub seeder_person_emit_nonmatchers: bool,
+
+    /// Run the legacy wide scan alongside the projected scan and diff the resulting tiles.
+    ///
+    /// On by default, because taking this measurement is the only reason the layer exists and a
+    /// run that silently skipped it reads exactly like a clean one. Nothing downstream depends on
+    /// it either way: the projected arm's tiles are what a chunk emits regardless.
+    ///
+    /// Turn it off in charts to finish a long reseed at full speed once the measurement is in
+    /// hand, then delete the layer. While it is on a chunk pays its projected scan plus a full
+    /// wide one.
+    #[envconfig(default = "true")]
+    pub seeder_scan_shadow_compare: bool,
+
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
 
@@ -186,11 +278,68 @@ pub struct Config {
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_before_external_sort: u64,
 
+    /// Runaway guard on sets built from `IN (SELECT …)` subqueries, which nothing else bounds — the
+    /// person boundary scan's horizon prefilter builds one id set covering a whole team, unchunked.
+    /// Exceeding it throws a set-size error naming the limit rather than pushing the server toward
+    /// an OOM that takes unrelated queries down with it.
+    #[envconfig(default = "20000000000")]
+    pub seeder_ch_max_bytes_in_set: u64,
+
     #[envconfig(default = "grace_hash")]
     pub seeder_ch_join_algorithm: String,
 
     #[envconfig(default = "100")]
     pub seeder_queue_full_backoff_ms: u64,
+
+    /// Enable the dark-by-default automatic reconcile dispatch driver. Enabling it without
+    /// [`Config::seeder_confirm_register_backfilled`] is a startup error.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_auto_dispatch_enabled: bool,
+
+    /// Attest that every run's data tiles were seeded after membership-register writers deployed —
+    /// the automatic equivalent of the CLI's `--confirm-register-backfilled`. Required to arm
+    /// automatic dispatch.
+    #[envconfig(default = "false")]
+    pub seeder_confirm_register_backfilled: bool,
+
+    /// How many reconcile dispatches this replica may run at once — the bound on how hard a backlog
+    /// of completed runs can press the producer queue the chunk pipeline shares. Separate from
+    /// [`Config::seeder_max_inflight_tiles`], which bounds a single dispatch.
+    #[envconfig(default = "4")]
+    pub seeder_reconcile_max_concurrent_dispatches: usize,
+
+    /// The reconcile-marker topic whose high watermarks anchor the marker watcher's start positions,
+    /// captured at dispatch time. The observer reads markers from the same topic. Its partition count
+    /// must not change while runs are in flight: a run's watch covers the partitions that existed at
+    /// its dispatch, so one added later is never read — holding the run open if it appeared before
+    /// the observation ends were captured, and settling the run short if it appeared after them.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
+
+    /// Enable the dark-by-default reconcile observer: the marker-watch task and the driver's
+    /// observation pass. A separate gate from auto-dispatch — observation can run against
+    /// CLI-dispatched runs without auto-dispatch, and vice versa.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_observer_enabled: bool,
+
+    /// The seed processor's consumer group id. The observer queries this group's committed offsets on
+    /// the seed topic as the reconcile-liveness signal; it never commits to it.
+    #[envconfig(default = "cohort-stream-seeds")]
+    pub kafka_seed_consumer_group: String,
+
+    /// Timeout for the seed-group OffsetFetch and marker-topic watermark metadata calls the
+    /// observer makes.
+    #[envconfig(default = "10000")]
+    pub seeder_reconcile_offsets_timeout_ms: u64,
+
+    /// Flush the marker watcher's accumulated bits and positions at least this often.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_interval_ms: u64,
+
+    /// Flush the marker watcher after this many consumed messages even if the interval has not
+    /// elapsed, bounding how many observations a crash can lose.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_max_batch: u64,
 }
 
 impl Config {
@@ -305,6 +454,15 @@ mod tests {
         let config = default_config();
         assert!(config.clickhouse_verify);
         assert!(config.clickhouse_ca.is_empty());
+    }
+
+    /// A default of off would make the validation run a silent no-op: the compare emits nothing,
+    /// so its counters are absent rather than zero, and an unmeasured run is indistinguishable
+    /// from a clean one. The measurement is the whole point of the layer, so it is what a pod does
+    /// unless an operator says otherwise.
+    #[test]
+    fn the_shadow_compare_runs_unless_an_operator_turns_it_off() {
+        assert!(default_config().seeder_scan_shadow_compare);
     }
 
     #[test]

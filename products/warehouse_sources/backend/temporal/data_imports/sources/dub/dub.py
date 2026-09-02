@@ -5,7 +5,6 @@ from typing import Any, Optional
 import requests
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -20,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
     DUB_BASE_URL,
     DUB_ENDPOINTS,
@@ -288,6 +288,15 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             return True, None
         if res.status_code == 401:
             return False, "Invalid Dub API key. Please check your key and try again."
-        return False, _error_message(res)
+        message = _error_message(res)
+        # A personal (user) Dub API key fails the workspace-scoped probe with Dub's raw
+        # "workspaceId" error, which talks about a missing query param and links its API-refactoring
+        # docs — noise in the wizard. Point the user at a workspace key, which the field asks for.
+        if "workspaceid" in message.lower():
+            return False, (
+                "This looks like a personal Dub API key. Create a workspace API key in your Dub "
+                "workspace under Settings > API Keys, then try again."
+            )
+        return False, message
     except Exception as e:
         return False, str(e)

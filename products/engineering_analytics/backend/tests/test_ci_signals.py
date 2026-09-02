@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -12,8 +13,7 @@ import pandas as pd
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.rbac.user_access_control import UserAccessControl
-
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import CISignalsSyncStatus
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     update_ci_signals_config,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import BY_DESIGN_FAILURES, FlakyJobRun
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
     SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
@@ -50,12 +51,15 @@ from products.engineering_analytics.backend.logic.signals.detectors import (
 )
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _pr_row,
     create_github_source,
     create_warehouse_table_row,
+    seeding_object_storage,
 )
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import ReportPriority
@@ -67,8 +71,14 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSchemaStatus,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+)
+
+_BY_DESIGN_JOB_NAMES = [entry.split("/", 2)[2] for entry in BY_DESIGN_FAILURES]
 
 _COORDINATOR = "products.engineering_analytics.backend.logic.signals.coordinator"
 _DETECT = "products.engineering_analytics.backend.logic.signals.detect"
@@ -92,7 +102,7 @@ def _run_row(
     run_attempt: int = 1,
     head_branch: str = "main",
     status: str = "completed",
-    default_branch: str = "main",
+    repository: str = "PostHog/posthog",
 ) -> dict[str, Any]:
     started_s = _ts(started)
     return {
@@ -107,8 +117,16 @@ def _run_row(
         "updated_at": _ts(started + timedelta(seconds=duration_seconds)),
         "run_attempt": run_attempt,
         "pull_requests": None,
-        "repository": json.dumps({"full_name": "PostHog/posthog", "default_branch": default_branch}),
+        # Faithful to the webhook's MINIMAL `repository` payload: faking a default_branch here
+        # would green-light a detector reading a column production never lands.
+        "repository": json.dumps({"full_name": repository}),
     }
+
+
+def _default_branch_pr_row(
+    number: int, updated: datetime, *, default_branch: str, repo: str = "PostHog/posthog"
+) -> dict[str, Any]:
+    return _pr_row(number, "dev", "open", 0, _ts(updated), full_name=repo, default_branch=default_branch)
 
 
 def _job_row(
@@ -190,6 +208,82 @@ def test_detect_all_raises_when_every_detector_fails() -> None:
         assert detect_all(curated) == []
 
 
+def _flaky_row(job_name: str, run_id: int, *, workflow_name: str = "CI", head_sha: str = "sha") -> FlakyJobRun:
+    return FlakyJobRun(
+        repo_owner="PostHog",
+        repo_name="posthog",
+        workflow_name=workflow_name,
+        job_name=job_name,
+        run_id=run_id,
+        head_sha=head_sha,
+        failed_attempt=1,
+        passed_attempt=2,
+    )
+
+
+def _detect_flaky_over(rows: list[FlakyJobRun], *, min_flaky_runs: int) -> list[CISignalFinding]:
+    # Grouping runs in Python after this query returns; TestCISignalDetectors covers the SQL row shape.
+    with mock.patch(f"{_DETECTORS}.query_workflow_flakiness", return_value=rows):
+        return detect_flaky_checks(mock.Mock(), min_flaky_runs=min_flaky_runs)
+
+
+def test_flaky_source_ids_are_collision_free_and_bounded() -> None:
+    # (workflow='build', job='test:linux') and (workflow='build:test', job='linux') would share
+    # a ledger key with naive ':' joins, letting one condition suppress the other's emission;
+    # an oversized name would exceed the ledger column, fail to record after emit, and re-emit
+    # every sweep.
+    rows = [
+        _flaky_row("test:linux", 1, workflow_name="build"),
+        _flaky_row("linux", 1, workflow_name="build:test"),
+        _flaky_row("j" * 400, 1),
+    ]
+    ids = [finding.source_id for finding in _detect_flaky_over(rows, min_flaky_runs=1)]
+    assert len(ids) == 3
+    assert len(set(ids)) == 3
+    assert max(len(source_id) for source_id in ids) <= 200
+
+
+def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun() -> None:
+    # The sweep re-reads a rolling window hourly. Keying a recurring flake per rerun turned 51
+    # flaky jobs into 905 signals against real PostHog/posthog data: one card per occurrence.
+    rows = [_flaky_row("flaky-job", run_id, head_sha=f"sha{run_id}") for run_id in (1, 2, 3)]
+    findings = _detect_flaky_over(rows, min_flaky_runs=3)
+    assert len(findings) == 1
+    assert findings[0].extra["flaky_count"] == 3
+    assert findings[0].extra["run_id"] == 3
+    _assert_emittable(findings[0])
+
+
+def test_flaky_check_groups_a_sharded_job_under_one_signal() -> None:
+    # Real rendered names with the shard label mid-name: an end-anchored match still splits
+    # this job, and per-shard keys each miss min_flaky_runs, so 3 recoveries report nothing.
+    shards = [
+        "Product tests (warehouse-sources (1/4), events schema legacy)",
+        "Product tests (warehouse-sources (1/5), events schema legacy)",
+        "Product tests (warehouse-sources (1/6), events schema legacy)",
+    ]
+    rows = [_flaky_row(shard, run_id, head_sha=f"shaS{run_id}") for run_id, shard in enumerate(shards, start=1)]
+    findings = _detect_flaky_over(rows, min_flaky_runs=3)
+    assert len(findings) == 1
+    # extra keeps the worked example's real job name so warehouse investigation queries match.
+    assert "CI job 'Product tests (warehouse-sources, events schema legacy)'" in findings[0].description
+    assert findings[0].extra["job_name"] == "Product tests (warehouse-sources (1/6), events schema legacy)"
+    assert findings[0].extra["flaky_count"] == 3
+    assert "Product tests (warehouse-sources (1/6), events schema legacy)" in findings[0].description
+    # `(1/4)`..`(1/6)` are all shard slot 1, so no multi-shard spread is claimed.
+    assert "spread over" not in findings[0].description
+    _assert_emittable(findings[0])
+
+
+def test_flaky_check_counts_runs_not_shard_recoveries() -> None:
+    # One run recovering on three shards is one flaky run: counting query rows would let a
+    # single bad run clear min_flaky_runs on its own.
+    rows = [
+        _flaky_row(f"Product tests (warehouse-sources ({index}/6), events schema legacy)", 1) for index in (1, 2, 3)
+    ]
+    assert _detect_flaky_over(rows, min_flaky_runs=3) == []
+
+
 class TestDetectForSourceMultiRepo(BaseTest):
     def test_multi_repo_source_snapshots_one_authorized_target(self) -> None:
         # One roster entry per configured repo must not become duplicate sweep targets:
@@ -198,7 +292,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
             team=self.team,
             source_id="gh-multi-snap",
             connection_id="gh-multi-snap",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix="multisnap_",
             job_inputs={"repositories": ["Acme/one", "Acme/two"]},
@@ -219,7 +313,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
             team=self.team,
             source_id="gh-multi",
             connection_id="gh-multi",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix="multi_",
             job_inputs={"repositories": ["Acme/one", "Acme/two", "Acme/three"]},
@@ -265,7 +359,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
             team=self.team,
             source_id="gh-sib",
             connection_id="gh-sib",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix="sib_",
             job_inputs={"repositories": ["Acme/one", "Acme/two"]},
@@ -472,13 +566,13 @@ class TestCISignalEmissionLedger(BaseTest):
 
 class TestSyncStatus(BaseTest):
     def _github_source_with_schemas(
-        self, *, source_id: str, repo: str, statuses: dict[str, ExternalDataSchema.Status]
+        self, *, source_id: str, repo: str, statuses: dict[str, ExternalDataSchemaStatus]
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id=source_id,
             connection_id=source_id,
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix=f"{source_id.replace('-', '')}_",
             job_inputs={"repositories": [repo]},
@@ -496,16 +590,16 @@ class TestSyncStatus(BaseTest):
     @parameterized.expand(
         [
             ("all_completed", {}, CISignalsSyncStatus.COMPLETED),
-            ("one_failed", {"workflow_runs": ExternalDataSchema.Status.FAILED}, CISignalsSyncStatus.FAILED),
-            ("one_running", {"workflow_jobs": ExternalDataSchema.Status.RUNNING}, CISignalsSyncStatus.RUNNING),
+            ("one_failed", {"workflow_runs": ExternalDataSchemaStatus.FAILED}, CISignalsSyncStatus.FAILED),
+            ("one_running", {"workflow_jobs": ExternalDataSchemaStatus.RUNNING}, CISignalsSyncStatus.RUNNING),
         ]
     )
     def test_sync_status_resolves_repo_qualified_schema_names(
-        self, _name: str, overrides: dict[str, ExternalDataSchema.Status], expected: CISignalsSyncStatus
+        self, _name: str, overrides: dict[str, ExternalDataSchemaStatus], expected: CISignalsSyncStatus
     ) -> None:
         # Multi-repo sources qualify schema names; a bare-name match would pin the status at
         # RUNNING forever and never surface FAILED.
-        statuses = dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchema.Status.COMPLETED)
+        statuses = dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchemaStatus.COMPLETED)
         statuses.update(overrides)
         self._github_source_with_schemas(source_id="gh-sync", repo="acme/one", statuses=statuses)
         assert _sync_status(self.team, None) == expected
@@ -514,11 +608,11 @@ class TestSyncStatus(BaseTest):
         self._github_source_with_schemas(
             source_id="gh-ci",
             repo="acme/one",
-            statuses=dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchema.Status.COMPLETED),
+            statuses=dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchemaStatus.COMPLETED),
         )
         # An issues-only GitHub source (no CI tables syncing) must not pin the status at RUNNING.
         self._github_source_with_schemas(
-            source_id="gh-issues", repo="acme/two", statuses={"issues": ExternalDataSchema.Status.RUNNING}
+            source_id="gh-issues", repo="acme/two", statuses={"issues": ExternalDataSchemaStatus.RUNNING}
         )
         assert _sync_status(self.team, None) == CISignalsSyncStatus.COMPLETED
 
@@ -526,7 +620,7 @@ class TestSyncStatus(BaseTest):
 class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
     """Detectors run over a real seeded github_workflow_runs warehouse table. Each test seeds both a
     should-fire and a should-not-fire workflow and asserts the detected set, so it catches both
-    missed conditions and false positives. Skips when object storage is unreachable (no dev stack)."""
+    missed conditions and false positives."""
 
     def _seed_table(
         self,
@@ -542,7 +636,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, out_source, out_credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=table_name,
@@ -553,13 +647,14 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 credential=credential,
                 source_prefix=GITHUB_SOURCE_PREFIX,
             )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         return table, out_source, out_credential
 
     def _curated_over_runs(
-        self, rows: list[dict[str, Any]], job_rows: list[dict[str, Any]] | None = None
+        self,
+        rows: list[dict[str, Any]],
+        job_rows: list[dict[str, Any]] | None = None,
+        pr_rows: list[dict[str, Any]] | None = None,
     ) -> CuratedGitHubSource:
         table, source, credential = self._seed_table(
             rows, table_name="github_workflow_runs", columns=WORKFLOW_RUNS_COLUMNS
@@ -573,11 +668,20 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 source=source,
                 credential=credential,
             )
-        # pull_requests is never read by these detectors; reuse the runs table so for_team isn't needed.
+        # The curated run source joins the PR snapshot to attribute each run to the PR that produced
+        # it, so a table of that shape must always exist. Only the default-branch detector reads its
+        # rows; the flaky and duration detectors leave pr_rows unset and get an empty table.
+        prs_table, _source, _credential = self._seed_table(
+            pr_rows or [],
+            table_name="github_pull_requests",
+            columns=PULL_REQUESTS_COLUMNS,
+            source=source,
+            credential=credential,
+        )
         return CuratedGitHubSource(
             team=self.team,
             tables=GitHubTables(
-                pull_requests=table.name,
+                pull_requests=prs_table.name,
                 workflow_runs=table.name,
                 workflow_jobs=jobs_table.name if jobs_table else None,
             ),
@@ -599,76 +703,60 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].source_id.endswith(":flaky")
         _assert_emittable(findings[0])
 
-    def test_flaky_source_ids_are_collision_free_and_bounded(self) -> None:
-        # (workflow='build', job='test:linux') and (workflow='build:test', job='linux') would share
-        # a ledger key with naive ':' joins, letting one condition suppress the other's emission;
-        # an oversized name would exceed the ledger column, fail to record after emit, and re-emit
-        # every sweep.
-        now = datetime.now(UTC).replace(tzinfo=None)
-        rows = [_run_row(1, "CI", "shaC", "success", now - timedelta(hours=19), 60, run_attempt=2)]
-        jobs = []
-        for offset, (workflow, job) in enumerate([("build", "test:linux"), ("build:test", "linux"), ("CI", "j" * 400)]):
-            failed = _job_row(200 + offset * 2, 1, job, "shaC", "failure", now - timedelta(hours=20), run_attempt=1)
-            passed = _job_row(201 + offset * 2, 1, job, "shaC", "success", now - timedelta(hours=19), run_attempt=2)
-            failed["workflow_name"] = workflow
-            passed["workflow_name"] = workflow
-            jobs.extend([failed, passed])
-        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
-        ids = [finding.source_id for finding in findings]
-        assert len(ids) == 3
-        assert len(set(ids)) == 3
-        assert max(len(source_id) for source_id in ids) <= 200
-
-    def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun(self) -> None:
-        # The sweep re-reads a rolling window hourly. Keying a recurring flake per rerun turned 51
-        # flaky jobs into 905 signals against real PostHog/posthog data: one card per occurrence.
+    def test_flaky_query_keeps_same_commit_reruns_as_distinct_runs(self) -> None:
+        # Three separate runs of one job on one commit must come back as three rows. Grouping that
+        # drops run_id still compiles if run_id is wrapped in an aggregate, and then collapses them
+        # into one row, so flaky_count reads 1 and nothing clears min_flaky_runs. Only a multi-run
+        # seed on a shared head_sha catches that; the mocked detector tests supply the row shape
+        # rather than proving the SQL produces it.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
-            _run_row(run_id, "CI", f"sha{run_id}", "success", now - timedelta(hours=run_id), 60, run_attempt=2)
+            _run_row(run_id, "CI", "shaR", "success", now - timedelta(hours=run_id + 1), 60, run_attempt=2)
             for run_id in (1, 2, 3)
         ]
         jobs = []
         for run_id in (1, 2, 3):
-            jobs.append(
-                _job_row(
-                    run_id * 10,
-                    run_id,
-                    "flaky-job",
-                    f"sha{run_id}",
-                    "failure",
-                    now - timedelta(hours=run_id),
-                    run_attempt=1,
-                )
-            )
-            jobs.append(
-                _job_row(
-                    run_id * 10 + 1,
-                    run_id,
-                    "flaky-job",
-                    f"sha{run_id}",
-                    "success",
-                    now - timedelta(hours=run_id),
-                    run_attempt=2,
-                )
-            )
+            started = now - timedelta(hours=run_id + 1)
+            jobs.append(_job_row(run_id * 10, run_id, "flaky-job", "shaR", "failure", started, run_attempt=1))
+            jobs.append(_job_row(run_id * 10 + 1, run_id, "flaky-job", "shaR", "success", started, run_attempt=2))
+
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3)
+
         assert len(findings) == 1
         assert findings[0].extra["flaky_count"] == 3
-        # The most recent sighting is the worked example; the rest survive as the count.
-        assert findings[0].extra["run_id"] == 3
-        _assert_emittable(findings[0])
 
-    def test_flaky_check_ignores_required_check_aggregators(self) -> None:
-        # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
-        # signal for every real flake. Real aggregators settle in 3-5s; real jobs run 60s+.
+    @parameterized.expand(
+        [
+            # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
+            # signal for every real flake. NO_OP_JOB_MAX_SECONDS drops this one.
+            ("Tests Pass", 3),
+            # 46s clears the duration floor, so only BY_DESIGN_FAILURES can drop these.
+            *[(name, 46) for name in _BY_DESIGN_JOB_NAMES],
+        ]
+    )
+    def test_flaky_check_ignores_excluded_jobs(self, job_name: str, duration_seconds: int) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [_run_row(1, "CI", "shaG", "success", now - timedelta(hours=2), 60, run_attempt=2)]
         jobs = [
             _job_row(
-                200, 1, "Tests Pass", "shaG", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=3
+                200,
+                1,
+                job_name,
+                "shaG",
+                "failure",
+                now - timedelta(hours=3),
+                run_attempt=1,
+                duration_seconds=duration_seconds,
             ),
             _job_row(
-                201, 1, "Tests Pass", "shaG", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=3
+                201,
+                1,
+                job_name,
+                "shaG",
+                "success",
+                now - timedelta(hours=2),
+                run_attempt=2,
+                duration_seconds=duration_seconds,
             ),
             _job_row(202, 1, "real-test-job", "shaG", "failure", now - timedelta(hours=3), run_attempt=1),
             _job_row(203, 1, "real-test-job", "shaG", "success", now - timedelta(hours=2), run_attempt=2),
@@ -676,54 +764,61 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
         assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
 
+    def test_flaky_check_reports_by_design_job_names_in_another_repo(self) -> None:
+        # Every team runs this detector over its own repos, so the repo qualifier has to hold.
+        # The qualifier lives once in the SQL, so one by-design name proves it for the list.
+        job_name = _BY_DESIGN_JOB_NAMES[0]
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(1, "CI", "shaS", "success", now - timedelta(hours=2), 60, run_attempt=2, repository="acme/webapp")
+        ]
+        jobs = [
+            _job_row(300, 1, job_name, "shaS", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=46),
+            _job_row(301, 1, job_name, "shaS", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=46),
+        ]
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
+        assert {f.extra["job_name"] for f in findings} == {job_name}
+
     def test_broken_default_branch_fires_only_on_failing_default_branch(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
-            _run_row(
-                1, "red-ci", "s1", "success", now - timedelta(hours=4), 30, head_branch="trunk", default_branch="trunk"
-            ),
-            _run_row(
-                2, "red-ci", "s2", "failure", now - timedelta(hours=3), 30, head_branch="trunk", default_branch="trunk"
-            ),
-            _run_row(
-                3, "red-ci", "s3", "failure", now - timedelta(hours=2), 30, head_branch="trunk", default_branch="trunk"
-            ),
-            _run_row(
-                4,
-                "legacy-ci",
-                "s4",
-                "failure",
-                now - timedelta(hours=4),
-                30,
-                head_branch="master",
-                default_branch="trunk",
-            ),
-            _run_row(
-                5,
-                "legacy-ci",
-                "s5",
-                "failure",
-                now - timedelta(hours=3),
-                30,
-                head_branch="master",
-                default_branch="trunk",
-            ),
+            _run_row(1, "red-ci", "s1", "success", now - timedelta(hours=4), 30, head_branch="trunk"),
+            _run_row(2, "red-ci", "s2", "failure", now - timedelta(hours=3), 30, head_branch="trunk"),
+            _run_row(3, "red-ci", "s3", "failure", now - timedelta(hours=2), 30, head_branch="trunk"),
+            _run_row(4, "legacy-ci", "s4", "failure", now - timedelta(hours=4), 30, head_branch="master"),
+            _run_row(5, "legacy-ci", "s5", "failure", now - timedelta(hours=3), 30, head_branch="master"),
         ]
-        findings = detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2)
-        assert {f.extra["workflow_name"] for f in findings} == {"red-ci"}
-        assert findings[0].source_type == SOURCE_TYPE_BROKEN_DEFAULT_BRANCH
-        assert findings[0].extra["branch"] == "trunk"
-        _assert_emittable(findings[0])
+        # The stale PR reported "master" before the repo renamed its default branch; argMax over
+        # updated_at must resolve to the newer "trunk" report, or the failing legacy-ci would fire.
+        prs = [
+            _default_branch_pr_row(1, now - timedelta(days=30), default_branch="master"),
+            _default_branch_pr_row(2, now - timedelta(days=1), default_branch="trunk"),
+        ]
+        # Both detector calls must read one clock: each keys its source_id on the observation
+        # week, so two real-clock reads straddling Monday 00:00 UTC would fail the equality below.
+        with freeze_time(now):
+            findings = detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2)
+            assert {f.extra["workflow_name"] for f in findings} == {"red-ci"}
+            assert findings[0].source_type == SOURCE_TYPE_BROKEN_DEFAULT_BRANCH
+            assert findings[0].extra["branch"] == "trunk"
+            _assert_emittable(findings[0])
 
-        # A still-red branch must dedupe against one weekly key: a new completed run changing the
-        # source_id would re-emit the same standing condition on every hourly sweep.
-        rows.append(
-            _run_row(
-                6, "red-ci", "s6", "failure", now - timedelta(hours=1), 30, head_branch="trunk", default_branch="trunk"
-            )
-        )
-        refreshed = detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2)
-        assert refreshed[0].source_id == findings[0].source_id
+            # A still-red branch must dedupe against one weekly key: a new completed run changing the
+            # source_id would re-emit the same standing condition on every hourly sweep.
+            rows.append(_run_row(6, "red-ci", "s6", "failure", now - timedelta(hours=1), 30, head_branch="trunk"))
+            refreshed = detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2)
+            assert refreshed[0].source_id == findings[0].source_id
+
+    def test_broken_default_branch_without_pr_evidence_never_guesses(self) -> None:
+        # With no PR row for this repo its default branch is unknown, and a fallback guess of
+        # master/main would mint a P1 from inference rather than from GitHub's report.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(1, "red-ci", "s1", "failure", now - timedelta(hours=3), 30, head_branch="master"),
+            _run_row(2, "red-ci", "s2", "failure", now - timedelta(hours=2), 30, head_branch="master"),
+        ]
+        prs = [_default_branch_pr_row(1, now - timedelta(days=1), default_branch="master", repo="Acme/other")]
+        assert detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2) == []
 
     def test_broken_default_branch_does_not_count_cancelled_runs_as_failures(self) -> None:
         # A concurrency group cancelling superseded trunk runs is normal, not a red branch. Counting
@@ -731,18 +826,17 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         # which made the guard a no-op and fired P1 on every transient red.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
-            _run_row(
-                index, "busy-ci", f"c{index}", "cancelled", now - timedelta(hours=index), 30, default_branch="main"
-            )
+            _run_row(index, "busy-ci", f"c{index}", "cancelled", now - timedelta(hours=index), 30)
             for index in range(1, 9)
         ]
         rows += [
-            _run_row(20, "busy-ci", "ok1", "success", now - timedelta(hours=10), 30, default_branch="main"),
-            _run_row(21, "busy-ci", "ok2", "success", now - timedelta(hours=11), 30, default_branch="main"),
+            _run_row(20, "busy-ci", "ok1", "success", now - timedelta(hours=10), 30),
+            _run_row(21, "busy-ci", "ok2", "success", now - timedelta(hours=11), 30),
             # Latest completed run is a decisive failure, but 2 of 3 conclusive runs passed.
-            _run_row(22, "busy-ci", "bad", "failure", now - timedelta(minutes=30), 30, default_branch="main"),
+            _run_row(22, "busy-ci", "bad", "failure", now - timedelta(minutes=30), 30),
         ]
-        assert detect_broken_default_branch(self._curated_over_runs(rows), min_runs=2) == []
+        prs = [_default_branch_pr_row(1, now - timedelta(days=1), default_branch="main")]
+        assert detect_broken_default_branch(self._curated_over_runs(rows, pr_rows=prs), min_runs=2) == []
 
     def test_duration_regression_requires_absolute_and_relative_jump(self) -> None:
         now = datetime.now(UTC).replace(tzinfo=None)
@@ -754,20 +848,31 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             _run_row(2, "slow-ci", "c2", "success", current - timedelta(hours=1), 120),
             _run_row(3, "slow-ci", "b1", "success", baseline, 10),
             _run_row(4, "slow-ci", "b2", "success", baseline - timedelta(hours=1), 10),
+            # long-ci: 1000s → 1350s (+35% / +350s) clears both gates well short of a doubling → regression.
+            _run_row(13, "long-ci", "c7", "success", current, 1350),
+            _run_row(14, "long-ci", "c8", "success", current - timedelta(hours=1), 1350),
+            _run_row(15, "long-ci", "b7", "success", baseline, 1000),
+            _run_row(16, "long-ci", "b8", "success", baseline - timedelta(hours=1), 1000),
             # steady-ci: 100s → 104s (+4% / +4s) fails the absolute-jump guard → no signal.
             _run_row(5, "steady-ci", "c3", "success", current, 104),
             _run_row(6, "steady-ci", "c4", "success", current - timedelta(hours=1), 104),
             _run_row(7, "steady-ci", "b3", "success", baseline, 100),
             _run_row(8, "steady-ci", "b4", "success", baseline - timedelta(hours=1), 100),
+            # mild-ci: 950s → 1100s (+16% / +150s) clears the absolute floor but fails the relative gate → no signal.
+            _run_row(17, "mild-ci", "c9", "success", current, 1100),
+            _run_row(18, "mild-ci", "c10", "success", current - timedelta(hours=1), 1100),
+            _run_row(19, "mild-ci", "b9", "success", baseline, 950),
+            _run_row(20, "mild-ci", "b10", "success", baseline - timedelta(hours=1), 950),
             _run_row(9, "thin-ci", "c5", "success", current, 120),
             _run_row(10, "thin-ci", "c6", "failure", current - timedelta(hours=1), 120),
             _run_row(11, "thin-ci", "b5", "success", baseline, 10),
             _run_row(12, "thin-ci", "b6", "failure", baseline - timedelta(hours=1), 10),
         ]
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
-        assert {f.extra["workflow_name"] for f in findings} == {"slow-ci"}
-        assert findings[0].source_type == SOURCE_TYPE_DURATION_REGRESSION
-        _assert_emittable(findings[0])
+        assert {f.extra["workflow_name"] for f in findings} == {"slow-ci", "long-ci"}
+        for finding in findings:
+            assert finding.source_type == SOURCE_TYPE_DURATION_REGRESSION
+            _assert_emittable(finding)
 
     def test_duration_regression_ignores_no_op_dominated_windows(self) -> None:
         # A window of mostly sub-10s no-op gate successes plus one real run passes a

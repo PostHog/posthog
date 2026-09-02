@@ -16,6 +16,8 @@ from posthog.api.llm_prompt import LLMPromptViewSet
 from posthog.api.llm_prompt_serializers import (
     MAX_PROMPT_PAYLOAD_BYTES,
     LLMPromptDuplicateSerializer,
+    LLMPromptListQuerySerializer,
+    LLMPromptPublishSerializer,
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
@@ -31,6 +33,7 @@ class TestLLMPromptAPI(APIBaseTest):
         *,
         name: str = "my-prompt",
         prompt: Any = "Prompt content",
+        config: Any | None = None,
         version: int = 1,
         is_latest: bool = True,
         deleted: bool = False,
@@ -39,6 +42,7 @@ class TestLLMPromptAPI(APIBaseTest):
             team=self.team,
             name=name,
             prompt=prompt,
+            config=config,
             version=version,
             is_latest=is_latest,
             deleted=deleted,
@@ -401,6 +405,23 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["current_version"] == 2
+
+    @parameterized.expand([("latest_version", 2), ("historical_version", 1)])
+    def test_update_prompt_by_version_id_publishes_against_the_prompt(self, _name, version):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="publish-prompt", version=2, is_latest=True, prompt="v2")
+        requested = LLMPrompt.objects.get(team=self.team, name="publish-prompt", version=version)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/{requested.id}/",
+            data={"prompt": "v3", "base_version": 2},
+            format="json",
+        )
+
+        # PATCH shares the GET's route, so an id the GET accepts has to publish rather than 404.
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "publish-prompt"
+        assert response.json()["version"] == 3
 
     def test_update_prompt_by_name_rejects_payload_above_max_size(self):
         self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
@@ -799,7 +820,64 @@ class TestLLMPromptAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/non-existent/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert "not found" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        assert "non-existent" in detail
+        # The 404 has to name a recovery path for a caller that guessed the name.
+        assert "list the project's prompts" in detail.lower()
+
+    def test_fetch_prompt_at_unknown_version_points_at_the_version_not_the_name(self):
+        self.create_prompt_version(name="my-prompt", version=1, is_latest=True)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/?version=7")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        detail = response.json()["detail"]
+        # The name resolved, so sending the caller off to list prompts would be the wrong recovery path.
+        assert "version 7" in detail
+        assert "list the project's prompts" not in detail.lower()
+
+    @parameterized.expand([("latest_version", 2), ("historical_version", 1)])
+    def test_fetch_prompt_by_version_id_resolves_to_the_prompt(self, _name, version):
+        self.create_prompt_version(name="by-id", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="by-id", version=2, is_latest=True, prompt="v2")
+        requested = LLMPrompt.objects.get(team=self.team, name="by-id", version=version)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{requested.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        # The id identifies the prompt, not the version, so the route still answers with the latest.
+        assert response.json()["name"] == "by-id"
+        assert response.json()["version"] == 2
+
+    def test_fetch_prompt_by_unknown_version_id_is_not_found(self):
+        self.create_prompt_version(name="by-id")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/019f5632-6df1-0000-5093-46d18b1bc987/"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_fetch_prompt_named_like_a_uuid_wins_over_the_id_lookup(self):
+        other = self.create_prompt_version(name="other", prompt="other content")
+        self.create_prompt_version(name=str(other.id), prompt="named like a uuid")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{other.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == "named like a uuid"
+
+    def test_fetch_prompt_by_version_id_from_another_team_is_not_found(self):
+        from posthog.models import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_prompt = LLMPrompt.objects.create(
+            team=other_team, name="other-team-prompt", prompt="Content", created_by=self.user
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{other_prompt.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_fetch_prompt_by_name_other_team_not_accessible(self):
         from posthog.models import Team
@@ -869,7 +947,9 @@ class TestLLMPromptAPI(APIBaseTest):
 
     def test_duplicate_prompt_creates_new_prompt_with_latest_content(self):
         self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")
-        self.create_prompt_version(name="original", version=2, is_latest=True, prompt="v2-latest")
+        self.create_prompt_version(
+            name="original", version=2, is_latest=True, prompt="v2-latest", config={"model": "gpt-4o"}
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
@@ -881,6 +961,7 @@ class TestLLMPromptAPI(APIBaseTest):
         data = response.json()
         assert data["name"] == "copy-of-original"
         assert data["prompt"] == "v2-latest"
+        assert data["config"] == {"model": "gpt-4o"}
         assert data["version"] == 1
         assert data["is_latest"] is True
         assert data["latest_version"] == 1
@@ -1014,6 +1095,184 @@ class TestLLMPromptAPI(APIBaseTest):
         assert len(rows) == 6
 
 
+class TestLLMPromptConfigAPI(APIBaseTest):
+    def create_prompt_version(
+        self,
+        *,
+        name: str = "my-prompt",
+        prompt: Any = "Prompt content",
+        config: Any | None = None,
+        version: int = 1,
+        is_latest: bool = True,
+    ) -> LLMPrompt:
+        return LLMPrompt.objects.create(
+            team=self.team,
+            name=name,
+            prompt=prompt,
+            config=config,
+            version=version,
+            is_latest=is_latest,
+            created_by=self.user,
+        )
+
+    def test_create_prompt_with_config_persists_it_and_fetch_returns_it(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "with-config", "prompt": "content", "config": {"model": "gpt-4o", "temperature": 0}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["config"] == {"model": "gpt-4o", "temperature": 0}
+
+        fetch_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/with-config/")
+        assert fetch_response.status_code == status.HTTP_200_OK
+        assert fetch_response.json()["config"] == {"model": "gpt-4o", "temperature": 0}
+
+    @parameterized.expand(
+        [
+            ("full", True),
+            ("preview", False),
+            ("none", False),
+        ]
+    )
+    def test_fetch_prompt_by_name_content_mode_controls_config(self, mode: str, has_config: bool):
+        self.create_prompt_version(name="config-prompt", config={"model": "gpt-4o"})
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/config-prompt/?content={mode}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert ("config" in response.json()) is has_config
+        if has_config:
+            assert response.json()["config"] == {"model": "gpt-4o"}
+
+    @parameterized.expand(
+        [
+            ("full_prompt", {"prompt": "v2"}),
+            ("edits", {"edits": [{"old": "v1", "new": "v2"}]}),
+        ]
+    )
+    def test_publish_without_config_key_carries_config_forward(self, _name: str, payload: dict):
+        self.create_prompt_version(name="carry-prompt", prompt="v1", config={"temperature": 0.7})
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/carry-prompt/",
+            data={**payload, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] == {"temperature": 0.7}
+        published = LLMPrompt.objects.get(team=self.team, name="carry-prompt", version=2)
+        assert published.config == {"temperature": 0.7}
+        assert published.prompt == "v2"
+
+    def test_publish_with_null_config_clears_it(self):
+        self.create_prompt_version(name="clear-prompt", prompt="v1", config={"temperature": 0.7})
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/clear-prompt/",
+            data={"prompt": "v2", "config": None, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] is None
+        assert LLMPrompt.objects.get(team=self.team, name="clear-prompt", version=2).config is None
+
+    def test_config_only_publish_creates_version_with_prompt_carried_forward(self):
+        self.create_prompt_version(name="config-only", prompt="unchanged", config={"temperature": 0.2})
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/config-only/",
+            data={"config": {"temperature": 0.9}, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 2
+        assert response.json()["config"] == {"temperature": 0.9}
+        published = LLMPrompt.objects.get(team=self.team, name="config-only", version=2)
+        assert published.prompt == "unchanged"
+        assert published.is_latest is True
+
+    def test_publish_rejects_non_object_config(self):
+        self.create_prompt_version(name="bad-config", prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/bad-config/",
+            data={"prompt": "v2", "config": "gpt-4o", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "config"
+        assert LLMPrompt.objects.filter(team=self.team, name="bad-config", version=2).count() == 0
+
+    def test_create_rejects_non_object_config(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "bad-config", "prompt": "content", "config": ["gpt-4o"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "config"
+
+    def test_fetch_returns_null_config_for_cache_entries_written_before_config_existed(self):
+        from posthog.storage.llm_prompt_cache import llm_prompts_hypercache
+        from posthog.storage.llm_prompt_cache_keys import prompt_latest_cache_key
+
+        self.create_prompt_version(name="legacy-cached", prompt="v1", config={"model": "gpt-4o"})
+        cache_key = prompt_latest_cache_key(self.team.id, "legacy-cached")
+
+        first_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/legacy-cached/")
+        assert first_response.status_code == status.HTTP_200_OK
+
+        cached_entry = llm_prompts_hypercache.get_from_cache(cache_key)
+        assert isinstance(cached_entry, dict)
+        legacy_entry = dict(cached_entry)
+        legacy_entry.pop("config", None)
+        llm_prompts_hypercache.set_cache_value(cache_key, legacy_entry)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/legacy-cached/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] is None
+
+
+class TestLLMPromptConfigValidationNoDB(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("string", "gpt-4o"),
+            ("array", ["gpt-4o"]),
+            ("number", 42),
+            ("oversized_object", {"x": "a" * (MAX_PROMPT_PAYLOAD_BYTES + 1)}),
+        ]
+    )
+    def test_rejects_invalid_config(self, _name: str, bad_config: Any) -> None:
+        serializer = LLMPromptPublishSerializer(data={"prompt": "v2", "config": bad_config, "base_version": 1})
+        assert not serializer.is_valid()
+        # The error must talk about config, not "Prompt payload" — the size check is shared.
+        assert str(serializer.errors["config"][0]).startswith("Config")
+
+    @parameterized.expand(
+        [
+            ("object", {"model": "gpt-4o", "tools": [{"name": "search"}]}),
+            ("null", None),
+        ]
+    )
+    def test_accepts_object_or_null_config(self, _name: str, good_config: Any) -> None:
+        serializer = LLMPromptPublishSerializer(data={"prompt": "v2", "config": good_config, "base_version": 1})
+        assert serializer.is_valid(), serializer.errors
+
+    def test_config_only_publish_payload_is_valid(self) -> None:
+        serializer = LLMPromptPublishSerializer(data={"config": {"temperature": 0.5}, "base_version": 1})
+        assert serializer.is_valid(), serializer.errors
+
+    def test_payload_without_prompt_edits_or_config_is_rejected(self) -> None:
+        serializer = LLMPromptPublishSerializer(data={"base_version": 1})
+        assert not serializer.is_valid()
+
+
 class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     # validate_new_name is a pure regex + reserved-name check (no context, no DB). The duplicate
     # endpoint's use of this serializer is guarded by test_duplicate_prompt_rejects_invalid_new_name.
@@ -1034,6 +1293,15 @@ class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     def test_accepts_valid_new_name(self) -> None:
         serializer = LLMPromptDuplicateSerializer(data={"new_name": "a-valid_name1"})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
+    def test_rejects_unknown_order_by(self) -> None:
+        # order_by used to be read from raw query params with a silent fallback; the serializer
+        # now owns the contract, so an unknown value must fail validation (and 400 at the endpoint).
+        serializer = LLMPromptListQuerySerializer(data={"order_by": "prompt"})
+        assert not serializer.is_valid()
+        assert "order_by" in serializer.errors
 
 
 class TestLLMPromptLabelsAPI(APIBaseTest):

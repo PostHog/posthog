@@ -12,6 +12,15 @@ pub struct PersonStub {
     pub is_identified: bool,
 }
 
+/// Per-distinct-id outcome of an attach call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachOutcome {
+    /// Mapping inserted fresh or revived from a tombstone.
+    Attached { version: i64 },
+    /// A live mapping already exists; attach never repoints a live row.
+    AlreadyMapped { person_id: i64 },
+}
+
 /// Per-stub outcome of a stub-creation transaction.
 #[derive(Debug, Clone)]
 pub enum StubOutcome {
@@ -22,4 +31,12 @@ pub enum StubOutcome {
     /// The primary distinct id was concurrently mapped to a different person;
     /// the transaction rolled back. The caller re-resolves to find the winner.
     LostRace,
+}
+
+/// One live distinct id row for a person.
+#[derive(Debug, Clone)]
+pub struct DistinctIdMapping {
+    pub person_id: i64,
+    pub distinct_id: String,
+    pub version: Option<i64>,
 }

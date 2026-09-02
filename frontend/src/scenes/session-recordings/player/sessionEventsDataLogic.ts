@@ -4,6 +4,7 @@ import {
     actions,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -325,7 +326,10 @@ AND properties.$lib != 'web'`
                                 event.fullyLoaded = true
                             }
                         }
-                    } catch (e) {
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvents.forEach((e) => (e.fullyLoaded = true))
                         posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })

@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Any, Optional
+from urllib.parse import urlencode
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -10,15 +10,49 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ApiKeyAuthConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ApiKeyAuthConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.settings import SMARTREACH_ENDPOINTS
 
-SMARTREACH_BASE_URL = "https://api.smartreach.io/api/v1"
+SMARTREACH_API_V1 = "v1"
+SMARTREACH_API_V3 = "v3"
+
+# Each version is served under its own base path; auth (X-API-KEY) and links.next pagination are
+# shared. v3 diverges in two request-shaping ways we branch on below: the base path, and where the
+# row list sits in the response envelope (root vs `data.*`). v3 also requires a `team_id` query
+# param on the list endpoints (see smartreach_source / check_access).
+SMARTREACH_BASE_URLS: dict[str, str] = {
+    SMARTREACH_API_V1: "https://api.smartreach.io/api/v1",
+    SMARTREACH_API_V3: "https://api.smartreach.io/api/v3",
+}
+
+# Kept for the several call sites and tests that reference the v1 origin directly.
+SMARTREACH_BASE_URL = SMARTREACH_BASE_URLS[SMARTREACH_API_V1]
+
 # Cheap endpoint used to confirm an API key is genuine. The user key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_ENDPOINT = "campaigns"
+
+
+def _base_url(api_version: str) -> str:
+    try:
+        return SMARTREACH_BASE_URLS[api_version]
+    except KeyError:
+        # Never fall through to a default: silently syncing under an unmapped version is the drift
+        # the version framework exists to prevent.
+        raise ValueError(f"Unsupported SmartReach API version {api_version!r}")
+
+
+def _data_selector(data_key: str, api_version: str) -> str:
+    # v3 returns the row list at the envelope root (e.g. `prospects`); v1 nests it under `data`.
+    if api_version == SMARTREACH_API_V3:
+        return data_key
+    return f"data.{data_key}"
 
 
 @dataclasses.dataclass
@@ -45,13 +79,26 @@ def smartreach_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[SmartreachResumeConfig],
+    api_version: str,
+    smartreach_team_id: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SMARTREACH_ENDPOINTS[endpoint]
 
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        # A missing key yields an empty page (matching the previous behavior) rather than failing
+        # loud, so data_selector_required is left off.
+        "data_selector": _data_selector(config.data_key, api_version),
+    }
+    # v3 requires the SmartReach team id on every list request; v1 has no such param. Set it only on
+    # the first request — the paginator then follows links.next verbatim, which already carries it.
+    if api_version == SMARTREACH_API_V3 and smartreach_team_id:
+        endpoint_config["params"] = {"team_id": smartreach_team_id}
+
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": SMARTREACH_BASE_URL,
+            "base_url": _base_url(api_version),
             "headers": _headers(),
             "auth": _api_key_auth(api_key),
             # SmartReach echoes the next page as a full URL in `links.next`, so it can't be trusted
@@ -69,13 +116,7 @@ def smartreach_source(
         "resources": [
             {
                 "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    # SmartReach nests the list under `data.<data_key>` (e.g. data.prospects). A
-                    # missing key yields an empty page (matching the previous behavior) rather than
-                    # failing loud, so data_selector_required is left off.
-                    "data_selector": f"data.{config.data_key}",
-                },
+                "endpoint": endpoint_config,
             }
         ],
     }
@@ -113,16 +154,25 @@ def smartreach_source(
     )
 
 
-def check_access(api_key: str, endpoint: str = DEFAULT_PROBE_ENDPOINT) -> tuple[int, Optional[str]]:
+def check_access(
+    api_key: str,
+    api_version: str,
+    smartreach_team_id: str | None = None,
+    endpoint: str = DEFAULT_PROBE_ENDPOINT,
+) -> tuple[int, Optional[str]]:
     """Probe a single list endpoint to validate the user key.
 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
     config = SMARTREACH_ENDPOINTS[endpoint]
+    url = f"{_base_url(api_version)}{config.path}"
+    # v3 list endpoints reject a request without team_id, so the probe must carry it too.
+    if api_version == SMARTREACH_API_V3 and smartreach_team_id:
+        url = f"{url}?{urlencode({'team_id': smartreach_team_id})}"
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
-        f"{SMARTREACH_BASE_URL}{config.path}",
+        url,
         headers={"X-API-KEY": api_key, **_headers()},
     )
     if status is None:

@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from requests import Response
 from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout
 
@@ -353,10 +354,14 @@ class TestRESTClient:
         mock_session.send.return_value = error
 
         client = RESTClient(base_url="https://api.example.com")
-        with pytest.raises(RESTClientRetryableError):
+        with pytest.raises(RESTClientRetryableError) as ctx:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 5
+        # An upstream blip surviving every tenacity attempt is expected to clear on Temporal's own
+        # activity retry, not a PostHog defect, so it must carry the non-reportable marker the
+        # activity interceptor uses to keep it out of error tracking.
+        assert isinstance(ctx.value, NonReportableError)
 
     @pytest.mark.parametrize(
         "content",
@@ -583,6 +588,30 @@ class TestRESTClient:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
+    def test_backoff_ceiling_widens_the_exponential_fallback(self, MockSession, mock_sleep) -> None:
+        # A 429 without a Retry-After backs off on the exponential fallback, capped at the client's
+        # ceiling. Raising the ceiling lets a source whose rate-limit window is longer than the
+        # default 60s cap wait past it — the fallback grows to 128s here instead of stopping at 60s.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://api.example.com/items"
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.side_effect = [*[rate_limited] * 8, ok]
+
+        client = RESTClient(base_url="https://api.example.com", max_retry_attempts=9, retry_backoff_max_seconds=300.0)
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        waits = [call.args[0] for call in mock_sleep.call_args_list]
+        assert waits == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
     def test_send_request_respects_retry_after_header(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -632,6 +661,36 @@ class TestRESTClient:
         assert mock_session.send.call_count == 2
         mock_sleep.assert_called_once_with(45.0)
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_send_request_respects_x_ratelimit_reset_header(self, MockSession, mock_sleep, mock_datetime) -> None:
+        # SendGrid answers 429 with the common ``X-RateLimit-Reset`` epoch header and no
+        # ``Retry-After``; its Email Activity endpoint allows 6 requests/minute, so falling back
+        # to the short exponential backoff would exhaust the attempt budget inside one window.
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"errors": [{"message": "too many requests"}]}, status_code=429)
+        rate_limited.url = "https://api.sendgrid.com/v3/messages"
+        rate_limited.headers["X-RateLimit-Reset"] = str(int(now.timestamp()) + 30)
+        ok = _make_response({"results": [{"id": 1}]})
+
+        mock_session.send.side_effect = [rate_limited, ok]
+
+        client = RESTClient(base_url="https://api.sendgrid.com/v3")
+        pages = list(client.paginate(path="/messages", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+        mock_sleep.assert_called_once_with(30.0)
+
     @patch("tenacity.nap.time.sleep")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -655,6 +714,32 @@ class TestRESTClient:
 
         assert pages == [[{"id": 1}]]
         mock_sleep.assert_called_once_with(12.0)
+
+    @parameterized.expand(
+        [
+            ("rfc3339_utc", "2026-03-06T12:00:45Z", 45.0),
+            ("rfc3339_offset", "2026-03-06T12:01:00+00:00", 60.0),
+            ("capped", "2027-03-06T12:00:00Z", MAX_RETRY_AFTER_SECONDS),
+            # A window that has already cleared, or a value we can't read, tells us nothing — the
+            # caller falls back to exponential backoff rather than retrying with no delay at all.
+            ("already_elapsed", "2026-03-06T11:59:55Z", None),
+            ("unparseable", "in a bit", None),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_honors_anthropic_rate_limit_reset(
+        self, _name: str, header_value: str, expected: float | None, mock_datetime
+    ) -> None:
+        # Anthropic rate limits its Admin API per organization but answers 429 without a
+        # ``Retry-After``; this RFC 3339 reset instant is the only delay it advertises, and without
+        # it a rate-limited report sync spends its whole attempt budget inside a few seconds.
+        mock_datetime.now.return_value = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.fromisoformat = datetime.fromisoformat
+
+        response = _make_response({"error": "rate limited"}, status_code=429)
+        response.headers["anthropic-ratelimit-requests-reset"] = header_value
+
+        assert _parse_retry_after(response) == expected
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_caps_sentry_reset_header(self, mock_datetime) -> None:

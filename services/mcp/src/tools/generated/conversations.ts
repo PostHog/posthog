@@ -2,34 +2,34 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
+import * as orvalSchemas from '@/generated/conversations/api'
 import {
-    ConversationsTicketsListQueryParams,
-    ConversationsTicketsMessagesListParams,
-    ConversationsTicketsMessagesListQueryParams,
-    ConversationsTicketsPartialUpdateBody,
-    ConversationsTicketsPartialUpdateParams,
-    ConversationsTicketsReplyCreateBody,
-    ConversationsTicketsReplyCreateParams,
-    ConversationsTicketsRetrieveParams,
-    ConversationsViewsListQueryParams,
-} from '@/generated/conversations/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
+const ConversationsTicketsListSchema = () => {
+    const ConversationsTicketsListQueryParams = orvalSchemas.ConversationsTicketsListQueryParams()
+    return ConversationsTicketsListQueryParams
+}
 
 const conversationsTicketsList = (): ToolBase<
-    typeof ConversationsTicketsListSchema,
+    ReturnType<typeof ConversationsTicketsListSchema>,
     WithPostHogUrl<Schemas.PaginatedTicketList>
 > => ({
     name: 'conversations-tickets-list',
-    schema: ConversationsTicketsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsListSchema>) => {
+    schema: ConversationsTicketsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTicketList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/`,
             query: {
+                ai_triage_result: params.ai_triage_result,
                 assignee: params.assignee,
                 channel_detail: params.channel_detail,
                 channel_source: params.channel_source,
@@ -43,10 +43,12 @@ const conversationsTicketsList = (): ToolBase<
                 priority: params.priority,
                 search: params.search,
                 sla: params.sla,
+                snoozed: params.snoozed,
                 status: params.status,
                 tags: params.tags,
                 tags_all: params.tags_all,
                 tags_exclude: params.tags_exclude,
+                view: params.view,
             },
         })
         const filtered = {
@@ -67,21 +69,28 @@ const conversationsTicketsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/conversations/tickets')
+        return await withPostHogUrl(context, filtered, '/support/tickets')
     },
 })
 
-const ConversationsTicketsMessagesRetrieveSchema = ConversationsTicketsMessagesListParams.omit({
-    project_id: true,
-}).extend(ConversationsTicketsMessagesListQueryParams.shape)
+const ConversationsTicketsMessagesRetrieveSchema = () => {
+    const ConversationsTicketsMessagesListParams = orvalSchemas.ConversationsTicketsMessagesListParams()
+    const ConversationsTicketsMessagesListQueryParams = orvalSchemas.ConversationsTicketsMessagesListQueryParams()
+    return ConversationsTicketsMessagesListParams.omit({ project_id: true }).extend(
+        ConversationsTicketsMessagesListQueryParams.shape
+    )
+}
 
 const conversationsTicketsMessagesRetrieve = (): ToolBase<
-    typeof ConversationsTicketsMessagesRetrieveSchema,
+    ReturnType<typeof ConversationsTicketsMessagesRetrieveSchema>,
     Schemas.PaginatedTicketMessageList
 > => ({
     name: 'conversations-tickets-messages-retrieve',
-    schema: ConversationsTicketsMessagesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsMessagesRetrieveSchema>) => {
+    schema: ConversationsTicketsMessagesRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ConversationsTicketsMessagesRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTicketMessageList>({
             method: 'GET',
@@ -95,17 +104,77 @@ const conversationsTicketsMessagesRetrieve = (): ToolBase<
     },
 })
 
-const ConversationsTicketsReplyCreateSchema = ConversationsTicketsReplyCreateParams.omit({ project_id: true }).extend(
-    ConversationsTicketsReplyCreateBody.shape
-)
+const ConversationsTicketsNotesDestroySchema = () => {
+    const ConversationsTicketsNotesDestroyParams = orvalSchemas.ConversationsTicketsNotesDestroyParams()
+    return ConversationsTicketsNotesDestroyParams.omit({ project_id: true })
+}
+
+const conversationsTicketsNotesDestroy = (): ToolBase<
+    ReturnType<typeof ConversationsTicketsNotesDestroySchema>,
+    unknown
+> => ({
+    name: 'conversations-tickets-notes-destroy',
+    schema: ConversationsTicketsNotesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsNotesDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/notes/${encodeURIComponent(String(params.message_id))}/`,
+        })
+        return result
+    },
+})
+
+const ConversationsTicketsNotesPartialUpdateSchema = () => {
+    const ConversationsTicketsNotesPartialUpdateBody = orvalSchemas.ConversationsTicketsNotesPartialUpdateBody()
+    const ConversationsTicketsNotesPartialUpdateParams = orvalSchemas.ConversationsTicketsNotesPartialUpdateParams()
+    return ConversationsTicketsNotesPartialUpdateParams.omit({ project_id: true }).extend(
+        ConversationsTicketsNotesPartialUpdateBody.shape
+    )
+}
+
+const conversationsTicketsNotesPartialUpdate = (): ToolBase<
+    ReturnType<typeof ConversationsTicketsNotesPartialUpdateSchema>,
+    Schemas.TicketMessage
+> => ({
+    name: 'conversations-tickets-notes-partial-update',
+    schema: ConversationsTicketsNotesPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ConversationsTicketsNotesPartialUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.rich_content !== undefined) {
+            body['rich_content'] = params.rich_content
+        }
+        const result = await context.api.request<Schemas.TicketMessage>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/notes/${encodeURIComponent(String(params.message_id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ConversationsTicketsReplyCreateSchema = () => {
+    const ConversationsTicketsReplyCreateBody = orvalSchemas.ConversationsTicketsReplyCreateBody()
+    const ConversationsTicketsReplyCreateParams = orvalSchemas.ConversationsTicketsReplyCreateParams()
+    return ConversationsTicketsReplyCreateParams.omit({ project_id: true }).extend(
+        ConversationsTicketsReplyCreateBody.shape
+    )
+}
 
 const conversationsTicketsReplyCreate = (): ToolBase<
-    typeof ConversationsTicketsReplyCreateSchema,
+    ReturnType<typeof ConversationsTicketsReplyCreateSchema>,
     Schemas.TicketMessage
 > => ({
     name: 'conversations-tickets-reply-create',
-    schema: ConversationsTicketsReplyCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsReplyCreateSchema>) => {
+    schema: ConversationsTicketsReplyCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsReplyCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.message !== undefined) {
@@ -126,15 +195,18 @@ const conversationsTicketsReplyCreate = (): ToolBase<
     },
 })
 
-const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.omit({ project_id: true })
+const ConversationsTicketsRetrieveSchema = () => {
+    const ConversationsTicketsRetrieveParams = orvalSchemas.ConversationsTicketsRetrieveParams()
+    return ConversationsTicketsRetrieveParams.omit({ project_id: true })
+}
 
 const conversationsTicketsRetrieve = (): ToolBase<
-    typeof ConversationsTicketsRetrieveSchema,
-    WithPostHogUrl<Schemas.Ticket>
+    ReturnType<typeof ConversationsTicketsRetrieveSchema>,
+    WithAgentNote<WithPostHogUrl<Schemas.Ticket>>
 > => ({
     name: 'conversations-tickets-retrieve',
-    schema: ConversationsTicketsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsRetrieveSchema>) => {
+    schema: ConversationsTicketsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Ticket>({
             method: 'GET',
@@ -164,21 +236,28 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'created_at',
             'updated_at',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/conversations/tickets/${filtered.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/support/tickets/${filtered.id}`),
+            "The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To surface them, call inbox-reports-list with source_id set to this ticket's `id` and source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold the investigation and findings; the ticket's own messages do not."
+        )
     },
 })
 
-const ConversationsTicketsUpdateSchema = ConversationsTicketsPartialUpdateParams.omit({ project_id: true }).extend(
-    ConversationsTicketsPartialUpdateBody.shape
-)
+const ConversationsTicketsUpdateSchema = () => {
+    const ConversationsTicketsPartialUpdateBody = orvalSchemas.ConversationsTicketsPartialUpdateBody()
+    const ConversationsTicketsPartialUpdateParams = orvalSchemas.ConversationsTicketsPartialUpdateParams()
+    return ConversationsTicketsPartialUpdateParams.omit({ project_id: true }).extend(
+        ConversationsTicketsPartialUpdateBody.shape
+    )
+}
 
 const conversationsTicketsUpdate = (): ToolBase<
-    typeof ConversationsTicketsUpdateSchema,
+    ReturnType<typeof ConversationsTicketsUpdateSchema>,
     WithPostHogUrl<Schemas.Ticket>
 > => ({
     name: 'conversations-tickets-update',
-    schema: ConversationsTicketsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsUpdateSchema>) => {
+    schema: ConversationsTicketsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsTicketsUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.status !== undefined) {
@@ -186,6 +265,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         }
         if (params.priority !== undefined) {
             body['priority'] = params.priority
+        }
+        if (params.assignee !== undefined) {
+            body['assignee'] = params.assignee
         }
         if (params.sla_due_at !== undefined) {
             body['sla_due_at'] = params.sla_due_at
@@ -201,19 +283,22 @@ const conversationsTicketsUpdate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/conversations/tickets/${result.id}`)
+        return await withPostHogUrl(context, result, `/support/tickets/${result.id}`)
     },
 })
 
-const ConversationsViewsListSchema = ConversationsViewsListQueryParams
+const ConversationsViewsListSchema = () => {
+    const ConversationsViewsListQueryParams = orvalSchemas.ConversationsViewsListQueryParams()
+    return ConversationsViewsListQueryParams
+}
 
 const conversationsViewsList = (): ToolBase<
-    typeof ConversationsViewsListSchema,
+    ReturnType<typeof ConversationsViewsListSchema>,
     WithPostHogUrl<Schemas.PaginatedTicketViewList>
 > => ({
     name: 'conversations-views-list',
-    schema: ConversationsViewsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsViewsListSchema>) => {
+    schema: ConversationsViewsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsViewsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTicketViewList>({
             method: 'GET',
@@ -227,13 +312,15 @@ const conversationsViewsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['short_id', 'name'])),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/conversations/tickets')
+        return await withPostHogUrl(context, filtered, '/support/tickets')
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
+    'conversations-tickets-notes-destroy': conversationsTicketsNotesDestroy,
+    'conversations-tickets-notes-partial-update': conversationsTicketsNotesPartialUpdate,
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-update': conversationsTicketsUpdate,

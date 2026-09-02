@@ -74,7 +74,8 @@ export function ExperimentMetricConversionWindowFilter({
                             fullWidth={false}
                             min={intervalBounds[0]}
                             max={intervalBounds[1]}
-                            value={metric.conversion_window || 1}
+                            // NaN renders as empty and keeps the input controlled; undefined would not
+                            value={metric.conversion_window ?? NaN}
                             onChange={(value) => {
                                 handleSetMetric({ ...metric, conversion_window: value || undefined })
                             }}

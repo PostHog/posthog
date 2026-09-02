@@ -17,6 +17,8 @@ import structlog
 from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
 from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
+from posthog.warehouse_source_prewarm import prewarm_warehouse_source_registry
+from posthog.web_bot_auth_keys import validate_configured_web_bot_auth_private_keys_in_background
 from posthog.web_memory_probe import install_memory_probe_handler
 from posthog.web_memory_sampler import start_web_memory_sampler
 
@@ -44,6 +46,14 @@ try:
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
+
+    # Load the warehouse source catalog before this worker serves, so its first warehouse
+    # query skips the multi-second import. No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY
+    # is set, which deployment config enables only for the Granian deployment that serves
+    # warehouse queries; each Granian worker imports this module itself. Running inside
+    # the GC window lands the catalog in the frozen heap, so future full collections
+    # skip it.
+    prewarm_warehouse_source_registry()
 finally:
     gc.freeze()
     gc.enable()
@@ -95,6 +105,7 @@ def application(environ, start_response):
     global _prewarmed
     if not _prewarmed:
         prewarm_query_cache_cluster_in_background()
+        validate_configured_web_bot_auth_private_keys_in_background()
         # Start the RSS sampler post-fork, here in the worker. Unit forks workers from a
         # prototype that already imported this module, and a thread started pre-fork does
         # not survive into the worker — starting it on the worker's first call samples the

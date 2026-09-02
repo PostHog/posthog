@@ -29,17 +29,24 @@ It is the observability counterpart to the `authoring-scouts` skill (which teach
 **A scout's output is inbox reports, written 1:1.** Scouts list `emit_report` / `edit_report` in their `allowed_tools` and **author or edit inbox reports directly**; a run's output shows up as **`emitted_report_ids`** (reports it authored) and **`edited_report_ids`** (reports it updated).
 The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fields from the deprecated signal-emitting channel** (weak `emit_signal` findings a pipeline consolidated). On a report-channel scout they stay `0` / empty even on a productive run; a non-zero tally means the run came from a scout still on the legacy channel (an old custom scout, or a canonical scout not yet ported) — real output for that run, not noise. When unsure of a scout's channel, check its `allowed_tools` via `skill-get`.
 **Never read `emitted_count: 0` as "did nothing"** — check the report columns and the run summary first.
+A scout whose config carries a `structured_output_schema` has a third output channel next to reports: schema-validated **measurement records**, recorded as `$scout_structured_output` events in the project (only _scalar_ top-level payload keys flatten to `output_<key>` properties — object and array fields live solely inside the full `output` property, so a missing `output_<key>` is not a missing value; `subject` names the judged entity) rather than as run-row columns.
+The events are the ground truth — `metadata.derived.has_structured_output` says the run had at least one batch **accepted**, which is a fast per-run screen but not delivery confirmation (a rare capture failure after acceptance leaves it true with fewer or no events behind it), so count the events when the number of records matters. See [`references/scout-data-model.md`](references/scout-data-model.md) for the event shape.
+Each run also carries a `metadata` map. Top-level: the provenance set `harness_prompt_version` / `report_channel` (`none`, `emit`, `edit`, or `both`) / `skill_origin` / `github_guidance`, saying which instructions the run was given; plus routing keys (`model` / `runtime_adapter` / `reasoning_effort`) only when a gate or pin overrode the default. Nested under `metadata.derived`: booleans the harness computes at the end of the run (`has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`).
+When comparing runs (before/after a prompt change, one model against another), segment on all four provenance values first: runs differing on any of `harness_prompt_version`, `report_channel`, `skill_origin`, or `github_guidance` were given different instructions and aren't a like-for-like population. Runs predating this field have none of them, so treat missing provenance as unknown and exclude those runs from a comparison rather than pooling them.
+For "what kind of run was this?" questions — did it author a self-improvement report, did it validate its follow-up queue — read `derived` rather than parsing the prose summary. It's computed server-side from what the run actually did, so it can't disagree with the run's own output — with one exception: `has_structured_output` tracks batches the run had **accepted**, not events delivered, so it alone can be true with fewer or no records behind it (count the events, as above). No `derived` map at all means unknown, not "all false" — the run predates the field, failed before finishing, or its stamp failed. Most runs from before this shipped have no map, so don't read their absence as a finding.
 
 There are six things you can observe about the fleet, each with its own tool:
 
-| What you want to know                        | Tool                            | What it tells you                                                                                 |
-| -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `emit`, `last_run_at`, `description`                      |
-| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link |
-| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                            |
-| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)              |
-| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`         |
-| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)       |
+| What you want to know                        | Tool                            | What it tells you                                                                                               |
+| -------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `status` / `pause_reason`, `emit`, `last_run_at`, `description`, `tags` |
+| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link               |
+| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                                          |
+| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)                            |
+| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`                       |
+| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)                     |
+
+`scout-config-list` takes a `tags` parameter (comma-separated) to narrow the roster to the scouts carrying any of the given labels — useful on a large fleet when the question is scoped to one area, e.g. `tags=revenue`.
 
 The orienting tool is `scout-project-profile-get` — the deterministic snapshot of "what's true about this project" that every scout cold-starts from.
 When a scout found nothing, this is usually why.
@@ -77,9 +84,11 @@ Read the result against three cases:
   Point the user at the Signals scout settings / PostHog Desktop onboarding rather than inventing activity.
 - **Configs exist but all `enabled: false`** — the fleet is registered but paused.
   Nothing is running.
-  Tell the user which scouts exist and that they're all off.
+  Tell the user which scouts exist and that they're all off — and say who switched each one off, which `status` carries: `paused_by_user` means a person (or a launch seed posture) turned it off, `paused_by_system` means an automatic pause with its cause in `pause_reason` (`no_output` / `ignored` / `repeated_failures`).
+  Either kind resumes with `enabled: true` via `scout-config-update`.
 - **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run.
   For each enabled scout note its `run_interval_minutes` (cadence), `emit` (false = **dry-run**, runs but writes nothing to the inbox), and `last_run_at`.
+  A `status` of `pending_pause` means the scout still runs but the system has flagged it to pause soon (cause in `pause_reason`); any config edit clears the warning.
   One caveat before reporting "it's live": runs are gated by the `signals-scout` feature flag, not by `enabled`.
   A project that was enrolled and later drained from the flag keeps its `enabled: true` rows, but the coordinator no longer plans runs for it — so a stale or `null` `last_run_at` on an enabled scout usually means the project is no longer enrolled, not that the scout is idle.
 
@@ -165,6 +174,7 @@ Fetch the **full** log and let the script reassemble each call (it groups by `to
 **Whether a run wrote anything is a first-class field: `emitted_report_ids` / `edited_report_ids`.** A non-empty `emitted_report_ids` lists the reports the run authored via `emit_report`, in order; `edited_report_ids` lists the reports it mutated via `edit_report` (which can target any inbox report, not just ones a scout authored).
 A productive run typically has one id there and a summary like `Report authored: <id>`; resolve any id via `inbox-reports-retrieve` to read the report itself.
 Don't parse the prose `summary` for output — a phrase like "already reported P1 … did not re-file" describes a _prior_ run, so substring-matching the summary is unreliable; the id columns are the authoritative tally.
+One scout shape breaks the equivalence between "no report ids" and "wrote nothing": a **measurement scout** files no report on a normal run because its output is the record stream, so check `metadata.derived.has_structured_output` (and the events themselves) before calling such a run empty.
 
 **Legacy runs: `emitted_count` / `emitted_finding_ids`.** Runs from the deprecated signal-emitting channel (a scout without the `allowed_tools` opt-in — an old custom scout, or a canonical scout not yet ported) tally their output as `emitted_count` weak findings instead; each `finding_id` maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`.
 For those runs only, `scout-runs-emission-reports` (pass the `run_id`) maps each emitted finding to the inbox report its signal grouped into (or `null` if it never surfaced).
@@ -255,6 +265,7 @@ The full playbook, including how to read each signal and the common failure mode
 - **Report rate** — what fraction of runs wrote or edited a report vs. closed out empty.
   Read it straight off `emitted_report_ids` / `edited_report_ids` per run (or split the window with `runs-list?emitted=true` / `?emitted=false`, remembering edit-only runs read as not-emitted).
   Near-zero over a long window on a live surface can mean the discriminator is too strict (or the surface really is quiet); near-100% usually means it's too noisy.
+  Don't score a **measurement scout** on this at all — a near-zero report rate is its designed behavior, so read its record stream instead.
   Most healthy scouts write rarely.
 - **Signal-to-noise** — of what it wrote, how much surfaced as actionable inbox reports vs. got suppressed or dismissed?
   Resolve each run's `emitted_report_ids` via `inbox-reports-retrieve` and read the report statuses — across a window, the share of authored reports that are live and non-suppressed is the scout's hit rate.

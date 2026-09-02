@@ -105,7 +105,7 @@ export function getEntryVarName(entryDefName: string): string {
 // Core conversion
 // ------------------------------------------------------------------
 
-function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
+function schemaToZod(schema: JsonSchema, ctx: ConvertContext, opts?: { strictPrimitives?: boolean }): string {
     // $ref
     if (schema.$ref) {
         const refName = schema.$ref.replace('#/definitions/', '')
@@ -141,7 +141,13 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
         if (variants.length === 1) {
             return schemaToZod(variants[0]!, ctx)
         }
-        const members = variants.map((v) => schemaToZod(v, ctx)).join(', ')
+        // Union members must be strict: zod tries branches in order and a coercing
+        // branch is greedy — z.coerce.boolean() accepts every input (Boolean(x)
+        // never throws) and z.coerce.number() turns null into 0, so any array/null
+        // branch after them is unreachable and inputs get silently mangled
+        // (e.g. a `["host.com"]` filter value became `true`). Coercion is for
+        // lone primitive fields, where there is no other branch to fall through to.
+        const members = variants.map((v) => schemaToZod(v, ctx, { strictPrimitives: true })).join(', ')
         return `z.union([${members}])`
     }
 
@@ -159,10 +165,12 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
     if (Array.isArray(schema.type)) {
         const types = schema.type.filter((t) => t !== 'null')
         const hasNull = schema.type.includes('null')
+        // Multi-type arrays are unions too, so their primitives must be strict
+        // for the same branch-ordering reason as anyOf above.
         const base =
             types.length === 1
-                ? primitiveToZod(types[0]!)
-                : `z.union([${types.map((t) => primitiveToZod(t)).join(', ')}])`
+                ? primitiveToZod(types[0]!, opts?.strictPrimitives)
+                : `z.union([${types.map((t) => primitiveToZod(t, true)).join(', ')}])`
         return hasNull ? `${base}.nullable()` : base
     }
 
@@ -186,12 +194,12 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
 
     // integer special ref — use coerce for MCP client compatibility (some clients send numbers as strings)
     if (schema.type === 'integer') {
-        return applyNumericConstraints('z.coerce.number().int()', schema)
+        return applyNumericConstraints(primitiveToZod('integer', opts?.strictPrimitives), schema)
     }
 
     // primitives
     if (schema.type) {
-        const base = primitiveToZod(schema.type as string)
+        const base = primitiveToZod(schema.type as string, opts?.strictPrimitives)
         if (schema.type === 'integer' || schema.type === 'number') {
             return applyNumericConstraints(base, schema)
         }
@@ -214,17 +222,21 @@ function applyNumericConstraints(expr: string, schema: JsonSchema): string {
     return out
 }
 
-/** Use z.coerce for numbers/booleans — some MCP clients send primitives as strings */
-function primitiveToZod(type: string): string {
+/**
+ * Use z.coerce for numbers/booleans — some MCP clients send primitives as strings.
+ * `strict` disables coercion for primitives that sit inside a union, where a
+ * coercing branch would greedily swallow inputs meant for later branches.
+ */
+function primitiveToZod(type: string, strict = false): string {
     switch (type) {
         case 'string':
             return 'z.string()'
         case 'number':
-            return 'z.coerce.number()'
+            return strict ? 'z.number()' : 'z.coerce.number()'
         case 'integer':
-            return 'z.coerce.number().int()'
+            return strict ? 'z.number().int()' : 'z.coerce.number().int()'
         case 'boolean':
-            return 'z.coerce.boolean()'
+            return strict ? 'z.boolean()' : 'z.coerce.boolean()'
         case 'null':
             return 'z.null()'
         default:

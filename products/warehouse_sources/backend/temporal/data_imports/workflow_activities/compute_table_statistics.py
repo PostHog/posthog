@@ -19,6 +19,8 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
 from django.utils import timezone
 
 import structlog
@@ -30,6 +32,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
@@ -162,12 +166,12 @@ def _most_recent_computed_at(existing: dict[str, WarehouseColumnStatistics]) -> 
 
 def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
     """Compute and persist per-column statistics for one warehouse table. Safe to re-run."""
-    # Lazy: DeltaTableHelper drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
+    # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
     # create_external_data_job_model_activity uses (it only imports statistics_enabled).
     from asgiref.sync import async_to_sync  # noqa: PLC0415
 
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (  # noqa: PLC0415
-        DeltaTableHelper,
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (  # noqa: PLC0415
+        DeltaTableRef,
     )
 
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
@@ -206,15 +210,20 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     capture_statistics_event(team, EVENT_STARTED, event_props)
 
     # Locate the committed Delta table. folder_path is schema-derived, so any job for this schema works;
-    # resource_name mirrors what the pipeline used to name the Delta folder.
+    # resource_name must resolve the folder leaf the same way the loader wrote it (see
+    # resolve_table_and_folder_names in pipelines/helpers.py), otherwise this reads a path that
+    # does not exist and reports no statistics.
     job = ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id).order_by("-created_at").first()
     if job is None:
         emit_completed("skipped", reason="no_job")
         return {"status": "skipped", "reason": "no_job"}
+    # Reuse the already-loaded, select_related schema instead of letting job.folder_path() lazily
+    # fetch job.schema on a pooled connection a transaction pooler may have dropped in the meantime.
+    job.schema = schema
 
     resource_name = schema.resolved_s3_folder_name or schema.name
-    delta_table_helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=log)
-    delta_table = async_to_sync(delta_table_helper.get_delta_table)()
+    delta_table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=log)
+    delta_table = async_to_sync(delta_table_ref.get_delta_table)()
     if delta_table is None:
         emit_completed("skipped", reason="no_delta_table")
         return {"status": "skipped", "reason": "no_delta_table"}
@@ -232,8 +241,20 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     row_count, stats_by_column = _aggregate_add_action_stats(add_actions, columns)
 
-    for column_name, stat in stats_by_column.items():
-        _upsert_statistics(team, table, column_name, row_count, stat, delta_version)
+    try:
+        for column_name, stat in stats_by_column.items():
+            _upsert_statistics(team, table, column_name, row_count, stat, delta_version)
+    except (OperationalError, InterfaceError):
+        # The Delta-log read above can run long enough for the Postgres connection opened by the
+        # earlier metadata queries (team/schema/existing-stats) to go stale — server restart, proxy
+        # idle-close — before these writes run. Django only clears a stale connection at thread
+        # entry/exit, not mid-call, so the first write here is the first thing to notice. Retry once
+        # after reconnecting rather than failing the whole activity and forcing Temporal to redo the
+        # Delta-log read just to redo a handful of upserts.
+        if not settings.TEST:
+            close_old_connections()
+        for column_name, stat in stats_by_column.items():
+            _upsert_statistics(team, table, column_name, row_count, stat, delta_version)
 
     log.info("warehouse_statistics.done", columns=len(stats_by_column), row_count=row_count)
     emit_completed("done", columns=len(stats_by_column), row_count=row_count, delta_version=delta_version)
@@ -278,7 +299,18 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
                 inputs.team_id, inputs.schema_id
             )
         except Exception as e:
-            capture_exception(e)
+            # get_delta_table already re-raises known-transient object-store blips as
+            # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally
+            # skips reporting them itself — don't undo that here.
+            #
+            # The activity interceptor (posthog/temporal/common/posthog_client.py) already skips
+            # reporting a transient app-DB blip (e.g. a PgBouncer query_wait_timeout hit while
+            # resolving the Team/ExternalDataSchema/ExternalDataJob rows above) via
+            # is_transient_db_error — but only for exceptions that reach it unreported. The
+            # unconditional capture_exception call below would report it first, so apply the same
+            # classifier here to avoid double-reporting a condition nobody can act on.
+            if not isinstance(e, NonReportableError) and not is_transient_db_error(e):
+                capture_exception(e)
             try:
                 posthoganalytics.capture(
                     distinct_id=f"team-{inputs.team_id}",

@@ -13,7 +13,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
     APPDYNAMICS_ENDPOINTS,
     APPLICATIONS_PATH,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT = 60
 MAX_RETRY_ATTEMPTS = 5
@@ -64,15 +66,15 @@ class AppdynamicsResumeConfig:
     window_start: int | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class AppdynamicsAuth:
     """Resolved credentials for a single sync. Exactly one auth style is populated."""
 
     account_name: str
     api_client_name: Optional[str] = None
-    api_client_secret: Optional[str] = None
+    api_client_secret: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
     @property
     def uses_oauth(self) -> bool:

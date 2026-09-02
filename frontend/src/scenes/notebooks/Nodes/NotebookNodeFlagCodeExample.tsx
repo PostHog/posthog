@@ -18,9 +18,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExample
     const { setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
-        setTitlePlaceholder(
-            featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example'
-        )
+        setTitlePlaceholder(featureFlag.key || 'Feature flag code example')
         // oxlint-disable-next-line exhaustive-deps
     }, [featureFlag?.key])
 
@@ -38,6 +36,7 @@ type NotebookNodeFlagCodeExampleAttributes = {
 export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeFlagCodeExampleAttributes>({
     nodeType: NotebookNodeType.FeatureFlagCodeExample,
     titlePlaceholder: 'Feature flag code example',
+    editableTitle: false,
     Component,
     heightEstimate: '3rem',
     startExpanded: true,

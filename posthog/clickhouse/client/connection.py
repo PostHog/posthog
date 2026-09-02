@@ -1,15 +1,19 @@
 import os
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
+from dataclasses import field
 from enum import StrEnum
 from functools import cache
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
@@ -25,6 +29,11 @@ class NodeRole(StrEnum):
     ALL = "all"
     DATA = "data"
     INGESTION_EVENTS = "events"
+    # Same macro, named for what the role holds rather than what writes to it. The nodes carrying
+    # this role run the events ingestion layer and are also the events cluster's shards, so a
+    # caller reasoning about stored data (deletion, squash) reads better against EVENTS while the
+    # migrations that create ingestion tables keep INGESTION_EVENTS.
+    EVENTS = "events"
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
     ENDPOINTS = "endpoints"
@@ -33,6 +42,7 @@ class NodeRole(StrEnum):
     # Below nodes are part of separate clusters.
     AI_EVENTS = "ai_events"
     AUX = "aux"
+    BATCH_EXPORTS = "batch_exports"
     OPS = "ops"
     SESSIONS = "sessions"
 
@@ -41,11 +51,19 @@ class NodeRole(StrEnum):
 # LOGS hosts replicated tables too (metric_series1/metric_samples1 via migration
 # 0283); non-sharded ALTERs on it run via any_host_by_roles like the satellites.
 DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.LOGS, NodeRole.OPS, NodeRole.SESSIONS}
+    {
+        NodeRole.DATA,
+        NodeRole.AI_EVENTS,
+        NodeRole.AUX,
+        NodeRole.BATCH_EXPORTS,
+        NodeRole.LOGS,
+        NodeRole.OPS,
+        NodeRole.SESSIONS,
+    }
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 
 
@@ -70,9 +88,15 @@ class ClickHouseUser(StrEnum):
     META = "meta"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
+    LLM_ANALYTICS = "llm_analytics"  # background AI observability workflows; interactive requests use APP
+    # Notebook frame materializations (Temporal worker streaming to the object store)
+    NOTEBOOKS = "notebooks"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    REPLAY_VISION = "replay_vision"
+    # Session replay surfacing scoring sweep
+    SURFACING_SCORING = "surfacing_scoring"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -87,26 +111,54 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
-__user_dict: Mapping[ClickHouseUser, tuple[str, str]] | None = None
+@frozen
+class ClickHouseCredentials:
+    user: str
+    password: str = field(repr=False)
+    # Path to a file holding the live password. When set, read_password re-reads it on each call,
+    # so a rotated short-lived token reaches ClickHouse without rebuilding the pool.
+    password_file: str | None = None
+
+    def read_password(self) -> str:
+        path = self.password_file
+        if path:
+            try:
+                token = Path(path).read_text().strip()
+            except OSError:
+                logging.warning("clickhouse: %s is not readable, using the static fallback", path)
+                return self.password
+            if token:
+                return token
+            logging.warning("clickhouse: %s is empty, using the static fallback", path)
+        return self.password
 
 
-def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
+__user_dict: Mapping[ClickHouseUser, ClickHouseCredentials] | None = None
+
+
+def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
     user_dict = {
-        ClickHouseUser.DEFAULT: (data_stores.CLICKHOUSE_USER, data_stores.CLICKHOUSE_PASSWORD),
+        ClickHouseUser.DEFAULT: ClickHouseCredentials(
+            user=data_stores.CLICKHOUSE_USER,
+            password=data_stores.CLICKHOUSE_PASSWORD,
+            password_file=data_stores.CLICKHOUSE_PASSWORD_FILE,
+        ),
     }
     for u in ClickHouseUser:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")
         password = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD")
-        if user and password:
-            user_dict[u] = (user, password)
-        elif bool(user) != bool(password):
+        password_file = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD_FILE")
+        secret = password or password_file
+        if user and secret:
+            user_dict[u] = ClickHouseCredentials(user=user, password=password or "", password_file=password_file)
+        elif bool(user) != bool(secret):
             logging.warning(f"only one of clickhouse user/password provided, check your config")
     user_names = ",".join([x.name for x in user_dict.keys()])
     logging.warning(f"initialized clickhouse users: {user_names}")
     return user_dict
 
 
-def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
+def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     """
     Retrieve ClickHouse credentials for the specified user.
 
@@ -121,15 +173,11 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     Args:
         user (ClickHouseUser): The user whose ClickHouse credentials need
                                to be retrieved.
-
-    Returns:
-        tuple[str, str]: A tuple containing the username and password associated
-                         with the specified user.
     """
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
-    return __user_dict[user] if user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
+    return __user_dict.get(user, __user_dict[ClickHouseUser.DEFAULT])
 
 
 class ProxyClient:
@@ -223,8 +271,8 @@ def get_kwargs_for_client(
             "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
         }
 
-    (user, password) = get_clickhouse_creds(ch_user)
-    base_kwargs = {"user": user, "password": password}
+    creds = get_clickhouse_creds(ch_user)
+    base_kwargs = {"user": creds.user, "password": creds.password}
 
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
@@ -248,6 +296,32 @@ def get_kwargs_for_client(
     return base_kwargs
 
 
+def _is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
+    # True when the resolved connection authenticates as a user whose credential comes from a
+    # rotating token file. The LOGS and readonly paths resolve to their own static credentials, so
+    # they are excluded and keep the static password.
+    return bool(creds.password_file) and workload != Workload.LOGS and user == creds.user
+
+
+def get_http_kwargs(
+    workload: Workload = Workload.DEFAULT,
+    team_id: int | None = None,
+    readonly: bool = False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> dict[str, Any]:
+    """Build kwargs for the short-lived HTTP client, reading a file-backed credential fresh.
+
+    The HTTP client is rebuilt on every call, so one read here is enough to send a rotated token.
+    The native pool path does not use this helper because RefreshingChPool already re-reads the file
+    on every checkout, which means a read here would only duplicate it on the hot query path.
+    """
+    kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    creds = get_clickhouse_creds(ch_user)
+    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+        kwargs["password"] = creds.read_password()
+    return kwargs
+
+
 @patchable
 def get_client_from_pool(
     workload: Workload = Workload.DEFAULT,
@@ -262,7 +336,7 @@ def get_client_from_pool(
     """
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
-        kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+        kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
         return get_http_client(**kwargs)
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
@@ -280,6 +354,12 @@ def get_pool(
     Note that the same pool should be returned every call.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    creds = get_clickhouse_creds(ch_user)
+    # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
+    # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
+    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+        kwargs.pop("password", None)
+        return make_ch_pool(credential_provider=creds.read_password, **kwargs)
     return make_ch_pool(**kwargs)
 
 
@@ -305,7 +385,31 @@ def default_client(host=settings.CLICKHOUSE_HOST):
     )
 
 
-def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrides) -> ChPool:
+class RefreshingChPool(ChPool):
+    """ChPool that stamps the current credential onto every pulled client.
+
+    The pool is keyed on identity rather than the credential, so one pool survives credential
+    rotation instead of leaking a new pool per rotation. The stamp lands on the client's next
+    (re)connect, since ClickHouse authenticates at connection time, not per query: a warm pooled
+    connection keeps its session until it is reopened, and the overlapping token TTL covers that gap.
+    """
+
+    def __init__(self, *, credential_provider: Callable[[], str], **kwargs) -> None:
+        self._credential_provider = credential_provider
+        super().__init__(**kwargs)
+
+    def pull(self, key: str | None = None) -> SyncClient:
+        client = super().pull(key)
+        client.connection.password = self._credential_provider()
+        return client
+
+
+def _make_ch_pool(
+    *,
+    client_settings: Mapping[str, str] | None = None,
+    credential_provider: Callable[[], str] | None = None,
+    **overrides,
+) -> ChPool:
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -324,6 +428,10 @@ def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrid
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         **overrides,
     }
+
+    if credential_provider is not None:
+        # kwargs["password"] is only the lazy seed here; RefreshingChPool re-stamps every pulled client.
+        return RefreshingChPool(credential_provider=credential_provider, **kwargs)
 
     return ChPool(**kwargs)
 

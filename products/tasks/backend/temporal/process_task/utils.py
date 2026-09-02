@@ -5,9 +5,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
-from urllib.parse import urlparse
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from pydantic import BaseModel
@@ -26,8 +26,11 @@ from products.tasks.backend.constants import (
     InitialPermissionMode,
     SnapshotKind,
     filter_user_sandbox_env_vars,
+    is_same_run_resume_idle_state,
+    is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
@@ -39,6 +42,12 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    MINTABLE_PRODUCTS,
+    mint_scoped_token,
+    resolve_sandbox_ai_product,
+    sandbox_product_routed,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -65,6 +74,10 @@ class RunSource(StrEnum):
     SIGNAL_REPORT = "signal_report"
 
 
+# Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
+
+
 class RuntimeAdapter(StrEnum):
     CLAUDE = "claude"
     CODEX = "codex"
@@ -76,11 +89,14 @@ class LLMProvider(StrEnum):
 
 
 class ReasoningEffort(StrEnum):
+    OFF = "off"
+    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     XHIGH = "xhigh"
     MAX = "max"
+    ULTRACODE = "ultracode"
 
 
 PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -89,7 +105,11 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.HIGH,
     ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
+    ReasoningEffort.ULTRACODE,
 )
+
+
+CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
@@ -106,6 +126,15 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
+    "zai-org/glm-5.3": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "zai-org/glm-5.3-flash": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "moonshotai/kimi-k3": (),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -124,6 +153,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-opus-4-8": (
         ReasoningEffort.LOW,
@@ -131,6 +161,15 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
+    ),
+    "claude-opus-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-fable-5": (
         ReasoningEffort.LOW,
@@ -138,6 +177,15 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
+    ),
+    "claude-fable-5-1": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
@@ -145,6 +193,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
     ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
@@ -264,6 +313,56 @@ def get_reasoning_effort_error(
     )
 
 
+def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
+    """Which runtime adapter serves `model`, per this catalogue.
+
+    The adapter is a property of the model rather than an independent choice, so
+    deriving it is what lets callers reject a `(runtime_adapter, model)` pair that
+    disagrees with itself. `None` when no adapter claims the model.
+    """
+    if not model:
+        return None
+
+    normalized = model.strip().lower()
+    for adapter in RuntimeAdapter:
+        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
+            return adapter
+    return None
+
+
+def validate_model_selection(
+    runtime_adapter: RuntimeAdapter | str | None,
+    model: str | None,
+    reasoning_effort: ReasoningEffort | str | None,
+) -> None:
+    """Raise `ValidationError` unless these three may be used together.
+
+    The one place a picker or a write path can ask "is this selection legal?", so a
+    linked-dropdown UI and the API that persists its output can't disagree.
+
+    A model this catalogue serves under a different runtime is rejected outright. A model
+    no runtime claims is left alone — callers whose model list comes from elsewhere (the
+    LLM gateway, say) own that allowlist, and rejecting anything unrecognised here would
+    make every newly served model look invalid.
+    """
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+
+    if adapter_value is not None and adapter_value not in {adapter.value for adapter in RuntimeAdapter}:
+        valid_adapters = ", ".join(sorted(adapter.value for adapter in RuntimeAdapter))
+        raise ValidationError(f"Unknown runtime_adapter '{adapter_value}'. Valid values: {valid_adapters}.")
+
+    owning_adapter = get_runtime_adapter_for_model(model)
+    if adapter_value is not None and owning_adapter is not None and owning_adapter.value != adapter_value:
+        raise ValidationError(
+            f"Model '{model}' runs on runtime_adapter '{owning_adapter.value}', not '{adapter_value}'. "
+            f"Models for '{adapter_value}': {', '.join(get_models_for_runtime_adapter(adapter_value))}."
+        )
+
+    effort_error = get_reasoning_effort_error(adapter_value, model, reasoning_effort)
+    if effort_error:
+        raise ValidationError(effort_error)
+
+
 def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str | None:
     """Resolve where a directory resume snapshot may be mounted; ``None`` means "don't use it".
 
@@ -301,8 +400,11 @@ class RunState(BaseModel, extra="allow"):
     provider: LLMProvider | None = None
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
+    context_window: str | None = None
+    fast_mode: bool | None = None
     resume_from_run_id: str | None = None
-    handoff_resumed: bool = False
+    same_run_resume: bool = False
+    same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
@@ -348,7 +450,10 @@ class RunState(BaseModel, extra="allow"):
 
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
-    return RunState.model_validate(state or {})
+    normalized_state = dict(state or {})
+    normalized_state["same_run_resume"] = is_same_run_resume_state(state)
+    normalized_state["same_run_resume_idle"] = is_same_run_resume_idle_state(state)
+    return RunState.model_validate(normalized_state)
 
 
 @dataclass(frozen=True)
@@ -395,8 +500,16 @@ def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
     return (state or {}).get("sandbox_id") or run_id
 
 
-def _sandbox_mcp_session_cache_key(scope: str) -> str:
-    return f"tasks:sandbox-mcp-session:{scope}"
+def _sandbox_identity_cache_key(kind: str, scope: str) -> str:
+    return f"tasks:sandbox-{kind}:{scope}"
+
+
+def _mark_sandbox_identity(kind: str, scope: str, user_id: int) -> None:
+    get_tasks_cache().set(_sandbox_identity_cache_key(kind, scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
+    return get_tasks_cache().get(_sandbox_identity_cache_key(kind, scope))
 
 
 def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
@@ -405,13 +518,33 @@ def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
     entry always reads as "must refresh".
     """
-    get_tasks_cache().set(_sandbox_mcp_session_cache_key(scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    _mark_sandbox_identity("mcp-session", scope, user_id)
 
 
 def get_sandbox_mcp_session_user(scope: str) -> int | None:
     """User id the sandbox's MCP session was last bound to within the
     freshness window, or None when unknown."""
-    return get_tasks_cache().get(_sandbox_mcp_session_cache_key(scope))
+    return _get_sandbox_identity_user("mcp-session", scope)
+
+
+def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
+    """Record which actor the sandbox's in-place GitHub credentials reflect.
+
+    The value is the actor whose token was applied, or who was logged out (no usable
+    access) — either way the sandbox no longer carries a *different* actor's identity,
+    which is what owner-scoped refreshes check before re-applying the owner's token.
+
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an absent entry reads as
+    "must re-establish", which is always safe because re-establishing re-applies or
+    clears rather than trusting stale creds.
+    """
+    _mark_sandbox_identity("github-identity", scope, user_id)
+
+
+def get_sandbox_github_identity_user(scope: str) -> int | None:
+    """Actor id the sandbox's GitHub credentials were last bound to (or logged
+    out for) within the freshness window, or None when unknown."""
+    return _get_sandbox_identity_user("github-identity", scope)
 
 
 @dataclass(frozen=True)
@@ -423,23 +556,33 @@ class McpServerConfig:
     - name: server identifier
     - url: server endpoint
     - headers: list of {name, value} pairs
+    - description: one-line summary of what the server does (pi only; the agent server
+      strips it before handing the list to claude or codex over ACP)
     """
 
     type: str
     name: str
     url: str
     headers: list[dict[str, str]] = field(default_factory=list)
+    description: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        config: dict[str, Any] = {
             "type": self.type,
             "name": self.name,
             "url": self.url,
             "headers": self.headers,
         }
+        if self.description:
+            config["description"] = self.description
+        return config
 
 
 def get_sandbox_api_url() -> str:
+    # Local Docker caveat: this URL reaches the sandbox inside MCP server configs, which
+    # (unlike the env vars in _DOCKER_URL_ENV_KEYS) are never rewritten to
+    # host.docker.internal. With the localhost default, a local sandbox can't dial the
+    # MCP Store proxy, so the agent SDK silently drops every store connector.
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
@@ -450,7 +593,10 @@ def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
     state) so the caller keeps its current unfiltered behavior. Once a loop snapshot exists, a
     missing or malformed id list fails closed to an empty allowlist (mount nothing) — a loop that
     selected no connectors, or whose config omitted the key, must not fall back to mounting every
-    connector the owner has."""
+    connector the owner has. A workflow snapshot keys its connectors by gateway server
+    (``mcp_gateway_server_ids``) and carries no installation ids, so it lands here too: the run
+    mounts nothing through the member path, and its selection applies through
+    ``Task.mcp_gateway_server_allowlist`` on the agent path."""
     config_snapshot = (state or {}).get("config_snapshot")
     if not isinstance(config_snapshot, dict):
         return None
@@ -467,18 +613,36 @@ def get_user_mcp_server_configs(
     include_personal: bool = True,
     interaction_origin: str | None = None,
     allowed_installation_ids: list[str] | None = None,
+    origin_product: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
-    Always includes shared (team-wide) installations. When
-    ``include_personal`` is True and a ``user_id`` is provided, the user's
-    personal installations are included too.
+    Unmapped tasks include shared team installations. Built-in agent tasks only
+    include the connections granted to that agent: those ``credential_owner_id``
+    granted, plus any member's team-scoped grants. They never include a member's
+    personal installations. An agent task whose persisted owner is missing still
+    mounts the team-scoped grants, which is what keeps autonomous runs
+    (support replies, creatorless scouts) working. A mapped origin
+    without its persisted agent marker gets no Store installations. Built-in
+    agent handling is gated per team on the ``mcp-gateway`` rollout flag; teams without it
+    resolve mapped origins like unmapped tasks. For unmapped tasks,
+    ``include_personal`` includes the user's personal installations when a
+    ``user_id`` is provided.
 
-    ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
+    ``allowed_installation_ids`` restricts the member-path mounts to a snapshotted allowlist (a
     loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
     behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
     those installations. Without it, an unattended loop run would mount every shared team connector
     rather than only the ones its owner chose.
+
+    ``allowed_gateway_server_ids`` is the built-in agent counterpart (a scout's or workflow
+    step's selection, from ``Task.mcp_gateway_server_allowlist``): it narrows the agent's
+    mounts to the listed gateway servers regardless of grant scope. ``None`` leaves them
+    unfiltered; an empty list mounts nothing. The facade applies each allowlist on its own
+    path, so an agent run is never filtered by installation ids it does not mount by.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -492,24 +656,28 @@ def get_user_mcp_server_configs(
         team_id,
         user_id=user_id,
         include_personal=include_personal,
+        task_origin=origin_product,
+        task_agent_key=task_agent_key,
+        credential_owner_id=credential_owner_id,
+        allowed_installation_ids=allowed_installation_ids,
+        allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
-    if allowed_installation_ids is not None:
-        allowed = {str(i) for i in allowed_installation_ids}
-        installations = [installation for installation in installations if str(installation.id) in allowed]
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 
     configs: list[McpServerConfig] = []
     for installation in installations:
+        headers = [
+            {"name": "Authorization", "value": f"Bearer {installation.proxy_token or token}"},
+            {"name": "x-posthog-mcp-consumer", "value": consumer},
+        ]
         configs.append(
             McpServerConfig(
                 type="http",
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
-                headers=[
-                    {"name": "Authorization", "value": f"Bearer {token}"},
-                    {"name": "x-posthog-mcp-consumer", "value": consumer},
-                ],
+                headers=headers,
+                description=installation.description or None,
             )
         )
 
@@ -629,6 +797,15 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     return "posthog-code"
 
 
+# Names capabilities rather than describing the server, because the agent's tool search reads
+# this before the PostHog MCP has ever connected.
+POSTHOG_MCP_DESCRIPTION = (
+    "Query and manage a PostHog project: events, insights, dashboards, SQL queries, "
+    "feature flags, experiments, surveys, error tracking, session replay, logs, "
+    "LLM analytics, and the data warehouse."
+)
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
@@ -636,6 +813,7 @@ def get_sandbox_ph_mcp_configs(
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
     task_id: str | None = None,
+    origin_product: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -643,13 +821,17 @@ def get_sandbox_ph_mcp_configs(
     PostHog API) can deterministically attribute the agent's writes to its task — the LLM never
     handles its own task id.
 
+    `origin_product` rides along as `X-PostHog-Task-Origin`. The consumer header can't carry it
+    (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
+    `exec` from advertising gateway tools to runs that mount those servers directly.
+
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
     - eu.posthog.com → https://mcp-eu.posthog.com/mcp
     - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
-    url = _resolve_mcp_url()
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
@@ -662,32 +844,17 @@ def get_sandbox_ph_mcp_configs(
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
-    return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
-
-
-def _resolve_mcp_url() -> str | None:
-    if settings.SANDBOX_MCP_URL:
-        return settings.SANDBOX_MCP_URL
-
-    site_url = settings.SITE_URL
-    if not site_url:
-        return None
-
-    hostname = urlparse(site_url).hostname or ""
-    if hostname in ("app.posthog.com", "us.posthog.com"):
-        return "https://mcp.posthog.com/mcp"
-    if hostname == "eu.posthog.com":
-        return "https://mcp-eu.posthog.com/mcp"
-    if hostname == "app.dev.posthog.dev":
-        return "https://mcp.dev.posthog.dev/mcp"
-
-    # Local dev: point to the local wrangler dev MCP server via
-    # host.docker.internal, since the sandbox runs in Docker.
-    # On Linux without Docker Desktop, set SANDBOX_MCP_URL instead.
-    if hostname in ("localhost", "127.0.0.1"):
-        return "http://host.docker.internal:8787/mcp"
-
-    return None
+    if origin_product:
+        headers.append({"name": "X-PostHog-Task-Origin", "value": origin_product})
+    return [
+        McpServerConfig(
+            type="http",
+            name="posthog",
+            url=url,
+            headers=headers,
+            description=POSTHOG_MCP_DESCRIPTION,
+        )
+    ]
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
@@ -1116,11 +1283,15 @@ def get_sandbox_name_for_task(task_id: str) -> str:
 def build_sandbox_environment_variables(
     github_token: str | None,
     access_token: str,
-    team_id: int,
+    ctx,
+    task,
     sandbox_environment: Optional[Any] = None,
     otel_telemetry_enabled: bool = False,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
+
+    Takes the run's ctx/task wholesale so the gateway routing/mint env is derived by
+    ``run_gateway_env_vars`` and no caller can drop part of the context.
 
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
@@ -1141,13 +1312,15 @@ def build_sandbox_environment_variables(
         {
             "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(team_id),
+            "POSTHOG_PROJECT_ID": str(ctx.team_id),
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
     )
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    env_vars.update(run_gateway_env_vars(ctx, task))
 
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
@@ -1173,6 +1346,59 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
+def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+    """The gateway routing/mint env for one run, derived from its server-side context.
+
+    Every sandbox provisioning path calls this rather than spelling out the kwargs, so
+    no path can silently drop the team, origin, stage, internal, or acting-identity
+    context that scoped-token minting depends on. `ctx` is the run's
+    TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
+    """
+    return ai_gateway_env_vars(
+        team_id=ctx.team_id,
+        origin_product=ctx.origin_product,
+        ai_stage=(ctx.state or {}).get("ai_stage"),
+        internal=task.internal,
+        distinct_id=ctx.distinct_id,
+    )
+
+
+def ai_gateway_env_vars(
+    *,
+    team_id: int | None = None,
+    origin_product: str | None = None,
+    ai_stage: str | None = None,
+    internal: bool = False,
+    distinct_id: str | None = None,
+) -> dict[str, str]:
+    """Env vars routing listed products to the Go ai-gateway, shared by every
+    injection site so the both-or-nothing guard cannot drift per site. Both
+    settings or nothing: a URL with no product allowlist would route every
+    sandbox caller, and a product list with no URL has nowhere to go.
+
+    When the run's product is on the allowlist and a mint credential is
+    configured, a per-run `phe_` scoped token is minted and injected as
+    ``AI_GATEWAY_TOKEN``; the agent server routes to the Go gateway only when
+    the token is present, so a missing token (mint failure, or a caller that
+    cannot supply run context) degrades the run to the Python gateway.
+    """
+    if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
+        return {}
+    env_vars = {
+        "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
+        "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+    }
+    if team_id is not None:
+        ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
+        if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
+            ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
+        ):
+            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
+            if token:
+                env_vars["AI_GATEWAY_TOKEN"] = token
+    return env_vars
+
+
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
     """Return the effective PR authorship mode for a run.
 
@@ -1190,11 +1416,84 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
         return PrAuthorshipMode.BOT
 
-    return (
-        PrAuthorshipMode.USER
-        if task.origin_product in (TaskModel.OriginProduct.USER_CREATED, TaskModel.OriginProduct.SLACK)
-        else PrAuthorshipMode.BOT
+    return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
+
+
+def is_bot_authorship_fallback(task: Task, run_id: str, state: dict[str, Any] | None = None) -> bool:
+    """Whether this run was meant to carry a human git identity but couldn't.
+
+    True exactly when the run's origin is user-authorable and it still resolved to bot
+    authorship, which happens when the creator had no usable personal GitHub installation
+    at creation time. Runs that are bot-authored by design (signal reports) and runs pinned
+    to a caller-supplied token are excluded: neither would be fixed by anyone connecting
+    their own GitHub.
+
+    Selects the same population `upgrade_run_to_user_authorship` promotes, so a surface can
+    tell someone their pull request went out under the bot's name and know that connecting
+    is what changes it.
+    """
+    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return False
+    if parse_run_state(state).run_source == RunSource.SIGNAL_REPORT:
+        return False
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
+        return False
+    return not is_caller_token_run(run_id, state)
+
+
+def upgrade_run_to_user_authorship(
+    task_run: TaskRun, actor_user: User | None, state: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """Promote a run that fell back to bot authorship once its actor has a usable install.
+
+    A run started by someone with no personal GitHub is created as `BOT` and that value is
+    frozen in run state, so connecting GitHub mid-thread would otherwise never take effect —
+    the agent asks for the connection precisely when it needs the code, and the next turn has
+    to honor it. Only the fallback is promoted: a run that is bot-authored by design (signal
+    reports) or pinned to a caller-supplied token keeps the identity it was given.
+
+    There is no mirror image of this. A disconnection leaves the run on `USER` and lets token
+    resolution fail, which logs the sandbox out; falling back to the team installation would
+    hand broader access to someone who just revoked their own, and silently move PR authorship
+    onto the bot.
+
+    Returns the run's new persisted state when it was promoted, and None when nothing changed.
+    The state passed in is left untouched.
+    """
+    from products.tasks.backend.models import TaskRun as TaskRunModel
+
+    if actor_user is None:
+        return None
+    task = task_run.task
+    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return None
+    # Promotion is only for the creator. A thread participant's connection would retarget a run
+    # they don't own, and later turns by a creator without one would then resolve to nothing
+    # instead of the bot fallback they had. The cloud path refuses the same case outright.
+    if task.created_by_id != actor_user.id:
+        return None
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
+        return None
+    if is_caller_token_run(str(task_run.id), state):
+        return None
+
+    # Nothing is pinned to the task: `Task.github_user_integration` only disambiguates *which*
+    # install to use when a user has several, and token resolution finds this one on its own by
+    # scoping to the repository. Writing it would put per-actor credential state on a row shared
+    # by every run of the task, for no gain.
+    if not user_github_integration_is_usable(
+        resolve_user_github_integration_for_task(task, actor_user=actor_user, allow_refresh=False)
+    ):
+        return None
+
+    promoted_state = TaskRunModel.update_state_atomic(
+        task_run.id, updates={"pr_authorship_mode": PrAuthorshipMode.USER.value}
     )
+    logger.info(
+        "run_promoted_to_user_authorship",
+        extra={"run_id": str(task_run.id), "task_id": str(task.id), "user_id": actor_user.id},
+    )
+    return promoted_state
 
 
 def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -> dict[str, str]:

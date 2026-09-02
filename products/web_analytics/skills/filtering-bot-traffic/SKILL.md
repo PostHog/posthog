@@ -173,5 +173,4 @@ the capture API) before building bot insights.
 - **Don't silently drop the host filter.** If the user is scoped to one domain, inherit
   `$host` in `properties` — leaving it out changes the answer.
 - **Bot definitions evolve.** The detected-bot list changes over time, so re-running the
-  same query later can classify older events differently. Definitions live in
-  `products/web_analytics/backend/hogql_queries/bot_definitions.py`.
+  same query later can classify older events differently.

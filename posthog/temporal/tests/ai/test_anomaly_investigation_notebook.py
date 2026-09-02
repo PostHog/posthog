@@ -4,7 +4,7 @@ from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderCon
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAnomalyInvestigationNotebook(BaseTest):
@@ -27,6 +27,7 @@ class TestAnomalyInvestigationNotebook(BaseTest):
     def test_builds_well_formed_tiptap_doc(self) -> None:
         report = InvestigationReport(
             verdict="true_positive",
+            metric_meaning="Unique users who loaded a page under /pricing each day.",
             summary="Traffic doubled after a marketing campaign launch.",
             hypotheses=[
                 InvestigationHypothesis(
@@ -47,6 +48,7 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         headings = [node for node in doc["content"] if node.get("type") == "heading"]
         heading_texts = [node["content"][0]["text"] for node in headings if node.get("content")]
         assert any("Verdict" == t for t in heading_texts)
+        assert any("What this metric measures" == t for t in heading_texts)
         assert any("Hypotheses" == t for t in heading_texts)
         assert any("Recommendations" == t for t in heading_texts)
 
@@ -71,4 +73,5 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         ]
         assert "Hypotheses" not in heading_texts
         assert "Recommendations" not in heading_texts
+        assert "What this metric measures" not in heading_texts
         assert "Verdict" in heading_texts

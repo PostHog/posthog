@@ -3,6 +3,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from products.review_hog.backend.reviewer.constants import REVIEW_MCP_SCOPES
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 from products.tasks.backend.facade.api import TaskOriginProduct
 
@@ -97,6 +98,8 @@ async def run_sandbox_review(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
         initial_permission_mode=initial_permission_mode,
+        # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
+        posthog_mcp_scopes=REVIEW_MCP_SCOPES,
     )
     return await _run_prompt(
         full_prompt,
@@ -143,6 +146,8 @@ async def start_sandbox_session(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
         initial_permission_mode=initial_permission_mode,
+        # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
+        posthog_mcp_scopes=REVIEW_MCP_SCOPES,
     )
     try:
         return await MultiTurnSession.start(

@@ -45,6 +45,7 @@ import {
     Node,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessQuery,
     TrendsFormulaNode,
@@ -67,6 +68,7 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isRetentionQuery,
     isTrendsQuery,
     hasBreakdownFilter,
@@ -79,6 +81,8 @@ import {
     IntervalType,
     UserBasicType,
 } from '~/types'
+
+import { journeysSummaryParts } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -301,6 +305,25 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     )
 }
 
+function PathsV2Summary({ query }: { query: PathsV2Query }): JSX.Element {
+    // Sync format with summarizeJourneys in journeysSummary.ts
+    const { sources, anchor } = journeysSummaryParts(query.pathsV2Filter)
+    return (
+        <div className="SeriesDisplay">
+            <div>
+                <div>
+                    Journeys based on <b>{sources}</b>
+                </div>
+                {anchor && (
+                    <div>
+                        {anchor.verb} at <b>{anchor.label}</b>
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
+
 function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
     const { aggregationLabel } = useValues(mathsLogic)
 
@@ -374,6 +397,8 @@ export function SeriesSummary({
                     {isTrendsQuery(query) && <FormulaSummary query={query} />}
                     {isPathsQuery(query) ? (
                         <PathsSummary query={query} />
+                    ) : isPathsV2Query(query) ? (
+                        <PathsV2Summary query={query} />
                     ) : isRetentionQuery(query) ? (
                         <RetentionSummary query={query} />
                     ) : isInsightQueryWithSeries(query) ? (

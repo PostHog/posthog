@@ -8,7 +8,6 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor import (
     FULL_REFRESH_SINCE_DATE,
     CampaignMonitorResumeConfig,
@@ -18,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_m
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.settings import (
     CAMPAIGN_MONITOR_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -181,6 +181,19 @@ class TestPaginatedEndpoints:
         assert snapshots[0][1]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sent_campaigns_endpoint_reads_paged_envelope(self, MockSession) -> None:
+        # The sent-campaigns endpoint returns the paged envelope, not a bare array — a dict body
+        # was raising "Required a list response body" and failing every campaign sync.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}])])
+
+        rows = _rows(_source("campaigns"))
+
+        assert [r["CampaignID"] for r in rows] == ["c1", "c2"]
+        assert snapshots[0][0].endswith("clients/client-abc/campaigns.json")
+        assert snapshots[0][1]["pagesize"] == 1000
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_results_key_yields_nothing(self, MockSession) -> None:
         # Campaign Monitor's paged envelope without Results is treated as a zero-row page.
         session = MockSession.return_value
@@ -335,7 +348,7 @@ class TestCampaignFanOut:
         snapshots = _wire(
             session,
             [
-                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json
+                _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json (paged envelope)
                 _envelope([{"EmailAddress": "a@x.com"}]),  # c1
                 _envelope([{"EmailAddress": "b@x.com"}]),  # c2
             ],
@@ -357,7 +370,7 @@ class TestCampaignFanOut:
         snapshots = _wire(
             session,
             [
-                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
+                _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
                 _response({"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40}),  # c1 summary
                 _response({"Name": "Promo", "Recipients": 50, "UniqueOpened": 10}),  # c2 summary
             ],
@@ -383,7 +396,7 @@ class TestCampaignFanOut:
     def test_empty_summary_object_yields_no_row(self, MockSession) -> None:
         # An empty summary body is not a row — no record carrying only the injected CampaignID.
         session = MockSession.return_value
-        _wire(session, [_response([{"CampaignID": "c1"}]), _response({})])
+        _wire(session, [_envelope([{"CampaignID": "c1"}]), _response({})])
 
         assert _rows(_source("campaign_summary")) == []
 
@@ -393,7 +406,7 @@ class TestCampaignFanOut:
         snapshots = _wire(
             session,
             [
-                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json re-fetched
+                _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json re-fetched
                 _envelope([{"EmailAddress": "b@x.com"}]),  # c2 only
             ],
         )

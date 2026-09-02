@@ -39,15 +39,15 @@ fn is_yaml_file_path(path: &str) -> bool {
 pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
     context().capture_command_invoked("endpoints_pull");
 
-    println!();
-    println!("Fetching endpoints from PostHog...");
-    println!();
+    crate::safe_println!();
+    crate::safe_println!("Fetching endpoints from PostHog...");
+    crate::safe_println!();
 
     // Fetch all remote endpoints
     let remote_list = fetch_all_endpoints(args.debug)?;
 
     if remote_list.results.is_empty() {
-        println!("No endpoints found in PostHog.");
+        crate::safe_println!("No endpoints found in PostHog.");
         return Ok(());
     }
 
@@ -68,22 +68,24 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
         // Check for missing endpoints
         for name in &args.names {
             if !remote_list.results.iter().any(|e| &e.name == name) {
-                println!("{} Endpoint '{}' not found in PostHog", "⚠".yellow(), name);
+                crate::safe_println!("{} Endpoint '{}' not found in PostHog", "⚠".yellow(), name);
             }
         }
 
         if found.is_empty() {
-            println!("No matching endpoints found.");
+            crate::safe_println!("No matching endpoints found.");
             return Ok(());
         }
 
         found
     } else {
-        println!("Specify endpoint name(s) to pull, or use --all to pull all endpoints.");
-        println!();
-        println!("Usage:");
-        println!("  posthog-cli exp endpoints pull <name>...");
-        println!("  posthog-cli exp endpoints pull --all");
+        crate::safe_println!(
+            "Specify endpoint name(s) to pull, or use --all to pull all endpoints."
+        );
+        crate::safe_println!();
+        crate::safe_println!("Usage:");
+        crate::safe_println!("  posthog-cli exp endpoints pull <name>...");
+        crate::safe_println!("  posthog-cli exp endpoints pull --all");
         return Ok(());
     };
 
@@ -168,18 +170,18 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
         .collect();
 
     if creates.is_empty() && updates.is_empty() {
-        println!("No changes to write.");
+        crate::safe_println!("No changes to write.");
         for skip in &skips {
             if let PullAction::Skip { name, reason, .. } = skip {
-                println!("  {} {} ({})", "SKIP".dimmed(), name, reason.dimmed());
+                crate::safe_println!("  {} {} ({})", "SKIP".dimmed(), name, reason.dimmed());
             }
         }
         return Ok(());
     }
 
     // Display preview
-    println!("Files to write:");
-    println!();
+    crate::safe_println!("Files to write:");
+    crate::safe_println!();
 
     for action in &actions {
         match action {
@@ -187,8 +189,8 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
                 endpoint,
                 file_path,
             } => {
-                println!("  {}  {}", "CREATE".green().bold(), file_path.bold());
-                println!("    New file (endpoint not in local directory)");
+                crate::safe_println!("  {}  {}", "CREATE".green().bold(), file_path.bold());
+                crate::safe_println!("    New file (endpoint not in local directory)");
                 if !endpoint.description.is_empty() {
                     let desc = if endpoint.description.chars().count() > 50 {
                         format!(
@@ -198,24 +200,24 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
                     } else {
                         endpoint.description.clone()
                     };
-                    println!("    Description: {}", desc.dimmed());
+                    crate::safe_println!("    Description: {}", desc.dimmed());
                 }
-                println!();
+                crate::safe_println!();
             }
             PullAction::Update {
                 file_path, changes, ..
             } => {
-                println!("  {}  {}", "UPDATE".yellow().bold(), file_path.bold());
+                crate::safe_println!("  {}  {}", "UPDATE".yellow().bold(), file_path.bold());
                 for change in changes {
-                    println!("    - {}", format_change_summary(change));
+                    crate::safe_println!("    - {}", format_change_summary(change));
                     if let Change::Query { from, to } = change {
                         print_diff(from, to, "      ");
                     }
                 }
-                println!();
+                crate::safe_println!();
             }
             PullAction::Skip { name, reason, .. } => {
-                println!(
+                crate::safe_println!(
                     "  {}    {}.yaml ({})",
                     "SKIP".dimmed(),
                     name,
@@ -227,8 +229,8 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
 
     // If dry-run, stop here
     if args.dry_run {
-        println!();
-        println!("{}", "(dry-run mode, no files written)".dimmed());
+        crate::safe_println!();
+        crate::safe_println!("{}", "(dry-run mode, no files written)".dimmed());
         return Ok(());
     }
 
@@ -246,17 +248,17 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
         match confirm {
             Ok(true) => {}
             Ok(false) => {
-                println!("Cancelled.");
+                crate::safe_println!("Cancelled.");
                 return Ok(());
             }
             Err(_) => {
-                println!("Cancelled.");
+                crate::safe_println!("Cancelled.");
                 return Ok(());
             }
         }
     }
 
-    println!();
+    crate::safe_println!();
 
     // Ensure output directory exists
     if output_is_file {
@@ -284,11 +286,11 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
                 let yaml = EndpointYaml::from_api_response(&endpoint);
                 match write_yaml_file(&file_path, &yaml) {
                     Ok(()) => {
-                        println!("{} Created: {}", "✓".green(), file_path);
+                        crate::safe_println!("{} Created: {}", "✓".green(), file_path);
                         success_count += 1;
                     }
                     Err(e) => {
-                        println!("{} Failed to write {}: {}", "✗".red(), file_path, e);
+                        crate::safe_println!("{} Failed to write {}: {}", "✗".red(), file_path, e);
                     }
                 }
             }
@@ -300,11 +302,11 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
                 let yaml = EndpointYaml::from_api_response(&endpoint);
                 match write_yaml_file(&file_path, &yaml) {
                     Ok(()) => {
-                        println!("{} Updated: {}", "✓".green(), file_path);
+                        crate::safe_println!("{} Updated: {}", "✓".green(), file_path);
                         success_count += 1;
                     }
                     Err(e) => {
-                        println!("{} Failed to write {}: {}", "✗".red(), file_path, e);
+                        crate::safe_println!("{} Failed to write {}: {}", "✗".red(), file_path, e);
                     }
                 }
             }
@@ -312,8 +314,8 @@ pub fn pull_endpoints(args: &PullArgs) -> Result<()> {
         }
     }
 
-    println!();
-    println!(
+    crate::safe_println!();
+    crate::safe_println!(
         "{} file{} written.",
         success_count,
         if success_count == 1 { "" } else { "s" }

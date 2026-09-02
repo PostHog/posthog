@@ -10,7 +10,7 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor import cursor
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import (
     CursorResumeConfig,

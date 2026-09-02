@@ -3,7 +3,7 @@ import type { Page } from 'puppeteer'
 import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
 import { BlockProxy } from './block-proxy'
@@ -49,8 +49,13 @@ export class PlayerController {
         return this.capturePage.page
     }
 
+    get fatalError(): RasterizationError | null {
+        return this.capturePage.fatalError
+    }
+
     private toError(err: { code: string; message: string; retryable: boolean }): RasterizationError {
-        return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable, err.code)
+        // The code is browser-supplied — clamp it to the known set so downstream labels stay bounded.
+        return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable, toRasterizationErrorCode(err.code))
     }
 
     private rejectWithError(err: { code: string; message: string; retryable: boolean }): void {
@@ -99,6 +104,13 @@ export class PlayerController {
         timeoutMsg: string,
         resetOnProgress = false
     ): Promise<void> {
+        // An error emitted before this registers errorReject (e.g. NO_SNAPSHOTS arriving between
+        // load() and waitForStart()) was shelved in playbackError; without this check it would sit
+        // there while we idle out and misreport a retryable TIMEOUT over the real, possibly
+        // terminal, code.
+        if (this.playbackError) {
+            return Promise.reject(this.playbackError)
+        }
         return new Promise<void>((resolve, reject) => {
             const onTimeout = (): void => {
                 this.startedResolve = null
@@ -177,7 +189,16 @@ export class PlayerController {
             playerConfig
         )
 
-        await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        try {
+            await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        } catch (err) {
+            // Puppeteer's TimeoutError would classify as UNKNOWN downstream; it is the same failure
+            // mode as every other load stall, so give it the same retryable TIMEOUT code.
+            if ((err as Error)?.name === 'TimeoutError') {
+                throw new RasterizationError('player page load timed out', true, 'TIMEOUT', err)
+            }
+            throw err
+        }
         this.log.info({ origin: this.capturePage.playerUrl }, 'player loaded')
     }
 

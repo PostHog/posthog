@@ -1,17 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api import (
-    ExchangeRatesApiResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source import (
     ExchangeRatesApiSource,
@@ -19,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
     ExchangeRatesApiSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestExchangeRatesApiSource:
@@ -27,33 +15,6 @@ class TestExchangeRatesApiSource:
         self.source = ExchangeRatesApiSource()
         self.team_id = 123
         self.config = ExchangeRatesApiSourceConfig(access_key="era-test", base_currency="EUR", start_date=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.EXCHANGERATESAPI
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "ExchangeRatesApi"
-        assert config.label == "Exchange Rates API"
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/exchange-rates-api"
-        assert [f.name for f in config.fields] == ["access_key", "base_currency", "start_date"]
-
-    def test_access_key_field_is_secret_password(self) -> None:
-        field = next(f for f in self.source.get_source_config.fields if f.name == "access_key")
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    @pytest.mark.parametrize("field_name", ["base_currency", "start_date"])
-    def test_optional_fields_are_not_required(self, field_name: str) -> None:
-        field = next(f for f in self.source.get_source_config.fields if f.name == field_name)
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.required is False
-        assert field.secret is False
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — safe to surface in public docs.
@@ -130,11 +91,6 @@ class TestExchangeRatesApiSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("era-test")
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ExchangeRatesApiResumeConfig
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source.exchange_rates_api_source"
     )
@@ -169,8 +125,3 @@ class TestExchangeRatesApiSource:
 
         # A non-incremental sync must not pass a stale watermark down to the transport.
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_all_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        assert "rate" in descriptions["timeseries"]["columns"]

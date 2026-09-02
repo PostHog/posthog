@@ -56,8 +56,11 @@ manifest_stack() {
 # unchanged; only the generated filename differs.
 golden_name() {
   case "$1" in
-    aux) echo "auxiliary" ;;
-    *)   echo "$1" ;;
+    aux)    echo "auxiliary" ;;
+    events) echo "ingestion_events" ;;
+    small)  echo "ingestion_small" ;;
+    medium) echo "ingestion_medium" ;;
+    *)      echo "$1" ;;
   esac
 }
 

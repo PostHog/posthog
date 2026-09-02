@@ -65,6 +65,15 @@ def _slot_setup_error_message(exc: Exception) -> str:
             "Either grant it replication access, or switch these tables to Incremental sync "
             "instead of CDC. Incremental needs only SELECT permission."
         )
+    # A read replica or read-only standby rejects the CREATE PUBLICATION that CDC needs.
+    if "in a read-only transaction" in message:
+        return (
+            f"Failed to create replication slot: {exc} "
+            "CDC has to create a replication slot and publication, which only a writable primary "
+            "database allows. This connection points at a read replica or read-only standby. "
+            "Connect to the primary database, or switch these tables to Incremental sync, which "
+            "needs only SELECT."
+        )
     return f"Failed to create replication slot: {exc}"
 
 
@@ -80,6 +89,11 @@ def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, st
 class PostgresCDCAdapter:
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)
+
+    def position_to_seq(self, position_serialized: str) -> int:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
+
+        return PgLSN.deserialize(position_serialized).value
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader:
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (

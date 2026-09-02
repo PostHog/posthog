@@ -1,7 +1,7 @@
 //! Pipelined consume → filter → re-key → produce loop for `clickhouse_events_json`.
 //!
 //! Drops events with no `person_id`, skips teams with no realtime cohorts, then re-keys the
-//! survivors by `(team_id, person_id)` to match the Node CDP precalculated-filters gating.
+//! survivors by `(team_id, person_id)`, gating on the realtime-cohort filter catalog.
 //!
 //! Consume, produce-ack, and offset-commit are decoupled: the single owner task enqueues
 //! survivors without awaiting delivery, resolves acks as they arrive, and periodically commits

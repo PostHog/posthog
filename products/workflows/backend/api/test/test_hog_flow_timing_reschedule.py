@@ -10,8 +10,6 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-TIMING_FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_timing_reschedule"
-REVISIONS_FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_revisions"
 TASK_PATH = "products.workflows.backend.api.hog_flow.reschedule_hog_flow_timing"
 
 
@@ -81,8 +79,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         )
 
     @patch(TASK_PATH)
-    @patch(TIMING_FLAG_PATH, return_value=True)
-    def test_shortened_delay_on_live_save_enqueues_sweep_post_commit(self, _flag, mock_task):
+    def test_shortened_delay_on_live_save_enqueues_sweep_post_commit(self, mock_task):
         flow_id = self._create_flow()
 
         with self.captureOnCommitCallbacks(execute=False) as callbacks:
@@ -96,25 +93,22 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, "1d", "https://example.com"),
-            ("lengthened_delay", True, "30d", "https://example.com"),
-            ("non_timing_edit", True, "7d", "https://changed.example.com"),
+            ("lengthened_delay", "30d", "https://example.com"),
+            ("non_timing_edit", "7d", "https://changed.example.com"),
         ]
     )
     @patch(TASK_PATH)
-    def test_live_save_does_not_enqueue_sweep(self, _name, flag_on, delay_duration, webhook_url, mock_task):
+    def test_live_save_does_not_enqueue_sweep(self, _name, delay_duration, webhook_url, mock_task):
         flow_id = self._create_flow()
 
-        with patch(TIMING_FLAG_PATH, return_value=flag_on):
-            with self.captureOnCommitCallbacks(execute=True):
-                response = self._patch_actions(flow_id, delay_duration=delay_duration, webhook_url=webhook_url)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._patch_actions(flow_id, delay_duration=delay_duration, webhook_url=webhook_url)
 
         assert response.status_code == 200, response.json()
         mock_task.delay.assert_not_called()
 
     @patch(TASK_PATH)
-    @patch(TIMING_FLAG_PATH, return_value=True)
-    def test_inactive_flow_save_does_not_enqueue_sweep(self, _flag, mock_task):
+    def test_inactive_flow_save_does_not_enqueue_sweep(self, mock_task):
         flow_id = self._create_flow(activate=False)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -124,9 +118,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         mock_task.delay.assert_not_called()
 
     @patch(TASK_PATH)
-    @patch(TIMING_FLAG_PATH, return_value=True)
-    @patch(REVISIONS_FLAG_PATH, return_value=True)
-    def test_mcp_draft_routed_edit_does_not_enqueue_sweep(self, _revisions, _timing, mock_task):
+    def test_mcp_draft_routed_edit_does_not_enqueue_sweep(self, mock_task):
         flow_id = self._create_flow()
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -137,9 +129,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         mock_task.delay.assert_not_called()
 
     @patch(TASK_PATH)
-    @patch(TIMING_FLAG_PATH, return_value=True)
-    @patch(REVISIONS_FLAG_PATH, return_value=True)
-    def test_publish_of_timing_shortening_draft_enqueues_sweep(self, _revisions, _timing, mock_task):
+    def test_publish_of_timing_shortening_draft_enqueues_sweep(self, mock_task):
         flow_id = self._create_flow()
         response = self._patch_delay_via_mcp(flow_id)
         assert response.status_code == 200, response.json()
@@ -163,8 +153,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         mock_task.delay.assert_called_once_with(team_id=self.team.id, hog_flow_id=flow_id, action_ids=["delay_1"])
 
     @patch(TASK_PATH)
-    @patch(TIMING_FLAG_PATH, return_value=True)
-    def test_re_enable_sweeps_all_timing_steps(self, _flag, mock_task):
+    def test_re_enable_sweeps_all_timing_steps(self, mock_task):
         # Runs parked during a prior active period survive a disable, and timing edits made while
         # disabled never sweep - so the enable transition converges every timing step.
         flow_id = self._create_flow()
@@ -181,8 +170,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         mock_task.delay.assert_called_once_with(team_id=self.team.id, hog_flow_id=flow_id, action_ids=["delay_1"])
 
     @patch(TASK_PATH)
-    @patch(TIMING_FLAG_PATH, return_value=True)
-    def test_graph_operation_shortening_delay_enqueues_sweep(self, _flag, mock_task):
+    def test_graph_operation_shortening_delay_enqueues_sweep(self, mock_task):
         flow_id = self._create_flow()
 
         with self.captureOnCommitCallbacks(execute=True):

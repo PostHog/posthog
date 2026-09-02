@@ -26,8 +26,6 @@ from posthog.schema import (
     AttributeBreakdownRow,
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansTreeQueryResponse,
-    DateRange,
-    HogQLFilters,
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupsMode,
@@ -106,7 +104,7 @@ class _SpanAggregationMixin:
                     self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("tracing", "viewer")
 
@@ -193,12 +191,7 @@ class _SpanAggregationMixin:
             timings=self.timings,
             limit_context=self.limit_context,
             settings=self.settings,
-            filters=HogQLFilters(
-                dateRange=DateRange(
-                    date_from=query_date_range.date_from().isoformat(),
-                    date_to=query_date_range.date_to().isoformat(),
-                )
-            ),
+            filters=query_date_range.to_hogql_filters(),
         )
         return [self._row_from_clickhouse(row) for row in response.results]
 

@@ -1,17 +1,14 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
     TrunkIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source import TrunkIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import TrunkIoResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str, **overrides) -> SourceInputs:
@@ -43,47 +40,12 @@ class TestTrunkIoSource:
             repo_host="github.com",
             repo_owner="my-org",
             repo_name="my-repo",
+            merge_queue_target_branch="main",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TRUNKIO
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static endpoint catalog with no I/O, so it must be safe for public docs.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_source_config_is_released(self):
-        config = self.source.get_source_config
-        assert getattr(config, "unreleasedSource", None) is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_get_source_config_field_names(self):
-        field_names = [f.name for f in self.source.get_source_config.fields]
-        assert field_names == ["api_token", "org_url_slug", "repo_host", "repo_owner", "repo_name"]
-
-    def test_api_token_field_is_secret(self):
-        field = next(f for f in self.source.get_source_config.fields if f.name == "api_token")
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.secret is True
-
-    def test_get_schemas_returns_expected_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == {"UnhealthyTests", "QuarantinedTests", "FailingTests"}
-
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["QuarantinedTests"])
-        assert [s.name for s in schemas] == ["QuarantinedTests"]
-
-    @parameterized.expand(
-        [
-            ("UnhealthyTests", False),
-            ("QuarantinedTests", False),
-            ("FailingTests", True),
-        ]
-    )
-    def test_get_schemas_incremental_support(self, endpoint: str, supports_incremental: bool):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is supports_incremental
 
     def test_validate_credentials_delegates_with_repo(self):
         with patch(
@@ -100,17 +62,12 @@ class TestTrunkIoSource:
         assert repo.owner == "my-org"
         assert repo.name == "my-repo"
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = _make_inputs("UnhealthyTests")
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TrunkIoResumeConfig
-
     @parameterized.expand(
         [
             ("UnhealthyTests", "unhealthy_tests"),
             ("QuarantinedTests", "quarantined_tests"),
             ("FailingTests", "failing_tests"),
+            ("MergeQueuePullRequests", "merge_queue_pull_requests"),
         ]
     )
     def test_source_for_pipeline_dispatches_to_expected_transport(self, schema_name: str, transport_fn: str):
@@ -143,6 +100,7 @@ class TestTrunkIoSource:
             ("UnhealthyTests", ["id"]),
             ("QuarantinedTests", ["name", "parent", "file", "classname", "variant"]),
             ("FailingTests", ["id"]),
+            ("MergeQueuePullRequests", ["id"]),
         ]
     )
     def test_source_for_pipeline_primary_keys(self, schema_name: str, expected_keys: list[str]):
@@ -152,6 +110,7 @@ class TestTrunkIoSource:
             "UnhealthyTests": "unhealthy_tests",
             "QuarantinedTests": "quarantined_tests",
             "FailingTests": "failing_tests",
+            "MergeQueuePullRequests": "merge_queue_pull_requests",
         }[schema_name]
 
         with patch(
@@ -162,10 +121,28 @@ class TestTrunkIoSource:
 
         assert response.primary_keys == expected_keys
 
-    def test_get_non_retryable_errors_covers_auth_failures(self):
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
+    @parameterized.expand([("unset", None), ("blank", "   ")])
+    def test_merge_queue_without_target_branch_fails_permanently(self, _label: str, target_branch):
+        # Merge Queue is scoped to one branch, so without it the sync would call the API with an
+        # empty targetBranch forever. Fail once, with a message the user can act on.
+        config = TrunkIoSourceConfig(
+            api_token="test-token",
+            org_url_slug="my-org",
+            repo_host="github.com",
+            repo_owner="my-org",
+            repo_name="my-repo",
+            merge_queue_target_branch=target_branch,
+        )
+        inputs = _make_inputs("MergeQueuePullRequests")
 
-    def test_get_canonical_descriptions_covers_all_endpoints(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == {"UnhealthyTests", "QuarantinedTests", "FailingTests"}
+        with pytest.raises(ValueError) as excinfo:
+            self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), inputs)
+
+        assert any(key in str(excinfo.value) for key in self.source.get_non_retryable_errors())
+
+    def test_merge_queue_table_is_not_synced_by_default(self):
+        # Flaky-Tests-only orgs are the majority and have no merge queue, so the table is offered
+        # but left unselected rather than failing their syncs.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["MergeQueuePullRequests"].should_sync_default is False
+        assert schemas["FailingTests"].should_sync_default is True

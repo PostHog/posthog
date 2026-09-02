@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'

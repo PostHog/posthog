@@ -1,5 +1,6 @@
 //! Run compiled cohort-filter bytecode through `hogvm::sync_execute`, coercing the result to the
-//! boolean Stage 1 needs (matching the Node consumer's `execResult?.result ?? false`).
+//! boolean Stage 1 needs (matching `nodejs/src/cdp/utils/hog-exec.ts`'s
+//! `execResult?.result ?? false`).
 //!
 //! The hot path reuses one [`CohortEvaluator`] per event: the STL context and globals are set once
 //! and only the program is swapped per condition, amortizing the context build across all conditions.

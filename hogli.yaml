@@ -13,10 +13,16 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        - lint-complexity.mjs
+        - render-jest-timings-example
         # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
         - phrocs
+        - start-local-ngrok
+        # Helper behind format:html / lint:html, called as `bash ./bin/djlint.sh` rather
+        # than run directly, so it is not a command of its own.
+        - djlint.sh
     env:
         files:
             - .env.development
@@ -62,6 +68,8 @@ metadata:
           title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
+        - key: desktop
+          title: Desktop app (products/desktop)
         - key: devex
           title: Developer experience feedback
         - key: utilities
@@ -238,6 +246,9 @@ devenv:
     dev:intents:
         click: hogli_commands.devenv.cli:dev_intents
         description: List available intents
+    dev:regenerate-mprocs:
+        click: hogli_commands.devenv.cli:dev_regenerate_mprocs
+        description: Sync bin/mprocs.yaml and bin/mprocs-e2e.yaml's docker-compose shells with generator.py
     dev:list-units:
         click: hogli_commands.devenv.cli:dev_list_units
         description: List autostart units for given intents (used by phrocs)
@@ -311,7 +322,8 @@ core:
     dev:api-key:
         cmd: python manage.py setup_local_api_key
         description: Creates a personal API key that's always the same, so you don't need
-            to manually create a new one every time you reset the stack.
+            to manually create a new one every time you reset the stack. Its value is also
+            shown in Settings > Personal API keys.
         services:
             - postgresql
 health_checks:
@@ -359,11 +371,11 @@ start:
         preserve_exit_code: true
     stop:
         cmd: phrocs stop
-        description: Stop the detached dev stack gracefully
+        description: Stop the detached dev stack processes (docker services stay up; use docker:services:down to stop them)
         preserve_exit_code: true
     down:
         cmd: phrocs stop
-        description: Alias for `hogli stop`
+        description: Alias for `hogli stop` (docker services stay up; use docker:services:down to stop them)
         preserve_exit_code: true
     start:backend:
         bin_script: start-backend
@@ -540,6 +552,15 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
+    build:openapi-scene-tool-context:
+        cmd: pnpm --filter=@posthog/mcp run generate-scene-tool-context
+        description: Generate per-product agent-context payloads (MCP tool summaries +
+            skill bodies) for scene-level PostHog AI integration (must run after
+            build:openapi-mcp-tools)
+    build:openapi-exec-docs:
+        cmd: pnpm --filter=@posthog/mcp run generate-exec-docs
+        description: Render the MCP exec tool's command reference into the markdown
+            fragment posthog.com embeds in the tools reference page
     build:openapi:
         steps:
             - build:openapi-schema
@@ -550,7 +571,11 @@ build:
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
-        description: Generate OpenAPI schema and TypeScript types from the backend
+            - build:openapi-scene-tool-context
+            - build:openapi-exec-docs
+        description: 'Generate OpenAPI schema and TypeScript types from the backend.
+            Needs the dev stack running (Postgres and ClickHouse): Django starts
+            before the schema is generated. Start it with hogli up -d'
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (C++)
@@ -799,8 +824,8 @@ quality:
             "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet --no-error-on-unmatched-pattern
-            "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet --no-error-on-unmatched-pattern "$@" && pnpm exec oxfmt
+            --no-error-on-unmatched-pattern "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
@@ -818,6 +843,15 @@ quality:
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
+    format:html:
+        cmd: bash ./bin/djlint.sh --reformat "$@"
+        description: Format Django templates
+    format:html:check:
+        cmd: bash ./bin/djlint.sh --check "$@"
+        description: Check Django template formatting without writing
+    lint:html:
+        cmd: bash ./bin/djlint.sh --lint "$@"
+        description: Lint Django templates
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
@@ -828,9 +862,18 @@ quality:
     lint:feature-flags:fix:
         cmd: node bin/lint-feature-flag-sorting.mjs --fix
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
+    lint:complexity:
+        click: hogli_commands.complexity_lint:cmd_lint_complexity
+        description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
+    lint:size:
+        click: hogli_commands.size_lint:cmd_lint_size
+        description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
+    lint:tach:
+        click: hogli_commands.tach_lint:cmd_lint_tach
+        description: Check module boundaries with tach (dependencies without test code, interfaces with it)
     lint:migration-deletions:
         click: hogli_commands.migration_deletions:cmd_lint_migration_deletions
         description: Block deleting historical Django migration files
@@ -838,6 +881,15 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 auth:
+    posthog:login:
+        click: hogli_commands.posthog_auth_cli:posthog_login
+        description: Sign hogli in to PostHog in your browser (no API key to mint)
+    posthog:status:
+        click: hogli_commands.posthog_auth_cli:posthog_status
+        description: Show hogli's cached PostHog credential (host, scopes, expiry)
+    posthog:logout:
+        click: hogli_commands.posthog_auth_cli:posthog_logout
+        description: Revoke and forget hogli's cached PostHog credential
     metabase:login:
         click: hogli_commands.metabase:metabase_login
         description: Log in to Metabase via SSO and cache the session cookie
@@ -860,6 +912,15 @@ tools:
     doctor:zombies:
         click: hogli_commands.doctor:doctor_zombies
         description: Find and kill orphaned PostHog dev processes
+    doctor:ports:
+        click: hogli_commands.doctor:doctor_ports
+        description: Pre-flight check for host ports the dev stack needs
+    doctor:git:
+        click: hogli_commands.doctor:doctor_git
+        description: Report git housekeeping problems that make fetch and status slow
+    doctor:migrate-volumes:
+        click: hogli_commands.doctor:doctor_migrate_volumes
+        description: Auto-migrate ClickHouse/ZooKeeper data to the new named docker volumes
     doctor:report:
         click: hogli_commands.doctor:doctor_report
         description: Dump a paste-ready dev-environment diagnostics report for devex triage
@@ -875,6 +936,9 @@ tools:
     product:isolate:move:
         click: hogli_commands.product.cli:cmd_isolate_move
         description: Mechanical isolation moves with repo-wide path rewrites
+    product:crossings:
+        click: hogli_commands.product.cli:cmd_crossings
+        description: Report consumer uses of watched-models crossing classes by kind
     product:lint:owners:
         click: hogli_commands.product.cli:cmd_lint_owners
         description: Validate product.yaml owners against PostHog/posthog GitHub teams
@@ -928,10 +992,6 @@ tools:
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: Initialize ClickHouse logs schema (temporary, pre-migration)
-        hidden: true
-    clickhouse:metrics:init:
-        bin_script: clickhouse-metrics-init
-        description: Initialize ClickHouse metrics schema (temporary, pre-migration)
         hidden: true
     clickhouse:multinode:start:
         cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
@@ -1001,10 +1061,27 @@ tools:
         hidden: true
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
-        description: Show CI insights for the current repo + branch (search/view/plan subcommands)
+        description: What's broken in CI right now, from engineering analytics (search/view subcommands)
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+desktop:
+    desktop:dev:
+        cmd: pnpm --dir products/desktop dev
+        description: Run the desktop app dev stack (build deps, then phrocs with Electron)
+    desktop:test:
+        cmd: pnpm --dir products/desktop test
+        description: Run desktop unit tests (Vitest via turbo, nested workspace)
+    desktop:typecheck:
+        cmd: pnpm --dir products/desktop typecheck
+        description: Typecheck all desktop packages (turbo)
+    desktop:lint:
+        cmd: pnpm --dir products/desktop exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
+        description: Check desktop code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
+    desktop:lint:fix:
+        cmd: pnpm --dir products/desktop run lint
+        description: Autofix desktop lint issues (biome check --write --unsafe)
+
 owners:
     owners:resolve:
         click: posthog_owners.cli:cmd_resolve
@@ -1012,6 +1089,9 @@ owners:
     owners:who:
         click: posthog_owners.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
+    owners:census:
+        click: posthog_owners.cli:cmd_census
+        description: Count test files per owning team (optional PREFIX; --json for machine output)
     owners:unowned:
         click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
@@ -1105,16 +1185,10 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    run:agent:
-        bin_script: run-agent
-        description: 'POST a demo /run to local agent-ingress and tail /listen SSE events — exercises the full ingress → queue → runner path'
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
-    agent:tunnel:
-        bin_script: agent-tunnel
-        description: 'Expose local agent-ingress on a public cloudflared URL and wire AGENT_INGRESS_PUBLIC_URL into .env.local so Slack/webhooks can reach your dev box'
     dev:sandbox:
         bin_script: dev-sandbox
         description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate by default unless POSTHOG_DEV_SANDBOX=0)'
@@ -1159,10 +1233,6 @@ environment:
         bin_script: dev-open-when-ready
         description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
         hidden: true
-    migrate:agent:test:db:
-        bin_script: migrate-agent-test-db
-        description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
-        hidden: true
     docker:agent:proxy:
         cmd: node dist/agent-proxy-server.mjs
         description: 'Production entrypoint: run the agent-proxy Node service'
@@ -1170,4 +1240,16 @@ environment:
     ensure:local:setup:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
+        hidden: true
+    start:desktop:
+        bin_script: start-desktop
+        description: 'Install the nested products/desktop workspace and run its dev stack (Electron app plus package watchers via turbo); used by the desktop intent on hogli start'
+        hidden: true
+    verify:ai:ingestion:stack:
+        bin_script: verify-ai-ingestion-stack
+        description: 'Check the multimodal AI ingestion path at the data layer: send an $ai_generation with an inline base64 image through capture-ai and assert ingestion offloaded it to a blob pointer in ClickHouse'
+        hidden: true
+    report:jest:timings:
+        bin_script: report-jest-timings
+        description: 'Render a Jest test-speed report from timing artifacts'
         hidden: true

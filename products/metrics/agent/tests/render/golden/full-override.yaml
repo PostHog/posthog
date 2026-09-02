@@ -1,0 +1,19 @@
+receivers:
+    prometheus:
+        config:
+            scrape_configs:
+                - job_name: 'byo'
+                  static_configs:
+                      - targets: ['own:9999']
+
+exporters:
+    otlphttp:
+        metrics_endpoint: '${env:POSTHOG_HOST:-https://us.i.posthog.com}/i/v1/metrics'
+        headers:
+            authorization: 'Bearer ${env:POSTHOG_API_KEY}'
+
+service:
+    pipelines:
+        metrics:
+            receivers: [prometheus]
+            exporters: [otlphttp]

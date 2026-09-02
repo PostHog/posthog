@@ -2,31 +2,22 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    EngineeringAnalyticsBrokenTestsQueryParams,
-    EngineeringAnalyticsCiFailureLogsQueryParams,
-    EngineeringAnalyticsFlakyTestsQueryParams,
-    EngineeringAnalyticsPrCostQueryParams,
-    EngineeringAnalyticsPrLifecycleQueryParams,
-    EngineeringAnalyticsPullRequestsQueryParams,
-    EngineeringAnalyticsRunFailureLogsQueryParams,
-    EngineeringAnalyticsTeamCiHealthQueryParams,
-    EngineeringAnalyticsWorkflowHealthQueryParams,
-    EngineeringAnalyticsWorkflowJobsQueryParams,
-    EngineeringAnalyticsWorkflowRunnerCostsQueryParams,
-} from '@/generated/engineering_analytics/api'
+import * as orvalSchemas from '@/generated/engineering_analytics/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const EngineeringAnalyticsBrokenTestsSchema = EngineeringAnalyticsBrokenTestsQueryParams
+const EngineeringAnalyticsBrokenTestsSchema = () => {
+    const EngineeringAnalyticsBrokenTestsQueryParams = orvalSchemas.EngineeringAnalyticsBrokenTestsQueryParams()
+    return EngineeringAnalyticsBrokenTestsQueryParams
+}
 
 const engineeringAnalyticsBrokenTests = (): ToolBase<
-    typeof EngineeringAnalyticsBrokenTestsSchema,
+    ReturnType<typeof EngineeringAnalyticsBrokenTestsSchema>,
     Schemas.BrokenTestsResult
 > => ({
     name: 'engineering-analytics-broken-tests',
-    schema: EngineeringAnalyticsBrokenTestsSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsBrokenTestsSchema>) => {
+    schema: EngineeringAnalyticsBrokenTestsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsBrokenTestsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.BrokenTestsResult>({
             method: 'GET',
@@ -40,15 +31,18 @@ const engineeringAnalyticsBrokenTests = (): ToolBase<
     },
 })
 
-const EngineeringAnalyticsCiFailureLogsSchema = EngineeringAnalyticsCiFailureLogsQueryParams
+const EngineeringAnalyticsCiFailureLogsSchema = () => {
+    const EngineeringAnalyticsCiFailureLogsQueryParams = orvalSchemas.EngineeringAnalyticsCiFailureLogsQueryParams()
+    return EngineeringAnalyticsCiFailureLogsQueryParams
+}
 
 const engineeringAnalyticsCiFailureLogs = (): ToolBase<
-    typeof EngineeringAnalyticsCiFailureLogsSchema,
+    ReturnType<typeof EngineeringAnalyticsCiFailureLogsSchema>,
     Schemas.CIFailureLogs
 > => ({
     name: 'engineering-analytics-ci-failure-logs',
-    schema: EngineeringAnalyticsCiFailureLogsSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsCiFailureLogsSchema>) => {
+    schema: EngineeringAnalyticsCiFailureLogsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsCiFailureLogsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.CIFailureLogs>({
             method: 'GET',
@@ -63,15 +57,18 @@ const engineeringAnalyticsCiFailureLogs = (): ToolBase<
     },
 })
 
-const EngineeringAnalyticsFlakyTestsSchema = EngineeringAnalyticsFlakyTestsQueryParams
+const EngineeringAnalyticsFlakyTestsSchema = () => {
+    const EngineeringAnalyticsFlakyTestsQueryParams = orvalSchemas.EngineeringAnalyticsFlakyTestsQueryParams()
+    return EngineeringAnalyticsFlakyTestsQueryParams
+}
 
 const engineeringAnalyticsFlakyTests = (): ToolBase<
-    typeof EngineeringAnalyticsFlakyTestsSchema,
+    ReturnType<typeof EngineeringAnalyticsFlakyTestsSchema>,
     WithPostHogUrl<Schemas.FlakyTestList>
 > => ({
     name: 'engineering-analytics-flaky-tests',
-    schema: EngineeringAnalyticsFlakyTestsSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsFlakyTestsSchema>) => {
+    schema: EngineeringAnalyticsFlakyTestsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsFlakyTestsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FlakyTestList>({
             method: 'GET',
@@ -82,6 +79,7 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
                 repo: params.repo,
+                runner: params.runner,
                 source_id: params.source_id,
             },
         })
@@ -89,12 +87,18 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
     },
 })
 
-const EngineeringAnalyticsPrCostSchema = EngineeringAnalyticsPrCostQueryParams
+const EngineeringAnalyticsPrCostSchema = () => {
+    const EngineeringAnalyticsPrCostQueryParams = orvalSchemas.EngineeringAnalyticsPrCostQueryParams()
+    return EngineeringAnalyticsPrCostQueryParams
+}
 
-const engineeringAnalyticsPrCost = (): ToolBase<typeof EngineeringAnalyticsPrCostSchema, Schemas.PRCostSummary> => ({
+const engineeringAnalyticsPrCost = (): ToolBase<
+    ReturnType<typeof EngineeringAnalyticsPrCostSchema>,
+    Schemas.PRCostSummary
+> => ({
     name: 'engineering-analytics-pr-cost',
-    schema: EngineeringAnalyticsPrCostSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsPrCostSchema>) => {
+    schema: EngineeringAnalyticsPrCostSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsPrCostSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PRCostSummary>({
             method: 'GET',
@@ -109,15 +113,18 @@ const engineeringAnalyticsPrCost = (): ToolBase<typeof EngineeringAnalyticsPrCos
     },
 })
 
-const EngineeringAnalyticsRunFailureLogsSchema = EngineeringAnalyticsRunFailureLogsQueryParams
+const EngineeringAnalyticsRunFailureLogsSchema = () => {
+    const EngineeringAnalyticsRunFailureLogsQueryParams = orvalSchemas.EngineeringAnalyticsRunFailureLogsQueryParams()
+    return EngineeringAnalyticsRunFailureLogsQueryParams
+}
 
 const engineeringAnalyticsRunFailureLogs = (): ToolBase<
-    typeof EngineeringAnalyticsRunFailureLogsSchema,
+    ReturnType<typeof EngineeringAnalyticsRunFailureLogsSchema>,
     Schemas.RunFailureLogs
 > => ({
     name: 'engineering-analytics-run-failure-logs',
-    schema: EngineeringAnalyticsRunFailureLogsSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsRunFailureLogsSchema>) => {
+    schema: EngineeringAnalyticsRunFailureLogsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsRunFailureLogsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.RunFailureLogs>({
             method: 'GET',
@@ -132,16 +139,15 @@ const engineeringAnalyticsRunFailureLogs = (): ToolBase<
     },
 })
 
-const EngineeringAnalyticsSourcesSchema = z.object({})
+const EngineeringAnalyticsSourcesSchema = () => z.object({})
 
 const engineeringAnalyticsSources = (): ToolBase<
-    typeof EngineeringAnalyticsSourcesSchema,
+    ReturnType<typeof EngineeringAnalyticsSourcesSchema>,
     WithPostHogUrl<Schemas.GitHubSource[]>
 > => ({
     name: 'engineering-analytics-sources',
-    schema: EngineeringAnalyticsSourcesSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsSourcesSchema>) => {
+    schema: EngineeringAnalyticsSourcesSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof EngineeringAnalyticsSourcesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GitHubSource[]>({
             method: 'GET',
@@ -151,15 +157,18 @@ const engineeringAnalyticsSources = (): ToolBase<
     },
 })
 
-const EngineeringAnalyticsTeamCiHealthSchema = EngineeringAnalyticsTeamCiHealthQueryParams
+const EngineeringAnalyticsTeamCiHealthSchema = () => {
+    const EngineeringAnalyticsTeamCiHealthQueryParams = orvalSchemas.EngineeringAnalyticsTeamCiHealthQueryParams()
+    return EngineeringAnalyticsTeamCiHealthQueryParams
+}
 
 const engineeringAnalyticsTeamCiHealth = (): ToolBase<
-    typeof EngineeringAnalyticsTeamCiHealthSchema,
+    ReturnType<typeof EngineeringAnalyticsTeamCiHealthSchema>,
     WithPostHogUrl<Schemas.TeamCIHealthList>
 > => ({
     name: 'engineering-analytics-team-ci-health',
-    schema: EngineeringAnalyticsTeamCiHealthSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsTeamCiHealthSchema>) => {
+    schema: EngineeringAnalyticsTeamCiHealthSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsTeamCiHealthSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.TeamCIHealthList>({
             method: 'GET',
@@ -169,6 +178,7 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
                 date_to: params.date_to,
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
+                owner_team: params.owner_team,
                 source_id: params.source_id,
             },
         })
@@ -176,15 +186,18 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
     },
 })
 
-const EngineeringAnalyticsWorkflowJobsSchema = EngineeringAnalyticsWorkflowJobsQueryParams
+const EngineeringAnalyticsWorkflowJobsSchema = () => {
+    const EngineeringAnalyticsWorkflowJobsQueryParams = orvalSchemas.EngineeringAnalyticsWorkflowJobsQueryParams()
+    return EngineeringAnalyticsWorkflowJobsQueryParams
+}
 
 const engineeringAnalyticsWorkflowJobs = (): ToolBase<
-    typeof EngineeringAnalyticsWorkflowJobsSchema,
+    ReturnType<typeof EngineeringAnalyticsWorkflowJobsSchema>,
     WithPostHogUrl<Schemas.WorkflowJob[]>
 > => ({
     name: 'engineering-analytics-workflow-jobs',
-    schema: EngineeringAnalyticsWorkflowJobsSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsWorkflowJobsSchema>) => {
+    schema: EngineeringAnalyticsWorkflowJobsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EngineeringAnalyticsWorkflowJobsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WorkflowJob[]>({
             method: 'GET',
@@ -200,15 +213,22 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
     },
 })
 
-const EngineeringAnalyticsWorkflowRunnerCostsSchema = EngineeringAnalyticsWorkflowRunnerCostsQueryParams
+const EngineeringAnalyticsWorkflowRunnerCostsSchema = () => {
+    const EngineeringAnalyticsWorkflowRunnerCostsQueryParams =
+        orvalSchemas.EngineeringAnalyticsWorkflowRunnerCostsQueryParams()
+    return EngineeringAnalyticsWorkflowRunnerCostsQueryParams
+}
 
 const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
-    typeof EngineeringAnalyticsWorkflowRunnerCostsSchema,
+    ReturnType<typeof EngineeringAnalyticsWorkflowRunnerCostsSchema>,
     WithPostHogUrl<Schemas.WorkflowRunnerCost[]>
 > => ({
     name: 'engineering-analytics-workflow-runner-costs',
-    schema: EngineeringAnalyticsWorkflowRunnerCostsSchema,
-    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsWorkflowRunnerCostsSchema>) => {
+    schema: EngineeringAnalyticsWorkflowRunnerCostsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof EngineeringAnalyticsWorkflowRunnerCostsSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WorkflowRunnerCost[]>({
             method: 'GET',
@@ -226,12 +246,15 @@ const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
     },
 })
 
-const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams
+const PrLifecycleSchema = () => {
+    const EngineeringAnalyticsPrLifecycleQueryParams = orvalSchemas.EngineeringAnalyticsPrLifecycleQueryParams()
+    return EngineeringAnalyticsPrLifecycleQueryParams
+}
 
-const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> => ({
+const prLifecycle = (): ToolBase<ReturnType<typeof PrLifecycleSchema>, Schemas.PRLifecycle> => ({
     name: 'pr-lifecycle',
-    schema: PrLifecycleSchema,
-    handler: async (context: Context, params: z.infer<typeof PrLifecycleSchema>) => {
+    schema: PrLifecycleSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PrLifecycleSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PRLifecycle>({
             method: 'GET',
@@ -246,16 +269,19 @@ const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> 
     },
 })
 
-const PullRequestsSchema = EngineeringAnalyticsPullRequestsQueryParams.extend({
-    date_from: EngineeringAnalyticsPullRequestsQueryParams.shape['date_from'].describe(
-        "Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d."
-    ),
-})
+const PullRequestsSchema = () => {
+    const EngineeringAnalyticsPullRequestsQueryParams = orvalSchemas.EngineeringAnalyticsPullRequestsQueryParams()
+    return EngineeringAnalyticsPullRequestsQueryParams.extend({
+        date_from: EngineeringAnalyticsPullRequestsQueryParams.shape['date_from'].describe(
+            "Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d."
+        ),
+    })
+}
 
-const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Schemas.PullRequestList>> => ({
+const pullRequests = (): ToolBase<ReturnType<typeof PullRequestsSchema>, WithPostHogUrl<Schemas.PullRequestList>> => ({
     name: 'pull-requests',
-    schema: PullRequestsSchema,
-    handler: async (context: Context, params: z.infer<typeof PullRequestsSchema>) => {
+    schema: PullRequestsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PullRequestsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PullRequestList>({
             method: 'GET',
@@ -271,22 +297,28 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
     },
 })
 
-const WorkflowHealthSchema = EngineeringAnalyticsWorkflowHealthQueryParams.extend({
-    date_from: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_from'].describe(
-        "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
-    ),
-    date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
-        'Window end — relative or ISO8601. Defaults to now.'
-    ),
-    run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
-        'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.'
-    ),
-})
+const WorkflowHealthSchema = () => {
+    const EngineeringAnalyticsWorkflowHealthQueryParams = orvalSchemas.EngineeringAnalyticsWorkflowHealthQueryParams()
+    return EngineeringAnalyticsWorkflowHealthQueryParams.extend({
+        date_from: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_from'].describe(
+            "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
+        ),
+        date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
+            'Window end — relative or ISO8601. Defaults to now.'
+        ),
+        run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
+            'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.'
+        ),
+    })
+}
 
-const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<Schemas.WorkflowHealthItem[]>> => ({
+const workflowHealth = (): ToolBase<
+    ReturnType<typeof WorkflowHealthSchema>,
+    WithPostHogUrl<Schemas.WorkflowHealthItem[]>
+> => ({
     name: 'workflow-health',
-    schema: WorkflowHealthSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowHealthSchema>) => {
+    schema: WorkflowHealthSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowHealthSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WorkflowHealthItem[]>({
             method: 'GET',

@@ -7,8 +7,9 @@ from uuid import UUID, uuid4, uuid5
 
 import structlog
 from posthoganalytics import Posthog
+from posthoganalytics.ai.utils import _capture_ai_event
 
-from llm_gateway.auth.models import resolve_distinct_id
+from llm_gateway.auth.models import AuthenticatedUser, resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
@@ -18,7 +19,9 @@ from llm_gateway.request_context import (
     get_posthog_flags,
     get_posthog_properties,
     get_product,
+    get_request_id,
     get_time_to_first_token,
+    get_traceparent_trace_id,
 )
 
 logger = structlog.get_logger(__name__)
@@ -72,23 +75,43 @@ def _is_product_billable(product: str) -> bool:
     return config is not None and config.credit_bucket is not None
 
 
-def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
+def _apply_owned_event_properties(
+    properties: dict[str, Any], product: str, auth_user: AuthenticatedUser | None
+) -> None:
     """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
 
-    `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
+    `ai_product`, `$ai_billable`, `$ai_effort`, and `$ai_span_id` are gateway-derived (effort via
     `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
-    here and drop `$ai_effort` when the gateway found none. `team_id`, in contrast, is a
-    deliberate caller override (e.g. a shared-key caller attributing to a customer team); we only
-    fall back to the key owner's team when no override was supplied.
+    here and drop `$ai_effort` when the gateway found none. `llm_gateway_request_id` is re-asserted
+    too, but its value is not unique: the caller's `x-request-id` when sent, a truncated uuid
+    otherwise. OAuth requests use the authenticated project as `team_id`; trusted server callers
+    can attribute usage to a customer team.
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)
+    # Unique per event: one request can emit several (a provider fallback, a retry) and
+    # consumers key on this, so a shared value collapses them.
+    properties["$ai_span_id"] = str(uuid4())
+    # Joins an event to its gateway access log line. Named apart from capture's signed
+    # `$ai_gateway_request_id`, which carries a different trust model.
+    request_id = get_request_id()
+    if request_id:
+        properties["llm_gateway_request_id"] = request_id
+    else:
+        properties.pop("llm_gateway_request_id", None)
     effort = get_effort()
     if effort is not None:
         properties["$ai_effort"] = effort
     else:
         properties.pop("$ai_effort", None)
-    if team_id is not None:
+    team_id = auth_user.team_id if auth_user else None
+    can_override_team_id = auth_user is not None and auth_user.auth_method == "personal_api_key" and auth_user.is_staff
+    if not can_override_team_id:
+        if team_id is None:
+            properties.pop("team_id", None)
+        else:
+            properties["team_id"] = team_id
+    elif team_id is not None:
         properties.setdefault("team_id", team_id)
     # A header-supplied team_id arrives as a string ("42"); store it as an int so the captured
     # property matches the rest of the platform (the usage reporter reads it via JSONExtractInt)
@@ -161,10 +184,12 @@ class PostHogCallback(InstrumentedCallback):
         region_url: str = "https://us.posthog.com",
         secondary_api_key: str | None = None,
         secondary_host: str | None = None,
+        ai_lane_capture: bool = True,
     ):
         super().__init__()
         self._api_key = api_key
         self._host = host
+        self._ai_lane_capture = ai_lane_capture
         # Customer-origin region URL stamped on every captured event via the
         # `instance` group. The PHAI usage report filters on $group_<N> where
         # N is the destination project's `instance` group_type_index, so the
@@ -187,9 +212,10 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        # metadata.user_id carries Claude Code's session blob — constant for a
+        # whole task, so hashing it (_normalize_trace_id) collapses every turn
+        # into one trace. A per-turn traceparent therefore takes precedence.
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -222,7 +248,6 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
             "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
-            "$ai_span_id": str(uuid4()),
             # Stamped explicitly to bypass the SDK's group_type_index lookup.
             # The AI usage report hardcodes `$group_1` (posthog/tasks/usage_report.py)
             # so the gateway must guarantee that slot regardless of how the
@@ -235,10 +260,22 @@ class PostHogCallback(InstrumentedCallback):
         # cache, OpenAI o-series for reasoning). Emit the fields only when
         # present so providers that don't report them don't pollute events with
         # zeros, matching the schema in posthog/models/ai_events/sql.py and the
-        # parity established by posthoganalytics' langchain CallbackHandler.
+        # convention in posthoganalytics' posthog/ai/utils.py.
         cache_read_input_tokens = usage_object.get("cache_read_input_tokens")
         if cache_read_input_tokens is not None:
             properties["$ai_cache_read_input_tokens"] = cache_read_input_tokens
+        else:
+            # `cache_read_input_tokens` is Anthropic's spelling, and LiteLLM only
+            # populates it from Anthropic-shaped usage. OpenAI reports its cached
+            # prompt tokens on `prompt_tokens_details.cached_tokens` for both Chat
+            # Completions and the Responses API, because LiteLLM normalizes the
+            # Responses API's `input_tokens_details` onto that same field. Zero here
+            # means the request missed the cache rather than the provider not
+            # reporting, so it is dropped to keep the property meaning "a cache read
+            # happened", which is how posthoganalytics treats non-Anthropic providers.
+            cached_tokens = (usage_object.get("prompt_tokens_details") or {}).get("cached_tokens")
+            if cached_tokens:
+                properties["$ai_cache_read_input_tokens"] = cached_tokens
         cache_creation_input_tokens = usage_object.get("cache_creation_input_tokens")
         if cache_creation_input_tokens is not None:
             properties["$ai_cache_creation_input_tokens"] = cache_creation_input_tokens
@@ -257,7 +294,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        _apply_owned_event_properties(properties, product, team_id)
+        _apply_owned_event_properties(properties, product, auth_user)
 
         response_cost = standard_logging_object.get("response_cost")
         if response_cost is not None:
@@ -311,9 +348,7 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -347,7 +382,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        _apply_owned_event_properties(properties, product, team_id)
+        _apply_owned_event_properties(properties, product, auth_user)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
@@ -419,9 +454,12 @@ class PostHogCallback(InstrumentedCallback):
             host=host,
             sync_mode=True,
             enable_local_evaluation=False,
+            # Multimodal capture implies the AI lane, so one setting governs both.
+            _use_ai_lane=self._ai_lane_capture,
+            _enable_multimodal_capture=self._ai_lane_capture,
         )
         try:
-            client.capture(**capture_kwargs)
+            _capture_ai_event(client, **capture_kwargs)
         except Exception as e:
             client.capture_exception(e, **capture_kwargs)
             logger.exception("posthog_capture_failed", host=host, error=str(e))

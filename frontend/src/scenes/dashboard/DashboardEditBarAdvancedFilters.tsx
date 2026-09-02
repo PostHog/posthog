@@ -1,16 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconEllipsis, IconGear } from '@posthog/icons'
+import { IconEllipsis, IconGear, IconPalette } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DashboardMode } from '~/types'
+import { DashboardMode, DashboardPlacement } from '~/types'
 
 type TestAccountFilterChoice = 'inherit' | 'filter-out' | 'include'
 
@@ -28,19 +30,27 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
 
 /**
  * "…" at the end of the dashboard edit bar, opening a panel for overrides that are too rarely
- * used to earn a spot in the bar itself. Currently hosts the test account filter override.
+ * used to earn a spot in the bar itself. Hosts the test account filter override and the
+ * breakdown color override.
  */
 export function DashboardEditBarAdvancedFilters(): JSX.Element {
-    const { dashboardMode, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { dashboard, dashboardMode, placement, canEditDashboard, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setFilterTestAccounts, setDashboardMode } = useActions(dashboardLogic)
+    const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
+    const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
     const [visible, setVisible] = useState(false)
 
     const filterTestAccounts = effectiveEditBarFilters.filterTestAccounts ?? null
     const choice: TestAccountFilterChoice =
         filterTestAccounts === null ? 'inherit' : filterTestAccounts ? 'filter-out' : 'include'
-    const overrideCount = choice === 'inherit' ? 0 : 1
     const hasTestAccountFilters = (currentTeam?.test_account_filters || []).length > 0
+    // Only the full dashboard scene mounts DashboardInsightColorsModal, so elsewhere the button would no-op.
+    const showColors =
+        hasDashboardColors && canEditDashboard && !!dashboard && placement === DashboardPlacement.Dashboard
+    // Color customizations don't count towards the badge: they are visible on the charts
+    // themselves, while a forced test account filter changes the data with no other visible cue.
+    const overrideCount = choice === 'inherit' ? 0 : 1
 
     return (
         <Popover
@@ -50,7 +60,7 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
             overlay={
                 <div className="flex w-80 flex-col gap-2 p-2">
                     <div>
-                        <h4 className="mb-0 font-semibold">Advanced filters</h4>
+                        <h4 className="mb-0 font-semibold">Advanced options</h4>
                         <p className="mb-0 text-xs text-secondary">
                             Overrides applied to every insight on this dashboard.
                         </p>
@@ -103,13 +113,35 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
                         ]}
                     />
                     <p className="mb-0 text-xs text-secondary">{CHOICE_HINTS[choice]}</p>
+                    {showColors && (
+                        <>
+                            <LemonDivider className="my-0" />
+                            <LemonLabel info="Pin a breakdown value to a color, or pick a color theme, so every insight on this dashboard draws it the same way.">
+                                Breakdown colors
+                            </LemonLabel>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                fullWidth
+                                center
+                                icon={<IconPalette />}
+                                onClick={() => {
+                                    setVisible(false)
+                                    showInsightColorsModal(dashboard.id)
+                                }}
+                                data-attr="dashboard-advanced-customize-colors"
+                            >
+                                Customize colors
+                            </LemonButton>
+                        </>
+                    )}
                 </div>
             }
         >
             <LemonButton
                 size="small"
                 icon={<IconEllipsis />}
-                tooltip="Advanced filters"
+                tooltip="Advanced options"
                 active={visible}
                 onClick={() => setVisible(!visible)}
                 sideIcon={overrideCount ? <LemonBadge.Number count={overrideCount} size="small" /> : undefined}

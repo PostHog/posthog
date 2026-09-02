@@ -6,6 +6,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     AccountsQuery,
+    AccountsTableQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -51,6 +52,7 @@ import {
     NodeKind,
     NonIntegratedConversionsTableQuery,
     PathsQuery,
+    PathsV2Query,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
     QuerySchema,
@@ -260,6 +262,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
     return node?.kind === NodeKind.WebExternalClicksTableQuery
 }
 
+export function isWebBotsTableQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.WebBotsTableQuery
+}
+
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
 }
@@ -351,6 +357,10 @@ export function isPathsQuery(node?: Record<string, any> | null): node is PathsQu
     return node?.kind === NodeKind.PathsQuery
 }
 
+export function isPathsV2Query(node?: Record<string, any> | null): node is PathsV2Query {
+    return node?.kind === NodeKind.PathsV2Query
+}
+
 export function isStickinessQuery(node?: Record<string, any> | null): node is StickinessQuery {
     return node?.kind === NodeKind.StickinessQuery
 }
@@ -425,6 +435,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isFunnelsQuery(node) ||
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
+        isPathsV2Query(node) ||
         isStickinessQuery(node) ||
         isLifecycleQuery(node) ||
         isWebStatsTableQuery(node) ||
@@ -463,7 +474,7 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 // For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
 // the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
 // selectors derive from — makes such insights behave exactly like their UI-created equivalents.
-const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
+export const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
     display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
 
 export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
@@ -487,10 +498,12 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsStackedBar,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ])
 
 type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
@@ -614,7 +627,7 @@ export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undef
 }
 
 export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
-    if (!isStickinessQuery(query)) {
+    if (!isStickinessQuery(query) && 'aggregation_group_type_index' in query) {
         return query.aggregation_group_type_index as GroupTypeIndex | null | undefined
     }
     return undefined
@@ -765,6 +778,7 @@ export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, I
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
     [NodeKind.PathsQuery]: 'pathsFilter',
+    [NodeKind.PathsV2Query]: 'pathsV2Filter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
@@ -813,6 +827,13 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     }
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
+    }
+    return escapeRawPropertyAsHogQLIdentifier(identifier)
+}
+
+export function escapeRawPropertyAsHogQLIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        return identifier
     }
     // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
     const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')
@@ -863,6 +884,24 @@ export function taxonomicPersonFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
+    return null
+}
+
+export function taxonomicSessionFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    // Event-scoped picks (e.g. a suggested or recent event property) have no
+    // equivalent on the sessions table — adding one would fail resolution.
     return null
 }
 
@@ -1021,6 +1060,10 @@ export function isGroupsQuery(node?: Record<string, any> | null): node is Groups
 
 export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
     return node?.kind === NodeKind.AccountsQuery
+}
+
+export function isAccountsTableQuery(node?: Record<string, any> | null): node is AccountsTableQuery {
+    return node?.kind === NodeKind.AccountsTableQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

@@ -16,24 +16,25 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import type { AccountCustomPropertyFilter } from '~/types'
+import type { AnyPropertyFilter } from '~/types'
 
+import { AccountRelationshipOperatorValueSelect } from './AccountRelationshipOperatorValueSelect'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from './accountsCustomPropertyFilters'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
+import {
+    ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
+    ACCOUNT_FILTER_OPERATOR_ALLOWLIST,
+    accountFilterStaticValueOptions,
+    isAccountRelationshipFilter,
+    type AccountFilter,
+} from './accountsPropertyFilters'
 import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
-    const {
-        searchInput,
-        tagsFilter,
-        allRolesUnassigned,
-        assignedToCurrentUser,
-        assignedToFilter,
-        customPropertyFilters,
-    } = useValues(accountsLogic)
+    const { searchInput, tagsFilter, allRolesUnassigned, assignedToCurrentUser, assignedToFilter, accountFilters } =
+        useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
@@ -41,12 +42,12 @@ export function AccountsTabFilters(): JSX.Element {
         setAllRolesUnassigned,
         setAssignedToCurrentUser,
         setAssignedToFilter,
-        setCustomPropertyFilters,
+        updateAccountFilters,
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
-    const { customPropertyTaxonomicOptions } = useValues(accountsColumnConfigLogic)
+    const { customPropertyTaxonomicOptions, relationshipTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
         tagsFilter.length === 0 ? 'All tags' : tagsFilter.length === 1 ? tagsFilter[0] : `${tagsFilter.length} tags`
@@ -57,7 +58,7 @@ export function AccountsTabFilters(): JSX.Element {
                 <div className="flex flex-wrap gap-2 items-center">
                     <LemonInput
                         type="search"
-                        placeholder="Search by name or ID..."
+                        placeholder="Search by name, ID, or email..."
                         value={searchInput}
                         onChange={setSearchInput}
                         size="small"
@@ -141,23 +142,30 @@ export function AccountsTabFilters(): JSX.Element {
                         data-attr="accounts-my-accounts-filter"
                     />
 
-                    {customPropertyTaxonomicOptions.length > 0 && (
-                        <PropertyFilters
-                            propertyFilters={customPropertyFilters}
-                            onChange={(filters) => {
-                                setCustomPropertyFilters(filters as AccountCustomPropertyFilter[])
-                                reportFilterChange('custom_property')
-                            }}
-                            pageKey="customer-analytics-accounts-custom-properties"
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.AccountCustomProperties]}
-                            taxonomicFilterOptionsFromProp={{
-                                [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
-                            }}
-                            operatorAllowlist={ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST}
-                            buttonSize="small"
-                            hasRowOperator={false}
-                        />
-                    )}
+                    <PropertyFilters
+                        propertyFilters={accountFilters as unknown as AnyPropertyFilter[]}
+                        onChange={(filters) => updateAccountFilters(filters as unknown as AccountFilter[])}
+                        pageKey="customer-analytics-accounts-custom-properties"
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.AccountFields,
+                            TaxonomicFilterGroupType.AccountRelationships,
+                            TaxonomicFilterGroupType.AccountCustomProperties,
+                        ]}
+                        taxonomicFilterOptionsFromProp={{
+                            [TaxonomicFilterGroupType.AccountFields]: ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
+                            [TaxonomicFilterGroupType.AccountRelationships]: relationshipTaxonomicOptions,
+                            [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
+                        }}
+                        operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        staticValueOptions={accountFilterStaticValueOptions}
+                        renderOperatorValueSelect={(filter, onChange) =>
+                            isAccountRelationshipFilter(filter) ? (
+                                <AccountRelationshipOperatorValueSelect filter={filter} onChange={onChange} />
+                            ) : null
+                        }
+                        buttonSize="small"
+                        hasRowOperator={false}
+                    />
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
                     <AccountsOverviewTilesButton />

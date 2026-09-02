@@ -4,16 +4,17 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { pollForResults } from '~/queries/query'
+import { parseErrorMessage, pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -24,12 +25,28 @@ import {
     DashboardTile,
     DashboardType,
     DashboardWidgetType,
+    InsightFilterOverrideContext,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
+
+export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
+    const queryStatus = insight.query_status
+    if (!queryStatus?.error) {
+        return null
+    }
+
+    const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
+    return new ApiError(undefined, 400, undefined, {
+        detail: parsedError.message,
+        code: queryStatus.error_code ?? parsedError.code,
+        queryId: queryStatus.id,
+    })
+}
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
@@ -161,6 +178,13 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+
+// A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
+// insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
+// the tile's existing data and render as an empty insight instead of an error.
+export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+    return !!insight.query_status?.error && insight.result == null
+}
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
@@ -359,6 +383,10 @@ export async function getInsightWithRetry(
                 throw e // Re-throw cancellation errors
             }
 
+            if (isDeterministicClientError(e)) {
+                throw e // A 4xx won't change on retry, so surface it immediately
+            }
+
             attempt++
             if (attempt >= maxAttempts) {
                 throw e // Re-throw the error after max attempts
@@ -428,6 +456,23 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
     return encodedFilters
 }
 
+/**
+ * Search params for a dashboard filter change. A filter that constrains nothing drops the param instead
+ * of writing an empty one, so clearing the last filter doesn't leave the dashboard looking overridden on
+ * its next load. Spreading the encoded filter can't do this — it never removes a key already in the URL.
+ */
+export function searchParamsWithUrlFilters(
+    searchParams: Record<string, any>,
+    filters: DashboardFilter
+): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    if (isDashboardFilterEmpty(filters)) {
+        delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
+        return nextSearchParams
+    }
+    return { ...nextSearchParams, ...encodeURLFilters(filters) }
+}
+
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
     return filters.reduce((combined, filter) => {
         Object.keys(filter).forEach((key) => {
@@ -438,6 +483,24 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
 const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([

@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -11,6 +13,8 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.serializers import SignalScoutCreateSerializer
+from products.skills.backend.api.skill_serializers import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 
@@ -64,8 +68,22 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert config.enabled is False
         assert config.emit is False
         assert config.run_cron_schedule == "30 9 * * 1-5"
-        assert config.output_destinations == payload["config"]["output_destinations"]
+        assert config.output_destinations == {
+            "slack": {**payload["config"]["output_destinations"]["slack"], "thread_reports": False}
+        }
         assert response.json()["config"]["description"] == payload["description"]
+
+    def test_create_stores_normalized_tags_from_the_config_block(self) -> None:
+        # Tagging at authoring time is the point — a scout the agent creates should land in the
+        # right group without a follow-up PATCH.
+        payload = {**self._payload(), "config": {"tags": ["Revenue", "on call", "revenue"]}}
+
+        response = self.client.post(self._url(), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["config"]["tags"] == ["on-call", "revenue"]
+        config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
+        assert config.tags == ["on-call", "revenue"]
 
     def test_matching_definition_retry_is_idempotent_and_applies_config(self) -> None:
         payload = self._payload()
@@ -212,3 +230,25 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         user_access_control.assert_called_once_with(user=self.user, team=self.team)
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not LLMSkill.objects.filter(team=self.team, name=self._payload()["name"], deleted=False).exists()
+
+
+class TestSignalScoutCreateSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("over the spec cap is rejected", SPEC_DESCRIPTION_MAX_LENGTH + 1, False),
+            ("at the spec cap is accepted", SPEC_DESCRIPTION_MAX_LENGTH, True),
+        ]
+    )
+    def test_description_capped_at_spec_limit(self, _name: str, length: int, expected_valid: bool) -> None:
+        # A scout is an LLMSkill, so its description must clear the same spec cap the store enforces,
+        # or the scout later fails export and community publish.
+        serializer = SignalScoutCreateSerializer(
+            data={
+                "name": "signals-scout-checkout-failures",
+                "description": "x" * length,
+                "body": "# Body",
+            }
+        )
+        assert serializer.is_valid() is expected_valid
+        if not expected_valid:
+            assert serializer.errors["description"][0].code == "max_length"

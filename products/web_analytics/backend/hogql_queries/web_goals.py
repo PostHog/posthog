@@ -20,6 +20,7 @@ from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute impo
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 
 # Returns an array `seq` split into chunks of size `size`
 # Example:
@@ -204,6 +205,7 @@ WHERE {periods_expression}
                 results=[],
                 modifiers=self.modifiers,
                 preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+                preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
             )
 
         response = execute_hogql_query(
@@ -268,6 +270,7 @@ WHERE {periods_expression}
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
         )
 
     def _maybe_calculate_via_lazy_precompute(self) -> Optional[WebGoalsQueryResponse]:
@@ -347,13 +350,10 @@ WHERE {periods_expression}
         )
 
     def event_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+        properties: list = [
+            p
+            for p in self.effective_query_properties + self._test_account_filters
+            if get_property_type(p) in ["event", "person"]
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
-    def session_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
-        ]
+        properties.extend(self.first_pageview_filter_exprs)
         return property_to_expr(properties, team=self.team, scope="event")

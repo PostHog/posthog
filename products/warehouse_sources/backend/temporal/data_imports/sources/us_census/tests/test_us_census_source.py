@@ -1,8 +1,6 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uscensus import (
     USCensusSourceConfig,
 )
@@ -11,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.source import USCensusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides) -> USCensusSourceConfig:
@@ -34,28 +31,6 @@ class _FakeInputs:
 class TestUSCensusSource:
     def setup_method(self):
         self.source = USCensusSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.USCENSUS
-
-    def test_source_config_is_released_alpha(self):
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/us-census"
-
-    def test_source_config_fields(self):
-        fields = {field.name: field for field in self.source.get_source_config.fields}
-
-        api_key_field = fields["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-        for name in ("custom_dataset", "custom_variables", "custom_geography", "custom_geography_filter"):
-            custom_field = fields[name]
-            assert isinstance(custom_field, SourceFieldInputConfig)
-            assert custom_field.required is False
 
     def test_get_schemas_static_catalog(self):
         schemas = self.source.get_schemas(_config(), team_id=1)
@@ -137,10 +112,3 @@ class TestUSCensusSource:
         non_retryable = self.source.get_non_retryable_errors()
 
         assert any(pattern in error_message for pattern in non_retryable)
-
-    def test_canonical_descriptions_cover_catalog_endpoints(self):
-        descriptions = self.source.get_canonical_descriptions()
-
-        for endpoint_name in ENDPOINTS:
-            assert endpoint_name in descriptions
-            assert descriptions[endpoint_name].get("description")

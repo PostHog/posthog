@@ -1,0 +1,80 @@
+{
+    "W1": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 54,
+        "cluster_real": "0/1"
+    },
+    "W2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "cluster_real": "0/9"
+    },
+    "W3": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 58,
+        "cluster_real": "1/6"
+    },
+    "W4": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 61,
+        "cluster_real": "8/8"
+    },
+    "W5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 3,
+        "cluster_real": "0/7"
+    },
+    "W6": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "cluster_real": "6/10"
+    },
+    "W7": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "cluster_real": "2/11"
+    },
+    "W8": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 39,
+        "cluster_real": "1/6"
+    },
+    "W9": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "cluster_real": "0/9"
+    },
+    "W10": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 15,
+        "cluster_real": "0/1"
+    },
+    "W11": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 1,
+        "cluster_real": "1/2"
+    },
+    "W12": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 31,
+        "cluster_real": "0/6"
+    },
+    "W13": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 74,
+        "cluster_real": "0/1"
+    }
+}

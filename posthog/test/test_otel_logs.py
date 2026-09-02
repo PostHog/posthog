@@ -5,10 +5,15 @@ from unittest import mock
 
 from django.test import SimpleTestCase, override_settings
 
+from opentelemetry import (
+    context as otel_context,
+    trace,
+)
 from opentelemetry._logs import SeverityNumber
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import InMemoryLogExporter, SimpleLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from parameterized import parameterized
 
 from posthog import otel_logs
@@ -57,6 +62,27 @@ class TestOtelLogMirror(SimpleTestCase):
         assert "response_preview" not in record.attributes
         assert record.attributes["logger"] == f"{_PREFIX}.activities.call_scanner_provider"
         assert record.resource.attributes["service.name"] == "replay-vision"
+
+    def test_ships_trace_and_span_ids_from_active_span(self) -> None:
+        span_context = SpanContext(
+            trace_id=0x4BF92F3577B34DA6A3CE929D0E0E4736,
+            span_id=0x00F067AA0BA902B7,
+            is_remote=True,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+        token = otel_context.attach(trace.set_span_in_context(NonRecordingSpan(span_context)))
+        try:
+            records = self._run({"event": "x", "logger": f"{_PREFIX}.x"})
+        finally:
+            otel_context.detach(token)
+        assert records[0].trace_id == 0x4BF92F3577B34DA6A3CE929D0E0E4736
+        assert records[0].span_id == 0x00F067AA0BA902B7
+        assert records[0].trace_flags == TraceFlags.SAMPLED
+
+    def test_trace_and_span_ids_default_to_zero_without_active_span(self) -> None:
+        records = self._run({"event": "x", "logger": f"{_PREFIX}.x"})
+        assert records[0].trace_id == 0
+        assert records[0].span_id == 0
 
     def test_ignores_loggers_outside_the_prefix(self) -> None:
         records = self._run({"event": "shutting down", "logger": "temporalio.worker"})

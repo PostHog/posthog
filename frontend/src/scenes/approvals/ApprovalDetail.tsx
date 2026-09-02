@@ -75,6 +75,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                         }}
                         onCancel={(_, reason) => cancelChangeRequest(reason)}
                         showViewButton={false}
+                        showDisabledApproveButton
                     />
                 }
             />

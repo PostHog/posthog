@@ -45,7 +45,16 @@ def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> b
     logger = LOGGER.bind()
     close_old_connections()
 
-    job = ExternalDataJob.objects.get(id=inputs.job_id)
+    try:
+        job = ExternalDataJob.objects.get(id=inputs.job_id)
+    except ExternalDataJob.DoesNotExist:
+        # job_id can be None (or point at a job that no longer exists) when this input came
+        # from an older worker's create_external_data_job_model_activity result — that legacy
+        # compatibility path doesn't guarantee a job was created. Nothing to bill for, so let
+        # the sync proceed rather than fail the whole workflow.
+        logger.info("Skipping billing limits check: job does not exist", job_id=inputs.job_id)
+        return False
+
     source: ExternalDataSource = job.pipeline
 
     if not job.billable:

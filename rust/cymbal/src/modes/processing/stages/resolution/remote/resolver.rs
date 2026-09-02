@@ -5,16 +5,11 @@ use std::time::{Duration, Instant};
 use cymbal_proto::cymbal::resolution::v1::ResolveItem;
 use futures::future::join_all;
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
-    stages::{
-        pipeline::ParsedPipelineItem,
-        resolution::{
-            exception::ExceptionResolver, frame::FrameResolver, remote::pool::EndpointPool,
-            ResolutionStage,
-        },
-    },
+    stages::{pipeline::ParsedPipelineItem, resolution::remote::pool::EndpointPool},
     types::{
         batch::Batch,
         exception_event::{ExceptionEvent, Parsed},
@@ -59,9 +54,8 @@ impl RemoteResolutionContext {
 /// Resolve a whole stage batch through the remote pool.
 ///
 /// Flow:
-/// 1. Partition the batch into errored / empty-passthrough / local / remote.
-/// 2. Resolve local events inline (same path as no-remote mode).
-/// 3. Build one logical work item per exception, grouped by routing key for
+/// 1. Partition the batch into errored / empty-passthrough / remote.
+/// 2. Build one logical work item per exception, grouped by routing key for
 ///    deterministic submission, and let each item reroute independently
 ///    through the mux.
 /// 4. Assemble back into the original batch order.
@@ -71,19 +65,16 @@ impl RemoteResolutionContext {
 pub async fn resolve_batch(
     batch: Batch<ParsedPipelineItem>,
     ctx: RemoteResolutionContext,
-    local_stage: ResolutionStage,
 ) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
     let batch_len = batch.len();
-    let partition = partition_batch(batch, ctx.config.sample_rate)?;
+    let partition = partition_batch(batch)?;
 
-    let local_resolved = resolve_local_events(partition.local, local_stage).await?;
     let remote_resolved = resolve_remote_events(&ctx, partition.remote).await?;
 
     assemble_output(
         batch_len,
         partition.errors,
         partition.empty,
-        local_resolved,
         remote_resolved,
     )
 }
@@ -92,11 +83,10 @@ fn assemble_output(
     batch_len: usize,
     errors: Vec<(usize, ParsedPipelineItem)>,
     empty: Vec<(usize, ParsedPipelineItem)>,
-    local: Vec<(usize, ParsedPipelineItem)>,
     remote: Vec<(usize, ParsedPipelineItem)>,
 ) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
     let mut output: Vec<Option<ParsedPipelineItem>> = (0..batch_len).map(|_| None).collect();
-    for (idx, item) in errors.into_iter().chain(empty).chain(local).chain(remote) {
+    for (idx, item) in errors.into_iter().chain(empty).chain(remote) {
         output[idx] = Some(item);
     }
     let resolved: Vec<ParsedPipelineItem> = output
@@ -115,7 +105,7 @@ fn assemble_output(
 // Shared data types: an event, exception work item, and resolved slot
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A sampled-remote event with its wire payloads pre-serialized.
+/// An event with its wire payloads pre-serialized for remote resolution.
 ///
 /// Owning the serialized bytes alongside the event means each `RemoteEvent`
 /// moves through the work-item → RPC → apply pipeline by value. No shared
@@ -126,6 +116,9 @@ struct RemoteEvent {
     evt: ExceptionEvent<Parsed>,
     /// One serialized exception per `evt.exception_list` entry, in order.
     exception_jsons: Vec<Vec<u8>>,
+    /// The byte-exact pre-normalization order, when wire-order normalization
+    /// changed the event. Resolving it separately preserves legacy fingerprints.
+    legacy_exception_jsons: Option<Vec<Vec<u8>>>,
     /// Shared across this event's exceptions on the wire. The proto carries
     /// it per-item; this is the per-event source bytes we clone from.
     metadata: Vec<u8>,
@@ -141,6 +134,16 @@ struct RemoteEventSlot {
     batch_index: usize,
     evt: ExceptionEvent<Parsed>,
     resolved: Vec<Option<Exception>>,
+    legacy_resolved: Option<Vec<Option<Exception>>>,
+    /// Releases the resolver bound to this event's exceptions, one per canonical item that had
+    /// one. The legacy-order snapshot resolves the same frames, so its ids are redundant.
+    release_ids: Vec<Uuid>,
+}
+
+#[derive(Clone, Copy)]
+enum ResolutionTarget {
+    Canonical,
+    Legacy,
 }
 
 /// One logical exception-level item. `token` is client-side only: the mux may
@@ -150,6 +153,7 @@ struct RemoteWorkItem {
     routing_key: String,
     event_slot: usize,
     exception_slot: usize,
+    target: ResolutionTarget,
     item: ResolveItem,
 }
 
@@ -165,28 +169,9 @@ impl RemoteWorkItem {
 struct ResolvedRemoteItem {
     event_slot: usize,
     exception_slot: usize,
+    target: ResolutionTarget,
     exception: Exception,
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Local resolution path (passthrough to the inline stage)
-// ─────────────────────────────────────────────────────────────────────────────
-
-async fn resolve_local_events(
-    local_events: Vec<(usize, ExceptionEvent<Parsed>)>,
-    local_stage: ResolutionStage,
-) -> Result<Vec<(usize, ParsedPipelineItem)>, UnhandledError> {
-    if local_events.is_empty() {
-        return Ok(Vec::new());
-    }
-    let (indexes, events): (Vec<usize>, Vec<ExceptionEvent<Parsed>>) =
-        local_events.into_iter().unzip();
-    let batch = Batch::from(events.into_iter().map(Ok).collect::<Vec<_>>())
-        .apply_operator(ExceptionResolver, local_stage.clone())
-        .await?
-        .apply_operator(FrameResolver, local_stage)
-        .await?;
-    Ok(indexes.into_iter().zip(batch.into_iter()).collect())
+    release_id: Option<Uuid>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,7 +206,21 @@ async fn resolve_remote_events(
                 item.event_slot
             )));
         };
-        let Some(slot) = event_slot.resolved.get_mut(item.exception_slot) else {
+        if let (ResolutionTarget::Canonical, Some(release_id)) = (item.target, item.release_id) {
+            if !event_slot.release_ids.contains(&release_id) {
+                event_slot.release_ids.push(release_id);
+            }
+        }
+        let slots = match item.target {
+            ResolutionTarget::Canonical => &mut event_slot.resolved,
+            ResolutionTarget::Legacy => event_slot.legacy_resolved.as_mut().ok_or_else(|| {
+                UnhandledError::Other(format!(
+                    "remote resolution returned legacy result for event slot {} without a legacy snapshot",
+                    item.event_slot
+                ))
+            })?,
+        };
+        let Some(slot) = slots.get_mut(item.exception_slot) else {
             return Err(UnhandledError::Other(format!(
                 "remote resolution returned invalid exception slot {} for event slot {}",
                 item.exception_slot, item.event_slot
@@ -254,6 +253,24 @@ async fn resolve_remote_events(
             event
                 .evt
                 .replace_exception_list(ExceptionList::from(exceptions));
+            event.evt.set_symbol_set_release_ids(event.release_ids);
+            if let Some(legacy) = event.legacy_resolved {
+                let legacy = legacy
+                    .into_iter()
+                    .enumerate()
+                    .map(|(exception_slot, slot)| {
+                        slot.ok_or_else(|| {
+                            UnhandledError::Other(format!(
+                                "remote resolution left legacy event slot {} exception slot {exception_slot} unfilled",
+                                event.batch_index
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                event
+                    .evt
+                    .set_legacy_order_resolved(ExceptionList::from(legacy));
+            }
             Ok((event.batch_index, Ok(event.evt)))
         })
         .collect()
@@ -290,6 +307,7 @@ fn build_work_items(
                     routing_key,
                     event_slot,
                     exception_slot,
+                    target: ResolutionTarget::Canonical,
                     item: ResolveItem {
                         id: token,
                         team_id,
@@ -300,10 +318,46 @@ fn build_work_items(
                 });
         }
 
+        if let Some(legacy_exception_jsons) = &event.legacy_exception_jsons {
+            for (exception_slot, exception_json) in
+                legacy_exception_jsons.iter().cloned().enumerate()
+            {
+                let routing_key = format!("team:{team_id}");
+                let token = next_token;
+                next_token = next_token.checked_add(1).ok_or_else(|| {
+                    UnhandledError::Other(
+                        "remote resolution work item token overflowed".to_string(),
+                    )
+                })?;
+                work_items_by_key
+                    .entry(routing_key.clone())
+                    .or_default()
+                    .push(RemoteWorkItem {
+                        token,
+                        routing_key,
+                        event_slot,
+                        exception_slot,
+                        target: ResolutionTarget::Legacy,
+                        item: ResolveItem {
+                            id: token,
+                            team_id,
+                            exception_json,
+                            metadata: event.metadata.clone(),
+                            deadline_ms: 0,
+                        },
+                    });
+            }
+        }
+
         event_slots.push(RemoteEventSlot {
             batch_index: event.batch_index,
             evt: event.evt,
+            release_ids: Vec::new(),
             resolved: (0..item_count).map(|_| None).collect(),
+            legacy_resolved: event
+                .legacy_exception_jsons
+                .as_ref()
+                .map(|items| (0..items.len()).map(|_| None).collect()),
         });
     }
 
@@ -399,6 +453,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn build_work_items_resolves_legacy_snapshot_separately() {
+        let mut event = fake_remote_event(2, 3, 2);
+        event.legacy_exception_jsons = Some(event.exception_jsons.clone());
+
+        let (event_slots, work_items) = build_work_items(vec![event]).expect("build work items");
+
+        assert_eq!(work_items.len(), 4);
+        assert_eq!(
+            work_items
+                .iter()
+                .filter(|item| matches!(item.target, ResolutionTarget::Legacy))
+                .count(),
+            2
+        );
+        assert_eq!(
+            event_slots[0]
+                .legacy_resolved
+                .as_ref()
+                .expect("legacy result slots")
+                .len(),
+            2
+        );
+    }
+
     fn fake_remote_event(team_id: i32, batch_index: usize, n_exceptions: usize) -> RemoteEvent {
         fake_remote_event_from_exceptions(
             team_id,
@@ -438,6 +517,7 @@ mod tests {
             batch_index,
             evt,
             exception_jsons,
+            legacy_exception_jsons: None,
             metadata: Vec::new(),
         }
     }

@@ -72,13 +72,13 @@ class _SlashCommandTestBase(TestCase):
 
     def _post_slash_command(self, payload: dict[str, str]) -> Any:
         body = urlencode(payload).encode()
-        signature, ts = sign_slack_request(body, SIGNING_SECRET)
+        signed = sign_slack_request(body, SIGNING_SECRET)
         return self.client.post(
             SLASH_COMMAND_PATH,
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
     def _default_payload(self, **overrides: str) -> dict[str, str]:

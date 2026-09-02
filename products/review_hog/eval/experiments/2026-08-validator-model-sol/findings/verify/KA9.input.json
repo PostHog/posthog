@@ -1,0 +1,12 @@
+{
+    "id": "KA9",
+    "file": "products/stamphog/AGENTS.md",
+    "lines": "84-87",
+    "priority": "should_fix",
+    "title": "The documented task type contradicts the implementation",
+    "problem": "This section says the carve-out requires a non-internal TaskRun. Signal report tasks use `internal=True`. The facade identifies them through `signal_report_id` and `ai_stage=\"implementation\"`. This incorrect invariant can cause a future change to weaken or break the security gate.",
+    "suggestion": "Replace \u201cnon-internal\u201d with the exact implemented criteria. State that the task carries a signal report and that the run has `ai_stage=\"implementation\"`. Do not use the `internal` field as an identification rule.",
+    "cluster": 1,
+    "cluster_issue": "find_signal_implementation_run rejects internal=True tasks but production self-driving implementation tasks are always internal=True, so the webhook carve-out leg is dead",
+    "cluster_verified": "1/2"
+}

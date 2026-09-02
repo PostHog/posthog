@@ -21,6 +21,13 @@
         font-weight: normal;
     }
 
+    &.LemonTag--wrap {
+        // `anywhere` (rather than `break-word`) also shrinks the tag's min-content width,
+        // so a long unbroken tag can't force its container to overflow
+        overflow-wrap: anywhere;
+        white-space: normal;
+    }
+
     &.LemonTag--primary {
         color: var(--color-accent);
         background: none;

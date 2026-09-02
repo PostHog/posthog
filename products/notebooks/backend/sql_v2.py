@@ -22,15 +22,36 @@ import requests
 import structlog
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 
-from products.notebooks.backend.kernel_package import SANDBOX_PACKAGE_NAME, kernel_package_bytes_and_hash
+from products.notebooks.backend.kernel_package import (
+    BAKED_PACKAGE_ROOT,
+    BAKED_VERSION_PATH,
+    SANDBOX_PACKAGE_NAME,
+    kernel_package_bytes_and_hash,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.tasks.backend.facade.sandbox import SandboxBase, get_sandbox_class_for_backend
 
 logger = structlog.get_logger(__name__)
 
 REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
+NOTEBOOKS_FRAME_STORE_FLAG = "notebooks-frame-store"
+NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG = "notebooks-frame-store-ch-writes"
+
+# How a run's result rows reached whoever consumes them. The data plane resolves this at
+# the moment it picks a transport and reports it in the 202 accept body; the sandbox echoes
+# it back in the envelope without interpreting it, and `sql_v2_metrics` turns it into a
+# metric label. Because the value crosses the sandbox boundary, where user code can forge
+# an envelope, `sql_v2_metrics.DELIVERY_LABEL_VALUES` is the allowlist that bounds label
+# cardinality; add any new mode to both places.
+DELIVERY_DIRECT = "direct"  # direct lane: ClickHouse to Redis to the UI, no sandbox involved
+DELIVERY_INLINE = "inline"  # sandbox fetch over the inline (Redis) transport, clamped at the async row ceiling
+DELIVERY_OBJECT_RELAY = "object_relay"  # a Temporal worker streams ClickHouse rows to object storage
+DELIVERY_OBJECT_CH_WRITES = "object_ch_writes"  # ClickHouse writes the object itself via INSERT INTO FUNCTION s3
+DELIVERY_NONE = "none"  # kernel run that read no ClickHouse result, so no transport was involved
+DELIVERY_MIXED = "mixed"  # one run materialized several inputs and they did not agree on a transport
 
 _CALLBACK_TOKEN_SALT = "notebooks.sql_v2.callback"
 _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
@@ -80,7 +101,7 @@ class SQLV2PageError(Exception):
     """A page fetch the kernel rejected or failed; message is user-facing."""
 
 
-def is_sql_v2_enabled(user: User | None) -> bool:
+def _flag_enabled_for(flag: str, user: User | None) -> bool:
     if user is None or not user.distinct_id:
         return False
     kwargs: dict = {"only_evaluate_locally": False, "send_feature_flag_events": False}
@@ -89,7 +110,35 @@ def is_sql_v2_enabled(user: User | None) -> bool:
         org_id = str(org.id)
         kwargs["groups"] = {"organization": org_id}
         kwargs["group_properties"] = {"organization": {"id": org_id}}
-    return bool(posthoganalytics.feature_enabled(REVAMPED_PY_NOTEBOOKS_FLAG, user.distinct_id, **kwargs))
+    return bool(posthoganalytics.feature_enabled(flag, user.distinct_id, **kwargs))
+
+
+def is_sql_v2_enabled(user: User | None) -> bool:
+    return _flag_enabled_for(REVAMPED_PY_NOTEBOOKS_FLAG, user)
+
+
+def is_frame_store_enabled(user: User | None) -> bool:
+    """Whether this user's whole-frame materializations may use the object-storage path.
+
+    Narrower than `is_sql_v2_enabled`: it gates only the transport, so a user without it
+    still runs SQLV2 nodes, just over the inline transport and its 50k row clamp. Both this
+    and the deployment's `frame_store.is_enabled()` must hold, so the flag can widen the
+    rollout no further than the environment is provisioned for.
+    """
+    return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_FLAG, user)
+
+
+def is_frame_store_ch_writes_enabled(user: User | None) -> bool:
+    """Whether this user's materializations take the ClickHouse-side write path.
+
+    One switch for the whole new flow: it moves the query onto the offline pool as the
+    dedicated `notebooks` user, and hands the object write to ClickHouse. Sits inside
+    `is_frame_store_enabled`, which has to be on before any of this is reached.
+
+    Resolved in the web process and carried on the job, because the Temporal activity that
+    acts on it has no request user to evaluate a flag against.
+    """
+    return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG, user)
 
 
 def mint_callback_token(run_id: str, team_id: int) -> str:
@@ -146,18 +195,41 @@ def build_data_plane_url() -> str:
     return f"{_backend_base_url()}/internal/notebooks/data_plane/query/"
 
 
-def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | None) -> str:
+def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | None, run_id: str | None = None) -> str:
+    """Sign a data-plane token for the sandbox.
+
+    `run_id` names the run the fetch belongs to, so a data-plane query counts as observable
+    progress on it (see `touch_run_progress`). It rides the signed token rather than the
+    request body because the sandbox must not be able to name a different run than the one
+    the backend dispatched to it.
+    """
     return signing.dumps(
-        {"notebook_short_id": notebook_short_id, "team_id": team_id, "user_id": user_id},
+        {"notebook_short_id": notebook_short_id, "team_id": team_id, "user_id": user_id, "run_id": run_id},
         salt=_DATA_PLANE_TOKEN_SALT,
     )
 
 
-def verify_data_plane_token(token: str) -> tuple[str, int, int | None]:
-    """Return (notebook_short_id, team_id, user_id) from a valid token, else raise signing.BadSignature."""
+@frozen
+class DataPlaneClaims:
+    notebook_short_id: str
+    team_id: int
+    user_id: int | None
+    # Absent on a token minted before the run-progress claim existed, so it stays optional:
+    # such a token still fetches data, it just cannot advance its run's watchdog clock.
+    run_id: str | None = None
+
+
+def verify_data_plane_token(token: str) -> DataPlaneClaims:
+    """Return the claims from a valid token, else raise signing.BadSignature."""
     data = signing.loads(token, salt=_DATA_PLANE_TOKEN_SALT, max_age=_DATA_PLANE_TOKEN_MAX_AGE_SECONDS)
     user_id = data.get("user_id")
-    return str(data["notebook_short_id"]), int(data["team_id"]), int(user_id) if user_id is not None else None
+    run_id = data.get("run_id")
+    return DataPlaneClaims(
+        notebook_short_id=str(data["notebook_short_id"]),
+        team_id=int(data["team_id"]),
+        user_id=int(user_id) if user_id is not None else None,
+        run_id=str(run_id) if run_id else None,
+    )
 
 
 def _find_running_runtime(notebook: Notebook, user: User | None) -> KernelRuntime | None:
@@ -219,32 +291,73 @@ def _wait_for_server_ready(server_url: str, connect_token: str | None, expected_
     raise RuntimeError("SQLV2 kernel-server did not become ready")
 
 
+# Stop a previous server via its PID file — never pkill by our own name: the
+# pattern would match this very launch command's shell and kill it mid-deploy.
+# The pkill lines only clear pre-package servers (distinct names, safe to
+# match) from sandboxes that predate the PID file; drop them once those age out.
+_STOP_PREVIOUS_SERVER = (
+    f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
+    "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
+)
+# Echoed by the baked launch so the caller can tell it ran from a matching image
+# rather than exiting early on a stale stamp.
+_BAKED_LAUNCH_MARKER = "nb_kernel_baked_ok"
+
+
+def _launch_server(package_root: str, port: int, version: str) -> str:
+    """Shell that backgrounds the kernel-server out of `package_root` and records its PID.
+
+    `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
+    The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
+    no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
+    would record the wrapper's PID and the next redeploy would kill nothing.
+    Prefer the notebook venv python (has pyarrow).
+    """
+    return (
+        'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
+        f'PYTHONPATH={package_root} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
+        f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
+        f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
+    )
+
+
+def _launch_baked_kernel_server(sandbox: SandboxBase, port: int, version: str) -> bool:
+    """Launch the package the image baked in, unless its stamp predates `version`.
+
+    Returns False on a stale stamp, having stopped the old server but started no
+    new one, so the caller falls back to the tarball. The version is a hex digest,
+    so it needs no shell quoting beyond the comparison's own quotes.
+    """
+    command = (
+        _STOP_PREVIOUS_SERVER
+        + f'[ "$(cat {BAKED_VERSION_PATH} 2>/dev/null)" = "{version}" ] || exit 0; '
+        + _launch_server(BAKED_PACKAGE_ROOT, port, version)
+        + f"; echo {_BAKED_LAUNCH_MARKER}"
+    )
+    result = sandbox.execute(command, timeout_seconds=30)
+    return _BAKED_LAUNCH_MARKER in result.stdout
+
+
 def _deploy_kernel_server(sandbox: SandboxBase, runtime: KernelRuntime, package: bytes, version: str) -> None:
-    """Write the kernel package + secret into the sandbox and (re)launch the server.
+    """Write the secret into the sandbox and (re)launch the kernel-server.
 
     This is the only place the control plane (write_file/execute) is used, exactly
     as Code bootstraps its agent-server. Per-run dispatch is a plain authed POST.
+
+    The image bakes the package, so the usual path is one execute that launches it
+    in place. Uploading the tarball is the fallback for a kernel edit no image build
+    has picked up yet, which keeps a merged kernel fix from waiting on an image.
     """
     port = _CONTAINER_PORT_BY_BACKEND.get(runtime.backend, 47821)
     sandbox.write_file(_SECRET_PATH, kernel_server_secret(str(runtime.id)).encode())
+    if _launch_baked_kernel_server(sandbox, port, version):
+        return
+
     sandbox.write_file(_TARBALL_PATH, package)
-    # Stop a previous server via its PID file — never pkill by our own name: the
-    # pattern would match this very launch command's shell and kill it mid-deploy.
-    # The pkill lines only clear pre-package servers (distinct names, safe to
-    # match) from sandboxes that predate the PID file; drop them once those age out.
-    # `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
-    # The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
-    # no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
-    # would record the wrapper's PID and the next redeploy would kill nothing.
-    # Prefer the notebook venv python (has pyarrow).
     launch = (
-        f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
-        "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
-        f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
-        'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
-        f'PYTHONPATH={_PACKAGE_ROOT} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
-        f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
-        f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
+        _STOP_PREVIOUS_SERVER
+        + f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
+        + _launch_server(_PACKAGE_ROOT, port, version)
     )
     sandbox.execute(launch, timeout_seconds=30)
 
@@ -253,8 +366,9 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
     """Ensure the in-sandbox kernel-server is running the current package version.
 
     Idempotent — a healthy server at the expected version is reused as-is; a stale
-    or unreachable one is redeployed from the freshly built tarball (this is the
-    dev loop: edit `kernel/`, next run redeploys, no image rebuild).
+    or unreachable one is redeployed, from the image's baked package when that
+    matches and from the freshly built tarball when it does not (this is the dev
+    loop: edit `kernel/`, next run redeploys, no image rebuild).
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None:
@@ -291,12 +405,16 @@ def dispatch_sql_v2_run(
     node_type: str = "hogql",
     output_name: str = "",
     inputs: list[dict] | None = None,
+    variables: dict | None = None,
 ) -> None:
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
     Returns as soon as the server accepts (202); the result arrives via the callback. A
     kernel node (python or duckdb) carries the `node`/`inputs` shape the executor consumes;
     a hogql node keeps the flat `code` the capped-fetch path reads — the paths stay additive.
+
+    `variables` are notebook-level values a python node reads as globals; the executor passes
+    the whole `node` object through, so they need no handling of their own on the way in.
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
@@ -312,12 +430,17 @@ def dispatch_sql_v2_run(
         "callback_url": build_callback_url(str(run.id)),
         "callback_token": mint_callback_token(str(run.id), notebook.team_id),
         "data_plane_url": build_data_plane_url(),
-        "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
+        "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id, str(run.id)),
         "page_limit": DISPLAY_PAGE_LIMIT,
         "cache_limit": RESULT_CACHE_ROWS,
     }
     if node_type in ("python", "duckdb"):
-        payload["node"] = {"type": node_type, "code": code, "output_name": output_name}
+        payload["node"] = {
+            "type": node_type,
+            "code": code,
+            "output_name": output_name,
+            "variables": variables or {},
+        }
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code
@@ -353,7 +476,7 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
     if run.node_type == NotebookNodeRun.NodeType.HOGQL:
         payload["code"] = run.code
         payload["data_plane_url"] = build_data_plane_url()
-        payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id)
+        payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id, str(run.id))
     else:
         payload["result_id"] = str(run.result_id)
     try:

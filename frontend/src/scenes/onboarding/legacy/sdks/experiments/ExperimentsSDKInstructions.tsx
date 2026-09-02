@@ -9,6 +9,7 @@ import {
     FramerInstallation,
     GoInstallation,
     IOSInstallation,
+    KMPInstallation,
     WebInstallation,
     LaravelInstallation,
     NextJSInstallation,
@@ -171,6 +172,12 @@ const ExperimentsFlutterInstructionsWrapper = withMobileReplay({
     onboardingContext: 'experiments-onboarding',
     snippets: MOBILE_SNIPPETS,
 })
+const ExperimentsKMPInstructionsWrapper = withMobileReplay({
+    Installation: KMPInstallation,
+    sdkKey: SDKKey.KMP,
+    onboardingContext: 'experiments-onboarding',
+    snippets: MOBILE_SNIPPETS,
+})
 const ExperimentsRNInstructionsWrapper = withMobileReplay({
     Installation: ReactNativeInstallation,
     sdkKey: SDKKey.REACT_NATIVE,
@@ -260,6 +267,7 @@ export const ExperimentsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.FRAMER]: ExperimentsFramerInstructionsWrapper,
     [SDKKey.GO]: ExperimentsGoInstructionsWrapper,
     [SDKKey.IOS]: ExperimentsIOSInstructionsWrapper,
+    [SDKKey.KMP]: ExperimentsKMPInstructionsWrapper,
     [SDKKey.LARAVEL]: ExperimentsLaravelInstructionsWrapper,
     [SDKKey.NEXT_JS]: ExperimentsNextJSInstructionsWrapper,
     [SDKKey.NODE_JS]: ExperimentsNodeInstructionsWrapper,

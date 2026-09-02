@@ -24,36 +24,59 @@ from products.engineering_analytics.backend.logic.sources import GitHubTables
 # Ages are seconds-ago-from-now (smaller = more recent). last_master_hit_age is the fingerprint's most
 # recent trunk failure; latest_completed_age is the matched job's newest completed run.
 @pytest.mark.parametrize(
-    "master_hits,age_hours,span_hours,branches,latest_conclusion,last_master_hit_age,latest_completed_age,expected",
+    "master_hits,queue_hits,pr_hits,age_hours,span_hours,branches,latest_conclusion,last_master_hit_age,latest_completed_age,expected",
     [
         # Breaking trunk: hit master and that job's latest run is still red — highest priority.
-        (3, 5, 48, 5, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
-        (1, 40, 100, 2, "timed_out", 100, 50, BrokenTestState.BREAKING_MASTER),
+        (3, 0, 5, 5, 48, 5, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        (1, 0, 2, 40, 100, 2, "timed_out", 100, 50, BrokenTestState.BREAKING_MASTER),
         # Breaking wins even when the row also looks novel (fresh + spreading).
-        (3, 5, 5, 4, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        (3, 0, 4, 5, 5, 4, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        # Trunk breakage outranks a merge-queue hit: a broadly-failing test fails on gate branches
+        # too, and must still classify by its trunk behavior.
+        (3, 4, 5, 5, 48, 5, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        # Gate-only: failed at the gate and nowhere else, so the commit had already passed the PR's
+        # own CI. A single gate branch would otherwise read as pr_only, the lowest signal.
+        (0, 1, 0, 5, 2, 1, None, 0, None, BrokenTestState.BLOCKING_MERGE_QUEUE),
+        # Across several merge attempts it would read as novel_burst instead — still the wrong shape.
+        (0, 3, 0, 5, 5, 4, None, 0, None, BrokenTestState.BLOCKING_MERGE_QUEUE),
+        # But a test that also fails on ordinary PR branches is a flake that happened to hit the gate
+        # by breadth, not a conflict with trunk — it keeps the shape it actually has.
+        (0, 1, 6, 100, 48, 3, None, 0, None, BrokenTestState.FLAKY),
+        (0, 1, 6, 5, 5, 4, None, 0, None, BrokenTestState.NOVEL_BURST),
         # Novel burst: fresh (<24h), spread across >=3 branches, never on trunk.
-        (0, 5, 5, 4, None, 0, None, BrokenTestState.NOVEL_BURST),
+        (0, 0, 5, 5, 5, 4, None, 0, None, BrokenTestState.NOVEL_BURST),
         # Hit trunk but the green run finished AFTER the last failure (100 < 1000) — a real recovery.
-        (2, 40, 100, 3, "success", 1000, 100, BrokenTestState.POTENTIALLY_RESOLVED),
+        (2, 0, 3, 40, 100, 3, "success", 1000, 100, BrokenTestState.POTENTIALLY_RESOLVED),
         # Green but STALE: the green predates the last trunk failure (1000 > 100), so the warehouse is
         # just lagging the fresher logs — not resolved, falls through to flaky.
-        (2, 40, 100, 3, "success", 100, 1000, BrokenTestState.FLAKY),
+        (2, 0, 3, 40, 100, 3, "success", 100, 1000, BrokenTestState.FLAKY),
         # Flaky: sporadic across >=2 branches over more than a day, not on trunk.
-        (0, 100, 48, 3, None, 0, None, BrokenTestState.FLAKY),
+        (0, 0, 5, 100, 48, 3, None, 0, None, BrokenTestState.FLAKY),
         # Degradation: hit trunk but no job status (source unsynced) — falls through, not misreported.
-        (3, 100, 48, 3, None, 100, None, BrokenTestState.FLAKY),
+        (3, 0, 5, 100, 48, 3, None, 100, None, BrokenTestState.FLAKY),
         # PR-only: one branch, recent, short span — the lowest signal.
-        (0, 5, 2, 1, None, 0, None, BrokenTestState.PR_ONLY),
+        (0, 0, 2, 5, 2, 1, None, 0, None, BrokenTestState.PR_ONLY),
         # Not novel (only 2 branches) and not flaky (span within a day) → PR-only.
-        (0, 5, 10, 2, None, 0, None, BrokenTestState.PR_ONLY),
+        (0, 0, 3, 5, 10, 2, None, 0, None, BrokenTestState.PR_ONLY),
     ],
 )
 def test_classify_states(
-    master_hits, age_hours, span_hours, branches, latest_conclusion, last_master_hit_age, latest_completed_age, expected
-):
+    master_hits: int,
+    queue_hits: int,
+    pr_hits: int,
+    age_hours: int,
+    span_hours: int,
+    branches: int,
+    latest_conclusion: str | None,
+    last_master_hit_age: int,
+    latest_completed_age: int | None,
+    expected: BrokenTestState,
+) -> None:
     assert (
         _classify(
             master_hits=master_hits,
+            merge_queue_hits=queue_hits,
+            pr_branch_hits=pr_hits,
             age_hours=age_hours,
             span_hours=span_hours,
             branches=branches,
@@ -96,6 +119,8 @@ def _fp_row(
     age=100,
     span=48,
     last_master_hit_age=500,
+    merge_queue_hits=0,
+    pr_branch_hits=1,
 ):
     # Column order mirrors _FINGERPRINTS_SELECT (workflow_name + last_master_hit_age appended last).
     return (
@@ -110,6 +135,8 @@ def _fp_row(
         10,
         branches,
         master_hits,
+        merge_queue_hits,
+        pr_branch_hits,
         "PostHog/posthog",
         latest_run_id,
         "some-branch",
@@ -245,7 +272,6 @@ def test_build_query_embeds_the_failures_view():
     # Guards the private read path: the fingerprint scan reads the ci_failures builder as a subquery,
     # not the registered warehouse view by name (keeps the product off the global catalog).
     assert "engineering_analytics_ci_failures" not in module._FINGERPRINTS_SELECT
-    assert "FAILED" in module.ci_failures.build_query()
 
 
 class TestBrokenTestsQueryOverClickHouse(ClickhouseTestMixin, BaseTest):

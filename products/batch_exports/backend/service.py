@@ -2,7 +2,7 @@ import json
 import types
 import typing
 import datetime as dt
-from dataclasses import Field, asdict, dataclass, fields
+from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
@@ -29,6 +29,7 @@ from temporalio.client import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -137,7 +138,8 @@ class BatchExportField(typing.TypedDict):
 
 class BatchExportSchema(typing.TypedDict):
     fields: list[BatchExportField]
-    values: dict[str, str]
+    # HogQL binds these at any type; narrowing breaks Temporal input decoding.
+    values: dict[str, typing.Any]
 
 
 @dataclass
@@ -158,6 +160,7 @@ class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
     filters: list[dict[str, str | list[str] | None]] | None = None
+    hogql_query: str | None = None
 
 
 @dataclass
@@ -254,7 +257,7 @@ class BaseBatchExportInputs:
         return self.is_earliest_backfill
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
@@ -288,7 +291,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -298,7 +301,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
@@ -311,7 +314,7 @@ class S3FamilyBaseInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -360,7 +363,7 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     expires_in_seconds: int = 3600
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
@@ -376,13 +379,13 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     table_name: str = "events"
     authentication_type: str = "password"
-    password: str | None = None
-    private_key: str | None = None
-    private_key_passphrase: str | None = None
+    password: str | None = field(default=None, repr=False)
+    private_key: str | None = field(default=None, repr=False)
+    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
@@ -393,41 +396,50 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     host: str | None = None
     port: int | None = 5432
-    password: str | None = None
+    password: str | None = field(default=None, repr=False)
     has_self_signed_cert: bool = False
 
 
 IAMRole = str
+IntegrationID = int
 
 
-@dataclass
+@dataclass(frozen=False)
 class AWSCredentials:
     aws_access_key_id: str
-    aws_secret_access_key: str
-    aws_session_token: str | None = None
+    aws_secret_access_key: str = field(repr=False)
+    aws_session_token: str | None = field(default=None, repr=False)
+    expiration: dt.datetime | None = field(default=None)
+
+    @property
+    def expiry_time(self) -> str | None:
+        """ISO-8601 expiration time for temporary credentials, if available."""
+        if self.expiration is None:
+            return None
+        return self.expiration.isoformat()
 
 
-@dataclass
+@frozen
 class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
-    # Authorization role or credentials for Redshift to COPY data from bucket.
-    authorization: IAMRole | AWSCredentials
-    # S3 batch export credentials.
-    # TODO: Also support RBAC for S3 batch export, then we could take
-    # `IAMRole | AWSCredentials` here too.
-    bucket_credentials: AWSCredentials
+    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN,
+    # inline credentials, or the id of a team-scoped aws-s3 integration.
+    authorization: IAMRole | AWSCredentials | IntegrationID
+    # Credentials used to stage files in the S3 bucket: inline credentials or
+    # the id of a team-scoped aws-s3 integration.
+    bucket_credentials: AWSCredentials | IntegrationID
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
-    user: str
-    password: str
-    host: str
     database: str
+    user: str | None = None
+    password: str | None = field(default=None, repr=False)
+    host: str | None = None
     schema: str = "public"
     table_name: str = "events"
     port: int = 5439
@@ -449,17 +461,31 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             else:
                 raise TypeError(f"Invalid type for copy inputs: '{type(self.copy_inputs)}'")
 
-            bucket_credentials = AWSCredentials(
-                aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
-                aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
-            )
+            # `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar
+            # leaves on the decrypt round trip: an integration id saved as an int reads back as a
+            # numeric string, so both forms must be accepted here.
+            raw_bucket_credentials = raw_inputs["bucket_credentials"]
+            bucket_credentials: AWSCredentials | IntegrationID
+            if isinstance(raw_bucket_credentials, IntegrationID):
+                bucket_credentials = raw_bucket_credentials
+            elif isinstance(raw_bucket_credentials, str) and raw_bucket_credentials.isdigit():
+                bucket_credentials = IntegrationID(raw_bucket_credentials)
+            else:
+                bucket_credentials = AWSCredentials(
+                    aws_access_key_id=raw_bucket_credentials["aws_access_key_id"],
+                    aws_secret_access_key=raw_bucket_credentials["aws_secret_access_key"],
+                )
 
-            if isinstance(raw_inputs["authorization"], str):
-                authorization: IAMRole | AWSCredentials = raw_inputs["authorization"]
+            raw_authorization = raw_inputs["authorization"]
+            authorization: IAMRole | AWSCredentials | IntegrationID
+            if isinstance(raw_authorization, IntegrationID):
+                authorization = raw_authorization
+            elif isinstance(raw_authorization, str):
+                authorization = IntegrationID(raw_authorization) if raw_authorization.isdigit() else raw_authorization
             else:
                 authorization = AWSCredentials(
-                    aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
-                    aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
+                    aws_access_key_id=raw_authorization["aws_access_key_id"],
+                    aws_secret_access_key=raw_authorization["aws_secret_access_key"],
                 )
 
             self.copy_inputs = RedshiftCopyInputs(
@@ -471,14 +497,14 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             )
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None
@@ -586,6 +612,16 @@ def coerce_config_to_declared_types(destination_type: str, config: dict[str, typ
                 except ValueError:
                     pass
         coerced[key] = value
+
+    if destination_type == "Redshift" and isinstance(coerced.get("copy_inputs"), dict):
+        copy_inputs = {**coerced["copy_inputs"]}
+        # Integration ids nested in copy_inputs also read back as digit strings.
+        for key in ("authorization", "bucket_credentials"):
+            value = copy_inputs.get(key)
+            if isinstance(value, str) and value.isdigit():
+                copy_inputs[key] = int(value)
+        coerced["copy_inputs"] = copy_inputs
+
     return coerced
 
 
@@ -1030,7 +1066,7 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-    model = BatchExportRun.objects.filter(id=run_id)
+    model = BatchExportRun.objects.select_related("batch_export", "batch_export__destination").filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(

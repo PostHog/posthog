@@ -255,6 +255,7 @@ class TestValidateCredentials:
             ("unauthorized", 401, None, False),
             ("forbidden_at_create", 403, None, True),
             ("forbidden_with_schema", 403, "export", False),
+            ("bad_request", 400, None, False),
             ("unexpected", 500, None, False),
         ]
     )
@@ -268,6 +269,15 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
+
+    def test_bad_request_points_at_the_project_id(self) -> None:
+        # A 400 used to fall through and surface the raw status code, which is not actionable.
+        session = MagicMock()
+        session.post.return_value = FakeResponse(status_code=400)
+        with patch.object(mp, "make_tracked_session", return_value=session):
+            ok, error = validate_credentials("us", "user", "secret", "123")
+        assert ok is False
+        assert error is not None and "project ID" in error
 
     def test_network_error_returns_failure(self) -> None:
         session = MagicMock()

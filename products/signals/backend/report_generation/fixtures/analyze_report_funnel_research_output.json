@@ -12,6 +12,7 @@
   "result": {
     "title": "Funnel insights lack time-based comparison and statistical options",
     "summary": "The signals point to missing funnel analysis capabilities rather than a broken funnel engine. The consistent gaps are native time-period comparison, fixed Time to Convert histogram buckets, and percentile-based conversion-time summaries, while the onboarding drop-off report could not be verified without customer data.",
+    "charts": [],
     "new_artefacts": [],
     "old_artefacts": [
       {

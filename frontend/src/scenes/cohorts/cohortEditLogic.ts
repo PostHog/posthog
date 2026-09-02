@@ -127,8 +127,6 @@ export interface cohortEditLogicValues {
     personsToCreateStaticCohort: Record<string, boolean>
     pollTimeout: number | null
     query: DataTableNode
-    removePersonFromCohort: any
-    removePersonFromCohortLoading: boolean
     showCohortErrors: boolean
     staticCohortMode: StaticCohortMode
     usedIn: CohortUsedInResponseApi | null
@@ -260,24 +258,6 @@ export interface cohortEditLogicActions {
     removePersonFromCohort: (personId: string) => {
         personId: string
     }
-    removePersonFromCohortFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    removePersonFromCohortSuccess: (
-        removePersonFromCohort: void,
-        payload?: {
-            personId: string
-        }
-    ) => {
-        removePersonFromCohort: void
-        payload?: {
-            personId: string
-        }
-    }
     removePersonFromCreateStaticCohort: (personId: string) => {
         personId: string
     }
@@ -381,6 +361,9 @@ export interface cohortEditLogicActions {
         groupIndex: number
         newCriteria: AnyCohortCriteriaType
     }
+    setFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
+    }
     setInnerGroupType: (
         type: FilterLogicalOperator,
         groupIndex: number
@@ -442,6 +425,7 @@ export interface cohortEditLogicActions {
             errors_calculating?: number | undefined
             experiment_set?: number[] | undefined
             filters: {
+                filterTestAccounts?: boolean | undefined
                 properties: CohortCriteriaGroupFilter
             }
             groups: CohortGroupType[]
@@ -450,6 +434,8 @@ export interface cohortEditLogicActions {
             is_static?: boolean | undefined
             last_calculation?: string | undefined
             last_error_message?: string | null | undefined
+            last_import_total_count?: number | null | undefined
+            last_import_unmatched_count?: number | null | undefined
             name?: string | undefined
             pending_version?: number | null | undefined
             version?: number | null | undefined
@@ -470,6 +456,7 @@ export interface cohortEditLogicActions {
             errors_calculating?: number | undefined
             experiment_set?: number[] | undefined
             filters: {
+                filterTestAccounts?: boolean | undefined
                 properties: CohortCriteriaGroupFilter
             }
             groups: CohortGroupType[]
@@ -478,6 +465,8 @@ export interface cohortEditLogicActions {
             is_static?: boolean | undefined
             last_calculation?: string | undefined
             last_error_message?: string | null | undefined
+            last_import_total_count?: number | null | undefined
+            last_import_unmatched_count?: number | null | undefined
             name?: string | undefined
             pending_version?: number | null | undefined
             version?: number | null | undefined
@@ -528,6 +517,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
 
         setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
+        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setInnerGroupType: (type: FilterLogicalOperator, groupIndex: number) => ({ type, groupIndex }),
         duplicateFilter: (groupIndex: number, criteriaIndex?: number) => ({ groupIndex, criteriaIndex }),
         addFilter: (groupIndex?: number) => ({ groupIndex }),
@@ -557,10 +547,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 setOuterGroupsType: (state, { type }) => ({
                     ...state,
                     filters: {
+                        ...state.filters,
                         properties: {
                             ...state.filters.properties,
                             type,
                         },
+                    },
+                }),
+                setFilterTestAccounts: (state, { filterTestAccounts }) => ({
+                    ...state,
+                    filters: {
+                        ...state.filters,
+                        filterTestAccounts,
                     },
                 }),
                 setInnerGroupType: (state, { type, groupIndex }) =>
@@ -790,7 +788,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         values:
                             is_static && values.staticCohortMode !== 'criteria'
                                 ? undefined
-                                : filters.properties.values.map(validateGroup),
+                                : filters.properties.values.map((group, index, groups) =>
+                                      validateGroup(
+                                          group,
+                                          filters.properties.type,
+                                          groups.filter((_, i) => i !== index)
+                                      )
+                                  ),
                     },
                 },
             }),
@@ -1026,27 +1030,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
 
-        removePersonFromCohort: [
-            null as any,
-            {
-                removePersonFromCohort: async ({ personId }) => {
-                    if (!values.cohort.id || values.cohort.id === 'new') {
-                        throw new Error('Cannot remove person from unsaved cohort')
-                    }
-
-                    try {
-                        await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
-                        lemonToast.success('Person removed from cohort')
-                    } catch (error: any) {
-                        throw error
-                    }
-                    // Refresh cohort data + count
-                    actions.refreshPersonsData()
-                    actions.updateCohortCount()
-                },
-            },
-        ],
-
         usedIn: [
             null as CohortUsedInResponseApi | null,
             {
@@ -1113,6 +1096,25 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         deleteCohort: () => {
             cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
         },
+        removePersonFromCohort: async ({ personId }) => {
+            if (!values.cohort.id || values.cohort.id === 'new') {
+                lemonToast.error('Cannot remove a person from an unsaved cohort')
+                return
+            }
+
+            try {
+                await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to remove person from cohort')
+                posthog.captureException(error, { feature: 'cohort-remove-person' })
+                return
+            }
+
+            lemonToast.success('Person removed from cohort')
+            // Refresh cohort data + count
+            actions.refreshPersonsData()
+            actions.updateCohortCount()
+        },
         submitCohortFailure: () => {
             scrollToFormError({
                 extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
@@ -1149,6 +1151,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     errors_calculating: cohort.errors_calculating,
                     last_calculation: cohort.last_calculation,
                     count: cohort.count,
+                    last_import_total_count: cohort.last_import_total_count,
+                    last_import_unmatched_count: cohort.last_import_unmatched_count,
                     version: cohort.version,
                     pending_version: cohort.pending_version,
                 }

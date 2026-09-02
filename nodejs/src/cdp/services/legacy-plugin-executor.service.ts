@@ -17,8 +17,8 @@ import {
 } from '../legacy-plugins/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, destinationE2eLagMsSummary, isLegacyPluginHogFunction } from '../utils'
+import { cdpTrackedFetch } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { cdpTrackedFetch } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -136,6 +136,8 @@ export class LegacyPluginExecutorService {
                 url,
                 fetchParams,
                 templateId: invocation.hogFunction.template_id ?? '',
+                teamId: invocation.teamId,
+                hogFunctionId: invocation.hogFunction.id,
             })
 
             if (fetchError || !fetchResponse) {

@@ -15,6 +15,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.trace_clustering import constants
@@ -124,6 +125,9 @@ def fetch_item_embeddings_for_clustering(
             query=query,
             placeholders=placeholders,
             team=team,
+            # Background clustering scans run on the offline cluster so they don't compete with
+            # user-facing traffic on the online `default` pool (this is a large embedding scan).
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
@@ -170,6 +174,25 @@ def fetch_item_embeddings_for_clustering(
             batch_run_ids_map[item_id] = rendering_value
 
     return item_ids, embeddings_map, batch_run_ids_map
+
+
+def _as_iso_timestamp(value: object) -> str:
+    """Return a ``trace_timestamp`` property value as an ISO 8601 string.
+
+    HogQL gives a datetime only when the team's property definition for the property is typed
+    DateTime. If it is not, HogQL gives the raw string, which the summarizer writes with a space
+    separator. Consumers read this value as ISO 8601, so make both shapes the same. A value that
+    does not parse passes through unchanged.
+    """
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if not value:
+        return ""
+    raw = str(value)
+    try:
+        return datetime.fromisoformat(raw).isoformat()
+    except ValueError:
+        return raw
 
 
 def fetch_item_summaries(
@@ -244,6 +267,7 @@ def fetch_item_summaries(
                 "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
@@ -264,10 +288,6 @@ def fetch_item_summaries(
             skipped_wrong_batch += 1
             continue
 
-        # HogQL parses timestamp strings into datetime objects
-        trace_ts = row[5]
-        trace_ts_str = trace_ts.isoformat() if trace_ts else ""
-
         # For trace-level, trace_id is the same as item_id (fallback ok)
         # For generation-level, trace_id must come from $ai_trace_id property (no fallback)
         if analysis_level == "generation":
@@ -280,7 +300,7 @@ def fetch_item_summaries(
             "flow_diagram": row[2],
             "bullets": row[3],
             "interesting_notes": row[4],
-            "trace_timestamp": trace_ts_str,
+            "trace_timestamp": _as_iso_timestamp(row[5]),
             "trace_id": trace_id,
         }
 
@@ -380,6 +400,7 @@ def fetch_item_metrics(
             query=query,
             placeholders=placeholders,
             team=team,
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 

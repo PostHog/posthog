@@ -1,15 +1,24 @@
+import json
+from pathlib import Path
+from uuid import uuid4
+
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
+    RESEARCH_WITHHELD_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_USER_WRITE_SCOPES,
+    SCRATCHPAD_INTERNAL_SCOPES,
+    McpScopePreset,
     create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user,
     has_write_scopes,
@@ -46,10 +55,51 @@ class TestResolveScopes(SimpleTestCase):
         # Isolation invariant — the scout write scope must NOT leak onto unrelated
         # task tokens. Regular tasks default to `full`; neither `full` nor `read_only`
         # may carry `signal_scout_internal:write` (only the `signals_scout` preset does).
-        assert "signal_scout_internal:write" not in resolve_scopes("full")
-        assert "signal_scout_internal:write" not in resolve_scopes("read_only")
+        # The two pipeline postures exist precisely so they can write memory WITHOUT it,
+        # so they must not carry it either — nor the report channel's scope.
+        without_scout_scopes: tuple[McpScopePreset, ...] = (
+            "full",
+            "read_only",
+            "signals_research",
+            "signals_implementation",
+        )
+        for preset in without_scout_scopes:
+            assert "signal_scout_internal:write" not in resolve_scopes(preset)
+            assert "signal_scout_report:write" not in resolve_scopes(preset)
         assert "signal_scout_internal:write" not in resolve_scopes(["feature_flag:read"])
         assert "signal_scout_internal:write" in resolve_scopes("signals_scout")
+
+    def test_signals_research_preset_is_reads_plus_the_scratchpad(self) -> None:
+        # The research stage is read-only by design, and stays that way apart from memory.
+        # `task:write` is withheld because turning the MCP read-only header off (see
+        # `has_write_scopes`) would otherwise hand it every task-write tool, including
+        # setting a report's state.
+        result = resolve_scopes("signals_research")
+        expected = set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES) - RESEARCH_WITHHELD_SCOPES
+        assert set(result) == expected
+        assert "signal_scratchpad_internal:write" in result
+        assert "task:write" not in result
+        assert "action:write" not in result
+
+    def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
+        result = resolve_scopes("signals_implementation")
+        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES)
+
+    def test_scratchpad_write_reaches_scouts_and_the_pipeline_only(self) -> None:
+        # Splitting the scope out of `signal_scout_internal` must not cost scouts their
+        # remember/forget tools, and must not hand them to unrelated task tokens.
+        carriers: tuple[McpScopePreset, ...] = (
+            "signals_scout",
+            "signals_scout_reports",
+            "signals_research",
+            "signals_implementation",
+        )
+        for preset in carriers:
+            assert "signal_scratchpad_internal:write" in resolve_scopes(preset)
+        others: tuple[McpScopePreset, ...] = ("read_only", "full")
+        for preset in others:
+            assert "signal_scratchpad_internal:write" not in resolve_scopes(preset)
+        assert "signal_scratchpad_internal:write" not in resolve_scopes(["feature_flag:read"])
 
     @parameterized.expand([(scope,) for scope in SCOUT_USER_WRITE_SCOPES])
     def test_scout_user_write_allowlist_isolated_from_read_only_tokens(self, scope: str) -> None:
@@ -124,6 +174,10 @@ class TestHasWriteScopes(SimpleTestCase):
             ("read_only_preset", "read_only", False),
             ("full_preset", "full", True),
             ("signals_scout_preset", "signals_scout", True),
+            # Both pipeline postures need read-only mode off, or the MCP server strips the
+            # scratchpad tools the postures exist to grant.
+            ("signals_research_preset", "signals_research", True),
+            ("signals_implementation_preset", "signals_implementation", True),
             ("custom_with_mcp_write", ["feature_flag:read", "feature_flag:write"], True),
             ("custom_read_only", ["feature_flag:read", "insight:read"], False),
             ("custom_with_non_mcp_write", ["task:write"], False),
@@ -163,11 +217,40 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         assert access_token.scoped_teams == [team.id]
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_task_binding_is_persisted_only_when_supplied(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+        task_id = uuid4()
+
+        bound = create_oauth_access_token_for_user(user, team.id, sandbox_task_id=task_id)
+        unbound = create_oauth_access_token_for_user(user, team.id)
+
+        assert OAuthAccessToken.objects.get(token=bound).sandbox_task_id == task_id
+        assert OAuthAccessToken.objects.get(token=unbound).sandbox_task_id is None
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_posthog_ai_application_requires_existing_app(self) -> None:
         user, team = self._create_user_and_team()
 
         with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(
+            user,
+            team.id,
+            include_mcp_builtin_agent_scope=True,
+        )
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert MCP_BUILT_IN_AGENT_SCOPE in scopes
+        # The marker is provenance only: built-in agents keep the task tools.
+        assert "task:read" in scopes
+        assert "task:write" in scopes
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):
@@ -212,3 +295,36 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Wizard app not found"):
             create_wizard_oauth_access_token_for_user(user, team.id)
+
+
+class TestSignalsResearchToolset(SimpleTestCase):
+    """What the MCP server actually serves a `signals_research` token.
+
+    The scope list alone doesn't answer this. Read-only mode is a tool-annotation filter, and the
+    posture turns it off so the scratchpad tools survive — so the write surface it opens is
+    whatever the resolved scopes let through, which is worth pinning rather than reasoning about.
+    Both sides read the same generated catalog the MCP server ships, so this can't drift into
+    testing a copy of it.
+    """
+
+    _CATALOG = Path(__file__).parents[3] / "services" / "mcp" / "schema" / "generated-tool-definitions.json"
+
+    def test_opens_the_scratchpad_writes_and_nothing_else(self) -> None:
+        granted = set(resolve_scopes("signals_research"))
+        definitions: dict[str, dict] = json.loads(self._CATALOG.read_text())
+
+        reachable_writes = {
+            name
+            for name, definition in definitions.items()
+            for required in [definition.get("required_scopes") or []]
+            if any(scope.endswith(":write") for scope in required) and set(required) <= granted
+        }
+
+        # The deprecated `signals-scout-*` aliases forward to the same endpoints, so they move
+        # with their canonical names.
+        assert reachable_writes == {
+            "scout-scratchpad-remember",
+            "scout-scratchpad-forget",
+            "signals-scout-scratchpad-remember",
+            "signals-scout-scratchpad-forget",
+        }

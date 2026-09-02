@@ -32,14 +32,20 @@ def get_or_create_team_extension(
     """
     defaults = defaults or {}
     try:
-        return model_class.objects.get(team=team)  # type: ignore[attr-defined]
+        config = model_class.objects.get(team=team)  # type: ignore[attr-defined]
     except model_class.DoesNotExist:  # type: ignore[attr-defined]
         try:
             with transaction.atomic():
-                return model_class.objects.create(team=team, **defaults)  # type: ignore[attr-defined]
+                config = model_class.objects.create(team=team, **defaults)  # type: ignore[attr-defined]
         except IntegrityError:
             # Race condition: another thread created it first
-            return model_class.objects.get(team=team)  # type: ignore[attr-defined]
+            config = model_class.objects.get(team=team)  # type: ignore[attr-defined]
+
+    # Populate the reverse FK cache with the team we already hold. `.get(team=team)` filters by
+    # team_id but leaves the `team` relation uncached, so a later `config.team.<field>` read (e.g.
+    # base_currency/timezone in to_cache_key_dict) would otherwise fire a fresh Team query per config.
+    config.team = team
+    return config
 
 
 def register_team_extension_signal(

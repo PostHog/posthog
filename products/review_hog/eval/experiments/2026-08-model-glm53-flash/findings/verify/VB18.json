@@ -1,0 +1,6 @@
+{
+    "id": "VB18",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Premise confirmed: tasks.py:1125-1128 documents process_inbox_pr_review as the lost-synchronize fallback ('a refire after a head the webhook leg never delivered ... still reviews the new commits'). The webhook leg upholds 'safety is never preference-gated' (tasks.py:164-168): an opted-out or None-resolved reviewer still gets _retract_stale_approvals_on_skip on head-changing deliveries (tasks.py:888-899). The receiver leg does not: receivers.py:112-113 returns on None resolution and :126 gates the entire stamphog dispatch on the toggle, so with the synchronize webhook lost, a new head queues neither review nor dismissal, and no other sweep exists. The prior head-pinned approval stays active and satisfies required reviews over unreviewed commits (the exact hazard tasks.py:487-489 retracts against elsewhere). Reachable: mid-PR opt-out is a supported flow; webhook loss is the acknowledged failure the fallback exists for."
+}

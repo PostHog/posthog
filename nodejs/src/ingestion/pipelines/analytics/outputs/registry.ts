@@ -1,7 +1,7 @@
 import {
-    AI_EVENTS_OUTPUT,
     ASYNC_OUTPUT,
     EVENTS_OUTPUT,
+    FLAG_EVALUATIONS_OUTPUT,
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
     PERSON_MERGE_EVENTS_OUTPUT,
@@ -26,9 +26,9 @@ export function createOutputsRegistry() {
                 topicKey: 'INGESTION_OUTPUT_EVENTS_TOPIC',
                 producerKey: 'INGESTION_OUTPUT_EVENTS_PRODUCER',
             })
-            .register(AI_EVENTS_OUTPUT, {
-                topicKey: 'INGESTION_OUTPUT_AI_EVENTS_TOPIC',
-                producerKey: 'INGESTION_OUTPUT_AI_EVENTS_PRODUCER',
+            .register(FLAG_EVALUATIONS_OUTPUT, {
+                topicKey: 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC',
+                producerKey: 'INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER',
             })
             .register(INGESTION_WARNINGS_OUTPUT, {
                 topicKey: 'INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC',

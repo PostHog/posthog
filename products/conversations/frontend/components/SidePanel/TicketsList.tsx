@@ -11,7 +11,12 @@ import { stripMarkdown } from 'lib/utils/markdown'
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
-export function TicketsList(): JSX.Element {
+interface TicketsListProps {
+    /** Highlights the matching row in master-detail layouts where the list stays visible */
+    selectedTicketId?: string | null
+}
+
+export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.Element {
     const { tickets, ticketsLoading, canCreateTicket } = useValues(sidepanelTicketsLogic)
     const { setCurrentTicket, setView } = useActions(sidepanelTicketsLogic)
 
@@ -72,7 +77,7 @@ export function TicketsList(): JSX.Element {
                             key={ticket.id}
                             className={`flex items-center justify-between p-3 rounded border cursor-pointer hover:bg-surface-light transition-colors ${
                                 (ticket.unread_count ?? 0) > 0 ? 'bg-primary-alt-highlight' : 'bg-surface-primary'
-                            }`}
+                            } ${ticket.id === selectedTicketId ? 'border-accent' : ''}`}
                             onClick={() => {
                                 setCurrentTicket(ticket)
                             }}

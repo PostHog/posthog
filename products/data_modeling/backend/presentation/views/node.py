@@ -9,27 +9,42 @@ from django.db import models
 from django.db.models import OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
+from posthog.hogql.database.database import Database
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
-from products.data_modeling.backend.facade.api import get_declared_target
-from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeType
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
+class NodeSuspensionSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When the node was suspended.")
+    reason = serializers.CharField(help_text="Error from the materialization that tripped suspension.")
+    job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
+
+
+class NodeResumeSerializer(serializers.Serializer):
+    resumed = serializers.BooleanField(help_text="False when the node was not suspended to begin with.")
+
+
 class NodeSerializer(serializers.ModelSerializer):
+    suspended = serializers.SerializerMethodField(read_only=True)
     upstream_count = serializers.SerializerMethodField(read_only=True)
     downstream_count = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -57,8 +72,10 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_status",
             "user_tag",
             "sync_interval",
+            "suspended",
         ]
         read_only_fields = [
+            "suspended",
             "upstream_count",
             "downstream_count",
             "last_run_at",
@@ -68,6 +85,16 @@ class NodeSerializer(serializers.ModelSerializer):
             "dag_name",
             "saved_query_id",
         ]
+
+    @extend_schema_field(
+        serializers.DictField(
+            child=NodeSuspensionSerializer(),
+            help_text="Engines this node is suspended for after repeated materialization failures. "
+            "Suspended engines are skipped by scheduled DAG runs until the node is resumed.",
+        )
+    )
+    def get_suspended(self, node: Node) -> dict[str, Any]:
+        return {engine: NodeSuspensionSerializer(entry).data for engine, entry in suspension_state(node).items()}
 
     def get_upstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
@@ -117,6 +144,11 @@ class NodeSerializer(serializers.ModelSerializer):
 
 class NodePagination(PageNumberPagination):
     page_size = 1000
+
+
+# Nodes expose warehouse view/table names, types, edges, and the error that suspended a
+# materialization, so reading them needs the same warehouse access as reading the views themselves.
+_READ_DENIED = "Reading data models requires data warehouse read access."
 
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:
@@ -213,8 +245,20 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
         instance.delete()
 
+    def _require_warehouse_access(self, *, level: AccessControlLevel, message: str) -> None:
+        """`scope_object = "INTERNAL"` makes AccessControlPermission skip this viewset entirely, so
+        warehouse RBAC has to be re-applied by hand (warehouse_view inherits warehouse_objects)."""
+        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level=level):
+            raise PermissionDenied(message)
+
+    def retrieve(self, request, *args, **kwargs):
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
+        return super().retrieve(request, *args, **kwargs)
+
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.facade.models import Graph
+
+        self._require_warehouse_access(level="viewer", message=_READ_DENIED)
 
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -279,6 +323,19 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             node_ids = _get_downstream_nodes(node)
 
         node_ids.add(str(node.id))
+
+        # A run materializes every node it touches (the workflow sets is_materialized), and the
+        # resulting rows then resolve under each view's own access rules. So this is the same
+        # declassification as enabling materialization directly, and needs the same check.
+        database = Database.create_for(team_id=self.team_id, user=cast(User, req.user))
+        for saved_query in DataWarehouseSavedQuery.objects.filter(
+            team_id=self.team_id, node__id__in=node_ids
+        ).distinct():
+            assert_user_can_read_query(saved_query.query, self.team_id, cast(User, req.user), database=database)
+
+        # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
+        # for exactly the nodes that need it most.
+        resume_nodes(Node.objects.filter(team_id=self.team_id, id__in=node_ids), by="manual_run")
 
         if _is_v2_backend_enabled(cast(User, req.user), self.team):
             inputs: ExecuteDAGInputs | RunWorkflowInputs = ExecuteDAGInputs(
@@ -348,12 +405,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 
-        # NodeViewSet is `scope_object = "INTERNAL"`, so AccessControlPermission does not gate it on
-        # any resource. Lineage exposes warehouse view/table names, types, and edges — the same
-        # metadata the deleted `warehouse_view`-scoped upstream endpoint gated on. Re-apply that gate
-        # here so warehouse RBAC still governs the read (warehouse_view inherits warehouse_objects).
-        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level="viewer"):
-            raise PermissionDenied("Reading lineage requires data warehouse read access.")
+        # Lineage exposes the same metadata the deleted `warehouse_view`-scoped upstream endpoint
+        # gated on.
+        self._require_warehouse_access(level="viewer", message="Reading lineage requires data warehouse read access.")
 
         node_id = req.query_params.get("node_id")
         saved_query_id = req.query_params.get("saved_query_id")
@@ -410,6 +464,28 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Publishes the same rows as a DAG run of this node, so it needs the same check as `run`.
+        # A DB constraint guarantees non-table nodes have a saved query, so the None branch never
+        # skips the check for a real node; it exists because the FK is typed as nullable.
+        if node.saved_query is not None:
+            assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
+
         start_node_materialization(node, is_v2=_is_v2_backend_enabled(cast(User, req.user), self.team))
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @extend_schema(request=None, responses={200: NodeResumeSerializer})
+    @action(methods=["POST"], detail=True)
+    def resume(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """Resume a node suspended after repeated failed materializations.
+
+        Scheduled runs skip a suspended node and its descendants, so it cannot succeed its way back
+        on its own. Resuming also gives it a fresh failure window rather than re-suspending on the
+        next failure.
+        """
+        # Resuming puts a model back on the materialization schedule, so it needs write access.
+        self._require_warehouse_access(level="editor", message="Resuming a node requires data warehouse write access.")
+
+        resumed = resume_nodes([self.get_object()], by="api")
+
+        return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)

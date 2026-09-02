@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType, IntegrationType } from '~/types'
 
+import { alertsTestDeliveryCreate } from 'products/alerts/frontend/generated/api'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
@@ -13,6 +15,10 @@ import {
 } from 'products/alerts/frontend/logic/alertNotifications'
 
 import { alertNotificationLogic } from './alertNotificationLogic'
+
+jest.mock('products/alerts/frontend/generated/api', () => ({
+    alertsTestDeliveryCreate: jest.fn(),
+}))
 
 describe('alertNotificationLogic', () => {
     let logic: ReturnType<typeof alertNotificationLogic.build>
@@ -61,6 +67,54 @@ describe('alertNotificationLogic', () => {
         logic.actions.setSlackChannelValue('C456|#alerts')
         logic.actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
         await expectLogic(logic).toMatchValues({ slackChannelValue: null })
+    })
+
+    it('selects a Slack workspace that loaded before the alert logic mounted', async () => {
+        const workspace = makeSlackIntegration(1)
+        const integrationsListSpy = jest.spyOn(api.integrations, 'list').mockReturnValue(new Promise(() => {}))
+        const unmountIntegrations = integrationsLogic.mount()
+        integrationsLogic.actions.loadIntegrationsSuccess([workspace])
+        await expectLogic(integrationsLogic).toMatchValues({ slackIntegrations: [workspace] })
+
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ selectedSlackIntegration: workspace })
+
+        unmountIntegrations()
+        integrationsListSpy.mockRestore()
+    })
+
+    it('tracks integration loading failures until a retry succeeds', async () => {
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        logic.actions.loadIntegrationsFailure('Network error')
+        await expectLogic(logic).toMatchValues({ integrationsFailed: true })
+
+        logic.actions.loadIntegrations()
+        await expectLogic(logic).toMatchValues({ integrationsFailed: false })
+
+        logic.actions.loadIntegrationsSuccess([])
+        await expectLogic(logic).toMatchValues({ integrationsFailed: false })
+    })
+
+    it('sends a test delivery for the saved alert', async () => {
+        jest.mocked(alertsTestDeliveryCreate).mockResolvedValue({
+            destination_count: 2,
+            email_recipient_count: 1,
+            failed_delivery_channels: [],
+        })
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        logic.actions.sendTestDelivery()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(alertsTestDeliveryCreate).toHaveBeenCalledWith('997', 'alert-123')
+        await expectLogic(logic).toMatchValues({
+            testDeliveryResult: { destination_count: 2, email_recipient_count: 1, failed_delivery_channels: [] },
+        })
     })
 
     it('clears the channel when an integrations refresh removes the selected workspace', async () => {

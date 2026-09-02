@@ -21,6 +21,8 @@ export interface DagApi {
      * @nullable
      */
     sync_frequency?: string | null
+    /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
+    readonly frequency_managed_by_nodes: boolean
     readonly node_count: number
     readonly created_at: string
     /** @nullable */
@@ -50,6 +52,8 @@ export interface PatchedDAGApi {
      * @nullable
      */
     sync_frequency?: string | null
+    /** True when this team's DAG schedules are driven by per-model freshness targets, so `sync_frequency` no longer controls scheduling and writes to it are rejected. False when the DAG-level frequency still applies. */
+    readonly frequency_managed_by_nodes?: boolean
     readonly node_count?: number
     readonly created_at?: string
     /** @nullable */
@@ -104,6 +108,20 @@ export const NodeTypeEnumApi = {
     Endpoint: 'endpoint',
 } as const
 
+export interface NodeSuspensionApi {
+    /** When the node was suspended. */
+    at: string
+    /** Error from the materialization that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+ */
+export type NodeApiSuspended = { [key: string]: NodeSuspensionApi }
+
 export interface NodeApi {
     readonly id: string
     /** @maxLength 2048 */
@@ -128,6 +146,8 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
+    /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+    readonly suspended: NodeApiSuspended
 }
 
 export interface PaginatedNodeListApi {
@@ -138,6 +158,11 @@ export interface PaginatedNodeListApi {
     previous?: string | null
     results: NodeApi[]
 }
+
+/**
+ * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
+ */
+export type PatchedNodeApiSuspended = { [key: string]: NodeSuspensionApi }
 
 export interface PatchedNodeApi {
     readonly id?: string
@@ -163,6 +188,13 @@ export interface PatchedNodeApi {
     readonly user_tag?: string | null
     /** @nullable */
     readonly sync_interval?: string | null
+    /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
+    readonly suspended?: PatchedNodeApiSuspended
+}
+
+export interface NodeResumeApi {
+    /** False when the node was not suspended to begin with. */
+    resumed: boolean
 }
 
 export type DataModelingDagsListParams = {

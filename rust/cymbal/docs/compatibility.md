@@ -14,7 +14,7 @@ The external Node.js error-tracking consumer contract stays unchanged.
 ## Node-side chunking
 
 `nodejs/src/ingestion/error-tracking/cymbal/client.ts` chunks HTTP requests by estimated original event body size before they reach cymbal.
-That remains valid with remote resolution enabled because cymbal preserves the HTTP boundary and performs private exception-level gRPC work after it receives an HTTP chunk.
+That remains valid because cymbal preserves the HTTP boundary and performs private exception-level gRPC work after it receives an HTTP chunk.
 
 No generated type changes are needed:
 
@@ -22,13 +22,12 @@ No generated type changes are needed:
 - the Node response type remains `(CymbalResponse | null)[]`
 - the internal `cymbal.resolution.v1` gRPC messages are not exposed to Node
 
-## Remote rollout controls behind the HTTP boundary
+## Remote resolution behind the HTTP boundary
 
-- `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` deterministically chooses remote vs local resolution per event.
-- Sampled events use the remote pool and do not silently fall back to local resolution on remote failures.
-- Unsampled events use the local exception and frame resolvers.
-- Sampled remote events are flattened into exception-level `ResolveItem`s. Items are grouped by their first symbol-set reference when available, with a per-team fallback, then submitted over per-endpoint bidirectional `Resolve` streams.
+- Events use the remote pool and do not silently fall back to inline resolution on failures.
+- Events are flattened into exception-level `ResolveItem`s. Items are grouped by their first symbol-set reference when available, with a per-team fallback, then submitted over per-endpoint bidirectional `Resolve` streams.
 - Resolver-specific context is carried in `ResolveItem.metadata` as JSON bytes. The native symbolication convention uses a `debug_images_json` key.
+- `Done.release_id` carries the newest release bound to a symbol set the item's frames reference. It is empty when none of them has a release, and on servers that predate the field, so callers treat empty as "no release". The processing side uses it only as the fallback source for `$exception_release`, behind the event's own `$release_id` and mobile app metadata.
 - Per-item `ResolveOutcome.Error.kind` is the control-flow surface. `ERROR_KIND_OVERLOADED` is result-only backpressure and triggers item reroute. Accepted items emit `ResolveOutcome.Accepted` before their terminal outcome; cymbal releases its routing permit on that acceptance signal. If `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MS` is non-zero, the overloaded endpoint is also temporarily excluded from new routing in that cymbal process. Repeated overloads double that cooldown up to `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS`, and a quiet `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS` window resets it. `CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER` controls how much routing flattens across the load-adjusted rendezvous-ranked candidate list (`0.0` strict top load-adjusted candidate, `1.0` load-weighted across candidates). `LoadEvent` carries endpoint freshness/draining state plus `in_flight` / `max_in_flight` as a soft routing load signal.
 
 This means Node request chunking limits protect cymbal's public HTTP body size, while cymbal's private gRPC path owns exception-level routing, reroute depth, and overload handling.

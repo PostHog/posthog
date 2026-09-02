@@ -94,8 +94,10 @@ class TestRecalculationActivities(BaseTest):
             team=self.team, created_by=self.user, feature_flag=self._flag(flag_key), name="exp"
         )
 
-    def _recalc(self, exp: Experiment) -> ExperimentMetricsRecalculation:
-        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp)
+    def _recalc(
+        self, exp: Experiment, trigger: str = ExperimentMetricsRecalculation.Trigger.MANUAL
+    ) -> ExperimentMetricsRecalculation:
+        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, trigger=trigger)
 
     def _attach_saved_metric(self, exp: Experiment, uuid: str, metric_type: str) -> None:
         saved = ExperimentSavedMetric.objects.create(
@@ -232,6 +234,74 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
+            # name, set_completed_at — both force-fail shapes leave query_to NULL while discovery runs.
+            # admin "Mark as failed" stamps completed_at; the staleness sweep deliberately leaves it NULL, so
+            # a completed_at-only guard would miss the sweep. The status guard catches both.
+            ("admin_sets_completed_at", True),
+            ("sweep_leaves_completed_at_null", False),
+        ]
+    )
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_does_not_revive_a_force_failed_run(self, name: str, set_completed_at: bool):
+        recalc = self._recalc(self._experiment(flag_key=f"progress-start-force-failed-{name}"))
+        completed_at = timezone.now() if set_completed_at else None
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
+            status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=completed_at
+        )
+
+        returned = _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=3,
+                metric_uuids=["m1", "m2", "m3"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        # The run stays terminal: no revival, no started_at, query_to left NULL.
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
+        assert recalc.completed_at == completed_at
+        assert recalc.started_at is None
+        assert recalc.query_to is None
+        # query_to was never pinned, so the read-back returns None; the workflow's isinstance(str) check then
+        # fails the run non-retryably instead of proceeding to calc activities on a dead run.
+        assert returned is None
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_returns_none_when_force_failed_after_query_to_pinned(self):
+        # mark_started ran first and pinned query_to (run went IN_PROGRESS), then an admin force-failed it.
+        # A retried mark_started loses the guard, but the read-back must NOT hand back the pinned query_to as a
+        # string: that would pass the workflow's isinstance(str) check and let calc activities run ClickHouse
+        # queries and persist results for a terminal, superseded run (they don't re-check terminal status).
+        recalc = self._recalc(self._experiment(flag_key="progress-start-pinned-then-failed"))
+        pinned_query_to = timezone.now()
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            completed_at=timezone.now(),
+            query_to=pinned_query_to,
+            started_at=timezone.now(),
+        )
+
+        returned = _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=3,
+                metric_uuids=["m1", "m2", "m3"],
+                mark_started=True,
+            )
+        )
+
+        # Terminal read-back returns None despite query_to being pinned, so the workflow fails the run.
+        assert returned is None
+        recalc.refresh_from_db()
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
+        assert recalc.query_to == pinned_query_to
+
+    @parameterized.expand(
+        [
             # name, end_date_offset_days (None = running experiment), expect query_to == end_date
             ("running_uses_now", None, False),
             ("stopped_uses_end_date", -5, True),
@@ -266,6 +336,162 @@ class TestRecalculationActivities(BaseTest):
             assert recalc.query_to == now + timedelta(days=end_date_offset_days)
         else:
             assert recalc.query_to == now
+
+    @parameterized.expand(
+        [
+            # trigger, expect_reuse: only a metric-scoped change reuses the prior completed window.
+            (ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE, True),
+            (ExperimentMetricsRecalculation.Trigger.EXPERIMENT_CONFIG_CHANGE, False),
+            (ExperimentMetricsRecalculation.Trigger.MANUAL, False),
+            (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH, False),
+        ]
+    )
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_reuses_prior_window_only_for_metric_config_change(self, trigger: str, expect_reuse: bool):
+        # A running experiment has no end_date, so advancing triggers pin now while metric_config_change copies
+        # the latest completed run's query_to — the signal that keeps unchanged metrics on the cache.
+        now = timezone.now()
+        prior_window = now - timedelta(hours=6)
+        exp = self._experiment(flag_key=f"reuse-{trigger}")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=prior_window,
+            completed_at=prior_window,
+        )
+        recalc = self._recalc(exp, trigger=trigger)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == (prior_window if expect_reuse else now)
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_reuses_partial_failure_window(self):
+        # A run where one metric failed is marked FAILED but stamps completed_at and holds result rows for the
+        # metrics that succeeded. Reuse must anchor on that newest terminal window, not fall back to an older
+        # fully-completed one — otherwise the good metrics' displayed results move backward.
+        now = timezone.now()
+        older_completed = now - timedelta(hours=12)
+        newer_partial = now - timedelta(hours=2)
+        exp = self._experiment(flag_key="reuse-partial-failure")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=older_completed,
+            completed_at=older_completed,
+        )
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            query_to=newer_partial,
+            completed_at=newer_partial,
+        )
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == newer_partial
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_does_not_reuse_window_before_start_date(self):
+        # After a reset and relaunch the prior run's rows survive with a query_to from before the new start_date.
+        # Reusing that cutoff would begin the window before the experiment exists, so advance to now instead.
+        now = timezone.now()
+        exp = self._experiment(flag_key="reuse-before-start")
+        exp.start_date = now - timedelta(hours=1)
+        exp.save(update_fields=["start_date"])
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=now - timedelta(days=3),
+            completed_at=now - timedelta(days=3),
+        )
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == now
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_metric_config_change_clamps_to_end_date_when_stopped(self):
+        # A stopped experiment has a fixed window: even metric_config_change resolves to end_date, so a stale
+        # prior window (recorded before the stop) can never push the recompute window past end_date.
+        now = timezone.now()
+        exp = self._experiment(flag_key="reuse-stopped")
+        exp.end_date = now - timedelta(days=2)
+        exp.save(update_fields=["end_date"])
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            query_to=now - timedelta(days=1),
+            completed_at=now - timedelta(days=1),
+        )
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == exp.end_date
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_metric_config_change_advances_when_no_prior_window(self):
+        # First metric-scoped run: nothing to reuse, so it falls back to now rather than leaving query_to unset.
+        now = timezone.now()
+        exp = self._experiment(flag_key="reuse-no-prior")
+        recalc = self._recalc(exp, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to == now
 
     def test_mark_completed_is_first_write_wins_on_retry(self):
         # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.
@@ -737,6 +963,40 @@ class TestCalculateActivity(BaseTest):
 
         mock_runner.assert_called_once()
 
+    def test_excluded_variants_change_recomputes(self):
+        # A cached row computed before a variant was excluded must not satisfy the skip check: the exclusion
+        # set feeds the fingerprint, so the stale row's fingerprint no longer matches and the query re-runs.
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
+        query_to = datetime.fromisoformat(_QUERY_TO)
+        recalc_fp = compute_recalc_fingerprint(
+            compute_metric_fingerprint(
+                metric,
+                exp.start_date,
+                get_experiment_stats_method(exp),
+                exp.exposure_criteria,
+                only_count_matured_users=exp.only_count_matured_users,
+            )
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=recalc_fp,
+            query_from=query_to,
+            query_to=query_to,
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"stale": True},
+        )
+        exp.excluded_variants = ["test"]
+        exp.save(update_fields=["excluded_variants"])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        mock_runner.assert_called_once()
+
     def test_store_result_updates_existing_row_with_different_fingerprint_in_place(self):
         # The unique constraint is (experiment, metric_uuid, query_to); fingerprint is not part of it. A row may
         # already occupy that key under a different fingerprint (an earlier run written under the old per-run
@@ -1027,21 +1287,62 @@ class TestRecalculationAnalytics(BaseTest):
 
         assert captured[0]["properties"]["is_primary"] is False
 
-    def test_non_final_failure_emits_no_per_metric_event(self):
-        # A non-final attempt re-raises for Temporal to retry; emitting there would double-count a
-        # failure that may still succeed on a later attempt. Only the terminal attempt emits.
-        exp = self._experiment(flag_key="an-transient", metrics=[_mean_metric("m1")])
+    @parameterized.expand(
+        [
+            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
+            # the explicit concurrency delay; a generic transient on attempt 2 follows the policy backoff
+            # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
+            # (which can embed the executed query, warehouse secrets included) never reaches analytics.
+            (
+                "backpressure",
+                ConcurrencyLimitExceeded("quota"),
+                "rate_limited",
+                60,
+                "The query was deferred because the cluster is at capacity.",
+            ),
+            (
+                "generic_transient",
+                RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
+                "server_error",
+                10,
+                "The query failed with a server error.",
+            ),
+        ]
+    )
+    def test_non_final_failure_emits_retry_event(
+        self,
+        name: str,
+        exc: Exception,
+        expected_error_type: str,
+        expected_delay_seconds: int,
+        expected_message: str,
+    ):
+        # A non-final attempt re-raises for Temporal to retry. It emits 'experiment metric retry' (not
+        # 'experiment metric error', which is reserved for the terminal attempt) so retries that later
+        # succeed are still countable. Guards against dropping the retry emit, double-counting a
+        # non-terminal failure as an error, and leaking the raw exception (secrets included) into analytics.
+        exp = self._experiment(flag_key=f"an-retry-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
             with patch(
                 "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
             ) as mock_runner:
-                mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
-                with pytest.raises(RuntimeError, match="kaboom"):
-                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+                mock_runner.return_value.run.side_effect = exc
+                with pytest.raises((type(exc), ApplicationError)):
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
 
-        assert captured == []
+        assert len(captured) == 1
+        assert captured[0]["event"] == "experiment metric retry"
+        props = captured[0]["properties"]
+        assert props["error_type"] == expected_error_type
+        assert props["error_message"] == expected_message
+        assert "AKIAFAKESECRET" not in props["error_message"]
+        assert props["attempt"] == 2
+        assert props["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert props["next_retry_delay_seconds"] == expected_delay_seconds
+        assert props["execution_mode"] == "recalculation"
+        assert props["mechanism"] == "orchestrated"
 
     @parameterized.expand(
         [

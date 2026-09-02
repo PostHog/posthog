@@ -8,9 +8,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.settings import (
     ACTIVITY_RETENTION_DAYS,
     OPENROUTER_ENDPOINTS,
@@ -61,7 +61,9 @@ def _build_url(path: str, params: Optional[dict[str, Any]] = None) -> str:
 def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    # 408 is a transient request timeout on OpenRouter's side; retry it like 429/5xx rather than
+    # letting it raise_for_status() into a fatal, non-retried HTTPError.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise OpenRouterRetryableError(f"OpenRouter API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:

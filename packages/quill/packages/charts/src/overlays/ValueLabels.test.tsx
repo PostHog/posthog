@@ -21,6 +21,10 @@ const X_POSITIONS: Record<string, number> = { Mon: 60, Tue: 220, Wed: 380, Thu: 
 const xScale = (label: string): number | undefined => X_POSITIONS[label]
 // Left axis: 0 -> 368, 100 -> 16
 const yScale = (v: number): number => 368 - (v / 100) * 352
+// The overlay drops anchors outside the plot, so a case carrying values beyond 0..100 needs a scale
+// whose domain covers them or every label is dropped and the case stops testing what it was for.
+const wideYScale = (v: number): number => 368 - (v / 10000) * 352
+const signedYScale = (v: number): number => 192 - (v / 100) * 176
 
 function makeContext(
     series: ResolvedSeries[],
@@ -59,7 +63,10 @@ describe('ValueLabels', () => {
         ['custom formatter', (v) => `$${(v / 1000).toFixed(1)}k`, [1000, 2000], ['$1.0k', '$2.0k']],
     ])('formats labels: %s', (_name, formatter, data, expected) => {
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
-        const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+        const ctx = makeContext(series, {
+            labels: ['Mon', 'Tue'],
+            scales: { x: xScale, y: wideYScale, yTicks: () => [0, 5000, 10000] },
+        })
         const { container } = renderInChart(ctx, <ValueLabels valueFormatter={formatter} />)
         const divs = labelDivs(container)
         expect(divs.map((d) => d.textContent)).toEqual(expected)
@@ -90,7 +97,8 @@ describe('ValueLabels', () => {
 
     it('positions negative values below the point and positive values above', () => {
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, -50, 25, -25, 75] }]
-        const { container } = renderInChart(makeContext(series), <ValueLabels />)
+        const ctx = makeContext(series, { scales: { x: xScale, y: signedYScale, yTicks: () => [-100, 0, 100] } })
+        const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(5)
         // positive values (50, 25, 75) render above → transform translates up by full height
@@ -118,13 +126,15 @@ describe('ValueLabels', () => {
     })
 
     it('horizontal: flips a right-clipping label inside the bar instead of expanding margins', () => {
-        // Place the value-coord 4px from the right wrapper edge so the label (>4px wide) would
-        // overflow when anchored on its leading edge; flip to anchor on its trailing edge instead.
+        // A bar reaching the edge of a plot with almost no right margin: anchored on its leading
+        // edge the label would overflow the wrapper's `overflow: hidden`, so it flips. The anchor
+        // stays on the plot edge rather than past it, since beyond that a label is dropped.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [1] }]
         const ctx = makeContext(series, {
             axisOrientation: 'horizontal',
             labels: ['Mon'],
-            scales: { x: () => 60, y: () => 796, yTicks: () => [0, 1] },
+            dimensions: { ...DIMENSIONS, plotWidth: 744 },
+            scales: { x: () => 200, y: () => 792, yTicks: () => [0, 1] },
         })
         const divs = labelDivs(renderInChart(ctx, <ValueLabels />).container)
         expect(divs).toHaveLength(1)
@@ -358,7 +368,10 @@ describe('ValueLabels', () => {
                 { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
                 { key: 'b', label: 'B', color: '#0a0', data: [-10, 75] },
             ]
-            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const ctx = makeContext(series, {
+                labels: ['Mon', 'Tue'],
+                scales: { x: xScale, y: signedYScale, yTicks: () => [-100, 0, 100] },
+            })
             const { container } = renderInChart(
                 ctx,
                 <ValueLabels valueFormatter={(_v, _si, _di, c) => `${c.rawValue}|${c.bandValues.join(',')}`} />
@@ -375,7 +388,10 @@ describe('ValueLabels', () => {
                 { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
                 { key: 'b', label: 'B', color: '#0a0', data: [-10, 75] },
             ]
-            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const ctx = makeContext(series, {
+                labels: ['Mon', 'Tue'],
+                scales: { x: xScale, y: signedYScale, yTicks: () => [-100, 0, 100] },
+            })
             const { container } = renderInChart(
                 ctx,
                 <ValueLabels valueFormatter={(_v, _si, _di, c) => `${c.rawValue}|${c.previousBandValues.join(',')}`} />

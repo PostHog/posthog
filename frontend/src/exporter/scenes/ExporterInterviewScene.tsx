@@ -1,7 +1,7 @@
 import Vapi from '@vapi-ai/web'
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
+import * as robotPng from '@posthog/brand/hoggies/png/robot'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { Logo } from 'lib/brand'
@@ -12,7 +12,7 @@ import { fromParams } from 'lib/utils/url'
 
 import { InterviewExportPayload } from '../types'
 
-const HedgehogRoboHog = pngHoggie(roboHogPng)
+const HedgehogRobot = pngHoggie(robotPng)
 
 // Fields a shared-link respondent sends to /start_call/. Empty {} for personalised links.
 interface StartCallBody {
@@ -101,7 +101,7 @@ const CallStatusPanel = memo(function CallStatusPanel({
     return (
         <div className="flex-shrink-0 mx-auto md:mx-0 md:w-40">
             <div className="w-40 h-40 mx-auto">
-                <HedgehogRoboHog className="w-full h-full" />
+                <HedgehogRobot className="w-full h-full" />
             </div>
             {state === 'in-call' && <p className="text-sm text-muted text-center mt-2">{PHASE_LABELS[phase]}</p>}
         </div>

@@ -17,18 +17,11 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-gemini) and
                             [Python](https://github.com/PostHog/posthog-python/tree/main/examples/example-ai-gemini)
-                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
-                            the [Node.js
-                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-gemini) and
-                            [Python
-                            wrapper](https://github.com/PostHog/posthog-python/tree/0fdbc2e9/examples/example-ai-gemini)
-                            examples.
+                            examples on GitHub.
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>
-                        Install the OpenTelemetry SDK, the Google Gen AI instrumentation, and the Google Gen AI SDK.
-                    </Markdown>
+                    <Markdown>Install the PostHog SDK and the Google Gen AI SDK.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -36,14 +29,14 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install google-genai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-google-generativeai
+                                    pip install posthog google-genai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @google/genai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-google-generativeai
+                                    npm install @posthog/ai posthog-node @google/genai
                                 `,
                             },
                         ]}
@@ -52,13 +45,14 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to auto-instrument Google Gen AI SDK calls and export traces to PostHog.
-                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
+                        {dedent`
+                            Create a PostHog client, then swap in PostHog's Google Gen AI wrapper.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -67,54 +61,32 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.gemini import Client
+                                    import time, uuid
+                                    from google.genai import types
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
-                                        )
+                                    client = Client(
+                                        api_key="your_gemini_api_key",
+                                        posthog_client=posthog,
                                     )
-                                    trace.set_tracer_provider(provider)
-
-                                    GoogleGenerativeAiInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { GenAIInstrumentation } from '@traceloop/instrumentation-google-generativeai'
+                                    import { GoogleGenAI } from '@posthog/ai/gemini'
+                                    import { PostHog } from 'posthog-node'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new GenAIInstrumentation()],
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new GoogleGenAI({
+                                      apiKey: 'your_gemini_api_key',
+                                      posthog,
                                     })
-                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -128,8 +100,10 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the Google Gen AI SDK to call Gemini, PostHog automatically captures
-                        `$ai_generation` events via the OpenTelemetry instrumentation.
+                        {dedent`
+                            When you use the wrapped client to call Gemini, PostHog automatically captures an
+                            \`$ai_generation\` event.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -138,32 +112,36 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from google import genai
-
-                                    client = genai.Client(api_key="your_gemini_api_key")
+                                    trace_id = str(uuid.uuid4())
 
                                     response = client.models.generate_content(
                                         model="gemini-2.5-flash",
-                                        contents=[{"role": "user", "parts": [{"text": "Tell me a fun fact about hedgehogs"}]}],
+                                        contents=[{"role": "user", "parts": [{"text": "What's the weather in Paris?"}]}],
+                                        config=types.GenerateContentConfig(tools=tools),
+                                        posthog_distinct_id="user_123",
+                                        posthog_trace_id=trace_id,
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                        },
                                     )
-
-                                    print(response.text)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { GoogleGenAI } from '@google/genai'
-
-                                    const client = new GoogleGenAI({ apiKey: 'your_gemini_api_key' })
+                                    const traceId = crypto.randomUUID()
 
                                     const response = await client.models.generateContent({
                                       model: 'gemini-2.5-flash',
-                                      contents: 'Tell me a fun fact about hedgehogs',
+                                      contents: "What's the weather in Paris?",
+                                      config: { tools },
+                                      posthogDistinctId: 'user_123',
+                                      posthogTraceId: traceId,
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                      },
                                     })
-
-                                    console.log(response.text)
                                 `,
                             },
                         ]}
@@ -171,16 +149,8 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Blockquote>
                         <Markdown>
-                            {dedent`
-                                **Note:** This integration also works with Vertex AI via Google Cloud Platform. Initialize the Google Gen AI client with \`vertexai=True, project=..., location=...\` (Python) or \`{ vertexai: true, project: '...', location: '...' }\` (Node) and the OpenTelemetry instrumentation will capture those calls the same way.
-                            `}
-                        </Markdown>
-                    </Blockquote>
-
-                    <Blockquote>
-                        <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, omit `posthog_distinct_id` from the
+                            call. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -196,13 +166,86 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             ),
         },
         {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            For standard responses, the posthog client captures it as a generation. For all tool
+                            calls, you must manually capture them as \`$ai_span\` events.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    for call in response.function_calls or []:
+                                        start = time.time()
+                                        result = run_tool(call.name, call.args)
+
+                                        posthog.capture(
+                                            distinct_id="user_123",
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": "conversation-abc",
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": call.name,
+                                                "$ai_input_state": call.args,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    for (const call of response.functionCalls ?? []) {
+                                      const start = Date.now()
+                                      const result = await runTool(call.name, call.args)
+
+                                      posthog.capture({
+                                        distinctId: 'user_123',
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: 'conversation-abc',
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: call.name,
+                                          $ai_input_state: call.args,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                            properties.
+                        `}
+                    </Markdown>
+                </>
+            ),
+        },
+        {
             title: 'Capture embeddings',
             badge: 'optional',
             content: (
                 <>
                     <Markdown>
-                        PostHog can also capture embedding generations as `$ai_embedding` events. The OpenTelemetry
-                        instrumentation automatically captures these when you use the `embed_content` API:
+                        PostHog can also capture embedding generations as `$ai_embedding` events. The wrapped client
+                        captures these automatically when you use the `embed_content` API:
                     </Markdown>
 
                     <CodeBlock

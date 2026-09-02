@@ -120,15 +120,20 @@ class MprocsRegistry(ProcessRegistry):
         return [name for name, proc in self.processes.items() if proc.config.get("ask_skip") is True]
 
 
-def get_default_mprocs_path() -> Path:
-    """Get the default path to mprocs.yaml."""
+def find_repo_file(relative_path: str) -> Path:
+    """Walk up from this module to the repo copy of relative_path; cwd-relative if absent."""
     current = Path(__file__).resolve()
     for parent in current.parents:
-        mprocs_path = parent / "bin" / "mprocs.yaml"
-        if mprocs_path.exists():
-            return mprocs_path
+        candidate = parent / relative_path
+        if candidate.exists():
+            return candidate
 
-    return Path.cwd() / "bin" / "mprocs.yaml"
+    return Path.cwd() / relative_path
+
+
+def get_default_mprocs_path() -> Path:
+    """Get the default path to mprocs.yaml."""
+    return find_repo_file("bin/mprocs.yaml")
 
 
 def create_mprocs_registry(path: Path | None = None) -> MprocsRegistry:

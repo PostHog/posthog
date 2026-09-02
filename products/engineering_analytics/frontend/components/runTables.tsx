@@ -32,6 +32,20 @@ export function StatusDot({ conclusion }: { conclusion: string | null }): JSX.El
     )
 }
 
+/**
+ * The PR to show for a run, or null when it has none.
+ *
+ * A run that ran *for* a PR carries `pr_number`. A default-branch push has no PR association by the
+ * time it runs, so its only attribution is the PR whose merge produced the head commit: the
+ * backend's `commit_pr_number`. Prefer the direct association; fall back to the merge.
+ */
+export function runPrNumber(prNumber: number | null, commitPrNumber: number | null): number | null {
+    if (prNumber != null && prNumber > 0) {
+        return prNumber
+    }
+    return commitPrNumber != null && commitPrNumber > 0 ? commitPrNumber : null
+}
+
 export function formatCost(usd: number | null): string {
     if (usd == null) {
         return '—'

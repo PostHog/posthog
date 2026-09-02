@@ -901,14 +901,13 @@ async fn it_overflows_events_on_burst() -> Result<()> {
 
     topic.assert_empty();
 
-    // Third event should be in overflow topic, but has no
-    // message key as overflow locality is off for this test
-    assert_json_include!(
-        actual: overflow_topic.next_event()?,
-        expected: json!({
-            "token": token,
-            "distinct_id": distinct_id,
-        })
+    // Third event should be in overflow topic. Locality is off for this
+    // test, but a person-on burst keeps its key anyway: the overflow
+    // consumer updates persons keyed on distinct id, so the key only drops
+    // once person processing is off.
+    assert_eq!(
+        overflow_topic.next_message_key()?.unwrap(),
+        format!("{token}:{distinct_id}")
     );
 
     overflow_topic.assert_empty();
@@ -1257,7 +1256,7 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_limits_non_batch_endpoints_to_2mb() -> Result<()> {
+async fn it_limits_every_analytics_endpoint_to_the_same_wire_cap() -> Result<()> {
     setup_tracing();
 
     let token = random_string("token", 16);
@@ -1267,68 +1266,46 @@ async fn it_limits_non_batch_endpoints_to_2mb() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
-    let ok_event = json!({
+    // One handler serves every analytics route, so the cap is the same on all of
+    // them. Accept-side coverage lives in integration_wire_body_limits.rs, which
+    // runs without Kafka.
+    let over_cap = json!({
         "token": token,
         "event": "event1",
         "distinct_id": distinct_id,
         "properties": {
-            "big": "a".repeat(2_000_000)
+            "big": "a".repeat(21 * 1024 * 1024)
         }
     });
 
-    let nok_event = json!({
+    let res = server.capture_events(over_cap.to_string()).await;
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+
+    let res = server.capture_to_batch(over_cap.to_string()).await;
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+
+    // The accept side, on both routes, proven by the event reaching the topic.
+    // It has to stay under the producer's 1MB message ceiling, so it cannot also
+    // show that the cap is now 20MB rather than 2MB; that case needs an
+    // in-process sink and lives in integration_wire_body_limits.rs.
+    let accepted = json!({
         "token": token,
-        "event": "event2",
+        "event": "event3",
         "distinct_id": distinct_id,
         "properties": {
-            "big": "a".repeat(2_100_000)
+            "big": "a".repeat(256 * 1024)
         }
     });
 
-    let res = server.capture_events(ok_event.to_string()).await;
-    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+    let res = server.capture_events(accepted.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let got = main_topic.next_event()?;
+    assert_eq!(got["event"], "event3");
 
-    let res = server.capture_events(nok_event.to_string()).await;
-    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn it_limits_batch_endpoints_to_20mb() -> Result<()> {
-    setup_tracing();
-
-    let token = random_string("token", 16);
-    let distinct_id = random_string("id", 16);
-
-    let main_topic = EphemeralTopic::new().await;
-    let histo_topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
-
-    // Notably here, rust capture actually handles all endpoints with the same function, so we don't actually
-    // need to wrap these events in an array to send them to our batch endpoint
-    let ok_event = json!({
-        "token": token,
-        "event": "event1",
-        "distinct_id": distinct_id,
-        "properties": {
-            "big": "a".repeat(20_000_000)
-        }
-    });
-
-    let nok_event = json!({
-        "token": token,
-        "event": "event2",
-        "distinct_id": distinct_id,
-        "properties": {
-            "big": "a".repeat(21_000_000)
-        }
-    });
-
-    let res = server.capture_to_batch(ok_event.to_string()).await;
-    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
-    let res = server.capture_to_batch(nok_event.to_string()).await;
-    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
+    let res = server.capture_to_batch(accepted.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let got = main_topic.next_event()?;
+    assert_eq!(got["event"], "event3");
 
     Ok(())
 }

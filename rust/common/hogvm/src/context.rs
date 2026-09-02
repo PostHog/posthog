@@ -45,8 +45,8 @@ pub struct ExecutionContext {
     pub max_stack_depth: usize,
     pub max_heap_size: usize,
     pub max_steps: usize,
-    /// Opt-in comparison semantics. `false` (the default) is the legacy/reference behavior shared by
-    /// every existing consumer (e.g. `cymbal`): ordering ops require numeric operands and `Eq`
+    /// Opt-in comparison semantics. `false` (the default) is the strict behavior shared by
+    /// consumers such as `cymbal`: ordering ops accept numbers and numeric arrays, while `Eq`
     /// compares temporals structurally. `true` makes ordering coerce across types and order temporals
     /// by epoch, and `Eq` compare two temporals by epoch — the ClickHouse/Python-TS-aligned semantics
     /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
@@ -151,8 +151,8 @@ impl ExecutionContext {
     }
 
     /// Opt into coercing comparison semantics (cross-type ordering coercion + epoch ordering/equality
-    /// of temporals). Off by default; only the realtime-cohort evaluator opts in, so existing
-    /// consumers like `cymbal` keep the legacy strict behavior. See [`Self::coerce_comparisons`].
+    /// of temporals). Off by default; only the realtime-cohort evaluator opts in, so consumers like
+    /// `cymbal` keep strict behavior. See [`Self::coerce_comparisons`].
     pub fn with_coercing_comparisons(mut self) -> Self {
         self.coerce_comparisons = true;
         self

@@ -22,11 +22,11 @@ from products.replay_vision.backend.temporal.constants import (
 )
 from products.replay_vision.backend.temporal.schedule import (
     _build_schedule,
-    _compute_offset,
     _load_fingerprint,
     a_delete_scanner_schedule,
     a_upsert_scanner_schedule,
     compute_schedule_fingerprint,
+    compute_schedule_offset,
 )
 from products.replay_vision.backend.temporal.sweep_types import SweepScannerInputs
 
@@ -46,7 +46,7 @@ def _make_scanner(team: Team, **overrides: Any) -> ReplayScanner:
         "name": "schedule-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -87,18 +87,20 @@ def test_schedule_id_format() -> None:
 
 def test_offset_is_deterministic_per_scanner() -> None:
     sid = uuid.uuid4()
-    assert _compute_offset(sid) == _compute_offset(sid)
+    assert compute_schedule_offset(sid, SCANNER_SCHEDULE_INTERVAL) == compute_schedule_offset(
+        sid, SCANNER_SCHEDULE_INTERVAL
+    )
 
 
 def test_offset_within_interval() -> None:
     interval_s = int(SCANNER_SCHEDULE_INTERVAL.total_seconds())
     for _ in range(50):
-        offset = _compute_offset(uuid.uuid4())
+        offset = compute_schedule_offset(uuid.uuid4(), SCANNER_SCHEDULE_INTERVAL)
         assert dt.timedelta(0) <= offset < dt.timedelta(seconds=interval_s)
 
 
 def test_offset_distributes_across_window() -> None:
-    offsets = {_compute_offset(uuid.uuid4()).total_seconds() for _ in range(100)}
+    offsets = {compute_schedule_offset(uuid.uuid4(), SCANNER_SCHEDULE_INTERVAL).total_seconds() for _ in range(100)}
     assert len(offsets) > 50
 
 
@@ -131,7 +133,7 @@ def test_build_schedule_carries_scanner_inputs_and_offset() -> None:
     assert inputs.scanner_id == scanner_id
     assert inputs.team_id == 99
     assert schedule.spec.intervals[0].every == SCANNER_SCHEDULE_INTERVAL
-    assert schedule.spec.intervals[0].offset == _compute_offset(scanner_id)
+    assert schedule.spec.intervals[0].offset == compute_schedule_offset(scanner_id, SCANNER_SCHEDULE_INTERVAL)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -221,7 +223,8 @@ async def test_upsert_stamps_fingerprint_attribute(org_team) -> None:
 
 @parameterized.expand(
     [
-        ("noop_when_schedule_missing", False, None, False, None),
+        # Delete is issued unconditionally (no exists pre-check RPC); a missing schedule surfaces as NOT_FOUND.
+        ("noop_when_schedule_missing", False, RPCStatusCode.NOT_FOUND, True, None),
         ("calls_delete_when_present", True, None, True, None),
         ("swallows_not_found_race", True, RPCStatusCode.NOT_FOUND, True, None),
         ("propagates_other_rpc_errors", True, RPCStatusCode.UNAVAILABLE, True, RPCError),

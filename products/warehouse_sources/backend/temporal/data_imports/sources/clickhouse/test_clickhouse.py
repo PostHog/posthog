@@ -1,4 +1,8 @@
-from collections.abc import AsyncIterable
+import os
+import socket
+import threading
+from collections.abc import AsyncIterable, Iterator
+from contextlib import contextmanager
 
 import pytest
 from posthog.test.base import BaseTest
@@ -6,12 +10,14 @@ from unittest.mock import MagicMock, call, patch
 
 import pyarrow as pa
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
+    NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     YIELD_TARGET_ROWS,
     ClickHouseColumn,
     ClickHouseConnectionError,
@@ -21,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _get_partition_settings,
     _has_duplicate_primary_keys,
     _is_rate_limited,
+    _is_too_many_queries,
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
@@ -30,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     get_primary_keys_for_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
+    _REDIRECTED,
     _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
     ClickHouseSource,
@@ -185,6 +193,21 @@ class TestBuildQuery:
         assert "WHERE `created_at` > %(last_value)s" in query
         assert "ORDER BY `created_at` ASC" in query
         assert params == {}
+
+    def test_incremental_casts_date_last_value_through_todate32(self):
+        # A `Date` cursor can come back from storage as a raw day-count integer
+        # (ClickHouse's own on-disk representation), which `greater(Date, UInt16)`
+        # rejects when bound directly. toDate32 accepts both an integer day-count
+        # and a date string, so the comparison always type-checks.
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("day", "Date")),
+            should_use_incremental_field=True,
+            incremental_field="day",
+            incremental_field_type=IncrementalFieldType.Date,
+        )
+        assert "WHERE `day` > toDate32(%(last_value)s)" in query
 
     def test_incremental_quotes_field_with_special_chars(self):
         query, _ = _build_query(
@@ -654,6 +677,9 @@ class TestClickHouseSourceNonRetryableErrors:
             # SSH tunnel to the customer's bastion couldn't be brought up — the import path only
             # checks this per-source dict, so the entry must be here to stop it retrying forever.
             "Could not establish session to SSH gateway",
+            # Host answered 2xx with a non-ClickHouse body — `_get_client` wraps the driver's
+            # "too many values to unpack" probe error into this message.
+            NOT_A_CLICKHOUSE_HTTP_RESPONSE,
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
@@ -699,6 +725,25 @@ class TestClickHouseSourceRetryableErrors:
             "Tunnel connection failed: 504 Gateway Timeout",
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
+            # The source dropped the connection mid-stream while reading Arrow batches
+            # (urllib3 ProtocolError wrapping http.client.IncompleteRead). Byte counts vary.
+            "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
+            "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
+            "IncompleteRead(12345 bytes read, 67 more expected))",
+            # The server accepted the connection but never answered within our timeout —
+            # typically ClickHouse Cloud still cold-resuming past our allowance.
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
+            "(read timeout=120) executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
+            # The source server was already at its concurrent-query limit when the
+            # client-construction probe ran; the exact wrapped message reached error tracking.
+            "HTTPDriver for https://play.clickhouse.com:8443 received ClickHouse error code 202\n "
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
+            # The exact wrapped message that reached error tracking: our own egress proxy was
+            # unreachable past all of `_get_client`'s in-process connect retries.
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
+            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
+            "executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -713,6 +758,17 @@ class TestClickHouseSourceRetryableErrors:
         # also be misclassified as a benign retryable error, or `_handle_import_error` would log
         # it at `warning` and mask the real cause.
         error_msg = "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404"
+        retryable = source.get_retryable_errors()
+        assert not any(pattern in error_msg for pattern in retryable)
+
+    def test_proxy_auth_failure_is_not_classified_as_retryable(self, source):
+        # A 407 wraps the same "Cannot connect to proxy." prefix as the TCP-connect timeout above,
+        # but it's a deterministic proxy-auth misconfiguration, not a transient blip.
+        error_msg = (
+            "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Max retries exceeded "
+            "with url: /? (Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection "
+            "failed: 407 Proxy Authentication Required')))"
+        )
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
@@ -738,6 +794,11 @@ class TestIsTransientConnectDrop:
             # HTTP 429 rate-limit at connect time — clickhouse-connect doesn't
             # retry the client-construction probe, so we retry it in-process.
             "HTTPDriver for https://host:8443 returned response code 429",
+            # The exact wrapped message that reached error tracking: urllib3 couldn't open a
+            # TCP connection to our own egress proxy before ever attempting a CONNECT tunnel.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))) "
+            "executing HTTP request attempt 1",
         ],
     )
     def test_matches_transient_drops(self, message):
@@ -752,6 +813,10 @@ class TestIsTransientConnectDrop:
             "HTTPDriver for https://host:8443 returned response code 404",
             # A proxy 407 is a deterministic auth-config failure, not a transient gateway blip.
             "Tunnel connection failed: 407 Proxy Authentication Required",
+            # A 407 reaches us wrapped in the same "Cannot connect to proxy." prefix as the TCP-connect
+            # timeout above — it must not become transient just because it shares that prefix.
+            "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: "
+            "407 Proxy Authentication Required')))",
         ],
     )
     def test_does_not_match_deterministic_failures(self, message):
@@ -780,6 +845,32 @@ class TestIsRateLimited:
     )
     def test_does_not_match_other_codes(self, message):
         assert not _is_rate_limited(message)
+
+
+class TestIsTooManyQueries:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES)",
+            "HTTPDriver for https://host:8443 received ClickHouse error code 202\n "
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 100, "
+            "maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
+        ],
+    )
+    def test_matches_too_many_queries(self, message):
+        assert _is_too_many_queries(message)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Code: 241. DB::Exception: Memory limit exceeded",
+            "HTTPDriver for https://host:8443 returned response code 429",
+            "Code: 516. DB::Exception: Authentication failed",
+        ],
+    )
+    def test_does_not_match_other_codes(self, message):
+        assert not _is_too_many_queries(message)
 
 
 class TestGetClientTransientRetry:
@@ -835,6 +926,24 @@ class TestGetClientTransientRetry:
         assert mock_get_client.call_count == 3
         mock_sleep.assert_has_calls([call(2), call(4)])
 
+    def test_retries_connect_time_too_many_queries_then_succeeds(self):
+        # The client-construction probe itself can be rejected when the source server is
+        # already at its concurrent-query limit; we retry it with the same backoff as a 429.
+        client = MagicMock()
+        too_many_queries = OperationalError(
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES)"
+        )
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(
+                ch_module, "get_client", side_effect=[too_many_queries, too_many_queries, client]
+            ) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 3
+        mock_sleep.assert_has_calls([call(2), call(4)])
+
     def test_does_not_retry_deterministic_failure(self):
         cert_error = ClickHouseError("certificate verify failed")
         with (
@@ -842,6 +951,20 @@ class TestGetClientTransientRetry:
             patch.object(ch_module, "get_client", side_effect=cert_error) as mock_get_client,
         ):
             with pytest.raises(ClickHouseConnectionError):
+                self._connect()
+        assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_wraps_non_clickhouse_response_probe_error(self):
+        # clickhouse-connect's construction-time probe unpacks the reply into two values;
+        # a non-ClickHouse 2xx body raises a bare ValueError. We wrap it as a connection
+        # error (deterministic, no retry) instead of leaking the cryptic ValueError.
+        probe_error = ValueError("too many values to unpack (expected 2)")
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=probe_error) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
                 self._connect()
         assert mock_get_client.call_count == 1
         mock_sleep.assert_not_called()
@@ -902,7 +1025,11 @@ class TestTranslateError:
         translated = ClickHouseSource._translate_error(msg)
         assert translated is not None
         assert "404" in translated
-        assert translated != GENERIC_CONNECTION_ERROR
+
+    def test_non_clickhouse_response_maps_to_actionable_message(self):
+        # The wrapped probe error must surface the actionable "not serving ClickHouse"
+        # message during onboarding, not fall through to the generic one.
+        assert ClickHouseSource._translate_error(NOT_A_CLICKHOUSE_HTTP_RESPONSE) == NOT_A_CLICKHOUSE_HTTP_RESPONSE
 
     @pytest.mark.parametrize("code", ["429", "502", "503", "504"])
     def test_transient_gateway_responses_ask_to_retry(self, code):
@@ -910,6 +1037,26 @@ class TestTranslateError:
         # bad credentials — it should tell the user to retry.
         msg = f"HTTPDriver for https://host:8443 returned response code {code}"
         assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
+
+    @pytest.mark.parametrize("code", ["301", "302", "307", "308"])
+    def test_redirect_responses_name_the_redirect(self, code):
+        # Proxy-bypassing connections don't follow redirects, so the 3xx reaches the user.
+        msg = f"HTTPDriver for https://host:8443 returned response code {code}"
+        assert ClickHouseSource._translate_error(msg) == _REDIRECTED
+
+    def test_certificate_hostname_mismatch_names_the_certificate_not_the_toggles(self):
+        # Verification runs against the configured host even over a tunnel, so a mismatch is
+        # a real certificate problem. Matching the generic "ssl" entry first would tell the
+        # user to disable HTTPS, and the message must not suggest turning verification off.
+        msg = (
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, "
+            "certificate is not valid for '127.0.0.1'"
+        )
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "certificate" in translated
+        assert "HTTPS" not in translated
+        assert "Verify SSL" not in translated
 
 
 class TestGetSchemas:
@@ -952,6 +1099,27 @@ class TestGetSchemas:
         assert events_cols["id"] == ("UInt64", False)
         assert events_cols["name"] == ("Nullable(String)", True)
 
+    def test_discovery_query_excludes_alias_and_ephemeral_columns(self):
+        # A native `SELECT *` skips ALIAS/EPHEMERAL columns, but our `SELECT *` expands to an
+        # explicit column list — an included ALIAS whose expression can't resolve breaks the whole
+        # query with UNKNOWN_IDENTIFIER (code 47). The filter must stay in the discovery query.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        mock_client = self._make_mock_client([("events", "id", "UInt64")])
+        with patch.object(ch_module, "_get_client", return_value=mock_client):
+            ch_module.get_schemas(
+                host="localhost",
+                port=8443,
+                database="default",
+                user="default",
+                password="",
+                secure=True,
+                verify=True,
+            )
+
+        queries = [str(call.args[0]) for call in mock_client.query.call_args_list]
+        assert any("default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in q for q in queries)
+
     def test_excludes_materialized_view_inner_tables(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 
@@ -975,6 +1143,28 @@ class TestGetSchemas:
             )
 
         assert set(schemas.keys()) == {"events"}
+
+
+class TestGetTable:
+    """Tests `_get_table`, used by the sync path to build the SELECT column list."""
+
+    def _make_mock_client(self, cols_rows, engine: str | None = "MergeTree"):
+        client = MagicMock()
+        cols_result = MagicMock()
+        cols_result.result_rows = cols_rows
+        engine_result = MagicMock()
+        engine_result.result_rows = [(engine,)] if engine is not None else []
+        client.query.side_effect = [cols_result, engine_result]
+        return client
+
+    def test_excludes_alias_and_ephemeral_columns_from_query(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = self._make_mock_client([("id", "UInt64")])
+        ch_module._get_table(client, "default", "events")
+
+        cols_query = client.query.call_args_list[0].args[0]
+        assert "default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in cols_query
 
 
 class TestSourceClassValidateCredentials:
@@ -1003,6 +1193,26 @@ class TestSourceClassValidateCredentials:
 
         assert valid is False
         assert msg == "Invalid user or password"
+
+    def test_url_in_host_field_returns_actionable_message_without_reflecting_input(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.host = "https://secret.clickhouse.cloud"
+        config.ssh_tunnel = None
+
+        with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
+            with patch.object(source, "is_database_host_valid") as host_valid:
+                valid, msg = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "Enter just the hostname" in (msg or "")
+        # The pasted value can embed credentials — it must never be echoed back.
+        assert "secret.clickhouse.cloud" not in (msg or "")
+        # Short-circuits before we attempt DNS resolution of the bad host.
+        host_valid.assert_not_called()
 
     def test_returns_generic_message_for_unknown_error(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
@@ -1111,6 +1321,9 @@ class TestHasDuplicatePrimaryKeys:
             "Setting optimize_aggregation_in_order is unknown or readonly",
             # Server-side memory cap below our probe's max_memory_usage.
             "Code: 241. DB::Exception: Query memory limit exceeded ... (MEMORY_LIMIT_EXCEEDED)",
+            # HTTP client read timeout firing before the server-side
+            # max_execution_time cap does (e.g. ClickHouse Cloud cold-resume).
+            "Error HTTPSConnectionPool(host='example.clickhouse.cloud', port=8443): Read timed out. (read timeout=120)",
         ],
     )
     def test_expected_probe_failures_not_captured(self, error_msg):
@@ -1154,6 +1367,20 @@ class TestGetIncrementalRowCount:
         assert "`created_at` > %(last_value)s" in args[0]
         assert kwargs["parameters"] == {"last_value": "2024-01-01"}
         assert kwargs["settings"] == {"max_execution_time": 30}
+
+    def test_casts_date_last_value_through_todate32(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = [(7,)]
+        client.query.return_value = result
+
+        count = _get_incremental_row_count(
+            client, "db", "t", "day", 20657, self._logger(), incremental_field_type=IncrementalFieldType.Date
+        )
+        assert count == 7
+
+        args, _ = client.query.call_args
+        assert "`day` > toDate32(%(last_value)s)" in args[0]
 
     def test_returns_none_on_error(self):
         client = MagicMock()
@@ -1316,3 +1543,259 @@ class TestClickHouseReconcileSchemaMetadata(BaseTest):
         metadata = schema.schema_metadata
         assert metadata is not None
         assert [column["name"] for column in metadata["columns"]] == ["uuid", "timestamp"]
+
+
+class TestBypassEnvProxy:
+    """The proxy bypass for PostHog-internal direct connections.
+
+    `bypass_env_proxy=True` must hand clickhouse-connect a pool manager, which
+    stops it consulting HTTP(S)_PROXY env vars; `False` must leave the default
+    (proxy-honouring) behaviour intact.
+    """
+
+    @pytest.mark.parametrize("verify", [True, False])
+    def test_no_env_proxy_pool_manager_ignores_proxy_env(self, verify):
+        from urllib3 import PoolManager, ProxyManager
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
+            _no_env_proxy_pool_manager,
+        )
+
+        with patch.dict("os.environ", {"HTTPS_PROXY": "http://egress-proxy:4750"}):
+            manager = _no_env_proxy_pool_manager(verify)
+        assert isinstance(manager, PoolManager)
+        assert not isinstance(manager, ProxyManager)
+        # Cached: streaming clients must share the manager (they don't own it).
+        assert _no_env_proxy_pool_manager(verify) is manager
+
+    @pytest.mark.parametrize(
+        "bypass,expected_pool_mgr_factory",
+        [
+            ("internal_team", lambda: ch_module._no_env_proxy_pool_manager(True, None)),
+            (None, lambda: None),
+        ],
+    )
+    def test_get_client_forwards_pool_manager_only_when_bypassing(self, bypass, expected_pool_mgr_factory):
+        with patch.object(ch_module, "get_client") as mock_get_client:
+            _get_client(
+                host="ch.example.com",
+                port=8443,
+                database="default",
+                user="reader",
+                password="secret",
+                secure=True,
+                verify=True,
+                bypass_env_proxy=bypass,
+            )
+        assert mock_get_client.call_count == 1
+        assert mock_get_client.call_args.kwargs["pool_mgr"] is expected_pool_mgr_factory()
+
+    def test_eviction_releases_the_manager_everywhere_it_is_retained(self):
+        # The cache key contains the user-controlled hostname, so it must be bounded — and a
+        # bounded cache only helps if eviction also drops the manager from clickhouse-connect's
+        # process-global registry, the other place that would retain it for the worker's life.
+        from clickhouse_connect.driver.httputil import all_managers
+
+        with patch.object(ch_module, "_POOL_MANAGER_CACHE_MAX", 2):
+            first = ch_module._no_env_proxy_pool_manager(True, "evict-me.example")
+            assert first in all_managers
+            for n in range(2):
+                ch_module._no_env_proxy_pool_manager(True, f"filler-{n}.example")
+
+        assert first not in all_managers
+        assert ch_module._no_env_proxy_pool_manager(True, "evict-me.example") is not first
+
+
+class TestInternalHostTeamAllowlist:
+    @pytest.mark.parametrize(
+        "region,team_id,expected",
+        [
+            ("US", 2, True),
+            ("US", 1, False),
+            ("US", 12345, False),
+            ("EU", 1, True),
+            ("EU", 2, False),
+            ("EU", 12345, False),
+            (None, 2, False),
+            ("DEV", 2, False),
+        ],
+    )
+    def test_allowlist(self, region, team_id, expected):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common import mixins
+
+        with patch.object(mixins, "get_instance_region", return_value=region):
+            assert mixins.is_team_allowlisted_for_internal_hosts(team_id) is expected
+
+
+_FORBIDDEN_RESPONSE = b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+
+
+@contextmanager
+def _recording_server(response: bytes = _FORBIDDEN_RESPONSE) -> Iterator[tuple[int, list[str]]]:
+    server = socket.create_server(("127.0.0.1", 0))
+    server.settimeout(0.1)
+    requests: list[str] = []
+    stop = threading.Event()
+
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                conn, _ = server.accept()
+            except (TimeoutError, OSError):
+                continue
+            with conn:
+                requests.append(conn.recv(8192).decode("latin-1").split("\r\n")[0])
+                conn.sendall(response)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield server.getsockname()[1], requests
+    finally:
+        stop.set()
+        thread.join(timeout=5)
+        server.close()
+
+
+def _connect_to(*, port: int, bypass_env_proxy: "ch_module.BypassEnvProxy") -> None:
+    _get_client(
+        host="127.0.0.1",
+        port=port,
+        database="default",
+        user="default",
+        password=None,
+        secure=False,
+        verify=True,
+        bypass_env_proxy=bypass_env_proxy,
+    )
+
+
+class TestGetClientEgressProxyRouting:
+    """Where the connection actually goes, which is what decides whether a tunnel works.
+
+    PostHog's runtime points HTTP_PROXY at the Smokescreen egress proxy, and Smokescreen blocks
+    loopback. Routing a tunneled connection through it means the request never reaches the SSH
+    tunnel's local forwarded port, so the tunnel opens no channel to the customer's ClickHouse
+    and the source fails with a generic connection error. The stub servers answer with a
+    deterministic 403 rather than dropping the connection so that `_get_client` raises on the
+    first attempt instead of entering its transient-retry backoff.
+    """
+
+    @parameterized.expand([("tunneled", "tunnel_loopback"), ("internal", "internal_team"), ("proxied", None)])
+    def test_only_a_proxied_connection_goes_through_the_egress_proxy(self, _name: str, reason) -> None:
+        with _recording_server() as (proxy_port, proxy_requests):
+            with _recording_server() as (bound_port, bound_requests):
+                proxy_url = f"http://127.0.0.1:{proxy_port}"
+                env = {"HTTP_PROXY": proxy_url, "http_proxy": proxy_url}
+                with patch.dict(os.environ, env):
+                    os.environ.pop("NO_PROXY", None)
+                    os.environ.pop("no_proxy", None)
+
+                    with pytest.raises(ClickHouseConnectionError):
+                        _connect_to(port=bound_port, bypass_env_proxy=reason)
+
+        bypassed = reason is not None
+        assert bool(bound_requests) == bypassed
+        assert bool(proxy_requests) == (not bypassed)
+
+    def test_redirect_away_from_the_target_is_not_followed(self) -> None:
+        # A bypassing connection skips the egress proxy, so following a redirect would let the
+        # host we reached send us to an address the proxy would have denied.
+        with _recording_server() as (elsewhere_port, elsewhere_requests):
+            redirect = (
+                f"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{elsewhere_port}/\r\n"
+                "Content-Length: 0\r\nConnection: close\r\n\r\n"
+            ).encode()
+            with _recording_server(response=redirect) as (bound_port, bound_requests):
+                with pytest.raises(ClickHouseConnectionError):
+                    _connect_to(port=bound_port, bypass_env_proxy="tunnel_loopback")
+
+        assert bound_requests
+        assert elsewhere_requests == []
+
+    def test_tunneled_https_verifies_against_the_database_hostname(self) -> None:
+        # We dial the tunnel's loopback bind, so SNI and hostname validation must run against
+        # the database's own hostname or a valid certificate can never match — and the
+        # workaround users would reach for is disabling verification, which invites MITM
+        # between the SSH server and ClickHouse.
+        with patch.object(ch_module, "get_client") as mock_get_client:
+            _get_client(
+                host="127.0.0.1",
+                port=8443,
+                database="default",
+                user="default",
+                password=None,
+                secure=True,
+                verify=True,
+                bypass_env_proxy="tunnel_loopback",
+                server_hostname="clickhouse.internal",
+            )
+        manager = mock_get_client.call_args.kwargs["pool_mgr"]
+        pool = manager.connection_from_host("127.0.0.1", 8443, scheme="https")
+        assert pool.assert_hostname == "clickhouse.internal"
+        assert pool.conn_kw["server_hostname"] == "clickhouse.internal"
+        # Plain-HTTP tunnels must not share the hostname-pinned manager.
+        assert manager is not ch_module._no_env_proxy_pool_manager(True, None)
+
+    def test_tunnel_claim_with_non_loopback_host_is_refused(self) -> None:
+        # The flag and the host reach `_get_client` independently; a caller pairing the
+        # tunnel claim with a host that didn't come from a tunnel must fail loudly, before
+        # any connection is attempted with the proxy-bypassing manager.
+        with patch.object(ch_module, "get_client") as mock_get_client:
+            with pytest.raises(Exception, match="non-loopback"):
+                _get_client(
+                    host="ch.example.com",
+                    port=8443,
+                    database="default",
+                    user="default",
+                    password=None,
+                    secure=True,
+                    verify=True,
+                    bypass_env_proxy="tunnel_loopback",
+                )
+        mock_get_client.assert_not_called()
+
+
+class TestDirectQueryClientBypassEnvProxy:
+    """`direct_query_client` backs the HogQL direct-SQL adapter, and unlike every other
+    `_get_client` call site on `ClickHouseSource` it once omitted `bypass_env_proxy` entirely —
+    an allowlisted internal team's direct query silently routed through the egress proxy and
+    failed to reach the PostHog-internal host it was pointed at.
+
+    A tunneled connection must bypass for a different reason: the address is our own loopback
+    bind, which the proxy blocks, so a customer team with a tunnel never reached its ClickHouse.
+    """
+
+    @pytest.mark.parametrize(
+        "region,team_id,tunneled,expected_bypass",
+        [
+            ("US", 2, False, "internal_team"),
+            ("US", 12345, False, None),
+            ("US", 12345, True, "tunnel_loopback"),
+        ],
+    )
+    def test_forwards_bypass_env_proxy_from_team_allowlist(self, region, team_id, tunneled, expected_bypass):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common import mixins
+
+        source = ClickHouseSource()
+        config = MagicMock()
+        config.host = "db.example.com"
+        config.database = "default"
+        config.user = "default"
+        config.password = None
+        config.secure = True
+        config.verify = True
+        config.ssh_tunnel = MagicMock(enabled=True) if tunneled else None
+
+        with patch.object(mixins, "get_instance_region", return_value=region):
+            with patch.object(source, "with_ssh_tunnel") as mock_with_ssh_tunnel:
+                mock_with_ssh_tunnel.return_value.__enter__.return_value = ("host", 8443)
+                with patch.object(source_module, "_get_client") as mock_get_client:
+                    with source.direct_query_client(config, team_id, query_timeout=60):
+                        pass
+
+        assert mock_get_client.call_args.kwargs["bypass_env_proxy"] == expected_bypass
+        # The configured host always rides along; `_get_client` only applies it to TLS when
+        # the bypass reason is the tunnel.
+        assert mock_get_client.call_args.kwargs["server_hostname"] == "db.example.com"

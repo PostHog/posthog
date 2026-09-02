@@ -1,1 +1,1 @@
-0006_subscription_ai_query_plan
+0010_alter_subscription_target_type

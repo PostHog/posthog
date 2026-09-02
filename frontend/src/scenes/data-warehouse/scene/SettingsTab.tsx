@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconCheck, IconX } from '@posthog/icons'
 
@@ -71,7 +72,12 @@ function ConnectionDetails({ connection }: { connection: WarehouseConnectionApi 
             </div>
             <div>
                 <LemonLabel>Connect with psql</LemonLabel>
-                <CodeSnippet compact wrap thing="psql command">
+                <CodeSnippet
+                    compact
+                    wrap
+                    thing="psql command"
+                    onCopy={() => posthog.capture('managed warehouse connection details copied')}
+                >
                     {psqlCmd}
                 </CodeSnippet>
             </div>

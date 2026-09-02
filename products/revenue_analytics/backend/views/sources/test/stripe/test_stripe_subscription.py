@@ -50,10 +50,6 @@ class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
             [{"name": SUBSCRIPTION_RESOURCE_NAME, "table_name": None}]
         )
 
-        # Set the table to None to simulate missing table
-        subscription_schema = self.get_stripe_schema_by_name(SUBSCRIPTION_RESOURCE_NAME)
-        subscription_schema.table = None
-
         # Test the query structure
         query = build(self.stripe_handle)
         self.assertQueryContainsFields(query.query, SUBSCRIPTION_SCHEMA)

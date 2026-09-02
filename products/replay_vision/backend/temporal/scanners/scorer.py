@@ -25,6 +25,11 @@ class ScoreScale(BaseModel, frozen=True):
         return self
 
 
+# Applied when a stored config carries no scale (legacy or direct-write rows). Lives with the contract so
+# the proposer's grounding and the patch fallback can't drift from what `ScoreScale` accepts.
+DEFAULT_SCORE_SCALE = ScoreScale(min=1.0, max=5.0)
+
+
 class ScorerOutput(BaseScannerOutput, frozen=True):
     scanner_type: Literal[ScannerType.SCORER] = ScannerType.SCORER
     score: float = Field(description="Numeric score on the configured scale.")

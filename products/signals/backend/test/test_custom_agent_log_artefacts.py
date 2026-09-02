@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from asgiref.sync import async_to_sync
 from pydantic import BaseModel
 
+import products.signals.backend.temporal.custom_agent  # noqa: F401  (warms the base<->temporal import cycle so standalone collection works)
 from products.signals.backend.artefact_schemas import ArtefactContentValidationError, CodeReference, NoteArtefact
 from products.signals.backend.custom_agent.base import NO_REPO, CustomSignalAgent
 from products.signals.backend.custom_agent.persistence import (
@@ -24,7 +25,7 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 class _StubAgent(CustomSignalAgent):

@@ -4,6 +4,7 @@ import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { isExternalLink } from 'lib/utils/url'
 
 import { HealthCheck, HealthCheckStatus } from '../healthCheckTypes'
 import { webAnalyticsHealthLogic } from '../webAnalyticsHealthLogic'
@@ -43,7 +44,15 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
             {check.action && (
                 <div className="flex-shrink-0">
                     {check.action.to ? (
-                        <LemonButton type="secondary" size="small" to={check.action.to} onClick={handleActionClick}>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={check.action.to}
+                            // External docs links must open in a new tab — navigating in place tears
+                            // down the app (and ends any active session recording).
+                            targetBlank={isExternalLink(check.action.to)}
+                            onClick={handleActionClick}
+                        >
                             {check.action.label}
                         </LemonButton>
                     ) : check.action.onClick ? (

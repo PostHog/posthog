@@ -1,6 +1,5 @@
 import re
 import json
-import math
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -12,22 +11,41 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
-from pydantic import TypeAdapter
+from pydantic import (
+    RootModel as PydanticRootModel,
+    TypeAdapter,
+)
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode, HogQLQueryModifiers
+from posthog.schema import (
+    AttributionMode,
+    CampaignFieldPreference,
+    CohortPropertyFilter,
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    DataWarehousePropertyFilter,
+    ElementPropertyFilter,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    PersonPropertyFilter,
+    SourceMap,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.constants import AvailableFeature
+from posthog.api.utils import action, validate_authorized_url_wildcards
+from posthog.auth import SessionAuthentication
+from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -43,10 +61,14 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.event_ingestion_restriction_config import (
+    EventIngestionRestrictionConfig,
+    IngestionPipeline,
+    RestrictionType,
+)
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
     cached_product_intents_for_team,
@@ -68,9 +90,9 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -89,16 +111,15 @@ from posthog.utils import (
     safe_cache_set,
 )
 
-from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
-from products.feature_flags.backend.models.evaluation_context import (
-    EvaluationContext,
-    TeamDefaultEvaluationContext,
-    normalize_context_name,
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
 )
+from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
-from products.signals.backend.models import SignalSourceConfig
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
@@ -135,10 +156,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
         ),
     )
 
@@ -171,6 +193,72 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the experiments_config action — exposed under both the
+    team/environment and project routers so both surfaces stay in parity."""
+    # Keeps the products app import off this module's import path.
+    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig  # noqa: PLC0415
+
+    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+        class Meta:
+            model = TeamExperimentsConfig
+            fields = [
+                "experiment_recalculation_time",
+                "default_experiment_confidence_level",
+                "default_experiment_stats_method",
+                "experiment_precomputation_enabled",
+                "default_only_count_matured_users",
+                "default_cuped_enabled",
+                "default_cuped_lookback_days",
+                "default_minimum_detectable_effect",
+                "default_sequential_testing_enabled",
+                "default_sequential_tuning_parameter",
+                "flag_cleanup_repository",
+            ]
+
+        def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
+            # A human toggling precomputation must stick: the auto-enrollment job only
+            # writes when precomputation_enabled_set_by is null or "auto".
+            if "experiment_precomputation_enabled" in validated_data:
+                instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+            return super().update(instance, validated_data)
+
+        def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
+            # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
+            # request import path.
+            from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
+
+            if not value:
+                return None
+            parts = value.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise serializers.ValidationError("Repository must be in the format organization/repository")
+            value = value.lower()
+            # Reject repos outside the team's GitHub installation now rather than storing a
+            # default the cleanup resolution would silently ignore.
+            github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
+            cached = {
+                full_name.lower()
+                for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
+                if (full_name := repo.get("full_name"))
+            }
+            if value not in cached:
+                raise serializers.ValidationError(
+                    "This repository is not connected to the project's GitHub integration."
+                )
+            return value
+
+    config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamExperimentsConfigSerializer(config).data)
+
+
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
     """Shared handler for the logs_config action — exposed under both the team/environment
     and project routers so the canonical /api/projects/ URL resolves alongside the legacy
@@ -185,108 +273,6 @@ def handle_logs_config(request: request.Request, team: Team) -> response.Respons
         return response.Response(serializer.data)
 
     return response.Response(TeamLogsConfigSerializer(config).data)
-
-
-def handle_default_evaluation_contexts(
-    request: request.Request, team: Team, user_permissions: UserPermissions
-) -> response.Response:
-    """Shared handler for the default_evaluation_contexts action — exposed under both the
-    team/environment and project routers so /api/projects/ and /api/environments/ cannot drift apart.
-    Manage default evaluation contexts for a team."""
-    # Feature flags persist contexts under the project root team (RootTeamMixin), so scope
-    # context lookups to the root team — otherwise flag-used contexts are invisible from
-    # child environments.
-    root_team = team.parent_team or team
-
-    if request.method == "GET":
-        defaults = TeamDefaultEvaluationContext.objects.filter(team=root_team).select_related("evaluation_context")
-        defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
-        all_contexts_qs = list(
-            EvaluationContext.objects.filter(team=root_team)
-            .values_list("name", "hidden_from_suggestions")
-            .order_by("name")
-        )
-        all_contexts = [name for name, hidden in all_contexts_qs if not hidden]
-        hidden_contexts = [name for name, hidden in all_contexts_qs if hidden]
-        return response.Response(
-            {
-                "default_evaluation_contexts": defaults_data,
-                "available_contexts": all_contexts,
-                "hidden_contexts": hidden_contexts,
-                "enabled": team.default_evaluation_contexts_enabled,
-            }
-        )
-
-    elif request.method == "POST":
-        context_name = request.data.get("context_name", "")
-        if not isinstance(context_name, str):
-            return response.Response({"error": "context_name must be a string"}, status=400)
-        context_name = normalize_context_name(context_name)
-        if not context_name:
-            return response.Response({"error": "context_name is required"}, status=400)
-        if len(context_name) > 255:
-            return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
-
-        with transaction.atomic():
-            existing = list(TeamDefaultEvaluationContext.objects.filter(team=root_team).select_for_update())
-            if len(existing) >= 10:
-                return response.Response({"error": "Maximum of 10 default evaluation contexts allowed"}, status=400)
-
-            ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
-            if ctx.hidden_from_suggestions:
-                level = user_permissions.team(team).effective_membership_level
-                if level is not None and level >= OrganizationMembership.Level.ADMIN:
-                    ctx.hidden_from_suggestions = False
-                    ctx.save(update_fields=["hidden_from_suggestions"])
-            default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
-                team=root_team, evaluation_context=ctx
-            )
-
-            if created:
-                report_user_action(
-                    cast(User, request.user),
-                    "default evaluation context added",
-                    {"team_id": team.id, "context_name": context_name},
-                    team=team,
-                    request=request,
-                )
-
-        return response.Response(
-            {
-                "id": default_ctx.id,
-                "name": ctx.name,
-                "created": created,
-                "hidden_from_suggestions": ctx.hidden_from_suggestions,
-            }
-        )
-
-    else:  # DELETE
-        context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
-        if not isinstance(context_name, str):
-            return response.Response({"error": "context_name must be a string"}, status=400)
-        context_name = normalize_context_name(context_name)
-        if not context_name:
-            return response.Response({"error": "context_name is required"}, status=400)
-
-        with transaction.atomic():
-            try:
-                ctx = EvaluationContext.objects.get(name=context_name, team=root_team)
-                deleted_count, _ = TeamDefaultEvaluationContext.objects.filter(
-                    team=root_team, evaluation_context=ctx
-                ).delete()
-
-                if deleted_count > 0:
-                    report_user_action(
-                        cast(User, request.user),
-                        "default evaluation context removed",
-                        {"team_id": team.id, "context_name": context_name},
-                        team=team,
-                        request=request,
-                    )
-
-                return response.Response({"success": True})
-            except EvaluationContext.DoesNotExist:
-                return response.Response({"error": "Evaluation context not found"}, status=404)
 
 
 def handle_evaluation_context_suggestions(request: request.Request, team: Team) -> response.Response:
@@ -332,6 +318,11 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
     """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
     first one is blocked once the team has access to project secret API keys."""
     if team.secret_api_token or team.secret_api_token_backup:
+        return
+    if team.conversations_enabled:
+        # Support signs widget identity hashes with the raw token and authenticates its external
+        # API against it. Project secret API keys are only ever stored hashed, so they cannot
+        # replace it, which would leave Support with no way to verify identity at all.
         return
     if posthoganalytics.feature_enabled(
         "project-secret-api-keys",
@@ -530,16 +521,164 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
+# The filters a conversion goal can carry, rather than every filter HogQL knows about. The goal
+# runtime resolves these through `property_to_expr` with an event scope, where `revenue_analytics`
+# and `account_custom_property` raise and `metric_attribute` is unimplemented, and the goal editor
+# only offers these six. Narrowing here follows `WebAnalyticsPropertyFilter`.
+MarketingAnalyticsConversionGoalPropertyFilter = (
+    EventPropertyFilter
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | ElementPropertyFilter
+    | HogQLPropertyFilter
+    | DataWarehousePropertyFilter
+)
+
+
+# Subclassing the canonical goal schemas rather than redeclaring their ~25 fields keeps this write
+# surface from drifting when the query schema changes. The cost is that narrowing a field's type in
+# a subclass is not assignment-compatible, hence the ignores below: each one marks a deliberate
+# divergence from the query schema, not an oversight.
+#
+# `fixedProperties` stays accepted but leaves the documented schema: nothing in the marketing
+# analytics runtime reads it, and advertising it costs a third of this field's generated schema.
+class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
+    """A conversion goal counted from events."""
+
+    # `validate_conversion_goals` rejects a goal without a string name or an explicit kind, so the
+    # documented schema has to require both. `conversion_goal_id` stays required like the query
+    # schema: nothing here assigns one, and a goal stored without it fails to rebuild for queries.
+    kind: Literal["EventsNode"]
+    name: str
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
+    """A conversion goal counted from an action."""
+
+    kind: Literal["ActionsNode"]
+    name: str
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
+    """A conversion goal counted from a data warehouse table."""
+
+    kind: Literal["DataWarehouseNode"]
+    name: str
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsConversionGoalList(PydanticRootModel):
+    """The conversion goals configured for marketing analytics, in display order."""
+
+    root: list[
+        MarketingAnalyticsEventConversionGoal
+        | MarketingAnalyticsActionConversionGoal
+        | MarketingAnalyticsWarehouseConversionGoal
+    ]
+
+
+class MarketingAnalyticsSourceMapping(PydanticRootModel):
+    """Mapping of external data source id to that source's column mapping."""
+
+    root: dict[str, SourceMap]
+
+
+class MarketingAnalyticsCampaignFieldPreferences(PydanticRootModel):
+    """Mapping of integration type to the campaign field used when matching campaigns."""
+
+    root: dict[str, CampaignFieldPreference]
+
+
+class MarketingAnalyticsCampaignNameMappings(PydanticRootModel):
+    """Mapping of integration type to canonical campaign name to the aliases folded into it."""
+
+    root: dict[str, dict[str, list[str]]]
+
+
+class MarketingAnalyticsCustomSourceMappings(PydanticRootModel):
+    """Mapping of integration type to the custom UTM source values folded into it."""
+
+    root: dict[str, list[str]]
+
+
+@extend_schema_field(MarketingAnalyticsCampaignNameMappings)  # type: ignore[arg-type]
+class MarketingAnalyticsCampaignNameMappingsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsCustomSourceMappings)  # type: ignore[arg-type]
+class MarketingAnalyticsCustomSourceMappingsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsConversionGoalList)  # type: ignore[arg-type]
+class MarketingAnalyticsConversionGoalsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsSourceMapping)  # type: ignore[arg-type]
+class MarketingAnalyticsSourcesMapField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(MarketingAnalyticsCampaignFieldPreferences)  # type: ignore[arg-type]
+class MarketingAnalyticsCampaignFieldPreferencesField(serializers.JSONField):
+    pass
+
+
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    sources_map = serializers.JSONField(required=False)
-    conversion_goals = serializers.JSONField(required=False)
-    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
-    attribution_mode = serializers.ChoiceField(
-        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
+    sources_map = MarketingAnalyticsSourcesMapField(
+        required=False,
+        help_text=(
+            "Column mapping per external data source, keyed by source id. Tells marketing analytics which column "
+            "holds campaign, source, cost, clicks and impressions for that source."
+        ),
     )
-    campaign_name_mappings = serializers.JSONField(required=False)
-    custom_source_mappings = serializers.JSONField(required=False)
-    campaign_field_preferences = serializers.JSONField(required=False)
+    conversion_goals = MarketingAnalyticsConversionGoalsField(
+        required=False,
+        help_text=(
+            "Conversion goals to attribute against, in display order. Each goal points at an event, an action or a "
+            "data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the "
+            "timestamp and the distinct id. Replaces the whole list on write."
+        ),
+    )
+    attribution_window_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=90,
+        help_text="How many days back a touchpoint can be credited for a conversion. Between 1 and 90.",
+    )
+    attribution_mode = serializers.ChoiceField(
+        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
+        required=False,
+        help_text="How credit is split across touchpoints when a person saw several campaigns before converting.",
+    )
+    campaign_name_mappings = MarketingAnalyticsCampaignNameMappingsField(
+        required=False,
+        help_text=(
+            "Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list "
+            "of names that should be folded into it. Applied before automatic matching."
+        ),
+    )
+    custom_source_mappings = MarketingAnalyticsCustomSourceMappingsField(
+        required=False,
+        help_text=(
+            "Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only "
+            "belong to one integration."
+        ),
+    )
+    campaign_field_preferences = MarketingAnalyticsCampaignFieldPreferencesField(
+        required=False,
+        help_text=(
+            "Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings "
+            "in campaign_name_mappings still take precedence."
+        ),
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -613,10 +752,21 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "alongside the existing workflow metrics."
         ),
     )
+    email_tracking_consent_mode = serializers.ChoiceField(
+        choices=EmailTrackingConsentMode.choices,
+        required=False,
+        help_text=(
+            "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
+            "'off': no enforcement, tracking follows each email step's own setting. "
+            "'opt_out': track by default but not recipients who have opted out. "
+            "'opt_in': only track recipients who have explicitly opted in. "
+            "Transactional emails are exempt from consent enforcement."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_workflows_engagement_events"]
+        fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -709,6 +859,64 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     return cast(list[dict[str, object]], value)
 
 
+def _alias_backreferences(alias: str) -> list[int]:
+    """Return the capture-group numbers a re2 replacement alias references (`\\1`..`\\9`, `\\0` for the
+    whole match). A doubled `\\\\` is a literal backslash, not a back-reference, so it's skipped."""
+    refs: list[int] = []
+    i = 0
+    while i < len(alias):
+        if alias[i] == "\\" and i + 1 < len(alias):
+            nxt = alias[i + 1]
+            if nxt == "\\":
+                i += 2
+                continue
+            # ASCII digits only. `str.isdigit()` also accepts characters like `²` and `٣`, which re2
+            # substitutes as literal text, and `int()` rejects `²` outright.
+            if "0" <= nxt <= "9":
+                refs.append(int(nxt))
+                i += 2
+                continue
+        i += 1
+    return refs
+
+
+def validate_path_cleaning_filters(value: object) -> object:
+    """Validate path cleaning rules before they're saved. Each regex must compile under re2 (the
+    engine ClickHouse `replaceRegexpAll` uses), and any `\\1`..`\\9` back-reference in the alias must
+    point at a capture group the regex defines. This surfaces a mistake at save time instead of
+    letting it fail the query later, when path cleaning runs."""
+    if not value:
+        return value
+    if not isinstance(value, list):
+        raise exceptions.ValidationError("Must provide a list of path cleaning rules.")
+
+    for rule in value:
+        if not isinstance(rule, dict):
+            continue
+        regex = rule.get("regex")
+        alias = rule.get("alias")
+        # A missing or empty regex still reaches ClickHouse, where `replaceRegexpAll` returns NULL for
+        # a NULL pattern and an empty pattern matches at every position, interleaving the alias
+        # through the whole path. Neither is recoverable at query time, so refuse the rule.
+        if not isinstance(regex, str) or not regex:
+            raise exceptions.ValidationError("A path cleaning rule needs a regex. Remove the rule or give it one.")
+        try:
+            compiled = re2.compile(regex)
+        except re2.error as error:
+            raise exceptions.ValidationError(f"Invalid path cleaning regex '{regex}': {error}") from error
+
+        if not alias or not isinstance(alias, str):
+            continue
+        group_count = compiled.groups
+        for ref in _alias_backreferences(alias):
+            if ref > group_count:
+                raise exceptions.ValidationError(
+                    f"The alias '{alias}' references capture group \\{ref}, but its regex has "
+                    f"{group_count} capture group(s). Add the group to the regex or fix the reference."
+                )
+    return value
+
+
 _default_theme_id_cache: int | None = None
 
 
@@ -781,6 +989,22 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     return token
 
 
+def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
+    if serializer.instance is not None:
+        team = (
+            serializer.instance.passthrough_team
+            if hasattr(serializer.instance, "passthrough_team")
+            else serializer.instance
+        )
+        return team.organization
+
+    get_organization = serializer.context.get("get_organization")
+    if callable(get_organization):
+        return cast(Organization | None, get_organization())
+
+    return None
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -801,11 +1025,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         read_only=True,
         help_text=(
             "The team's events data retention window in months (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this many months."
+            "enforcement is active for the team, queries do not return events older than this many months. "
+            "Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog "
+            "support can change it unless your organization is on the enterprise plan. Background and discussion: "
+            "https://github.com/PostHog/posthog/issues/17031"
         ),
     )
     events_retention_enforced = serializers.SerializerMethodField(
-        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+        help_text=(
+            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
+            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
+            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
+        )
     )
 
     class Meta:
@@ -936,6 +1167,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return validate_test_account_filters(value)
 
     @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return validate_path_cleaning_filters(value)
+
+    @staticmethod
     def validate_revenue_analytics_config(value):
         if value is None:
             return None
@@ -996,7 +1231,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
             )
 
-        return value
+        # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
+        # makes the flag-delete guard miss this row and delete a flag the team still advertises.
+        # A numeric string is normalized instead of rejected, so a client sending "123" stores a
+        # usable row rather than a broken one. Bools and floats are excluded because
+        # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
+        flag_id = value["id"]
+        if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
+        try:
+            return {**value, "id": int(flag_id)}
+        except ValueError:
+            raise exceptions.ValidationError("Must provide an integer 'id'.")
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -1292,7 +1538,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
             return value
-        return [url for url in value if url]
+        urls = [url for url in value if url]
+        validate_authorized_url_wildcards(urls)
+        return urls
 
     def validate_recording_domains(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -1305,6 +1553,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+            validate_authorized_url_wildcards(value["widget_domains"])
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
@@ -1313,6 +1562,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "slack_bot_token",
             "slack_team_id",
             "slack_enabled",
+            "slack_scopes",
             "email_enabled",
             "teams_enabled",
             "teams_tenant_id",
@@ -1440,10 +1690,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    VALID_RETENTION_DAYS = {14, 30, 90}
+    VALID_RETENTION_DAYS = {14, 30}
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
-        if value is None or not self.instance:
+        if value is None:
             return value
 
         new_retention = value.get("retention_days")
@@ -1452,14 +1702,25 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
             )
 
-        # Only validate retention changes if we have an existing instance
-        logs_settings = (
-            self.instance.passthrough_team.logs_settings
-            if hasattr(self.instance, "passthrough_team")
-            else self.instance.logs_settings
+        team = (
+            self.instance.passthrough_team
+            if self.instance is not None and hasattr(self.instance, "passthrough_team")
+            else self.instance
         )
+        logs_settings = team.logs_settings if team is not None else None
+        old_retention = logs_settings.get("retention_days") if logs_settings else None
+
+        if new_retention is not None and old_retention != new_retention:
+            required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
+            if required_feature:
+                organization = _get_organization_for_logs_settings_check(self)
+                if organization is None or not organization.is_feature_available(required_feature):
+                    raise exceptions.PermissionDenied(
+                        f"This organization does not have permission to set Logs retention to {new_retention} days."
+                    )
+
+        # Only validate retention throttling if we have an existing retention setting
         if self.instance and logs_settings:
-            old_retention = logs_settings.get("retention_days")
             old_last_updated = logs_settings.get("retention_last_updated")
 
             # Check if retention_days is being changed
@@ -1674,22 +1935,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             set_team_in_cache(instance.api_token, instance)
         updated_team = instance
 
-        if "proactive_tasks_enabled" in validated_data:
-            # Backward compat for old proactive tasks enabled field, remove after February 2026
-            if validated_data["proactive_tasks_enabled"]:
-                SignalSourceConfig.objects.get_or_create(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
-                )
-            else:
-                SignalSourceConfig.objects.filter(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).delete()
-
         changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
@@ -1896,7 +2141,52 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
     )
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class EventIngestionRestrictionSerializer(serializers.Serializer):
+    restriction_type = serializers.ChoiceField(
+        choices=RestrictionType.choices,
+        help_text="What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.",
+    )
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID.",
+    )
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Session IDs the restriction applies to. Empty means it is not filtered by session ID.",
+    )
+    event_names = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event names the restriction applies to. Empty means it is not filtered by event name.",
+    )
+    event_uuids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID.",
+    )
+    pipelines = serializers.ListField(
+        child=serializers.ChoiceField(choices=IngestionPipeline.choices),
+        help_text="Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR.",
+    )
+
+
+def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
+    restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
+    data = [
+        {
+            "restriction_type": restriction.restriction_type,
+            "distinct_ids": restriction.distinct_ids or [],
+            "session_ids": restriction.session_ids or [],
+            "event_names": restriction.event_names or [],
+            "event_uuids": restriction.event_uuids or [],
+            "pipelines": restriction.pipelines or [],
+        }
+        for restriction in restrictions
+    ]
+    return response.Response(EventIngestionRestrictionSerializer(data, many=True).data)
+
+
+class TeamViewSet(
+    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     """
     Projects for the current organization.
     """
@@ -1907,10 +2197,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     lookup_field = "id"
     ordering = "-created_by"
 
-    # Actions whose scope is downgraded to project:read for session auth on all methods.
-    # TeamMemberLightManagementPermission still applies, so DELETE requires admin.
-    MEMBER_READABLE_CONFIG_ACTIONS = ("default_release_conditions", "default_evaluation_contexts")
-
     # Actions whose GET is downgraded to project:read for session auth; mutating methods stay on project:write/admin.
     GET_DOWNGRADE_ACTIONS = ("evaluation_context_suggestions",)
 
@@ -1919,16 +2205,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.access_token.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
+        authenticator = self.request.successful_authenticator
+        if scoped_organizations := get_authenticator_scoped_organization_ids(authenticator):
+            queryset = queryset.filter(project__organization_id__in=scoped_organizations)
+        if scoped_teams := get_authenticator_scoped_team_ids(authenticator):
+            queryset = queryset.filter(id__in=scoped_teams)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -1956,13 +2237,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 downgradable_fields = TEAM_CONFIG_MEMBER_FIELDS_SET | TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS
                 if request_fields and request_fields.issubset(downgradable_fields):
                     return ["project:read"]
-
-        # Team-level config actions that any member should be able to edit via the UI.
-        # Only downgrade for session auth to preserve read-only API key semantics.
-        if self.action in self.MEMBER_READABLE_CONFIG_ACTIONS:
-            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
-            if is_session_auth:
-                return ["project:read"]
 
         # Read-only access for member-readable actions — only downgrade GET, not writes.
         if self.action in self.GET_DOWNGRADE_ACTIONS and request.method == "GET":
@@ -2012,6 +2286,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()
+            # This branch answers from the user's own state instead of the scoped queryset. A project
+            # that moved between organizations leaves that state naming an environment the token's
+            # organizations no longer cover, so apply the same restriction the queryset would have.
+            scoped_organizations = get_authenticator_scoped_organization_ids(self.request.successful_authenticator)
+            if scoped_organizations and str(team.organization_id) not in scoped_organizations:
+                raise exceptions.NotFound()
             return team
 
         filter_kwargs = {self.lookup_field: lookup_value}
@@ -2041,11 +2321,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
         # requires deprovisioning the warehouse (or deleting the organization) instead.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
-        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
         if warehouse_block_reason:
             raise exceptions.ValidationError(warehouse_block_reason)
 
@@ -2123,56 +2401,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
-        methods=["GET", "PUT"],
-        detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
-        url_path="default_release_conditions",
-    )
-    def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default release conditions for new feature flags in this team."""
-        team = self.get_object()
-        config = get_or_create_team_extension(team, TeamFeatureFlagDefaultsConfig)
-
-        if request.method == "GET":
-            return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
-
-        # PUT: update the config
-        enabled = request.data.get("enabled", config.enabled)
-        default_groups = request.data.get("default_groups", config.default_groups)
-
-        if not isinstance(default_groups, list):
-            return response.Response({"error": "default_groups must be a list"}, status=400)
-
-        for i, group in enumerate(default_groups):
-            if not isinstance(group, dict):
-                return response.Response({"error": f"Group at index {i} must be an object"}, status=400)
-            if "properties" not in group or not isinstance(group["properties"], list):
-                return response.Response(
-                    {"error": f"Group at index {i} must have a 'properties' list"},
-                    status=400,
-                )
-            rollout = group.get("rollout_percentage")
-            if rollout is not None and (
-                not isinstance(rollout, (int, float)) or math.isnan(rollout) or rollout < 0 or rollout > 100
-            ):
-                return response.Response(
-                    {"error": f"Group at index {i} has invalid rollout_percentage (must be 0-100 or null)"},
-                    status=400,
-                )
-
-        config.enabled = enabled
-        config.default_groups = default_groups
-        config.save()
-
-        report_user_action(
-            request.user,
-            "default release conditions updated",
-            {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
-        )
-
-        return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
-
-    @action(
         methods=["GET", "PATCH"],
         detail=True,
         permission_classes=[TeamMemberStrictManagementPermission],
@@ -2191,45 +2419,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this environment."""
-        from rest_framework import serializers
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-            class Meta:
-                model = TeamExperimentsConfig
-                fields = [
-                    "experiment_recalculation_time",
-                    "default_experiment_confidence_level",
-                    "default_experiment_stats_method",
-                    "experiment_precomputation_enabled",
-                    "default_only_count_matured_users",
-                    "default_cuped_enabled",
-                    "default_cuped_lookback_days",
-                    "default_minimum_detectable_effect",
-                    "default_sequential_testing_enabled",
-                    "default_sequential_tuning_parameter",
-                ]
-
-        team = self.get_object()
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-        if request.method == "PATCH":
-            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return response.Response(serializer.data)
-
-        return response.Response(TeamExperimentsConfigSerializer(config).data)
-
-    @action(
-        methods=["GET", "POST", "DELETE"],
-        detail=True,
-        permission_classes=[IsAuthenticated],
-    )
-    def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default evaluation contexts for a team."""
-        return handle_default_evaluation_contexts(request, self.get_object(), self.user_permissions)
+        return handle_experiments_config(request, self.get_object())
 
     @extend_schema(
         methods=["POST"],
@@ -2433,18 +2623,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
+    @extend_schema(responses=EventIngestionRestrictionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["project:read"],
+        url_path="event_ingestion_restrictions",
+        pagination_class=None,
+    )
     def event_ingestion_restrictions(self, request, **kwargs):
-        team = self.get_object()
-        restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
-        data = [
-            {
-                "restriction_type": restriction.restriction_type,
-                "distinct_ids": restriction.distinct_ids,
-            }
-            for restriction in restrictions
-        ]
-        return response.Response(data)
+        return team_event_ingestion_restrictions_view(self.get_object(), request)
 
     @cached_property
     def user_permissions(self):

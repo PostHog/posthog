@@ -28,6 +28,8 @@ from posthog.schema import (
     InsightVizNode,
     LifecycleQuery,
     PathsQuery,
+    PathsV2ActorsQuery,
+    PathsV2Query,
     PathType,
     RetentionEntity,
     RetentionQuery,
@@ -101,6 +103,8 @@ class QueryEventsExtractor:
             events = self.extract_events(self._ensure_model_instance(query, FunnelCorrelationActorsQuery).source)
         elif kind == "StickinessActorsQuery":
             events = self.extract_events(self._ensure_model_instance(query, StickinessActorsQuery).source)
+        elif kind == "PathsV2ActorsQuery":
+            events = self.extract_events(self._ensure_model_instance(query, PathsV2ActorsQuery).source)
 
         elif kind == "TrendsQuery":
             events = self._extract_events_from_series(self._ensure_model_instance(query, TrendsQuery).series)
@@ -127,6 +131,9 @@ class QueryEventsExtractor:
 
         elif kind == "PathsQuery":
             events = self._extract_events_from_paths_query(self._ensure_model_instance(query, PathsQuery))
+
+        elif kind == "PathsV2Query":
+            events = self._extract_events_from_paths_v2_query(self._ensure_model_instance(query, PathsV2Query))
 
         elif kind == "EventsNode":
             events = self._get_series_events(self._ensure_model_instance(query, EventsNode))
@@ -183,6 +190,11 @@ class QueryEventsExtractor:
         )
 
         return list(set(included_events + excluded_events))
+
+    def _extract_events_from_paths_v2_query(self, query: PathsV2Query) -> list[str]:
+        if query.pathsV2Filter is None or query.pathsV2Filter.stepSources is None:
+            return ["$pageview"]
+        return list({source.event for source in query.pathsV2Filter.stepSources})
 
     def _extract_events_from_funnels_correlation_query(self, query: FunnelCorrelationQuery) -> list[str]:
         events = self.extract_events(query.source)

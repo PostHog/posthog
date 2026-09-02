@@ -6,20 +6,22 @@ import { IconCornerDownRight } from '@posthog/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { outputHeightForShape } from './notebookNodeOutputHeight'
-import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
+import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
@@ -40,8 +42,15 @@ export type NotebookNodeSQLV2Attributes = {
     code: string
     // Dataframe name other SQLV2 nodes can reference (inlined as a CTE when they join it).
     returnVariable: string
+    // Where the cell runs: a direct-query data source id, or null/absent for PostHog's ClickHouse.
+    connectionId?: string | null
+    // Send the code to that connection verbatim instead of compiling it from HogQL.
+    sendRawQuery?: boolean | null
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    // How the run that produced `result` ended. An interrupt persists a partial result just
+    // like a completed run does, so the result alone can't tell the two apart on a reload.
+    runStatus?: NotebookNodeRunTerminalStatus | null
     outputTab?: OutputTab | null
     vizQuery?: DataVisualizationNode | null
 }
@@ -91,10 +100,40 @@ const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
         return [column, typeof sample === 'number' ? 'Float64' : 'String']
     })
 
-const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
+// A notebook stores the whole result envelope, and a cell the sandbox kernel ran can hold raw
+// pandas dtypes ('float64', 'str'). The chart layer reads ClickHouse names to decide which
+// columns can go on a numeric axis, so map those over rather than make a saved cell re-run.
+const PANDAS_DTYPE_NAMES: Record<string, string> = {
+    bool: 'Bool',
+    boolean: 'Bool',
+    category: 'String',
+    object: 'String',
+    str: 'String',
+}
+
+const toClickhouseTypeName = (type: string): string => {
+    const dtype = type.toLowerCase()
+    if (PANDAS_DTYPE_NAMES[dtype]) {
+        return PANDAS_DTYPE_NAMES[dtype]
+    }
+    if (dtype.startsWith('datetime64')) {
+        return 'DateTime'
+    }
+    if (/^u?int(8|16|32|64)$/.test(dtype)) {
+        return 'Int64'
+    }
+    if (/^float(16|32|64)$/.test(dtype)) {
+        return 'Float64'
+    }
+    return type
+}
+
+export const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
     results: result.first_page ?? [],
     columns: result.columns ?? [],
-    types: result.types?.length ? result.types : inferTypes(result),
+    types: result.types?.length
+        ? result.types.map(([column, type]): [string, string] => [column, toClickhouseTypeName(type)])
+        : inferTypes(result),
 })
 
 const Component = ({
@@ -102,7 +141,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage, isEditable } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
@@ -113,6 +152,7 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const {
         isRunning,
@@ -123,6 +163,7 @@ const Component = ({
         pageLoading,
         operationBlockReason,
         isStale,
+        staleReason,
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
@@ -151,25 +192,35 @@ const Component = ({
     const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
     const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
 
-    // The stored viz config wins, but the source always tracks the node's current code.
+    // The stored viz config wins, but the source always tracks the node's current code — and the
+    // connection it runs on, so anything the viz layer re-queries lands on the same engine.
     const vizQuery = useMemo(
         (): DataVisualizationNode => ({
             kind: NodeKind.DataVisualizationNode,
             display: ChartDisplayType.ActionsLineGraph,
             ...attributes.vizQuery,
-            source: { kind: NodeKind.HogQLQuery, query: attributes.code },
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: attributes.code,
+                connectionId: attributes.connectionId ?? undefined,
+                sendRawQuery: attributes.connectionId ? !!attributes.sendRawQuery || undefined : undefined,
+            },
         }),
-        [attributes.vizQuery, attributes.code]
+        [attributes.vizQuery, attributes.code, attributes.connectionId, attributes.sendRawQuery]
     )
 
     // Grow a still-too-short node to fit the result each run lands, so output is readable without
     // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
     // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
-    // resize (or a reload of an already-sized cell) is left untouched.
-    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
+    // resize is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(
+        initialSizedRunId({ hasResult: !!result, height: attributes.height, runId: attributes.runId ?? null })
+    )
     useEffect(() => {
         const runId = attributes.runId ?? null
-        if (!result || runId === sizedRunIdRef.current) {
+        // A read-only notebook lays the node out from its content, so there is no fixed height to
+        // outgrow — and no editor to persist one into.
+        if (!result || !isEditable || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -181,7 +232,7 @@ const Component = ({
             updateAttributes({ height: target })
         }
         // oxlint-disable-next-line exhaustive-deps
-    }, [result, attributes.runId])
+    }, [result, attributes.runId, isEditable])
 
     if (!expanded) {
         return null
@@ -190,16 +241,16 @@ const Component = ({
     return (
         <div data-attr="notebook-node-sql-v2" className="flex h-full min-h-0 flex-col">
             <div
-                className="flex min-h-0 flex-1 flex-col gap-2"
+                className="flex min-h-0 flex-1 flex-col"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
                 {isStale ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-                        <NotebookStaleCellBanner />
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner reason={staleReason ?? undefined} />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookRunDownstreamBanner
                             count={staleDownstreamCount}
                             onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
@@ -208,13 +259,13 @@ const Component = ({
                     </div>
                 ) : null}
                 {isRunning && pendingKernelStart ? (
-                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
+                    <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
                     <>
-                        <div className="shrink-0 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                        <NotebookCellOutputHeader>
                             <LemonTabs
                                 size="small"
                                 activeKey={activeTab}
@@ -227,13 +278,15 @@ const Component = ({
                                             : attributes.height
                                     updateAttributes({ outputTab: tab, height })
                                 }}
-                                barClassName="mb-0"
+                                // The strip already carries the bottom border, and the bar draws
+                                // its own as a ::before, so two 1px lines stack without this.
+                                barClassName="mb-0 before:hidden"
                                 tabs={[
                                     { key: OutputTab.Results, label: 'Results' },
                                     { key: OutputTab.Visualization, label: 'Visualization' },
                                 ]}
                             />
-                        </div>
+                        </NotebookCellOutputHeader>
                         {activeTab === OutputTab.Results ? (
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 <NotebookDataframeTable
@@ -261,7 +314,7 @@ const Component = ({
                             </div>
                         ) : (
                             <div
-                                className="px-2 pb-2 flex min-h-0 flex-1 flex-col overflow-hidden"
+                                className="px-2 py-2 flex min-h-0 flex-1 flex-col overflow-hidden"
                                 onClick={(event) => event.stopPropagation()}
                             >
                                 <Query
@@ -286,14 +339,11 @@ const Component = ({
                 ) : (
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
-                {attributes.runId ? (
-                    <div className="shrink-0 px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
-                        run_id: {attributes.runId}
-                    </div>
-                ) : null}
             </div>
             <div
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                // Translucent overlay, not a surface token: the shell is surface-primary in light
+                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
@@ -304,10 +354,13 @@ const Component = ({
                     type="text"
                     // A dataframe name other SQL nodes reference by table name (`from sql_df`).
                     // Optional: left empty, the cell is display-only and exports nothing.
-                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    // Wide enough for the placeholder to sit on one line without clipping. The name
+                    // carries weight through size and a faintly warm near-black rather than a hue —
+                    // a saturated color here competes with the accent the app spends on links.
+                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Dataframe name (optional)"
+                    placeholder="Output dataframe name"
                     spellCheck={false}
                 />
                 {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
@@ -346,25 +399,23 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
-    const { isRunning, isInterrupting, operationBlockReason, activeRunLane } = useValues(dataLogic)
-    const { runQuery, interruptRun } = useActions(dataLogic)
+    const { isRunning } = useValues(dataLogic)
+    const { runNode } = useActions(dataLogic)
 
     return (
         <NotebookCodeSQLEditorSettings
             attributes={attributes}
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
-            // Refs come from the notebook content, not the tiptap editor: markdown notebooks
-            // (the only surface with SQLV2 cells) have no tiptap editor at all.
-            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId))}
+            persistConnection
+            // The cell runs from the notebook's own top row, so the editor keeps only its Cmd+Enter
+            // binding — which hands over what the editor holds, since the document catches up to a
+            // keystroke or a just-picked connection a render later.
+            hideRunButton
+            onRunQuery={(code, connection) => runNode({ code, ...connection })}
             runQueryLoading={isRunning}
-            runQueryDisabledReason={operationBlockReason ?? undefined}
-            runQueryTooltip="Run SQL query"
-            // Direct (no-sandbox) runs cannot be cancelled — there is no kernel to signal;
-            // they finish on their own bounded schedule. Stop applies to kernel-lane runs only.
-            onCancelQuery={activeRunLane === 'kernel' ? interruptRun : undefined}
-            cancelQueryLoading={isInterrupting}
         />
     )
 }
@@ -386,10 +437,19 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
         returnVariable: {
             default: '',
         },
+        connectionId: {
+            default: null,
+        },
+        sendRawQuery: {
+            default: false,
+        },
         runId: {
             default: null,
         },
         result: {
+            default: null,
+        },
+        runStatus: {
             default: null,
         },
         outputTab: {

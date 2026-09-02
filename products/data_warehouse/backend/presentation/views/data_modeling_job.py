@@ -1,3 +1,5 @@
+from django.db.models import Q
+
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
@@ -12,16 +14,32 @@ DUCKGRES_SHADOW_FLAG = "duckgres-data-modeling-shadow"
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
+    )
+    run_mode = serializers.ChoiceField(
+        choices=DataModelingJob.RunMode.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="What this run wrote: full_refresh rebuilt the whole table, so rows_materialized "
+        "is the table's size; incremental wrote only its window, so rows_materialized counts just "
+        "the rows synced. Null for runs from before modes were recorded, or that failed before "
+        "the plan resolved.",
+    )
+
     class Meta:
         model = DataModelingJob
         fields = [
             "id",
             "saved_query_id",
             "status",
+            "run_mode",
             "rows_materialized",
             "error",
             "created_at",
             "last_run_at",
+            "updated_at",
             "workflow_id",
             "workflow_run_id",
             "rows_expected",
@@ -90,7 +108,11 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         queryset = (
             self.get_queryset()
             .exclude(status=DataModelingJob.Status.RUNNING)
-            .filter(saved_query_id__isnull=False, workflow_id__startswith="materialize")
+            .filter(saved_query_id__isnull=False)
+            # a skip row is written by the DAG run itself, so it carries the execute-dag id rather
+            # than a materialize one. Matching only materialize hides the skip and leaves the last
+            # successful run standing as "last run" for as long as the upstream stays broken.
+            .filter(Q(workflow_id__startswith="materialize") | Q(workflow_id__startswith="execute-dag"))
             .order_by("saved_query_id", "-created_at")
             .distinct("saved_query_id")
         )

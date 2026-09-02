@@ -30,11 +30,15 @@ import { NotebookNodeType } from './types'
 // back to the generic notebook icon at the consumer site.
 export const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
     [NotebookNodeType.Query]: <IconGraph />,
+    [NotebookNodeType.Dashboard]: <IconPieChart />,
+    [NotebookNodeType.Action]: <IconList />,
+    [NotebookNodeType.Workflow]: <IconUserPaths />,
     [NotebookNodeType.HogQLSQL]: <IconBracketsChart />,
     [NotebookNodeType.DuckSQL]: <IconBracketsChart />,
     [NotebookNodeType.SQLV2]: <IconBracketsChart />,
     [NotebookNodeType.Python]: <IconPython />,
     [NotebookNodeType.PythonV2]: <IconPython />,
+    [NotebookNodeType.GeneratedWidget]: <IconAI />,
     [NotebookNodeType.Latex]: <IconSquareRoot />,
     [NotebookNodeType.Recording]: <IconRewindPlay />,
     [NotebookNodeType.RecordingPlaylist]: <IconRewindPlay />,
@@ -49,6 +53,7 @@ export const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
     [NotebookNodeType.Group]: <IconGroups />,
     [NotebookNodeType.GroupProperties]: <IconList />,
     [NotebookNodeType.Issues]: <IconWarning />,
+    [NotebookNodeType.ErrorTrackingIssue]: <IconWarning />,
     [NotebookNodeType.LLMTrace]: <IconAI />,
     [NotebookNodeType.Map]: <IconMapPin />,
     [NotebookNodeType.RelatedGroups]: <IconGroups />,

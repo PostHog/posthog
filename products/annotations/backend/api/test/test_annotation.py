@@ -15,7 +15,7 @@ from posthog.models import Organization, Team, User
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
@@ -64,6 +64,24 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 2
+
+        # Annotations that point at a dashboard must not add a query each: the serializer reads
+        # `dashboard_name` through the `dashboard` relation, so the queryset has to select it.
+        dashboard = Dashboard.objects.create(team=self.team, name="A dashboard")
+        for index in range(2):
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                created_at="2020-01-04T12:00:00Z",
+                created_by=User.objects.create_and_join(self.organization, f"dash-{index}", ""),
+                content=now().isoformat(),
+                dashboard=dashboard,
+                scope=Annotation.Scope.PROJECT,
+            )
+
+        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+            assert len(response["results"]) == 4
 
     def test_org_scoped_annotations_are_returned_between_projects(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
@@ -659,6 +677,58 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
         assert annotation.id in {a["id"] for a in list_response.json()["results"]}
 
+    @parameterized.expand(
+        [
+            ("project_scope_deleted_dashboard", Annotation.Scope.PROJECT, "dashboard"),
+            ("project_scope_deleted_insight", Annotation.Scope.PROJECT, "insight"),
+            ("organization_scope_deleted_dashboard", Annotation.Scope.ORGANIZATION, "dashboard"),
+        ]
+    )
+    def test_project_and_org_scoped_annotations_survive_a_soft_deleted_parent(
+        self, _name: str, scope: str, parent_kind: str
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="My Insight")
+        dashboard = Dashboard.objects.create(team=self.team, name="My Dashboard")
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Rolled out the new checkout",
+            scope=scope,
+            dashboard_item=insight,
+            dashboard=dashboard,
+        )
+
+        parent = dashboard if parent_kind == "dashboard" else insight
+        parent.deleted = True
+        parent.save()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id in {a["id"] for a in list_response.json()["results"]}
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{annotation.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+
+        # The UI echoes both parent IDs back on every write, so editing and deleting have to tolerate
+        # the stale pointer to the now-deleted parent.
+        echoed_parents = {"dashboard_item": insight.id, "dashboard_id": dashboard.id}
+
+        edit_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"content": "Rolled back the new checkout", **echoed_parents},
+        )
+        assert edit_response.status_code == status.HTTP_200_OK
+        assert edit_response.json()["content"] == "Rolled back the new checkout"
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"deleted": True, **echoed_parents},
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id not in {a["id"] for a in list_response.json()["results"]}
+
     def test_creating_annotation_with_nonexistent_insight_returns_400(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
@@ -673,6 +743,71 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_item"
         assert response.json()["code"] == "does_not_exist"
+
+    def _create_soft_deleted_parent(self, parent_kind: str) -> Insight | Dashboard:
+        name = f"Soft deleted {parent_kind}"
+        parent: Insight | Dashboard = (
+            Insight.objects.create(team=self.team, name=name)
+            if parent_kind == "insight"
+            else Dashboard.objects.create(team=self.team, name=name)
+        )
+        parent.deleted = True
+        parent.save()
+        return parent
+
+    @parameterized.expand(
+        [
+            ("insight_scope", "insight", Annotation.Scope.INSIGHT, "dashboard_item"),
+            ("dashboard_scope", "dashboard", Annotation.Scope.DASHBOARD, "dashboard_id"),
+            ("project_scope_insight_pointer", "insight", Annotation.Scope.PROJECT, "dashboard_item"),
+            ("project_scope_dashboard_pointer", "dashboard", Annotation.Scope.PROJECT, "dashboard_id"),
+        ]
+    )
+    def test_creating_an_annotation_pointing_at_a_soft_deleted_parent_returns_400(
+        self, _name: str, parent_kind: str, scope: str, attr: str
+    ) -> None:
+        parent = self._create_soft_deleted_parent(parent_kind)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Rolled out the new checkout",
+                "scope": scope,
+                "date_marker": "2024-01-01T00:00:00.000000Z",
+                attr: parent.id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+        assert parent.name not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("insight", "dashboard_item"),
+            ("dashboard", "dashboard_id"),
+        ]
+    )
+    def test_repointing_an_annotation_at_an_unrelated_soft_deleted_parent_returns_400(
+        self, parent_kind: str, attr: str
+    ) -> None:
+        parent = self._create_soft_deleted_parent(parent_kind)
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Rolled out the new checkout",
+            scope=Annotation.Scope.PROJECT,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {attr: parent.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+        assert parent.name not in response.content.decode()
 
     def test_creating_annotation_with_insight_from_same_team(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My Insight")

@@ -93,19 +93,13 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export KAFKA_TOPIC=ai_events_ingestion
+    export KAFKA_TOPIC=events_plugin_ingestion_ai
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
-    export CAPTURE_MODE=events
+    # `ai` mode produces to the AI lane as its main topic, matching prod capture-ai
+    export CAPTURE_MODE=ai
     export LOG_LEVEL=debug
     export DEBUG=1
-    # AI endpoint S3 blob storage (MinIO)
-    export AI_S3_BUCKET=ai-blobs
-    export AI_S3_PREFIX=llma/
-    export AI_S3_ENDPOINT=${AI_S3_ENDPOINT:-http://objectstorage:19000}
-    export AI_S3_REGION=us-east-1
-    export AI_S3_ACCESS_KEY_ID=object_storage_root_user
-    export AI_S3_SECRET_ACCESS_KEY=object_storage_root_password
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
     ;;
 
@@ -142,15 +136,7 @@ case "$RS_SVC" in
     export ISSUE_BUCKETS_REDIS_URL="$DEFAULT_REDIS"
     export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}" # Used to emit signals, via the internal API
     export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
-    # Route exception resolution through the local cymbal-resolution pod so
-    # the new gRPC seam is exercised end-to-end during dev. Flip
-    # CYMBAL_REMOTE_RESOLUTION_ENABLED=false to fall back to inline local
-    # resolution if cymbal-resolution isn't running.
-    export CYMBAL_REMOTE_RESOLUTION_ENABLED="${CYMBAL_REMOTE_RESOLUTION_ENABLED:-true}"
-    # Production defaults to SAMPLE_RATE=0.0 so flipping ENABLED is a no-op
-    # until rollout is ramped explicitly. In dev we want every event to
-    # exercise the remote path so the seam is actually tested.
-    export CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE="${CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE:-1.0}"
+    # Processing always routes exception resolution through cymbal-resolution.
     export CYMBAL_REMOTE_RESOLUTION_HOST="${CYMBAL_REMOTE_RESOLUTION_HOST:-127.0.0.1}"
     export CYMBAL_REMOTE_RESOLUTION_PORT="${CYMBAL_REMOTE_RESOLUTION_PORT:-50061}"
     # Keep cadence tight on the dev box so routing reacts quickly to
@@ -189,20 +175,40 @@ case "$RS_SVC" in
     ;;
 
   cymbal-notifications)
-    # The cymbal binary in notifications mode consumes the notifications topic
-    # produced by processing mode and runs issue side effects.
+    # The notifications mode starts Temporal lifecycle workflows for notifications from processing mode.
     export CYMBAL_MODE=notifications
     export DEV_RUST_SVC_OVERRIDE=cymbal
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
     export METRICS_PORT="${METRICS_PORT:-9107}"
     export POSTHOG_API_KEY="${CYMBAL_NOTIFICATIONS_POSTHOG_API_KEY:-phc_localposthogprojecttoken}"
     export POSTHOG_ENDPOINT="${CYMBAL_NOTIFICATIONS_POSTHOG_ENDPOINT:-http://localhost:3307}"
-    export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}"
-    export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
+    export TEMPORAL_HOST="${TEMPORAL_HOST:-temporal}"
+    export TEMPORAL_PORT="${TEMPORAL_PORT:-7233}"
+    export TEMPORAL_NAMESPACE="${TEMPORAL_NAMESPACE:-default}"
+    # posthog/settings/temporal.py collapses every queue onto this one name when
+    # DEBUG is set, and the local worker polls only it. Without this the started
+    # workflows sit Running with no poller, which Temporal accepts silently.
+    export ERROR_TRACKING_LIFECYCLE_TASK_QUEUE="${ERROR_TRACKING_LIFECYCLE_TASK_QUEUE:-development-task-queue}"
+    # The local Temporal serves plaintext gRPC. Without this flag an unset
+    # TEMPORAL_CLIENT_CERT is a boot failure, which is what production wants.
+    export TEMPORAL_INSECURE="${TEMPORAL_INSECURE:-true}"
+    # Match Django's Fernet key derivation (posthog/temporal/common/codec.py,
+    # _resize_key): left-pad a short SECRET_KEY with NUL bytes to 32, so the
+    # Python workers can decrypt the payloads this service writes.
+    if [ -z "${TEMPORAL_SECRET_KEY:-}" ]; then
+      TEMPORAL_SECRET_KEY="base64:$(
+        POSTHOG_SECRET_KEY="${SECRET_KEY:-<randomly generated secret key>}" python3 -c \
+          'import base64, os; k = os.environ["POSTHOG_SECRET_KEY"].encode(); print(base64.b64encode((b"\0" * max(32 - len(k), 0) + k)[:32]).decode())'
+      )"
+    fi
+    export TEMPORAL_SECRET_KEY
+    # Setting the Redis URL is what turns the limiter on. The cap matches the
+    # production default; lower it to exercise the limit itself.
+    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL:-$DEFAULT_REDIS}"
+    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR:-1000}"
     ;;
 
   embedding-worker)
@@ -213,18 +219,6 @@ case "$RS_SVC" in
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3305 # HACK! avoid local-dev clash with property-defs-rs port
     export ALLOW_INTERNAL_IPS="true"
-    ;;
-
-  cyclotron-janitor)
-    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
-    export RUST_BACKTRACE=1
-    export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
-    export BIND_PORT=3310 # default 3303 collides with property-vals-rs in local dev
-    export DEBUG=1
-    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
 
   feature-flags)
@@ -249,6 +243,14 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export REDIS_URL="$DEFAULT_REDIS"
     export ADDRESS=0.0.0.0:3002
+    export DEBUG=1
+    ;;
+
+  usage-ingestion)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export USAGE_INGESTION_DATABASE_URL="${USAGE_INGESTION_DATABASE_URL:-$DEFAULT_PG}"
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export DEBUG=1
     ;;
 

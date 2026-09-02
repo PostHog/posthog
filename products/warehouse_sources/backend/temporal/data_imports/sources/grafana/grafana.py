@@ -13,10 +13,12 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import (
     ANNOTATIONS_LIMIT,
     DEFAULT_PAGE_SIZE,
@@ -97,15 +99,15 @@ class GrafanaResponseTooLargeError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class GrafanaAuth:
     # "token" sends a service account token as an Authorization: Bearer header (works on both
     # Grafana Cloud and self-hosted); "basic" sends HTTP Basic credentials (self-hosted OSS only —
     # Grafana Cloud rejects basic auth on the HTTP API).
     method: str
-    token: Optional[str] = None
+    token: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 @dataclasses.dataclass

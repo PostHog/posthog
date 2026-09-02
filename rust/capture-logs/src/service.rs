@@ -1,3 +1,4 @@
+use crate::authorizer::{Authorizer, Signal};
 use crate::log_record::KafkaLogRow;
 use crate::metric_record::{flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
@@ -9,7 +10,6 @@ use axum::{
 };
 use bytes::Bytes;
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
-use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -18,7 +18,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs::File;
 use std::io::Write;
-use std::sync::Arc;
 
 use crate::kafka::KafkaSink;
 
@@ -303,7 +302,7 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
 #[derive(Clone)]
 pub struct Service {
     pub(crate) sink: KafkaSink,
-    pub(crate) token_dropper: Arc<TokenDropper>,
+    pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
 }
 
@@ -315,12 +314,12 @@ pub struct QueryParams {
 impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
-        token_dropper: Arc<TokenDropper>,
+        authorizer: Authorizer,
         max_request_body_size_bytes: usize,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
-            token_dropper,
+            authorizer,
             max_request_body_size_bytes,
         })
     }
@@ -373,49 +372,10 @@ pub async fn export_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // The project token must be passed in as a Bearer token in the Authorization header
-    if !headers.contains_key("Authorization") && query_params.token.is_none() {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("No token provided")})),
-        ));
-    }
-
-    let token = if headers.contains_key("Authorization") {
-        match headers["Authorization"]
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
-        {
-            Some(token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": format!("No token provided")})),
-                ));
-            }
-        }
-    } else {
-        match query_params.token {
-            Some(ref token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": format!("No token provided")})),
-                ));
-            }
-        }
-    };
-    if service.token_dropper.should_drop(token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid token")})),
-        ));
-    }
+    let token =
+        service
+            .authorizer
+            .authorize(&headers, query_params.token.as_deref(), Signal::Logs)?;
 
     tracing::Span::current().record("token", token);
 
@@ -563,49 +523,10 @@ pub async fn export_traces_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    if !headers.contains_key("Authorization") && query_params.token.is_none() {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "No token provided"})),
-        ));
-    }
-
-    let token = if headers.contains_key("Authorization") {
-        match headers["Authorization"]
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
-        {
-            Some(token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    } else {
-        match query_params.token {
-            Some(ref token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    };
-
-    if service.token_dropper.should_drop(token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        ));
-    }
+    let token =
+        service
+            .authorizer
+            .authorize(&headers, query_params.token.as_deref(), Signal::Traces)?;
 
     tracing::Span::current().record("token", token);
 
@@ -740,49 +661,10 @@ pub async fn export_metrics_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    if !headers.contains_key("Authorization") && query_params.token.is_none() {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "No token provided"})),
-        ));
-    }
-
-    let token = if headers.contains_key("Authorization") {
-        match headers["Authorization"]
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
-        {
-            Some(token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    } else {
-        match query_params.token {
-            Some(ref token) if !token.is_empty() => token,
-            _ => {
-                error!("No token provided");
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "No token provided"})),
-                ));
-            }
-        }
-    };
-
-    if service.token_dropper.should_drop(token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        ));
-    }
+    let token =
+        service
+            .authorizer
+            .authorize(&headers, query_params.token.as_deref(), Signal::Metrics)?;
 
     tracing::Span::current().record("token", token);
 

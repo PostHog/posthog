@@ -43,6 +43,7 @@ from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     markdown_to_slack_mrkdwn as _markdown_to_slack_mrkdwn,
     slack_channel_id_from_target as _channel_id_from_target,
+    strip_chart_references as _strip_chart_references,
     truncate_slack_section as _truncate_slack_section,
 )
 
@@ -186,6 +187,18 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     if not logins:
         return set()
     login_map = resolve_org_github_login_to_users(report.team_id, logins)
+    unmapped_count = len(logins - login_map.keys())
+    if unmapped_count:
+        # These reviewers can't get a personal-channel notification; when the whole list is
+        # unmapped the report falls back to the team channel despite being "assigned".
+        # Counts only: GitHub logins are member PII and must not reach logs.
+        logger.info(
+            "slack routing for report %s (team %d): %d of %d suggested reviewer login(s) map to no PostHog user",
+            report.id,
+            report.team_id,
+            unmapped_count,
+            len(logins),
+        )
     if not login_map:
         return set()
 
@@ -315,7 +328,7 @@ def _build_message_blocks(
     reviewer_mentions: list[str],
     repository: str | None = None,
 ) -> tuple[list[dict], str]:
-    title_line = report.title or "New signals inbox item"
+    title_line = report.title or "New report"
     header_text = (
         title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
     )
@@ -334,7 +347,8 @@ def _build_message_blocks(
     body_parts: list[str] = []
     if meta_parts:
         body_parts.append(f"*{' · '.join(meta_parts)}*")
-    summary_text = _summary_excerpt(report.summary or "")
+    # Strip before excerpting so truncation can't slice a chart link mid-syntax.
+    summary_text = _summary_excerpt(_strip_chart_references(report.summary or ""))
     if summary_text:
         body_parts.append(_escape_mrkdwn(summary_text))
     if not body_parts:
@@ -370,7 +384,7 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox item{priority_suffix}: {_escape_mrkdwn(title_line)}"
+    fallback_text = f"Report{priority_suffix}: {_escape_mrkdwn(title_line)}"
     return blocks, fallback_text
 
 
@@ -385,6 +399,7 @@ _SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
     ("session_replay", "session_problem"): "Session replay · Session problem",
     ("session_replay", "session_segment_cluster"): "Session replay · Session segment cluster",
     ("session_replay", "session_analysis_cluster"): "Session replay · Session analysis cluster",
+    ("replay_vision", "scanner_finding"): "Replay Vision · Scanner finding",
     ("llm_analytics", "evaluation"): "AI observability · Evaluation",
     ("llm_analytics", "evaluation_report"): "AI observability · Evaluation report",
     ("zendesk", "ticket"): "Zendesk · Ticket",

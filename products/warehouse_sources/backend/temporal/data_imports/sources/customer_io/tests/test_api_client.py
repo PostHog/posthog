@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -402,6 +403,35 @@ class TestGetExternalWebhookInfo:
         assert info.exists is False
         assert info.error is not None
         assert "App API Key" in info.error
+
+
+class TestGetListPage:
+    @parameterized.expand(
+        [
+            ("rate_limited", 429),
+            ("internal_server_error", 500),
+            ("service_unavailable", 503),
+        ]
+    )
+    def test_transient_statuses_raise_retryable(self, _name, status_code):
+        response = MagicMock()
+        response.status_code = status_code
+        session = MagicMock()
+        session.get.return_value = response
+
+        # Call the undecorated function so tenacity's exponential backoff doesn't sleep in tests.
+        with pytest.raises(api_client.ListEndpointRetryableError):
+            api_client._get_list_page.__wrapped__(session, f"{CIO_US_BASE_URL}/v1/collections", {})  # type: ignore[attr-defined]
+
+    def test_non_transient_error_status_raises_http_error(self):
+        response = MagicMock()
+        response.status_code = 401
+        response.raise_for_status.side_effect = requests.HTTPError(response=response)
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(requests.HTTPError):
+            api_client._get_list_page.__wrapped__(session, f"{CIO_US_BASE_URL}/v1/collections", {})  # type: ignore[attr-defined]
 
 
 class TestIterateListEndpoint:

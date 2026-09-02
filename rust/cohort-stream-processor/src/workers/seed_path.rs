@@ -14,7 +14,7 @@ use metrics::{counter, gauge};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use cohort_core::seed::{ReconcileTile, RunId, SeedTile};
+use cohort_core::seed::{PersonSeed, ReconcileTile, RunId, SeedTile};
 
 use crate::consumers::seeds::SeedWork;
 use crate::filters::manager::CatalogHandle;
@@ -46,34 +46,65 @@ use crate::stage2::{
 use crate::store::{Behavioral, BehavioralKey, PersonPrefix, ReadLane, StagedBatch, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::merge_path::MergeWorkerDeps;
+use crate::workers::person_seed_path::handle_person_seed;
 use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
 use crate::workers::stage2_path::{commit_stage2_writes, recompute_stage2};
 use crate::workers::worker::{
     first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
 
-/// Where a tile applies after tombstone resolution; an exhausted hop budget is unrepresentable
+/// A seed kind that can be re-keyed onto a merge survivor.
+pub(crate) trait RekeyableSeed: Sized {
+    fn person_id(&self) -> Uuid;
+    fn rekeyed_to(&self, survivor: Uuid, cap: u8) -> Option<Self>;
+}
+
+impl RekeyableSeed for SeedTile {
+    fn person_id(&self) -> Uuid {
+        SeedTile::person_id(self)
+    }
+
+    fn rekeyed_to(&self, survivor: Uuid, cap: u8) -> Option<Self> {
+        SeedTile::rekeyed_to(self, survivor, cap)
+    }
+}
+
+impl RekeyableSeed for PersonSeed {
+    fn person_id(&self) -> Uuid {
+        PersonSeed::person_id(self)
+    }
+
+    fn rekeyed_to(&self, survivor: Uuid, cap: u8) -> Option<Self> {
+        PersonSeed::rekeyed_to(self, survivor, cap)
+    }
+}
+
+/// Where a seed applies after tombstone resolution; an exhausted hop budget is unrepresentable
 /// as a re-produce, forcing the degraded inline arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TileRoute {
+pub(crate) enum SeedRoute<T> {
     ApplyLocal { person: Uuid },
-    ReProduce { tile: SeedTile },
+    ReProduce { seed: T },
     CapExhausted { person: Uuid },
 }
 
-/// Total routing of a tile through its tombstone [`Resolution`].
-pub(crate) fn route_tile(tile: &SeedTile, resolution: Resolution, cap: u8) -> TileRoute {
+/// Total routing of a seed through its tombstone [`Resolution`].
+pub(crate) fn route_seed<T: RekeyableSeed>(
+    seed: &T,
+    resolution: Resolution,
+    cap: u8,
+) -> SeedRoute<T> {
     match resolution {
-        Resolution::NotMerged => TileRoute::ApplyLocal {
-            person: tile.person_id(),
+        Resolution::NotMerged => SeedRoute::ApplyLocal {
+            person: seed.person_id(),
         },
-        Resolution::Inline { final_person, .. } => TileRoute::ApplyLocal {
+        Resolution::Inline { final_person, .. } => SeedRoute::ApplyLocal {
             person: final_person,
         },
         Resolution::CrossPartition { target_person, .. } => {
-            match tile.rekeyed_to(target_person, cap) {
-                Some(rekeyed) => TileRoute::ReProduce { tile: rekeyed },
-                None => TileRoute::CapExhausted {
+            match seed.rekeyed_to(target_person, cap) {
+                Some(rekeyed) => SeedRoute::ReProduce { seed: rekeyed },
+                None => SeedRoute::CapExhausted {
                     person: target_person,
                 },
             }
@@ -490,6 +521,20 @@ pub(crate) async fn handle_seed(
             admit_reconcile(partition_id, merge, reconcile_queue, tile, offset);
             return;
         }
+        SeedWork::Person(seed) => {
+            handle_person_seed(
+                partition_id,
+                handle,
+                catalog,
+                sink,
+                merge,
+                last_updated,
+                seed,
+                offset,
+            )
+            .await;
+            return;
+        }
         SeedWork::Tile(tile) => tile,
     };
 
@@ -525,9 +570,9 @@ pub(crate) async fn handle_seed(
             return;
         }
     };
-    let person = match route_tile(tile, resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS) {
-        TileRoute::ApplyLocal { person } => person,
-        TileRoute::ReProduce { tile: rekeyed } => {
+    let person = match route_seed(tile, resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS) {
+        SeedRoute::ApplyLocal { person } => person,
+        SeedRoute::ReProduce { seed: rekeyed } => {
             // Ack before mark; the tile has no other copy. Exactly one Ok ack — an empty vector
             // would make an `all(is_ok)` guard vacuously true and commit past a lost tile.
             let acks = merge.seed_tile_sink.produce(vec![rekeyed]).await;
@@ -545,7 +590,7 @@ pub(crate) async fn handle_seed(
             }
             return;
         }
-        TileRoute::CapExhausted { person } => {
+        SeedRoute::CapExhausted { person } => {
             counter!(SEED_REKEY_HOP_CAPPED_TOTAL).increment(1);
             // Same degrade as the event path: orphaned-but-bounded state (the survivor's live
             // path never reads this slice) that ages out via eviction, preferred over a silent
@@ -721,7 +766,8 @@ fn admit_reconcile(
         return;
     }
 
-    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), offset) {
+    let kind = tile.scope().kind();
+    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset) {
         SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset),
         SupersedeOutcome::Replaced(superseded) => {
             let (replacement, outcome) = merge
@@ -738,7 +784,7 @@ fn admit_reconcile(
                     );
                 }
             }
-            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL).increment(1);
+            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL, "kind" => kind.as_str()).increment(1);
             replacement
         }
         SupersedeOutcome::RetainedNewerOrEqual => {
@@ -757,7 +803,7 @@ fn admit_reconcile(
     };
 
     queue.enqueue(tile.clone(), deferred);
-    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL).increment(1);
+    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "kind" => kind.as_str()).increment(1);
 }
 
 /// What one tile staged across its referencing leaves.
@@ -889,7 +935,7 @@ fn stage_seed_membership_registers(
     );
 }
 
-fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
+pub(crate) fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
     for change in changes {
         change.origin = Some(ChangeOrigin::Seed);
         change.run_id = Some(run_id);
@@ -897,7 +943,7 @@ fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
 }
 
 /// Advance the seed tracker past `offset`. A mark beyond the dispatch ceiling is capped and counted.
-fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
+pub(crate) fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
     if let MarkOutcome::CappedAheadOfDispatch =
         tracker.mark_processed(partition_id as i32, offset + 1)
     {
@@ -912,7 +958,7 @@ fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
 
 /// Pin the seed commit floor at the failed offset so Kafka redelivers it; emit
 /// [`SEED_HELD_OFFSET_GAUGE`] so the stall is visible.
-fn hold(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
+pub(crate) fn hold(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
     let floor = tracker.hold(partition_id as i32, offset);
     gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition_id.to_string()).set(floor as f64);
 }
@@ -930,14 +976,17 @@ mod tests {
     use tempfile::TempDir;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, SChunkMs, SeedTile,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, SChunkMs,
+        SeedTile,
     };
 
     use crate::consumers::seeds::SeedSkipReason;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
-    use crate::producer::{CaptureSeedTileSink, CaptureSink, MembershipStatus};
+    use crate::producer::{
+        CaptureReconcileMarkerSink, CaptureSeedTileSink, CaptureSink, MembershipStatus,
+    };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
     use crate::store::{
@@ -1346,18 +1395,18 @@ mod tests {
     }
 
     #[test]
-    fn route_tile_maps_each_resolution_and_caps_the_hop_budget() {
+    fn route_seed_maps_each_resolution_and_caps_the_hop_budget() {
         let tile = tile_for(Uuid::from_u128(0xA11CE), now_day(), 1);
         let survivor = Uuid::from_u128(0xB0B);
 
         assert_eq!(
-            route_tile(&tile, Resolution::NotMerged, 8),
-            TileRoute::ApplyLocal {
+            route_seed(&tile, Resolution::NotMerged, 8),
+            SeedRoute::ApplyLocal {
                 person: tile.person_id()
             },
         );
         assert_eq!(
-            route_tile(
+            route_seed(
                 &tile,
                 Resolution::Inline {
                     final_person: survivor,
@@ -1365,9 +1414,9 @@ mod tests {
                 },
                 8,
             ),
-            TileRoute::ApplyLocal { person: survivor },
+            SeedRoute::ApplyLocal { person: survivor },
         );
-        match route_tile(
+        match route_seed(
             &tile,
             Resolution::CrossPartition {
                 target_person: survivor,
@@ -1375,7 +1424,7 @@ mod tests {
             },
             8,
         ) {
-            TileRoute::ReProduce { tile: rekeyed } => {
+            SeedRoute::ReProduce { seed: rekeyed } => {
                 assert_eq!(rekeyed.person_id(), survivor);
                 assert_eq!(rekeyed.redirect_hops(), 1);
                 assert_eq!(
@@ -1388,7 +1437,7 @@ mod tests {
         }
         // Cap 0: an over-cap re-produce is unrepresentable — the cap arm is forced.
         assert_eq!(
-            route_tile(
+            route_seed(
                 &tile,
                 Resolution::CrossPartition {
                     target_person: survivor,
@@ -1396,7 +1445,7 @@ mod tests {
                 },
                 0,
             ),
-            TileRoute::CapExhausted { person: survivor },
+            SeedRoute::CapExhausted { person: survivor },
         );
     }
 
@@ -1736,7 +1785,7 @@ mod tests {
         ReconcileTile::new(
             TEAM,
             CohortId(cohort_id),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(run_id)),
         )
     }
@@ -1749,6 +1798,7 @@ mod tests {
         sink: CaptureSink,
         seed_sink: CaptureSeedTileSink,
         cascade_sink: crate::producer::CaptureCascadeSink,
+        marker_sink: CaptureReconcileMarkerSink,
         deps: MergeWorkerDeps,
         queue: EvictionQueue<BehavioralKey>,
         reconcile_queue: ReconcileQueue,
@@ -1803,6 +1853,7 @@ mod tests {
                 TEAM,
                 build_filters(cohorts, UTC),
             )])));
+            let marker_sink = CaptureReconcileMarkerSink::new();
             let deps = MergeWorkerDeps {
                 transfer_sink: Arc::new(crate::producer::CaptureTransferSink::new()),
                 stream_event_sink: Arc::new(crate::producer::CaptureStreamEventSink::new()),
@@ -1819,7 +1870,11 @@ mod tests {
                 seed_tracker: Arc::new(OffsetTracker::new()),
                 live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
                 register_transfer_enabled: false,
-                reconcile: crate::workers::ReconcileDeps::default(),
+                reconcile: crate::workers::ReconcileDeps {
+                    marker_sink: Arc::new(marker_sink.clone()),
+                    ..crate::workers::ReconcileDeps::default()
+                },
+                person_seed: crate::workers::PersonSeedDeps::default(),
             };
             let reconcile_queue =
                 ReconcileQueue::new(0, deps.reconcile.backlog.clone(), handle.clone());
@@ -1831,6 +1886,7 @@ mod tests {
                 sink,
                 seed_sink,
                 cascade_sink,
+                marker_sink,
                 deps,
                 queue: EvictionQueue::new(),
                 reconcile_queue,
@@ -1892,7 +1948,7 @@ mod tests {
         assert_eq!(shell.reconcile_queue.len(), 0);
         assert!(shell.deps.reconcile.backlog.is_empty());
         assert!(shell.sink.changes().is_empty());
-        assert!(shell.sink.markers().is_empty());
+        assert!(shell.marker_sink.markers().is_empty());
     }
 
     #[tokio::test]
@@ -2211,6 +2267,13 @@ mod tests {
         async fn produce(
             &self,
             _tiles: Vec<SeedTile>,
+        ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
+            Vec::new()
+        }
+
+        async fn produce_person(
+            &self,
+            _seeds: Vec<PersonSeed>,
         ) -> Vec<Result<(), common_kafka::kafka_producer::KafkaProduceError>> {
             Vec::new()
         }

@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (
     DEFAULT_PROBE_PATH,
     TremendousResumeConfig,
+    _balance_transaction_row_id,
     _to_iso_datetime,
     base_url_for_environment,
     tremendous_source,
@@ -152,15 +153,21 @@ class TestPagination:
         # The initial (offset=0) page must never be re-fetched on resume.
         assert [p["offset"] for p in params] == [1000]
 
+    @parameterized.expand([("orders",), ("balance_transactions",)])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_watermark_sent_as_created_at_gte_on_every_page(self, MockSession: mock.MagicMock) -> None:
+    def test_incremental_watermark_sent_as_created_at_gte_on_every_page(
+        self, endpoint: str, MockSession: mock.MagicMock
+    ) -> None:
         session = MockSession.return_value
-        full_page = [{"id": f"o_{i}"} for i in range(TREMENDOUS_ENDPOINTS["orders"].page_size)]
-        params = _wire(session, [_response(full_page), _response([])])
+        config = TREMENDOUS_ENDPOINTS[endpoint]
+        full_page = [{"created_at": f"2026-01-03T00:00:{i:02d}Z"} for i in range(config.page_size)]
+        params = _wire(
+            session, [_response(full_page, data_key=config.data_key), _response([], data_key=config.data_key)]
+        )
 
         _rows(
             _source(
-                "orders",
+                endpoint,
                 _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
@@ -256,6 +263,71 @@ class TestHelpers:
     )
     def test_base_url_for_environment(self, environment: str, expected: str) -> None:
         assert base_url_for_environment(environment) == expected
+
+
+def _bt_row(**overrides: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "created_at": "2026-01-02T03:04:05Z",
+        "amount": 25.0,
+        "currency_code": "USD",
+        "action": "Order",
+        "description": "Order payment",
+        "balance": 975.0,
+        "order": {"id": "ORDER123", "external_id": None, "payment": {"subtotal": 25.0, "total": 25.0, "fees": 0.0}},
+    }
+    row.update(overrides)
+    return row
+
+
+class TestBalanceTransactionRowId:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rows_come_out_with_synthetic_id(self, MockSession: mock.MagicMock) -> None:
+        # Rows are wrapped under "transactions" (not the endpoint name) and carry no API id;
+        # without the row map the table has no primary key and incremental merges break.
+        session = MockSession.return_value
+        _wire(session, [_response([_bt_row(), _bt_row(action="Refund")], data_key="transactions")])
+
+        rows = _rows(_source("balance_transactions", _make_manager()))
+
+        assert len(rows) == 2
+        assert all(isinstance(r["id"], str) and len(r["id"]) == 64 for r in rows)
+        assert rows[0]["id"] != rows[1]["id"]
+
+    @parameterized.expand(
+        [
+            # `balance` may be backfilled late (null -> value); re-keying on it would duplicate
+            # every backfilled row on the next incremental fetch.
+            ("balance_backfilled", {"balance": None}, {"balance": 975.0}, True),
+            # The embedded order payment grows a refund block once an order is canceled.
+            (
+                "order_refund_added",
+                {},
+                {
+                    "order": {
+                        "id": "ORDER123",
+                        "payment": {"total": 25.0, "refund": {"total": 25.0, "currency_code": "USD"}},
+                    }
+                },
+                True,
+            ),
+            # int/float representation drift must not re-key existing rows.
+            ("amount_int_vs_float", {"amount": 25}, {"amount": 25.0}, True),
+            # Dropping any discriminator from the hash would collapse distinct ledger rows.
+            ("different_created_at", {}, {"created_at": "2026-01-02T03:04:06Z"}, False),
+            ("different_amount", {}, {"amount": 26.0}, False),
+            ("different_currency", {}, {"currency_code": "EUR"}, False),
+            ("different_action", {}, {"action": "Refund"}, False),
+            ("different_description", {}, {"description": "Something else"}, False),
+            ("different_order_id", {}, {"order": {"id": "ORDER999"}}, False),
+            ("order_absent", {}, {"order": None}, False),
+        ]
+    )
+    def test_id_tracks_stable_fields_only(
+        self, _name: str, left: dict[str, Any], right: dict[str, Any], same: bool
+    ) -> None:
+        left_id = _balance_transaction_row_id(_bt_row(**left))["id"]
+        right_id = _balance_transaction_row_id(_bt_row(**right))["id"]
+        assert (left_id == right_id) is same
 
 
 class TestValidateCredentials:

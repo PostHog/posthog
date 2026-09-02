@@ -56,14 +56,26 @@ class IQRDetector(BaseDetector):
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
+        # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
+        # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
+        # is introduced regardless of the configured magnitude.
+        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
+        offset = max(self.training_offset, 1)
 
-        if not self._validate_data(data, min_length=window + 1):
+        if not self._validate_data(data, min_length=window + offset + diffs_n):
             return DetectionResult(is_anomaly=False)
 
+        original_length = len(data)
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
+        # Differencing prepends synthetic (zero-valued) points to keep the array
+        # length unchanged - drop them so the training window only ever sees
+        # genuine differenced values.
+        values = values[diffs_n:]
 
-        window_data = values[-(window + 1) : -1]
+        # Honor training_offset to exclude points closest to the one being
+        # scored, so a live check agrees with detect_batch().
+        window_data = values[-(window + offset) : -offset]
         q1 = np.percentile(window_data, 25)
         q3 = np.percentile(window_data, 75)
         iqr = q3 - q1
@@ -91,7 +103,7 @@ class IQRDetector(BaseDetector):
         return DetectionResult(
             is_anomaly=is_anomaly,
             score=prob,
-            triggered_indices=[len(values) - 1] if is_anomaly else [],
+            triggered_indices=[original_length - 1] if is_anomaly else [],
             all_scores=[prob],
             metadata={
                 "q1": float(q1),
@@ -108,18 +120,26 @@ class IQRDetector(BaseDetector):
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
+        # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
+        # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
+        # is introduced regardless of the configured magnitude.
+        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
+        offset = max(self.training_offset, 1)
 
-        if not self._validate_data(data, min_length=window + 1):
+        if not self._validate_data(data, min_length=window + offset + diffs_n):
             return DetectionResult(is_anomaly=False)
 
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
+        # Keep indices aligned with the original series: scores/triggers below
+        # are shifted back by diffs_n before being returned.
+        values = values[diffs_n:]
 
         triggered = []
-        scores: list[float | None] = [None] * window
+        scores: list[float | None] = [None] * (diffs_n + window + offset - 1)
 
-        for i in range(window, len(values)):
-            window_data = values[i - window : i]
+        for i in range(window + offset - 1, len(values)):
+            window_data = values[i - window - offset + 1 : i - offset + 1]
             q1 = np.percentile(window_data, 25)
             q3 = np.percentile(window_data, 75)
             iqr = q3 - q1
@@ -147,7 +167,7 @@ class IQRDetector(BaseDetector):
             prob = _iqr_distance_to_probability(raw_distance, window_distances)
             scores.append(prob)
             if prob > threshold:
-                triggered.append(i)
+                triggered.append(i + diffs_n)
 
         return DetectionResult(
             is_anomaly=len(triggered) > 0,

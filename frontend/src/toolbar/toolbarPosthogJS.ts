@@ -20,6 +20,8 @@ const initResult = posthog.init(
             featureFlags: {},
         },
         autocapture: false,
+        // The toolbar runs on customer pages and must not install global exception handlers.
+        capture_exceptions: false,
         capture_pageview: false,
         capture_pageleave: false,
         disable_surveys: true,

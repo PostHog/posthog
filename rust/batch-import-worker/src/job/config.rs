@@ -563,9 +563,15 @@ impl S3SourceConfig {
             )));
         };
 
+        // This hop must use the pod's ambient region, not the customer bucket's: the
+        // managed-migrations role's trust policy only allows assumes arriving through the
+        // workload VPC's STS endpoint (aws:SourceVpce), and that endpoint only serves the
+        // local region's STS hostname. Calling a cross-region STS endpoint here would
+        // egress publicly and be denied. The customer hop below keeps the bucket region.
+        let ambient_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
         let intermediate = aws_config::sts::AssumeRoleProvider::builder(intermediate_arn)
             .session_name("posthog-batch-import")
-            .region(Region::new(self.region.clone()))
+            .configure(&ambient_config)
             .build()
             .await;
         // An unassumable intermediate role is a PostHog deployment problem, so surface the

@@ -130,6 +130,23 @@ def test_deleted_self_managed_drops_schedule_but_not_slot(team):
     adapter.drop_resources.assert_not_called()
 
 
+def test_deleted_source_purges_shadow_buffer_prefixes(team):
+    # destroy() defers all external reaping to the sweep, so the sweep must purge the
+    # deleted source's buffer prefixes — including soft-deleted CDC schema rows.
+    source = _create_source(team, deleted=True, job_inputs=_cdc_job_inputs())
+    schema = _create_cdc_schema(team, source)
+    schema.deleted = True
+    schema.save()
+
+    adapter = _mock_adapter()
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix"
+    ) as mock_purge:
+        _run(adapter)
+
+    assert [call.args[1] for call in mock_purge.call_args_list] == [str(schema.id)]
+
+
 def test_critical_lag_posthog_auto_drop_marks_broken_and_pauses(team):
     source = _create_source(team, job_inputs=_cdc_job_inputs(auto_drop_slot=True))
     schema = _create_cdc_schema(team, source)

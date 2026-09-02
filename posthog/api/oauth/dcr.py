@@ -26,7 +26,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthApplication, TokenEndpointAuthMethod
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
 
@@ -90,9 +90,9 @@ class DCRRequestSerializer(serializers.Serializer):
         help_text="OAuth response types the client will use",
     )
     token_endpoint_auth_method = serializers.ChoiceField(
-        choices=["none", "client_secret_post"],
+        choices=[TokenEndpointAuthMethod.NONE.value, TokenEndpointAuthMethod.CLIENT_SECRET_POST.value],
         required=False,
-        default="none",
+        default=TokenEndpointAuthMethod.NONE.value,
         help_text="How the client authenticates at the token endpoint: 'none' for public clients, 'client_secret_post' for confidential clients",
     )
     scope = serializers.CharField(
@@ -130,7 +130,7 @@ class DynamicClientRegistrationView(APIView):
         now = timezone.now()
 
         client_name = sanitize_client_name(data["client_name"]) if data.get("client_name") else "MCP Client"
-        is_confidential = data.get("token_endpoint_auth_method") == "client_secret_post"
+        is_confidential = data.get("token_endpoint_auth_method") == TokenEndpointAuthMethod.CLIENT_SECRET_POST.value
         client_type = AbstractApplication.CLIENT_CONFIDENTIAL if is_confidential else AbstractApplication.CLIENT_PUBLIC
 
         # Generate the secret before create() so we can return the plaintext
@@ -217,7 +217,8 @@ class DynamicClientRegistrationView(APIView):
             },
         )
 
-        auth_method = data.get("token_endpoint_auth_method", "none")
+        # Read back off the created app so the response can't disagree with what was stored.
+        auth_method = app.token_endpoint_auth_method.value
 
         # Build response per RFC 7591 Section 3.2
         response_data: dict[str, Any] = {

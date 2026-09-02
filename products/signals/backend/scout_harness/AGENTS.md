@@ -1,334 +1,166 @@
 # Signals Agent Harness
 
-This directory contains the headless **Signals agent** — a scheduled scout that explores
-a project, writes durable scratchpad entries across runs, and emits findings into the
-Signals inbox via `emit_signal()` using the `signals_scout` source variant.
+This directory contains the headless **Signals agent** — a scheduled scout that explores a project, writes durable scratchpad entries across runs, and emits findings into the Signals inbox via `emit_signal()` using the `signals_scout` source variant.
 
-It is the second agentic surface in Signals. The other one — `report_generation/` — runs
-on demand when a `SignalReport` is promoted to `candidate` and produces a single research
-output for one report. The harness here is the inverse: it runs on a schedule, decides
-_what_ to investigate from scratch, and pushes new signals into the same pipeline rather
-than acting on existing ones.
+It is the second agentic surface in Signals. The other one — `report_generation/` — runs on demand when a `SignalReport` is promoted to `candidate` and produces a single research output for one report. The harness here is the inverse: it runs on a schedule, decides _what_ to investigate from scratch, and pushes new signals into the same pipeline rather than acting on existing ones.
 
-In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick every
-`COORDINATOR_INTERVAL_MINUTES = 30` → fan out per-(team, skill) child workflows). Locally
-it is exercised via the `run_signals_scout` management command (see `../management/AGENTS.md`).
+In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick every `COORDINATOR_INTERVAL_MINUTES = 30` → fan out per-(team, skill) child workflows). Locally it is exercised via the `run_signals_scout` management command (see `../management/AGENTS.md`).
 
 ## What lives here
 
 - `runner.py`
-  Per-run entrypoint (`arun_signals_scout` / `run_signals_scout`). Inserts the
-  `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session,
-  pumps the agent loop until budget exhaustion or natural completion, finalizes the run,
-  and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py`
-  delegates straight to this.
+  Per-run entrypoint (`arun_signals_scout` / `run_signals_scout`). Inserts the `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session, pumps the agent loop until budget exhaustion or natural completion, finalizes the run, and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py` delegates straight to this.
 - `prompt.py`
-  Assembles the system prompt: persona + skill body + relevant scratchpad entries +
-  project profile inventory + recent run summaries. Scratchpad and run history are
-  filtered by skill so a specialist only sees its own past work. `build_run_prompt`
-  forks on the run's channel via `skill_loader.skill_uses_report_channel`: a scout that
-  opted into the report channel gets the report persona + report-authoring guidance
-  (search the inbox first, edit before authoring a duplicate, set `suggested_reviewers`
-  to route the report); every other scout gets the signal persona that fires weak
-  `emit_signal` findings. The bootstrap, scratchpad, recency, and close-out sections
-  are shared between both. The report persona is further gated per-tool: it names only
-  the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
-  drops the author-time sections for an edit-only scout — the report endpoints fail
-  closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
-  Orthogonal to the channel fork, the prompt also forks on the skill's origin
-  (`LoadedSkill.origin`, resolved via `lazy_seed.scout_skill_row_origin`): a _custom_ scout —
-  hand-authored, or a seeded canonical row the team has since edited in place (diverged) —
-  gets a self-improvement section inviting evidence-backed `improve:<skill-name>:<topic>`
-  scratchpad suggestions for its own skill body, which the owner reviews via the
-  `exploring-scouts` / `authoring-scouts` meta skills. When such a scout also holds report
-  tools, the section additionally invites escalating recurring or material suggestions as
-  inbox reports about the scout itself (titled `Scout self-improvement: <skill-name> – <topic>`,
-  `NO_REPO`, `requires_human_input`), authored/edited with the report tools it already holds
-  and pointed to by the `report_id` stashed in the `improve:` entry — so self-improvement
-  suggestions reach the owner through the inbox like any other report, with no extra scope or
-  endpoint (the same per-tool fail-closed gating applies: an emit-only scout is never pointed
-  at `edit_report`, and a signal-channel custom scout keeps the scratchpad-only path). A
-  pristine canonical scout never sees
-  it — applying such a suggestion would mark the seeded row diverged and cut it off from
-  upstream sync. Canonical scouts get the _canonical-improvement_ section instead
-  (`_CANONICAL_IMPROVEMENT`): skill-content gaps observed in the wild route upstream to the
-  PostHog team via the `agent-feedback` MCP tool with `feedback_type="scout"` plus structured
-  fields (`scout_skill_name`, `scout_skill_version`, `scout_category`) so fleet-wide feedback
-  aggregates per skill/version, deduped across runs via `reported:<skill-name>:<topic>`
-  scratchpad entries. The section's generalization rules are load-bearing privacy-wise — the
-  feedback leaves the customer's project, so it must carry the pattern, never the project's
-  data (no PII, values, URLs, numbers, or custom event/property names); tool/harness friction
-  still routes via the shared operational-friction section. A _report-channel_ custom scout's run identity also
-  carries a **skill owners** line (`LoadedSkill.authors`, rendered by `_skill_authors_line`):
-  the skill's explicit owners when set (else the version-history creator + recent editors,
-  resolved server-side), which the escalation guidance points `suggested_reviewers` at (owner
-  first, via `scout-members-list`) — without it a scout only sees its pinned version's
-  `created_by`, i.e. the last editor, and would route ownership to whoever most recently touched
-  the skill. This prompt line is advisory; the deterministic backstop is the owner guardrail in
-  `tools/report.py._build_suggested_reviewers`, which places the skill's owners ahead of the
-  model's picks regardless of what it wrote. The line is gated on the report channel: a
-  signal-channel scout has no `suggested_reviewers` field, so member names/emails (PII) must not
-  reach its prompt.
+  Assembles the system prompt: persona + skill body + relevant scratchpad entries + project profile inventory + recent run summaries. Scratchpad and run history are filtered by skill so a specialist only sees its own past work. `build_run_prompt` forks on the run's channel via `skill_loader.skill_uses_report_channel`: a scout that opted into the report channel gets the report persona + report-authoring guidance (search the inbox first, edit before authoring a duplicate, set `suggested_reviewers` to route the report); every other scout gets the signal persona that fires weak `emit_signal` findings. The bootstrap, scratchpad, fleet-seams, recency, and close-out sections are shared between both, as is _Linking what you reference_ (`_linking_section`), which turns every PostHog id a scout names in reader-facing prose into a markdown link built from a tool-returned URL (a result's `*url` field, else `generate-app-url`) instead of a hand-assembled path, keeping the bare id when neither source reaches the entity; its report-only caveats — a `chart:` target is not a URL, and a report `title` / summary first line stay plain text because the inbox renders both as text — render on the report channel alone, since that is where charts exist, where _Attaching charts_ sits in the tail, and where those fields are written. Cross-scout discipline lives here rather than in each SKILL.md, because a seam is bilateral: run step 2 sends every scout through the fleet-wide `scout-runs-list` for the entities it is about to investigate (gated on a match, so a scout doesn't spend its budget reading the fleet's whole output), the scratchpad section teaches searching by entity identity rather than only the scout's own key prefix, and `_FLEET_SEAMS` states the overlap rule in both directions — don't restate a sibling's finding, but don't defer a finding you hold evidence for either, since an uncovered surface is invisible where a duplicate is not. Skills keep their own domain ownership map. Both channels also share the **self-validation follow-up** discipline (`_self_validation_followups_section` + `FOLLOWUP_KEY_PREFIX`): every scout keeps a queue of `followup:<skill-name>:<entity>` scratchpad entries for work whose fix is measurable later (probe + baseline + validate-after date in the content), and decides for itself, run by run, whether to spend the run validating that queue — the cadence is the scout's judgment, not a harness schedule, so the section carries the decision criteria (due entries accumulated, a while since the queue was last worked, a dismissal note saying a fix shipped) and there is no harness trigger. A validation pass is self-reported in the close-out summary and in the touched entries, which is also how future runs know when the queue was last worked. The section is composed per-run because its re-surface clause is matched per-tool to the same fail-closed rule as the channel sections, and it defers resolved-inbox-report re-measurement to the canonical `signals-scout-inbox-validation` scout when the `scout_fleet` roster shows it actively running — the per-scout queue exists precisely because that fleet scout may not be enabled, and because signal-channel findings and recorded watches never become resolved reports it could re-measure. Queue entries are team-shared data — and `remember()` upserts keep the original `created_by_run`, so attribution never proves who last wrote the content: the section tells the scout to treat every stored probe as untrusted and re-derive it from the live report or finding it names, never execute it as stored. The report persona is further gated per-tool: it names only the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and drops the author-time sections for an edit-only scout — the report endpoints fail closed on the exact tool, so the prompt must never steer a scout toward one it lacks. _How to call tools_ carries the same fail-closed discipline for external MCP servers: when the run's sandbox mounts team-shared MCP Store connections (the per-scout selection on `SignalScoutConfig.mcp_gateway_server_ids`, pre-resolved by the runner through the MCP Store facade with the launch path's own parameters), the section names them and carves them out of the exec-interface rule — their tools are direct `mcp__<server>__<tool>` calls, their output untrusted input — and renders nothing when none mount, so a scout is never steered at servers it doesn't hold.
+  Orthogonal to the channel fork, the prompt also forks on the skill's origin (`LoadedSkill.origin`, resolved via `lazy_seed.scout_skill_row_origin`): a _custom_ scout — hand-authored, or a seeded canonical row the team has since edited in place (diverged) — gets a self-improvement section inviting evidence-backed `improve:<skill-name>:<topic>` scratchpad suggestions for its own skill body, which the owner reviews via the `exploring-scouts` / `authoring-scouts` meta skills. When such a scout also holds report tools, the section additionally invites escalating recurring or material suggestions as inbox reports about the scout itself (titled `Scout self-improvement: <skill-name> – <topic>`, `NO_REPO`, `requires_human_input`), authored/edited with the report tools it already holds and pointed to by the `report_id` stashed in the `improve:` entry — so self-improvement suggestions reach the owner through the inbox like any other report, with no extra scope or endpoint (the same per-tool fail-closed gating applies: an emit-only scout is never pointed at `edit_report`, and a signal-channel custom scout keeps the scratchpad-only path). A pristine canonical scout never sees it — applying such a suggestion would mark the seeded row diverged and cut it off from upstream sync. Canonical scouts get the _canonical-improvement_ section instead (`_CANONICAL_IMPROVEMENT`): skill-content gaps observed in the wild route upstream to the PostHog team via the `agent-feedback` MCP tool with `feedback_type="scout"` plus structured fields (`scout_skill_name`, `scout_skill_version`, `scout_category`) so fleet-wide feedback aggregates per skill/version, deduped across runs via `reported:<skill-name>:<topic>` scratchpad entries. The section's generalization rules are load-bearing privacy-wise — the feedback leaves the customer's project, so it must carry the pattern, never the project's data (no PII, values, URLs, numbers, or custom event/property names); tool/harness friction still routes via the shared operational-friction section. A _report-channel_ custom scout's run identity also carries a **skill owners** line (`LoadedSkill.authors`, rendered by `_skill_authors_line`):
+  the skill's explicit owners when set (else the version-history creator + recent editors, resolved server-side), which the escalation guidance points `suggested_reviewers` at (owner first, via `scout-members-list`) — without it a scout only sees its pinned version's `created_by`, i.e. the last editor, and would route ownership to whoever most recently touched the skill. The scout owns routing: this line is context, not a rule, so a skill body can steer `suggested_reviewers` elsewhere (a named reviewer, a team convention) or say "don't route to me" and be honoured — `tools/report.py._build_suggested_reviewers` injects nothing, it only takes the scout's picks. Owners feed exactly one code rule there — a picked reviewer who is a current owner is stamped `is_skill_owner=True` so autostart never mints its session under an editor-controlled owner (`auto_start._resolve_autostart_assignee`); the stamp changes identity eligibility, never who reviews. The line is gated on the report channel: a signal-channel scout has no `suggested_reviewers` field, so member names/emails (PII) must not reach its prompt.
 - `skill_loader.py`
-  Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
-  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin + authors), plus
-  `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in
-  predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
-  `resolve_skill_authors` prefers the skill's **explicit owner set** (`LLMSkillOwner`, keyed on the
-  logical `(team, name)` so it never drifts when the body is edited) — returned as `role="owner"`,
-  seed-creator first. Only when a skill has no explicit owners does it fall back to reconstructing
-  authorship from version rows (distinct non-null `created_by`: creator = earliest first-authored,
-  then editors by last-edit recency, capped). Both paths are restricted to
-  `team.all_users_with_access()` so a revoked user's profile stops flowing into a privileged prompt.
-  `resolve_skill_owner_user_uuids` exposes the owner set (seed-creator first) to the report tools'
-  reviewer guardrail. Author resolution is opt-in via `load_skill_for_run(..., include_authors=True)`
-  — only the runner's prompt-building path pays for it; the report-authorization gate in `views.py`
-  loads the skill per report write just to check `allowed_tools` and skips it.
+  Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin + authors), plus `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
+  `resolve_skill_authors` prefers the skill's **explicit owner set** (`LLMSkillOwner`, keyed on the logical `(team, name)` so it never drifts when the body is edited) — returned as `role="owner"`, seed-creator first. Only when a skill has no explicit owners does it fall back to reconstructing authorship from version rows (distinct non-null `created_by`: creator = earliest first-authored, then editors by last-edit recency, capped). Both paths are restricted to `team.all_users_with_access()` so a revoked user's profile stops flowing into a privileged prompt.
+  `resolve_skill_owner_user_uuids` exposes the owner set (seed-creator first) to the report tools' reviewer provenance stamp (`is_skill_owner`). Author resolution is opt-in via `load_skill_for_run(..., include_authors=True)` — only the runner's prompt-building path pays for it; the report-authorization gate in `views.py` loads the skill per report write just to check `allowed_tools` and skips it.
 - `lazy_seed.py`
-  Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
-  reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
-  ones the team hasn't edited, leaves diverged / hand-authored rows alone, tombstones
-  rows whose canonical skill was deleted. Only rows tagged
-  `metadata.seeded_by="signals_scout_harness"` are ever updated. Called both lazily
-  (coordinator tick, runner cold-start) and explicitly via the `sync_signals_scout_skills`
-  management command.
+  Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and reconciles them against the team's `LLMSkill` rows: creates missing rows, updates ones the team hasn't edited, leaves diverged / hand-authored rows alone, tombstones rows whose canonical skill was deleted. Only rows tagged `metadata.seeded_by="signals_scout_harness"` are ever updated. Called both lazily (coordinator tick, runner cold-start) and explicitly via the `sync_signals_scout_skills` management command.
+- `fleet_sync.py`
+  `materialize_scout_fleet(team, surface=...)` — the on-demand `configs/sync/` path, and the only place that records what a materialization did. Resolves the seed posture + holdback from one flag read, runs `sync_canonical_skills(prune=True)` and `register_missing_configs`, then captures `signals_scout_fleet_synced` with the per-bucket counts the `SyncResult` carries (created / updated / diverged / tombstoned / pruned), the configs it registered, the fleet it left behind, whether the project had one before (`was_empty` — the rescue metric), the `surface` the caller declared, and how long the pass took. Every sync captures, zero counts included: a no-op sync is the denominator for "how often does opening the tab find work to do". Best-effort, like every other scout event.
+  It also carries the mass-prune tripwire. A reap that takes more than half the canonical fleet, and at least `MASS_PRUNE_FLOOR` scouts, is not a retirement — it means the sync read a fleet the deploy did not ship — so it stamps `unexpected_prune` on the event and captures `UnexpectedScoutFleetPrune` into error tracking. A detector, not a guard: by the time the count exists the rows are tombstoned.
 - `config_registry.py`
-  `register_missing_configs(team_id)` — auto-creates an enabled, default-schedule
-  `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a
-  scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
-  write-scoped config `create` endpoint instead (reads stay side-effect free).
-- `slack_delivery.py` / `slack_delivery_queue.py`
-  Best-effort direct Slack delivery for configured scout outputs. Finding emissions and surfaced
-  report emits/edits snapshot the run config's destination after their database write commits, then
-  enqueue the shared retrying Celery worker. Integrations are project-scoped, so a workspace connected
-  from any environment in the project can receive the canonical parent team's scout output.
+  `register_missing_configs(team_id)` — auto-creates an enabled, default-schedule `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the write-scoped config `create` endpoint instead (reads stay side-effect free). A canonical scout's `scout-tags` frontmatter (read through `lazy_seed.canonical_config_tags_for`) is stamped on the row it creates, which is how a product surface claims its scouts by tag instead of by hardcoded skill name — AI observability's self-driving tab lists the `ai-observability`-tagged configs. Forward-only like the rest of the seed posture: adding the key to an already-seeded scout leaves that team's existing config untagged until someone tags it through the config API.
+- `suggestions.py` / `suggestions_runner.py`
+  Pre-computed scout suggestions: the push-side twin of the "Suggest a scout" chat button. `suggestions.py` (temporalio-free, cheap to import) holds the structured-output contract the headless run returns (`ScoutSuggestionBatch`: 3-5 items, each a `canonical` "turn this on" pick or a `custom` draft with a ready-to-create `draft_body`), the `signals-scout-suggestions` flag-payload settings (`enabled`, `eligibility_tier` 0-4 (0 = allowlist only), `refresh_days`, `max_children_per_tick`, allow/blocklist, failure breaker), the planner (`plan_suggestion_runs`: recomputes the priority queue from Postgres every tick; tier, then never-generated, then most overdue, then most recently engaged; engagement is a report view or rating, a scout a person turned on or off (`status_changed_by`), or a scout a person created (`created_by`), never a plain edit or a system touch; nothing is stored as a queue; engagement is read only for the teams already in the tier map, since `SignalReportAction.last_at` is deliberately unindexed and an unbounded filter on it scans the whole action history; a team past the failure breaker doubles its refresh interval per further failure, because the cooldown is shorter than the refresh window and so could never hold a scheduled retry back), draft validation (`validate_suggestion_items` drops anything the one-click Create could not apply as-is), and persistence on `SignalScoutSuggestionSet` (one row per team, items as JSON, every write under a row lock since each is a read-modify-write of the column; dismissals carry forward by `skill_name` and survive as hidden tombstones when a batch omits the name, compacted to the dismissal fields so a dropped draft body does not sit in the row forever; a batch persisted after the fleet moved is stored `stale`, and a batch that merely aged past `refresh_days`, whether it held items or concluded there was nothing to suggest, reads as `stale` through `effective_status`, since nothing writes that status on expiry; a failed generation anywhere after the gates keeps the prior items and counts toward the breaker; `mark_stale_if_fleet_changed` is wired to `SignalScoutConfig` saves in `../receivers.py`). Reads hide dismissed, created, and already-enabled items, plus custom drafts whose name a stored skill or config has since taken; the manual refresh endpoint honors the same kill switch and blocklist as the planner, runs the scan as its authenticated caller rather than the resolved team member, and a manual dispatch stamps `last_requested_at` so the coordinator does not double up. `suggestions_runner.py` is the one piece that needs the tasks agent facade: `arun_scout_suggestions` gates (AI-processing consent, signals quota, an acting user), mints a `read_only` headless task with the reserved `SIGNALS_SCOUT_SUGGESTIONS` origin, no GitHub token and no MCP Store servers, because the scan reads project text any member can write, parses the batch with no prose salvage (an unparseable close-out is a failed generation), validates, persists, and emits `$scout_suggestions_generated`. Driven by `temporal/agentic/scout_suggestions.py` (coordinator + child, same shape as the scout coordinator, own schedule) and exposed read/dismiss/refresh at `signals/scout/suggestions/` (`../scout_suggestions_api.py`), where membership, token scope, and resource-level RBAC all anchor to the canonical parent team. The prompt shares `SCOUT_PROJECT_SCAN_GUIDANCE` (in `prompt.py`) with the chat template so the two voices never drift.
+- `slack_delivery.py` / `slack_delivery_queue.py` / `slack_charts.py`
+  Best-effort direct Slack delivery for configured scout outputs. Finding emissions and surfaced report emits/edits snapshot the run config's destination after their database write commits, then enqueue the shared retrying Celery worker. The destination targets a single channel or up to `MAX_SCOUT_SLACK_DM_TARGETS` members who each get an individual DM (one Celery task per recipient, so retries and permanent failures stay independent; a group DM would need the `mpim:write` scope the Slack app doesn't request). Integrations are project-scoped, so a workspace connected from any environment in the project can receive the canonical parent team's scout output.
+  A report message renders its `charts` through the exports facade (`render_png_export`, attributed to the run's acting user, so the insight access check applies; a system render that expires with its delivery url, so it stays out of the user's export quota and does not outlive its only reference) and appends them as `image` blocks pointing at a signed delivery url; chart links in the prose still reduce to their label. A threaded report carries its charts on the lead message, since the replies only hold the summary's tail. Only `InsightVizNode` / `SavedInsightNode` charts render, capped per report and by a render-time budget (a render only starts if it can finish inside the budget), with rendered assets remembered per delivery so a Slack retry does not re-render, and every failure is skipped rather than failing the delivery — the whole chart build is best effort, not only the render. The Slack integration row is resolved again after the build, since a workspace reconnected during the render window replaces the token on the same row.
+  A threaded report splits its summary at the shallowest Markdown heading level that summary repeats at, so a sub-heading rides in its parent's reply and the thread mirrors the outline the reader sees in the inbox; a level used once is the report's own title rather than a seam, so the split descends past it. The split runs at any length, because a typical digest fits inside one Slack section and a length test leaves it in the channel as the wall of text threading exists to break up. A summary with no heading has no seam and stays one message, hard-chunked only past the section cap.
+  Slack fetches each image url itself and rejects the whole message when it cannot reach one, so a rejected message is posted again without its charts, which carry `CHART_BLOCK_ID_PREFIX` block ids to be dropped as whole units; a deployment Slack cannot reach still gets the prose and the report link.
+  This path bypasses the HTTP chart-render throttle, so the cap is the guard.
+  One `ChartRenderBudget` spans a delivery's initial build and any rebuild, so an edit landing mid-render cannot buy a second set of renders; only a cache miss spends one. The budget also holds the assets the delivery has rendered, so a rebuild keeps them even where the retry cache is off. That cache is written after every render (the task acks late, so a worker lost mid-delivery leaves finished renders for the retry) and signs each entry with `SIGNALS_SLACK_CHART_CACHE_SIGNING_KEYS` (comma-separated `new,old`; first signs, all verify) rather than `SECRET_KEY`; reuse is off wherever that setting is unprovisioned. A content edit made through the scout's edit tool enqueues a fresh full delivery and claims the report's latest-delivery marker before publishing to the broker, giving the claim up again if the publish fails (a claim naming a task that never runs would silence the report for the marker's whole TTL). Every full delivery yields to a marker naming another delivery, not only one that rebuilt mid-render: an edit landing before a delivery starts leaves its build nothing to rebuild, so the content is already current and it would otherwise post the edited report a second time. The marker is scoped to the destination as well as the report, since two scouts editing one report into different channels are not competing. A note-only delivery carries its own note rather than report content and is never marked, so it never yields.
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
-  The effective toolset for a run is the intersection of the skill's `allowed_tools`
-  list with what `tools/__init__.py` re-exports — there is no separate registry
-  module today.
-  - `emit.py` — `emit_signal_*` tools that push findings as `cross_source_issue`
-    signals into the standard ingestion pipeline.
-  - `scratchpad.py` — `remember`, `forget`, and `search_scratchpad` tools backed by
-    the `SignalScratchpad` model.
-  - `notes.py` — `list_notes` / `leave_note` / `delete_note` backed by the
-    `SignalScoutNote` model: steering notes humans (or other agents) leave for the
-    fleet over the public MCP surface (`scout-notes-*` tools), the inbound counterpart
-    to the scratchpad. A note targets one scout by `skill_name` or the whole fleet
-    (blank), optionally expiring via `expires_at`; the run prompt's _Notes left for
-    you_ section directs every scout to `scout-notes-list` its own notes in step 1 and
-    treat them as advisory steering. Unlike the scratchpad there is no sandbox-only
-    write gate, but writes still demand skill-authoring-level authorization (keys need
-    `llm_skill:write` on top of `signal_scout:write`, and every writer must clear the
-    `llm_skill` RBAC editor bar) — so a note-writer could already steer the fleet by
-    editing its skills, and notes add no new steering power.
-  - `profile.py` — `project_profile_*` tools that read the deterministic
-    `SignalProjectProfile` snapshot.
-  - `runs.py` — `runs_*` tools that read past `SignalScoutRun` rows for dedupe and
-    cross-skill awareness.
+  The effective toolset for a run is the intersection of the skill's `allowed_tools` list with what `tools/__init__.py` re-exports — there is no separate registry module today.
+  - `emit.py` — `emit_signal_*` tools that push findings as `cross_source_issue` signals into the standard ingestion pipeline.
+  - `scratchpad.py` — `remember`, `forget`, and `search_scratchpad` tools backed by the `SignalScratchpad` model.
+    Entries are durable by default; an optional `expires_at` (mirroring `notes.py`) retires a time-boxed memory on its own, since a scout that writes one almost never comes back to `forget` it.
+    `remember` is a full-state upsert, so a write with no `expires_at` clears an expiry an earlier write set — sticky expiry would keep hiding an entry that has since become permanent, with no way for the rewriting scout to know a clock was on it.
+    `search_scratchpad` drops expired rows unless `include_expired=True` (the human audit path); expiry hides a row, it never deletes one, so the key stays taken and both `forget` and the upsert still find it.
+    A reader that goes to the manager rather than through `search_scratchpad` stays unfiltered on purpose — `derived_metadata._touched_followup_queue` is the one such reader, and has to be, since a `followup:` entry lapsing after a run doesn't undo the validation work that run did.
+    The scratchpad is shared with the report pipeline, not scout-only. `remember` / `forget` are gated on their own `signal_scratchpad_internal:write` scope rather than the wider `signal_scout_internal:write`, so the pipeline's research and implementation runs can persist what they judged without also getting `emit_signal` and `record_output`. Scouts keep both tools, because `SCOUT_INTERNAL_SCOPES` carries the scratchpad scope too; the pipeline's own postures are the `signals_research` / `signals_implementation` presets in `posthog/temporal/oauth.py`. `signals_research` withholds `task:write`: it turns the MCP read-only header off so its scratchpad tools survive, and that header was the only thing keeping the task-write toolset (report state included) away from a stage meant to read.
+    Those stages have no `SignalScoutRun`, so `created_by_run` cannot name them. They stamp `SignalScratchpad.created_by_identity` instead — a `pipeline:*` string from `../pipeline_identity.py`, resolved server-side from the token's bound task (its `ai_stage`, written once at run creation) rather than passed in, since a writer that could name itself could name a scout's skill. `_to_entry` reads it as `created_by_skill` when there is no run, so `scout-scratchpad-search` attributes every entry the same way. Like `created_by_run` it is written on create only, so an upsert keeps the original author.
+  - `notes.py` — `list_notes` / `leave_note` / `delete_note` backed by the `SignalScoutNote` model: steering notes humans (or other agents) leave for the fleet over the public MCP surface (`scout-notes-*` tools), the inbound counterpart to the scratchpad. A note targets one scout by `skill_name` or the whole fleet (blank), optionally expiring via `expires_at`; the run prompt's _Notes left for you_ section directs every scout to `scout-notes-list` its own notes in step 1 and treat them as advisory steering. A third audience is a stage of the report pipeline, addressed through the reserved `pipeline:*` family (`PIPELINE_AUDIENCES`, holding `pipeline:report-research` today): a pseudo-target riding the same `skill_name` column, allowlisted at write time so an unrecognized one is rejected instead of silently steering no one, and skipping the scout-skill lookup because a stage has no `LLMSkill` row. `list_notes` matches `skill_name` exactly, so no scout ever sees a pipeline note; the research loader in `../report_steering.py` reads `pipeline:report-research` alongside the report's scout target and the fleet-wide blanks. `validate_note_target`, the shared write-time rule, and the audience constants live in `../note_targets.py`, an import-light module, because the Django admin form calls the rule at registry load and importing anything under `tools/` runs that package's `__init__`, which pulls in every harness tool. Unlike the scratchpad there is no sandbox-only write gate, but writes still demand skill-authoring-level authorization (keys need `llm_skill:write` on top of `signal_scout:write`, and every writer must clear the `llm_skill` RBAC editor bar) — so a note-writer could already steer the fleet by editing its skills, and notes add no new steering power. Three more writers derive rows from inbox activity. `../dismissal_notes.py`: judging an inbox report with a note (dismiss, snooze, or restore) also leaves it here as an `origin=report_dismissal` note, targeted at the scout that authored the report, so a reviewer's verdict reaches the scout without it having to re-find the report. Resolving does not, since that says the report did its job rather than that filing it was wrong. `../discussion_notes.py`: opening a discussion on a report (the inbox "Discuss" action, which kicks off a Q&A task) also leaves the user's question here as an `origin=report_discussion` note, targeted at the authoring scout — framed as context to weigh or ignore, not a verdict, so the scout can fold a durable preference/correction into its scratchpad or dismiss it as noise. `../feedback_notes.py`: the thumbs rating at the end of a report body ("Was this report useful?") carries its optional note here as an `origin=report_feedback` note, targeted at the authoring scout. Unlike a dismissal it never falls back to a fleet-wide note — feedback is a verdict on one scout's own report, so with no resolvable authoring scout nothing is forwarded and the call is a no-op — and it never changes the report's state; the analytics event the client fires stays the durable record of the rating. All three paths re-check the same steering gate (token `scoped_teams`, canonical-project access, and the `llm_skill` editor bar) since the dismiss, discuss, and feedback actions need only `task:write`, and all forward only on the canonical team. The discuss and feedback paths additionally demand the `signal_scout:write` / `llm_skill:write` key scopes: a dismissal's text reaches runs anyway through the reports API, whereas the note is the only path a discussion question or feedback note takes to a scout, so a `task:write` credential must not open it alone. The discuss path is triggered from the tasks viewset (which holds the request the gate reads) through `facade/api.py:forward_report_discussion_note`, never from the tasks facade. On the read side, all three derived origins quote report content (report id, title, the note text), so `SignalScoutNoteViewSet.list` withholds them from any caller failing the reports read gate (`_may_read_reports`). The derived rows are context with a TTL; the `dismissal` artefact / discussion task / feedback analytics event stays the record of truth. Notes reach two surfaces outside the fleet, both through `../report_steering.py`. `load_report_steering` renders the `HUMAN`-origin ones into the description of the self-driving implementation task, so steering that used to stop at the scout also reaches the run that writes the code; the derived origins are withheld there for the reason the read gate withholds them — they quote report content, which is built from raw product data, and that run can open a PR. `load_research_steering` renders every origin into the pipeline's report-research prompt, because the derived ones are feedback on exactly the judgment that stage is about to make; that run is read-only, already holds the report's raw signals, and writes back only to the report on the same team.
+  - `structured_output.py` — `record_structured_output` (+ `_sync`): the structured-output channel, next to signals and reports. Opt-in via `SignalScoutConfig.structured_output_schema` (a JSON Schema describing ONE record, validated at config-write time by `validate_structured_output_schema` — which also rejects non-local `$ref`/`$dynamicRef`, and every validator here uses a no-retrieval registry, so a user-controlled schema can never make the worker fetch a URL; null = channel off, and the record endpoint fails closed). Setting the schema is skill-authoring-level steering (schema `description` fields are free prose rendered verbatim into a privileged prompt), so the config viewset gates it behind `llm_skill:write` + the `llm_skill` editor bar, like scout notes; clearing it stays on the base config scope. Records validate against the dispatch-time schema snapshot the runner stamps on the run row (`metadata["structured_output_schema"]`), so a mid-run schema edit can't reject records matching what the run was shown — while clearing the config schema mid-run still fails the channel closed (re-checked inside the capacity-reservation transaction with the config row locked, so a clear racing a submit serializes cleanly). Each submitted record is validated against the schema (all-or-nothing per call — an invalid record fails the batch with nothing written) and written into the team's own project as a `$scout_structured_output` event via one `capture_batch_internal` call (person processing off, deterministic uuid over `(run, batch index, subject, payload)` so a resubmitted batch collapses at ingestion while in-batch duplicates stay distinct). The events ARE the record — there is no Postgres row store, so past records are read like any events (insights, HogQL) and retention follows event retention — which is also why a delivery failure fails the call (`StructuredOutputDeliveryError` → 503) with an instruction to retry — the events carry a stable timestamp (the run's `created_at`) alongside the deterministic uuid, so the dedupe sorting key (`toDate(timestamp)` is part of it) stays identical across retries even past UTC midnight — and why the channel fails loudly for a dry-run `emit=False` scout, an org without AI-processing consent (mirroring `emit._preflight_emit_gates`), or a disabled `signals_scout` source instead of suppressing quietly (the runner also withholds the prompt section and schema snapshot when `emit` is off). Cardinality is the scout's call — the schema describes one record; a run may submit one, one per judged entity, or a batch (caps: `MAX_RECORDS_PER_CALL` per call, `MAX_RECORDS_PER_RUN` per run via the `structured_output_count` counter on `run.metadata`, reserved under the run-row lock before the forward — it counts accepted batches, so failed or retried forwards still spend cap). The prompt renders the exact configured schema in a per-run `# Structured output` section only when the channel is live, so the prompt and the validator can never describe two different contracts.
+  - `profile.py` — `project_profile_*` tools that read the deterministic `SignalProjectProfile` snapshot.
+  - `runs.py` — `runs_*` tools that read past `SignalScoutRun` rows for dedupe and cross-skill awareness.
 - `profile/`
-  - `builders.py` — deterministic builders that compute the inventory payload for
-    `SignalProjectProfile`. Sections fall into three layers: capability / configured
-    (sticky — `products_in_use`, `integrations`, `external_data_sources`,
-    `signal_source_configs`, …), aggregated recency (`recent_activity` — per-scope
-    counts off the activity log, cross-cutting orientation across every entity type),
-    and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
-    `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,
-    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`,
-    `business_knowledge`).
-    Per-entity sections are deliberately light (counts + 5 most-recent items with
-    name, status, timestamp); deep drilldowns go via the per-entity MCP list tools.
-    See the module docstring at `profile/builders.py` for the authoritative section
-    list — when adding or renaming a section, bump `INVENTORY_SOURCE_VERSION` so
-    the cache invalidates cleanly.
+  - `builders.py` — deterministic builders that compute the inventory payload for `SignalProjectProfile`. Sections fall into three layers: capability / configured (sticky — `products_in_use`, `integrations`, `external_data_sources`, `signal_source_configs`, `scout_fleet`, …), aggregated recency (`recent_activity` — per-scope counts off the activity log, cross-cutting orientation across every entity type), and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`, `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`, `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`, `business_knowledge`).
+    Per-entity sections are deliberately light (counts + 5 most-recent items with name, status, timestamp); deep drilldowns go via the per-entity MCP list tools.
+    See the module docstring at `profile/builders.py` for the authoritative section list — when adding or renaming a section, bump `INVENTORY_SOURCE_VERSION` so the cache invalidates cleanly.
+- `inactivity.py`
+  The stop switch on the waste axis (the failure breaker below covers the failure axis). `sweep_inactive_scouts()` judges **consumption, not emission**: a scout counts as consumed only when a **person** acted on a report it wrote or edited in the `TOUCHED_REPORT_LOOKBACK` — a log artefact attributed to a user (pipeline writers append log artefacts of their own, so unattributed ones don't count), a `SignalReportAction` row (the light interactions the inbox UI records server-side: opening a report's detail view via the `viewed` endpoint, rating it with the thumbs via `feedback` — reading counts on purpose, since that is how digest-style reports are consumed), or the report recently reaching `resolved`/`deleted` (`resolved` deliberately includes the GitHub webhook's resolve-on-merge, so a PR merged on GitHub with no in-app action still counts; `suppressed` is deliberately excluded because the same webhook suppresses on close-unmerged with no human involved).
+  The two `pause_reason`s behave differently: `ignored` (the scout holds at least one report older than `ESTABLISHED_REPORT_AGE` and none of its reports show consumption) warns and then pauses after `WARNING_GRACE`; `no_output` (silent, with no judgeable report evidence) only ever warns, because a watch scout's silence can be its job. A scout with output but nothing judgeable on the report side — findings-only, Slack-routed (consumption happens in Slack where no evidence flows back), or every report younger than `ESTABLISHED_REPORT_AGE` — is left alone.
+  It speaks the scout lifecycle vocabulary rather than keeping fields of its own: the warning is `status=pending_pause` (still scheduled), the pause is `status=paused_by_system` (syncing `enabled=False`), both through `transition_status_by_system`. The helper's ownership rule is writer-scoped: the sweep owns both of its reasons (so it can reclassify its own warning in either direction — `no_output` becomes `ignored` when report evidence establishes, restarting the grace clock, and `ignored` downgrades to `no_output` when its evidence ages out of the lookback, so a pause never lands on stale grounds), and neither the sweep nor the failure breaker can touch the other's pauses.
+  Driven by the daily `pause_inactive_signal_scouts` Celery task rather than the coordinator tick, which stays bounded. A dry-run scout, one inside `in_cold_start_grace()`, one that has barely run (`MIN_RUNS_IN_WINDOW`), and one flagged `auto_pause_exempt` (watchdogs whose value is staying quiet) are all left alone; new warnings are capped per sweep (`MAX_WARNS_PER_SWEEP`), which also bounds later pauses, since a pause only ever follows a warning by `WARNING_GRACE`.
+  Unlike the failure breaker there is no probe — an inactivity pause never runs again on its own. Re-enabling through the config API resumes the scout and re-anchors its grace window, so the sweep waits a full fresh `COLD_START_GRACE` and re-derives its verdict before judging it again (permanent immunity stays the explicit `auto_pause_exempt` field, never a resume side effect); that resume also emits `signals_scout_auto_pause_reverted`, the sweep's false-positive metric (the warn and pause emit `signals_scout_auto_pause_warned` / `signals_scout_auto_paused`).
 - `limits.py`
-  Runtime ceilings as module constants: `DEFAULT_MAX_RUNTIME_S` (per-run budget),
-  `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S +
-ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
-  `start_to_close_timeout`).
+  Runtime ceilings as module constants: `DEFAULT_MAX_RUNTIME_S` (per-run budget), `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's `start_to_close_timeout`).
+  Also the failure-streak circuit breaker's knobs: `failure_streak_pause_threshold(runs_in_tolerance_window)` — consecutive failed runs before the breaker pauses the lane, derived per-lane so the same wall-clock tolerance holds at every cadence (one failure past the runs the schedule fits into `FAILURE_STREAK_MIN_SPAN_MINUTES` of continuous failure, `FAILURE_STREAK_MIN_RUNS` floor, capped at `FAILURE_STREAK_MAX_RUNS` + 1), with `interval_runs_in_tolerance_window` sizing the evenly spaced case — and `AUTO_PAUSE_PROBE_INTERVAL_S` (how long a paused lane holds before the coordinator dispatches one probe).
 - `team_limits.py`
-  Single source of truth for a team's effective scout caps + metadata, resolved from the
-  `signals-scout` flag payload in one read. The same three-layer cap resolution
-  (`team_configs[team]` → `default_team_config` → code constant) the coordinator enforces at
-  dispatch, plus enrollment (`_parse_enrollment` → `guaranteed_team_ids` / `skip_team_ids`, with a
-  cloud/dev-gated fallback) and the editorial banner string. `guaranteed_team_ids` may contain the
-  `"*"` wildcard (`ENROLL_ALL_TOKEN`): with it, enrollment inverts from an explicit allowlist to
-  "every team that has enabled scout configs" — the self-serve gate, where the product-autonomy-
-  gated UI creates the configs; explicit ids alongside `"*"` are still force-provisioned and
-  `skip_team_ids` still hard-excludes. The global per-tick ceiling is flag-tunable too
-  (`_resolve_global_max_runs_per_tick` ← `max_runs_per_tick_global`, default `MAX_RUNS_PER_TICK`).
-  Kept free of the temporalio stack so it stays cheap to import on the API path; both the
-  coordinator and the metadata endpoint import from here so the reported caps never drift from what
-  dispatch allows. `resolve_team_metadata()` backs the metadata viewset;
+  Single source of truth for a team's effective scout caps + metadata, resolved from the `signals-scout` flag payload in one read. The same three-layer cap resolution (`team_configs[team]` → `default_team_config` → code constant) the coordinator enforces at dispatch, plus enrollment (`_parse_enrollment` → `guaranteed_team_ids` / `skip_team_ids`, with a cloud/dev-gated fallback) and the editorial banner string. `guaranteed_team_ids` may contain the `"*"` wildcard (`ENROLL_ALL_TOKEN`): with it, enrollment inverts from an explicit allowlist to "every team that has enabled scout configs" — the self-serve gate, where the product-autonomy- gated UI creates the configs; explicit ids alongside `"*"` are still force-provisioned and `skip_team_ids` still hard-excludes. The global per-tick ceiling is flag-tunable too (`_resolve_global_max_runs_per_tick` ← `max_runs_per_tick_global`, default `MAX_RUNS_PER_TICK`).
+  Kept free of the temporalio stack so it stays cheap to import on the API path; both the coordinator and the metadata endpoint import from here so the reported caps never drift from what dispatch allows. `resolve_team_metadata()` backs the metadata viewset;
   `seed_config_layers_for_team()` lets the on-demand `sync` endpoint seed the same launch posture.
+- `derived_metadata.py`
+  Computes the `metadata["derived"]` region on the run row at finalize: booleans the harness reads back off the run's own settled output (`has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`). Deliberately server-derived rather than scout-reported, so a flag can't be omitted or contradicted by the model, and computed in one place at finalize rather than stamped incrementally at each emit/edit site.
+  `has_self_improvement` classifies authored report titles through `tools/report.is_self_improvement_title`, the same predicate the lifecycle events use, so the run row and the event stream can never disagree. `has_self_validation` reads the run window against the skill-namespaced `followup:` scratchpad keys, since working that queue means writing to it.
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
-  `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`,
-  `SignalScoutMembersViewSet`, `SignalScoutViewSet`.
-  Routed under `project_signals_scout_*` basenames in `products/signals/backend/routes.py`
-  and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
-  `SignalScoutViewSet` backs `scout-create`: it creates a custom `signals-scout-*` skill
-  and its runnable config atomically, grants the report-channel tools server-side, and
-  treats an identical definition as a retry while rejecting conflicting definitions.
+  `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`, `SignalScoutNoteViewSet`, `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`, `SignalScoutViewSet`.
+  Routed under `project_signals_scout_*` basenames in `products/signals/backend/routes.py` and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutViewSet` backs `scout-create`: it creates a custom `signals-scout-*` skill and its runnable config atomically, grants the report-channel tools server-side, and treats an identical definition as a retry while rejecting conflicting definitions.
   `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
-  it returns the project's members (those with access to the team) with `user_uuid` / `email` /
-  `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
-  is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object
-  (`scope_object = "signal_scout_internal"`, default `list` → `signal_scout_internal:read`, satisfied by
-  the sandbox token's `…:write`) — so, like `emit-signal`, it is reachable only inside a scout run and
-  never enters a customer's public MCP catalog. (The narrower `signal_scout_report` scope was considered
-  but is transient — kept only while emit-signal and emit-report coexist — so the durable tool stays on
-  `signal_scout_internal`.) Membership is resolved server-side via
-  `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`,
-  so private-project access control is honored), the project-nested path that the org-nested
-  `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
-  The config viewset remains the lower-level no-wait creation path: `create` registers
-  (upserts) a config for an already-authored skill with its schedule/emit posture in one call.
-  `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
-  mints config rows. The metadata viewset is the read-only `scout/metadata/current/`
-  endpoint that reports enrollment + banner + enforced limits via
-  `team_limits.resolve_team_metadata`.
+  it returns the project's members (those with access to the team) with `user_uuid` / `email` / `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object (`scope_object = "signal_scout_internal"`, default `list` → `signal_scout_internal:read`, satisfied by the sandbox token's `…:write`) — so, like `emit-signal`, it is reachable only inside a scout run and never enters a customer's public MCP catalog. (The narrower `signal_scout_report` scope was considered but is transient — kept only while emit-signal and emit-report coexist — so the durable tool stays on `signal_scout_internal`.) Membership is resolved server-side via `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`, so private-project access control is honored), the project-nested path that the org-nested `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
+  The config viewset remains the lower-level no-wait creation path: `create` registers (upserts) a config for an already-authored skill with its schedule/emit posture in one call.
+  `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never mints config rows. The metadata viewset is the read-only `scout/metadata/current/` endpoint that reports enrollment + banner + enforced limits via `team_limits.resolve_team_metadata`.
 
 ## Mental model
 
-`arun_signals_scout()` is the main entrypoint. One call → one `SignalScoutRun` row →
-one sandbox session → zero or more emitted signals.
+`arun_signals_scout()` is the main entrypoint. One call → one `SignalScoutRun` row → one sandbox session → zero or more emitted signals.
 
 - The harness inserts the bridge row at the start of a run (inside `_spawn_and_run`).
-  `SignalScoutRun` is now a thin bridge to a Tasks `TaskRun` — run status / timing / error
-  live on `task_run`, not on the bridge row. Single-flight is a best-effort app-layer guard:
-  `_has_running_run` skips dispatch when a prior run for the same `(team, skill_name)` has
-  `task_run.status = IN_PROGRESS`. The old `WHERE status='running'` partial unique index was
-  dropped in the bridge simplification; `_self_heal_stale_runs` now reaps the orphan case at
-  the app layer (failing any `QUEUED`/`IN_PROGRESS` run older than `STALE_RUN_CUTOFF_S` before
-  the guard), so a worker crash no longer wedges a lane permanently. A `task_run.status`-based
-  DB constraint is still a possible follow-up for stronger single-flight guarantees.
+  `SignalScoutRun` is now a thin bridge to a Tasks `TaskRun` — run status / timing / error live on `task_run`, not on the bridge row. Single-flight is a best-effort app-layer guard:
+  `_has_running_run` skips dispatch when a prior run for the same `(team, skill_name)` has `task_run.status = IN_PROGRESS`. The old `WHERE status='running'` partial unique index was dropped in the bridge simplification; `_self_heal_stale_runs` now reaps the orphan case at the app layer (failing any `QUEUED`/`IN_PROGRESS` run older than `STALE_RUN_CUTOFF_S` before the guard), so a worker crash no longer wedges a lane permanently. A `task_run.status`-based DB constraint is still a possible follow-up for stronger single-flight guarantees.
+- A `(team, skill)` lane that never succeeds is its own failure mode, distinct from the orphan case above: every dispatch is well-formed, takes a sandbox lease for the full runtime cap, produces nothing, and books a `failed` run — indefinitely, since the lane stays due every tick and nothing reconciles "this has never worked".
+  The runner maintains a failure-streak circuit breaker for it: `consecutive_failure_count` on the config row is bumped on a failed run and zeroed on a successful one, and at the lane's threshold the runner pauses it through `SignalScoutConfig.transition_status_by_system` (`status=paused_by_system`, `pause_reason=repeated_failures`, which also syncs `enabled=False` like any pause).
+  The threshold is per-lane, not fleet-wide: `failure_streak_pause_threshold` sets it one failure past the runs the lane's own schedule fits into `FAILURE_STREAK_MIN_SPAN_MINUTES` of continuous failure (`_failure_streak_runs_in_window` — the fullest window of occurrences across a year-long sample when a cron is set, widened by two hours of DST slack since project-local wall-clock schedules pack extra runs into the spring-forward night (Antarctica/Troll jumps two hours), else the evenly spaced count off the tick-quantized `run_interval_minutes`, the cadence dispatch actually produces), so the streak has to outlast the same wall clock whatever the schedule. Only scheduled runs feed the streak — a manual "run now" is off-schedule, so its failures must not count against a schedule-sized threshold (a burst of retries would pause a daily lane in minutes), while a manual success still clears the streak and can resume a paused lane. A single count could not: at the tightest cadences it trips healthy scouts partway through a platform outage, and at the default daily one it would have to grow into weeks of lease burn to buy tolerance those lanes never needed (an outage costs a daily lane at most one run). Counting occurrences rather than reading one gap is what keeps a bursty cron honest — `0,30 0 * * *` has a 30-minute gap but only runs twice a day, so gap-sizing would hand it a lane-that-runs-all-day budget. The resolved threshold rides on `signals_scout_config_auto_paused` next to the count and the lane's schedule, so a trip is readable without re-deriving it.
+  The breaker is half-open on purpose — a pause is not a tombstone, so the coordinator dispatches one probe per `AUTO_PAUSE_PROBE_INTERVAL_S` to lanes paused with `repeated_failures` (`_collect_probe_runs`, cooldown anchored on `last_run_at` so a failed probe restarts it with no extra bookkeeping); a probe that succeeds resumes the lane through the same helper and normal cadence returns with nobody intervening.
+  The helper's reason-scoped ownership rule keeps it honest: the breaker may only resume its own `repeated_failures` pauses and can never touch `paused_by_user`, so an operator switching a scout off always wins.
+  The streak is read-only on the config serializers (`scout-configs-list`); any config edit resets it, a resume (human `enabled=true` or a successful probe) always starts it clean, and the trip emits `signals_scout_config_auto_paused` once.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
-  The skill body is loaded into the system prompt; each scout has its own
-  `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag,
-  `run_interval_minutes`, and optional project-local cron `run_cron_schedule` the
-  coordinator's per-scout due-check honors.
-- Scout sandbox GitHub credentials are **always read-only**: the runner requests
-  `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped
-  installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never
-  persisted — `get_readonly_github_token` in the tasks product) instead of the write-capable
-  token that task creation would otherwise attach, or injects nothing when the mint isn't
-  possible. The token backs the preinstalled `gh` CLI via `GH_TOKEN`/`GITHUB_TOKEN`.
-  Separately, the **`gh` prompt guidance** for code-derived reviewer evidence — commit history by
-  path, cross-checked against `scout-members-list`, cited in each reviewer's `reason` — renders
-  only for report-channel scouts whose team passes both the `github_read_access` posture in the
-  `signals-scout` flag payload (`team_configs`/`default_team_config`, resolved by
-  `team_limits.github_read_access_for_team`; default ON, an explicit `false` at either layer is
-  the kill switch) AND the mint-feasibility preflight
-  (`tasks_facade.can_mint_readonly_github_token`), so a tokenless run is never steered at `gh`.
-- `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the
-  sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created
-  by the `on_task_run_created` hook before the agent's first turn — this powers the
-  `task_url` deep-link on the run serializers
-  (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
-  LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
-  LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
-  The bridge row does carry a write-once `metadata` JSON column stamped at creation — the
-  API-native record of run context that isn't worth a dedicated column. Known keys today:
-  `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
-  `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (`{}` on the
-  default path). Surfaced verbatim on the run serializers / `scout-runs-*` MCP tools; new
-  operationally-relevant run dimensions should be stamped there by `_create_run_row`, not grown
-  as ad-hoc columns.
+  The skill body is loaded into the system prompt; each scout has its own `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag, `run_interval_minutes`, and optional project-local cron `run_cron_schedule` the coordinator's per-scout due-check honors.
+- The agent model is per-scout too, from `SignalScoutConfig.model` — an optional model-id pin resolved as the top layer of `model_selection.resolve_scout_model`, honored only while the `scouts-model-config` dogfood flag is on for the team (`scout_model_config_enabled`; the flag is the kill switch, so stored pins go inert the moment it's off). A pin beats the `scouts-model-selection` experiment distribution — an explicit per-scout choice must not be rerouted by a fleet trial — and its runtime adapter is inferred from the id like any payload-routed model. Setting the field through the config API is rejected for teams outside the flag; clearing it is always allowed.
+- Sandbox network egress is per-scout, from `SignalScoutConfig.network_access`: `trusted` (default) provisions the shared `SIGNALS_REPORT_RESEARCH` env at the Tasks `TRUSTED` level (the platform trusted-domain allowlist), and `full` provisions a separate `SIGNALS_SCOUT_FULL_NETWORK` env at `FULL` (unrestricted). The env split is load-bearing: `upsert_internal_sandbox_env` reasserts policy per call on the per-team env row named, so a full-network run on the shared env would flip the policy for report research and every trusted scout on the team. That helper only reuses rows already marked `internal` and scrubs the user-controllable execution fields (custom image, env vars, repositories) on every call, so a same-named env a user pre-created via the sandbox environment API can never inject configuration into an internal run. Runs that departed from the default stamp `metadata["network_access"]` on the bridge row and carry it on both lifecycle events via `_attach_run_shape_props` (absent = trusted in both places), since the config can be edited after the fact. A future `custom` mode (user-supplied allowlist) should mirror the Tasks `NetworkAccessLevel` vocabulary.
+- Scout sandbox GitHub credentials are **always read-only**: the runner requests `github_read_access` on every scout run, so provisioning mints an ephemeral downscoped installation token (`contents`/`metadata`/`pull_requests` read, team-level installs only, never persisted — `get_readonly_github_token` in the tasks product) instead of the write-capable token that task creation would otherwise attach, or injects nothing when the mint isn't possible. The token backs the preinstalled `gh` CLI via `GH_TOKEN`/`GITHUB_TOKEN`.
+  Separately, the **`gh` prompt guidance** for code-derived reviewer evidence — commit history by path, cross-checked against `scout-members-list`, cited in each reviewer's `reason` — renders only for report-channel scouts whose team passes both the `github_read_access` posture in the `signals-scout` flag payload (`team_configs`/`default_team_config`, resolved by `team_limits.github_read_access_for_team`; default ON, an explicit `false` at either layer is the kill switch) AND the mint-feasibility preflight (`tasks_facade.can_mint_readonly_github_token`), so a tokenless run is never steered at `gh`.
+- `MultiTurnSession.start()` creates a Tasks `(Task, TaskRun)` pair to drive the sandbox. The bridge row links to its `TaskRun` via a `OneToOne` FK (`task_run`), created by the `on_task_run_created` hook before the agent's first turn — this powers the `task_url` deep-link on the run serializers (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
+  The bridge row does carry a `metadata` JSON column — the API-native record of run context that isn't worth a dedicated column — in two server-written regions.
+  Top-level keys are stamped write-once at creation by `_create_run_row`, and split by whether they are always present.
+  `harness_prompt_version` / `report_channel` (`none`/`emit`/`edit`/`both`) / `skill_origin` / `github_guidance` / `business_knowledge_maintained` always are:
+  together they pin down which instructions the run was given, which is the thing an eval or A/B has to hold constant. The last four are composition forks the build alone doesn't capture, since the same prompt build renders different sections depending on channel, skill origin, whether a read-only GitHub token could be minted, and whether the team's knowledge base looks maintained (flag + upkeep, per `business_knowledge.is_maintained_for_team`).
+  Each is unrecoverable after the fact (the prompt has no version history, a skill's `allowed_tools` can be edited, a seeded canonical row flips to `custom` the moment a team edits it taking every past run's origin with it, and the flag / source state behind the last two can change between runs), which is why they are stamped rather than resolved at read time.
+  `model` / `runtime_adapter` / `reasoning_effort` appear only when something overrode the agent-server default — a `SignalScoutConfig.model` pin (honored while the `scouts-model-config` dogfood flag is on for the team, and the top layer of `model_selection.resolve_scout_model`), the `scouts-model-selection` gate, or a runtime pin — so their absence is meaningful.
+  All five are attached to both lifecycle events via `_attach_run_shape_props`, since that is where the A/B readout happens, and `github_guidance` and `business_knowledge_maintained` are resolved in `arun_signals_scout` rather than inside `_spawn_and_run` so the failure and cancellation paths can report them too.
+  New runner-known run dimensions belong here, not grown as ad-hoc columns.
+  The nested `derived` object is written once at finalize by `derived_metadata.py` and holds booleans the harness computes from the run's own settled output (`has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`), so "what kind of run was this?" is a field lookup rather than a parse of the prose `summary`.
+  Nothing in the column is scout-authored: a self-reported flag would only be as reliable as the model remembering to write it, which is what makes this column safe to query directly.
+  Both regions surface on the run serializers / `scout-runs-*` MCP tools, with one exception: the dispatch-time `structured_output_schema` snapshot is stripped on the way out (`RunMetadataField.to_representation`) — it exists for record validation, and repeating up to 20 KB of schema per row would bloat every run listing.
+  A missing `derived` region is unknown rather than all-false: the run predates the field, died before finalize, or its stamp failed (best-effort and logged, since observability must not fail a run that already committed its output). The flags read the authored reports' current state at finalize rather than an emit-time snapshot, so a title or chart changed after the emit is what lands; the emit-time record stays on the report lifecycle events.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
-  `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
-  `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit
-  count), and `signals_scout_run_reaped` (a stranded orphan was reaped by
-  `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
-  (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
-  with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
-  When the `scouts-model-selection` gate (or a runtime pin) routes the run, `started` and
-  `finished` also carry `model` / `runtime_adapter`, so run outcomes are sliceable by model
-  without joining through `$ai_generation`; absence means the agent-server default served it.
-  The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited`
-  (plus customer-facing `$scout_report_*` copies), stamped with derived classification
-  properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`)
-  via `_report_classification_props` in `tools/report.py` — classified server-side off the
-  prompt's mandated title prefix (`prompt.SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`), so
-  self-improvement reports are separable without downstream title heuristics. That helper
-  is the single extension point for future derived telemetry dimensions on these events —
-  add new flags there (both events pick them up), not as model columns.
-- Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
-  with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
-  From there the signal flows through the same emitter → buffer → grouping v2 path
-  as any other source.
-- Scouts do not set a per-signal `weight`. The harness pins every emitted finding to
-  `SCOUT_SIGNAL_WEIGHT = 1.0` (`tools/emit.py`), so a fresh report's `total_weight`
-  meets `WEIGHT_THRESHOLD` (default 1.0) on the first signal and promotes immediately.
-  `weight` is the pipeline's promotion knob, not a scout judgment — promotion is
-  governed by the `confidence` emit-gate (≥ ~0.65), dedupe, and the safety filter.
+  `signals_scout_run_started` (the run cleared the guards and a TaskRun exists), `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit count), and `signals_scout_run_reaped` (a stranded orphan was reaped by `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started` with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
+  When the model resolution (a config pin, the `scouts-model-selection` gate, or a runtime pin) routes the run, `started` and `finished` also carry `model` / `runtime_adapter`, so run outcomes are sliceable by model without joining through `$ai_generation`; absence means the agent-server default served it.
+  A `finished` run that died at the per-turn poll wall also carries the turn-log diagnostics from `TurnPollTimeout.diagnostics()` (`poll_timeout_stage` + elapsed/stale/line counts), because every wall failure raises one error string and the fleet's timeout rate is otherwise a single undifferentiated bucket: `no_turn_output` (the agent never emitted a turn-relevant line — it never got going), `stalled_after_output` (worked, then went quiet past the salvage window), `active_at_budget` (still streaming when the budget expired — the budget is the constraint, not the agent).
+  `signals_scout_fleet_synced` is the fleet-level companion, emitted from `fleet_sync.py` on the request path rather than per run — see that module's bullet above.
+  `signals_scout_config_auto_paused` fires once when a `(team, skill)` lane's failure-streak breaker trips (see the run-lifecycle bullet above) — the alertable signal for a wedged lane, which is otherwise invisible in a stream of individually-unremarkable `failed` runs.
+  The report channel adds `signals_scout_report_emitted` / `signals_scout_report_edited` (plus customer-facing `$scout_report_*` copies), stamped with derived classification properties (`report_kind` = `finding`/`self_improvement`, `is_self_improvement_report`) via `_report_classification_props` in `tools/report.py` — classified server-side off the prompt's mandated title prefix (`prompt.SELF_IMPROVEMENT_REPORT_TITLE_PREFIX`), so self-improvement reports are separable without downstream title heuristics. That helper is the single extension point for future derived telemetry dimensions on these events — add new flags there (both events pick them up), not as model columns.
+- Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()` with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
+  From there the signal flows through the same emitter → buffer → grouping v2 path as any other source.
+- Scouts do not set a per-signal `weight`. The harness pins every emitted finding to `SCOUT_SIGNAL_WEIGHT = 1.0` (`tools/emit.py`), so a fresh report's `total_weight` meets `WEIGHT_THRESHOLD` (default 1.0) on the first signal and promotes immediately.
+  `weight` is the pipeline's promotion knob, not a scout judgment — promotion is governed by the `confidence` emit-gate (≥ ~0.65), dedupe, and the safety filter.
   The scout-facing schema and skills carry no `weight` field.
-- Findings can carry `tags` — lowercase kebab-case category slugs, normalized and
-  capped by `normalize_tags` in `tools/emit.py`. Tags persist in the signal's
-  `extra.tags` (queryable in the signal store) and on the `SignalScoutEmission` row.
-  The vocabulary lives in the scout loop, not the harness: the base prompt's
-  _Tagging your findings_ section instructs each scout to maintain a
-  `tags:<domain>:taxonomy` scratchpad entry (read first-move like any memory, evolved
-  as categories emerge), and the emission rows are the queryable ground truth a scout
-  can audit its taxonomy against. The harness only normalizes, caps, and persists.
-- Scratchpad entries and run history are read at prompt assembly time. The agent can
-  also write scratchpad entries mid-run via `remember` / `forget` — that's how a
-  specialist with no anomalies to chase records "no LLM activity here, close out
-  fast" so future runs of the same skill short-circuit cold.
+- Findings can carry `tags` — lowercase kebab-case category slugs, normalized and capped by `normalize_tags` in `tools/emit.py`. Tags persist in the signal's `extra.tags` (queryable in the signal store) and on the `SignalScoutEmission` row.
+  The vocabulary lives in the scout loop, not the harness: the base prompt's _Tagging your findings_ section instructs each scout to maintain a `tags:<domain>:taxonomy` scratchpad entry (read first-move like any memory, evolved as categories emerge), and the emission rows are the queryable ground truth a scout can audit its taxonomy against. The harness only normalizes, caps, and persists.
+- Scratchpad entries and run history are read at prompt assembly time. The agent can also write scratchpad entries mid-run via `remember` / `forget` — that's how a specialist with no anomalies to chase records "no LLM activity here, close out fast" so future runs of the same skill short-circuit cold.
 
 ## Where the rest of the system meets this directory
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
-  Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default every 24 hours, or an optional
-  project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap
-  `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
-- **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
-  `SignalScoutNote`, `SignalProjectProfile` in `../models.py`.
-- **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with
-  `SourceType.CROSS_SOURCE_ISSUE`.
+  Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose per-scout schedule (`run_interval_minutes`, default every 24 hours, or an optional project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap `MAX_RUNS_PER_TICK` per tick (flag-tunable via `max_runs_per_tick_global`), `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
+  A dispatched rolling-interval scout has its `last_run_at` stamped at its own stable slot on the tick grid (`_slot_anchor`, keyed on a digest of the config id), not at the post-fan-out wall clock.
+  That is what keeps dispatch spread across the day: a wall-clock anchor accumulated each tick's planning and fan-out latency, so a cohort eventually slipped onto the next tick and merged into that tick's cohort, and every merge made the resulting wave slower to fan out and more likely to slip again.
+  Anchoring on the grid also returns a run deferred by a per-team cap or a missed tick to the slot it was meant to have, instead of re-anchoring wherever it happened to land.
+  `slot_aligned_dispatch: false` in the flag payload reverts to wall-clock stamping.
+  Cron scouts and breaker-paused lanes under probe keep the wall clock, because their `last_run_at` is a croniter reference and a probe cooldown clock respectively, not a schedule anchor.
+  The tick's fan-out is paced rather than emitted in one burst: planned runs are strided into batches dispatched `DISPATCH_BATCH_INTERVAL_SECONDS` apart across a `DISPATCH_SMEAR_SECONDS` window (flag-tunable via `dispatch_smear_seconds`, `0` disables), each stamped right after its own dispatch.
+  Every batch stamps with the tick's own start time, so pacing moves neither a slot anchor nor a cron reference.
+  The coordinator is therefore alive for a chunk of each tick rather than for seconds: the schedule caps its `execution_timeout` at one interval, and any later edit to `SignalsScoutCoordinatorWorkflow.run` needs a `workflow.patched()` gate for executions in flight across the deploy.
+  A lane paused by the failure-streak breaker (`status=paused_by_system`, `pause_reason=repeated_failures`) is excluded by the `enabled=True` dispatch filter like any other pause; the coordinator additionally dispatches one probe per `AUTO_PAUSE_PROBE_INTERVAL_S` to such lanes (`_collect_probe_runs`).
+- **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`, `SignalScoutNote`, `SignalProjectProfile` in `../models.py`.
+- **Source variant** — `SignalSourceConfig.SourceProduct.SIGNALS_SCOUT` paired with `SourceType.CROSS_SOURCE_ISSUE`.
 - **Scout fleet** — the `signals-scout-*` skills live at
   `../../skills/signals-scout-*/` (generalist + 7 specialists). See
   `../../skills/AGENTS.md` for the fleet convention.
-- **Local commands** — `run_signals_scout` (one-shot run) and
-  `sync_signals_scout_skills` (force a canonical-skill sync). Both documented in
-  `../management/AGENTS.md`.
+- **Local commands** — `run_signals_scout` (one-shot run), `run_scout_suggestions` (one-shot suggestion scan / print the plan), and
+  `sync_signals_scout_skills` (force a canonical-skill sync). All documented in `../management/AGENTS.md`.
 
 ## When editing this flow
 
-- Keep the harness loop generic. Skill-specific logic belongs in the SKILL.md of the
-  scout, not in `runner.py` or `prompt.py`.
-- New harness-internal tools: add the implementation under `tools/`, re-export it
-  from `tools/__init__.py`, and add a corresponding scope check on the viewset in
-  `views.py` so the MCP surface and the sandbox surface stay aligned.
-- If you change the canonical SKILL.md format or directory layout, update
-  `lazy_seed.discover_canonical_skills()` and the parser tests — the coordinator
-  call to `sync_canonical_skills()` runs on every tick and silently swallows parser
-  errors (logs only), so a quiet schema break can leave canonical content stale on
-  every team.
-- Run lifecycle lives on the linked `TaskRun` (`task_run.status`), managed by
-  `MultiTurnSession` — the `SignalScoutRun` bridge row carries no status of its own. A
-  `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) would block new runs
-  for that `(team, skill)` via `_has_running_run` — so `_self_heal_stale_runs` fails any such
-  run older than `STALE_RUN_CUTOFF_S` before the guard, letting the lane recover within a tick
-  or two instead of wedging until manual intervention.
-- Emit path goes through `emit_signal()` and only `emit_signal()` — **with one sanctioned
-  carve-out**: a scout that opts into the report-authoring channel (`emit_report` / `edit_report`
-  in its skill's `allowed_tools`) writes a full `SignalReport` directly. That write does NOT go
-  through harness code touching `SignalReport` or the embeddings pipeline itself — it goes through
-  the `scout_report/` service (`create_scout_report` / `update_scout_report`), which owns the report
-  row + the bound `document_embeddings` signal write (the grouping substrate, minus the matcher).
-  Harness/tool code calls that service; it still never touches `SignalReport` or the embeddings
-  pipeline directly. See `../scout_report/persistence.py` and the `scouts-emit-reports` spec.
-  Both report-channel actions are tracked on the run as queryable columns: `emit_report` appends to
-  `SignalScoutRun.emitted_report_ids` (via `_record_report_emit`), and `edit_report` appends — deduped —
-  to `edited_report_ids` (via `record_report_edit`), so "which reports did this run author vs. edit?"
-  is a column lookup, not an event-stream or artefact-log join. Both writes are best-effort and
-  post-commit (an edit/emit never fails because its tally write did).
-- **If you add or rename a workflow/activity in `temporal/agentic/`, update
-  `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`)
-  to match.**
+- Keep the harness loop generic. Skill-specific logic belongs in the SKILL.md of the scout, not in `runner.py` or `prompt.py`.
+- **A product-specific prompt injection has a bar to clear.** Every product team eventually wants its thing in the run prompt, and the prompt is already long enough that fleet-wide additions cost real cache. The data-catalog metric listing (`_METRICS_CATALOG_*` in `prompt.py`, pre-fetched in `runner.py`) is the reference: gated on that product's own feature flag, so a team not using it renders nothing; content follows actual usage, so an enabled team with an empty catalog renders one short sentence instead of a rule; token-capped, with the truncation case stated in the text; degrades to the previous prompt when the pre-fetch fails, so an outage can only cost steering; scoped to the run's acting user, so the injection is never wider than what the run could have queried for itself; and every rendered variant, including flag-off, pinned by a test. Anything reaching the prompt for one product should meet all six, or belong in that scout's SKILL.md instead.
+  The business-knowledge section (`_BUSINESS_KNOWLEDGE`, resolved per run in `runner.py` via `business_knowledge.is_maintained_for_team`) follows the same shape: it renders only when that product's flag is on — which is also what puts its tools in the run's toolset — and the team's knowledge base looks maintained, so the section states the base as a fact instead of spending fleet-wide tokens on a self-check whose usual answer is "skip".
+  It reads `is_maintained_for_team` rather than the `is_available_for_team` that on-demand callers use, because a prompt section rides on every run of the lane: a base a team tried once and left alone is available forever, and would tax the lane forever. Business knowledge records no searches anywhere, so that predicate reads the source rows for upkeep instead (see its docstring); if search telemetry lands, gate on real use instead of the shape.
+- New harness-internal tools: add the implementation under `tools/`, re-export it from `tools/__init__.py`, and add a corresponding scope check on the viewset in `views.py` so the MCP surface and the sandbox surface stay aligned.
+- If you change the canonical SKILL.md format or directory layout, update `lazy_seed.discover_canonical_skills()` and the parser tests — the coordinator call to `sync_canonical_skills()` runs on every tick and silently swallows parser errors (logs only), so a quiet schema break can leave canonical content stale on every team.
+- Run lifecycle lives on the linked `TaskRun` (`task_run.status`), managed by `MultiTurnSession` — the `SignalScoutRun` bridge row carries no status of its own. A `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) would block new runs for that `(team, skill)` via `_has_running_run` — so `_self_heal_stale_runs` fails any such run older than `STALE_RUN_CUTOFF_S` before the guard, letting the lane recover within a tick or two instead of wedging until manual intervention.
+- Emit path goes through `emit_signal()` and only `emit_signal()` — **with one sanctioned carve-out**: a scout that opts into the report-authoring channel (`emit_report` / `edit_report` in its skill's `allowed_tools`) writes a full `SignalReport` directly. That write does NOT go through harness code touching `SignalReport` or the embeddings pipeline itself — it goes through the `scout_report/` service (`create_scout_report` / `update_scout_report`), which owns the report row + the bound `document_embeddings` signal write (the grouping substrate, minus the matcher).
+  Harness/tool code calls that service; it still never touches `SignalReport` or the embeddings pipeline directly. See `../scout_report/persistence.py` and the `scouts-emit-reports` spec.
+  Both report-channel actions are tracked on the run as queryable columns: `emit_report` appends to `SignalScoutRun.emitted_report_ids` (via `_record_report_emit`), and `edit_report` appends — deduped — to `edited_report_ids` (via `record_report_edit`), so "which reports did this run author vs. edit?" is a column lookup, not an event-stream or artefact-log join. Both writes are best-effort and post-commit (an edit/emit never fails because its tally write did).
+- **If you add or rename a workflow/activity in `temporal/agentic/`, update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`) to match.**
 - **If you change the harness layout or tool surface, update this file to match.**

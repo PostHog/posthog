@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -326,9 +328,10 @@ export interface BulkIntervieweeContextResponseApi {
  * * `abandoned` - Abandoned
  * * `off-topic` - Off-topic
  */
-export type ClassificationsEnumApi = (typeof ClassificationsEnumApi)[keyof typeof ClassificationsEnumApi]
+export type UserInterviewClassificationEnumApi =
+    (typeof UserInterviewClassificationEnumApi)[keyof typeof UserInterviewClassificationEnumApi]
 
-export const ClassificationsEnumApi = {
+export const UserInterviewClassificationEnumApi = {
     Abandoned: 'abandoned',
     OffTopic: 'off-topic',
 } as const
@@ -345,7 +348,7 @@ export interface UserInterviewApi {
     readonly transcript: string
     summary?: string
     /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
-    classifications?: ClassificationsEnumApi[]
+    classifications?: UserInterviewClassificationEnumApi[]
     audio: string
 }
 
@@ -370,7 +373,7 @@ export interface PatchedUserInterviewApi {
     readonly transcript?: string
     summary?: string
     /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
-    classifications?: ClassificationsEnumApi[]
+    classifications?: UserInterviewClassificationEnumApi[]
     audio?: string
 }
 
@@ -406,7 +409,7 @@ export interface UserInterviewSearchRequestApi {
      * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
      * @minItems 1
      */
-    classifications?: ClassificationsEnumApi[]
+    classifications?: UserInterviewClassificationEnumApi[]
     /**
      * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
      * @minimum 1

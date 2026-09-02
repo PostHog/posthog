@@ -12,13 +12,14 @@
 # [tool.uv.sources]
 # posthog-owners = { path = "../../tools/owners" }
 # ///
-"""Emit OTLP traces from Backend CI JUnit XML artifacts.
+"""Emit OTLP traces from CI JUnit XML artifacts.
 
-Reads the JUnit artifacts downloaded by the workflow (`junit-results-backend-*`
-and `product-junit-results-*`) and emits one trace per job (shard) shaped:
+Reads the JUnit artifacts downloaded by the workflow (`junit-results-backend-*`,
+`junit-results-frontend-*`, and `product-junit-results-*`) and emits one trace
+per job (shard) shaped:
 
     <workflow> / <job>               (root, one trace per job)
-    ├── <pytest nodeid>              (test)
+    ├── <runner-specific test id>    (test)
     └── ...
 
 Trace ID is deterministic per (run_id, run_attempt, job) so each job in each
@@ -43,16 +44,18 @@ import os
 import re
 import sys
 import json
+import math
 import hashlib
 import logging
 import secrets
 import argparse
+import posixpath
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import defusedxml.ElementTree as ET  # XXE-safe stdlib drop-in
 from opentelemetry import trace
@@ -62,14 +65,30 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
-from posthog_owners import OwnersResolver
+from posthog_owners import OwnersResolver, first_team_owner
 
 logger = logging.getLogger("report_test_timings")
 
+
+def find_repo_root(path: Path) -> Path:
+    """Find the checkout root without depending on this script's directory depth."""
+    for parent in path.resolve().parents:
+        if (parent / "owners.yaml").is_file() and (parent / ".github").is_dir():
+            return parent
+    raise RuntimeError(f"Could not find the repository root from {path}")
+
+
+REPO_ROOT = find_repo_root(Path(__file__))
 DEFAULT_OTLP_ENDPOINT = "https://us.i.posthog.com/i/v1/traces"
-SERVICE_NAME = "ci-backend"
+Runner = Literal["pytest", "jest"]
+
+DEFAULT_RUNNER: Runner = "pytest"
+SERVICE_NAMES: dict[Runner, str] = {"pytest": "ci-backend", "jest": "ci-frontend"}
+SUITE_SERVICE_NAMES: dict[str, str] = {"nodejs": "ci-nodejs", "replay-shared": "ci-frontend"}
 INSTRUMENTATION_NAME = "posthog-ci-test-timings"
 INSTRUMENTATION_VERSION = "0.1.0"
+JEST_QUARANTINE_SIGNAL_GLOB = "posthog-jest-quarantine-*.jsonl"
+MAX_QUARANTINE_SIGNAL_BYTES = 10 * 1024 * 1024
 # ~150 KB serialized at this size — well under capture-logs' 2 MiB body limit.
 SPAN_BATCH_SIZE = 1000
 
@@ -84,8 +103,9 @@ class TestCase:
     end: datetime
     outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
-    file: str  # repo-relative test file from JUnit's `file`; '' when absent (external shards)
-    selector: str  # runnable 'path/test.py::Class::test' from JUnit's `file`; '' when file is absent
+    file: str  # normalized repo-relative test file; '' when no checked-in file can be found
+    file_source: Literal["junit", "inferred", "missing"]
+    selector: str  # runnable runner-specific selector; '' when the file cannot be found
 
 
 @dataclass(frozen=True)
@@ -98,6 +118,10 @@ class ArtifactInfo:
     # Which workflow run attempt uploaded the artifact (from the `-attempt<N>` name suffix); 1
     # when unsuffixed, i.e. every artifact predating re-run-aware uploads.
     attempt: int = 1
+    # True when the JUnit files sat directly in the download root (download-artifact extracts a
+    # single matching artifact without a per-artifact subdirectory), so suite/segment/group came
+    # from the meaningless download dir name and should be recovered from the JUnit filename.
+    flat: bool = False
 
 
 @dataclass(frozen=True)
@@ -115,6 +139,11 @@ class Shard:
     # the trace exporter can emit it as its own span instead of letting it visually
     # collapse into the first test. Zero when the plugin didn't run (external shards).
     setup_seconds: float = 0.0
+    # Per-testsuite (per test file for jest) launch+teardown seconds: suite wall time
+    # minus that file's testcase durations, one entry per testsuite in XML order. Module
+    # load, setupFilesAfterEnv, worker boot, per-file teardown — wall time no test is
+    # billed for. Works in both serial and parallel layouts.
+    file_launch_seconds: list[float] | None = None
 
 
 # ---------- artifact directory parsing ----------
@@ -123,8 +152,8 @@ class Shard:
 def split_artifact_name(name_parts: list[str]) -> tuple[str, str]:
     if not name_parts:
         return "", ""
-    if name_parts[0] == "backend" and len(name_parts) > 1:
-        return "backend", "-".join(name_parts[1:])
+    if name_parts[0] in ("backend", "frontend", "nodejs") and len(name_parts) > 1:
+        return name_parts[0], "-".join(name_parts[1:])
     return "-".join(name_parts), "-".join(name_parts)
 
 
@@ -158,7 +187,10 @@ def derive_suite_segment_and_group(artifact_dir_name: str) -> tuple[str, str, in
 
 
 def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
-    artifact_dirs = sorted(d for d in artifacts_root.iterdir() if d.is_dir()) or [artifacts_root]
+    artifact_dirs = sorted(d for d in artifacts_root.iterdir() if d.is_dir())
+    flat = not artifact_dirs
+    if flat:
+        artifact_dirs = [artifacts_root]
     parsed: list[tuple[Path, str, str, int | None, int]] = []
     for d in artifact_dirs:
         base_name, attempt = split_attempt_suffix(d.name)
@@ -170,13 +202,19 @@ def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
             groups_by_shard_key.setdefault((suite, segment), set()).add(group)
 
     shard_totals = {
-        key: max(groups) if groups == set(range(1, max(groups) + 1)) else None
+        key: max(groups) if min(groups) == 1 and len(groups) == max(groups) else None
         for key, groups in groups_by_shard_key.items()
     }
 
     return [
         ArtifactInfo(
-            path=d, suite=suite, segment=segment, group=group, total=shard_totals.get((suite, segment)), attempt=attempt
+            path=d,
+            suite=suite,
+            segment=segment,
+            group=group,
+            total=shard_totals.get((suite, segment)),
+            attempt=attempt,
+            flat=flat,
         )
         for d, suite, segment, group, attempt in parsed
     ]
@@ -223,7 +261,7 @@ def classify_testcase(testcase: Any) -> tuple[str, int]:
     return final_outcome, 1 + rerun_count
 
 
-def to_nodeid(classname: str, name: str) -> str:
+def to_pytest_nodeid(classname: str, name: str) -> str:
     """`posthog.hogql.test.test_resolver.TestResolver`, `test_x` → `posthog/hogql/test/test_resolver/TestResolver::test_x`.
 
     JUnit drops the `.py` and the file/class boundary; this is a best-effort
@@ -232,7 +270,7 @@ def to_nodeid(classname: str, name: str) -> str:
     return f"{classname.replace('.', '/')}::{name}" if classname else name
 
 
-def to_selector(file: str, classname: str, name: str) -> str:
+def to_pytest_selector(file: str, classname: str, name: str) -> str:
     """Runnable pytest selector 'path/to/test_x.py::TestClass::test_y' from JUnit's `file` + `classname`.
 
     Unlike `to_nodeid`, JUnit's `file` gives the exact module boundary, so nothing is guessed: the
@@ -248,6 +286,84 @@ def to_selector(file: str, classname: str, name: str) -> str:
         class_part = classname[len(module) :].lstrip(".")
         return f"{file}::{class_part}::{name}" if class_part else f"{file}::{name}"
     return ""
+
+
+def normalize_jest_file(file: str, jest_root: str = "frontend") -> str:
+    """Normalize Jest's working-directory-relative path into a repo-relative path.
+
+    The jest cwd differs per suite: frontend tests run from ``frontend/`` (their ``file``
+    attribute escapes to siblings as ``../products/...``), nodejs tests from ``nodejs/``,
+    and replay-shared from ``common/replay-shared/``. Joining onto the wrong root either
+    mangles the path or drops the file as un-normalizable, so the root follows the
+    artifact's suite.
+    """
+    return _normalize_repo_file(file, jest_root)
+
+
+def _normalize_repo_file(file: str, root: str) -> str:
+    if not file:
+        return ""
+    normalized = posixpath.normpath(posixpath.join(root, file.replace("\\", "/")))
+    if normalized == ".." or normalized.startswith(("../", "/")):
+        return ""
+    return normalized
+
+
+def jest_root_for_suite(suite: str) -> str:
+    if suite == "nodejs":
+        return "nodejs"
+    if suite == "replay-shared":
+        return "common/replay-shared"
+    return "frontend"
+
+
+def normalize_pytest_file(file: str) -> str:
+    """Keep a pytest JUnit ``file`` attribute only when it stays inside the repo.
+
+    pytest reports the decorator's own source file for tests wrapped in ``mock.patch``,
+    ``freeze_time``, or ``parameterized``, which arrives as a path into site-packages
+    (``../../../opt/.../unittest/mock.py``). Such a path can never resolve an owner, so it is
+    discarded here and the caller falls back to inferring the file from the JUnit classname.
+    """
+    return _normalize_repo_file(file, ".")
+
+
+def infer_pytest_file(classname: str) -> str:
+    """Find a safe pytest file path from a JUnit classname."""
+    parts = classname.split(".")
+    if not parts or any(not part or "/" in part or "\\" in part for part in parts):
+        return ""
+
+    for module_length in range(len(parts), 0, -1):
+        candidate = REPO_ROOT.joinpath(*parts[:module_length]).with_suffix(".py")
+        if candidate.is_file():
+            return candidate.relative_to(REPO_ROOT).as_posix()
+
+    for module_length, part in enumerate(parts, start=1):
+        if part.startswith("test_") or part.endswith("_test"):
+            return Path(*parts[:module_length]).with_suffix(".py").as_posix()
+    return ""
+
+
+def test_identity(
+    runner: Runner, file: str, classname: str, name: str, jest_root: str = "frontend"
+) -> tuple[str, str, str, Literal["junit", "inferred", "missing"]]:
+    """Return normalized file, stable id, selector, and file source for one runner's JUnit shape."""
+    if runner == "jest":
+        normalized_file = normalize_jest_file(file, jest_root)
+        selector = f"{normalized_file}::{name}" if normalized_file and name else ""
+        file_source: Literal["junit", "inferred", "missing"] = "junit" if normalized_file else "missing"
+        return normalized_file, selector or name, selector, file_source
+
+    junit_file = normalize_pytest_file(file)
+    normalized_file = junit_file or infer_pytest_file(classname)
+    file_source = "junit" if junit_file else "inferred" if normalized_file else "missing"
+    return (
+        normalized_file,
+        to_pytest_nodeid(classname, name),
+        to_pytest_selector(normalized_file, classname, name),
+        file_source,
+    )
 
 
 def product_name(junit_filename: str) -> str:
@@ -269,6 +385,54 @@ def product_shard_info(info: ArtifactInfo, junit_filename: str) -> ArtifactInfo:
     if not product:
         return info
     return replace(info, suite="product", segment=product, total=None)
+
+
+_FLAT_JEST_JUNIT_NAME = re.compile(r"^junit-(?P<segment>.+)-(?P<chunk>\d+)\.xml$")
+_FLAT_NODEJS_JUNIT_NAME = re.compile(r"^junit-nodejs-(?P<chunk>\d+)\.xml$")
+_FLAT_NODEJS_VARIANT_JUNIT_NAME = re.compile(r"^junit-nodejs-(?P<segment>.+)\.xml$")
+
+
+def flat_shard_info(info: ArtifactInfo, junit_filename: str, runner: Runner) -> ArtifactInfo:
+    """Recover Jest shard identity from the JUnit filename when the download landed flat.
+
+    download-artifact extracts a single matching artifact directly into the download path on any
+    workflow attempt, so the artifact name cannot provide its job identity or attempt. The JUnit
+    filename supplies the Jest job identity, and the workflow context supplies the attempt. Recover
+    both so re-run filtering and recovery joins use the same identity as subdirectory downloads.
+    """
+    if not info.flat or runner != "jest":
+        return info
+    match = _FLAT_NODEJS_JUNIT_NAME.match(junit_filename)
+    if match is not None:
+        return replace(
+            info,
+            suite="nodejs",
+            segment=f"shard-{match.group('chunk')}",
+            group=int(match.group("chunk")),
+            total=None,
+            attempt=current_run_attempt(),
+        )
+    match = _FLAT_NODEJS_VARIANT_JUNIT_NAME.match(junit_filename)
+    if match is not None:
+        return replace(
+            info,
+            suite="nodejs",
+            segment=match.group("segment"),
+            group=None,
+            total=None,
+            attempt=current_run_attempt(),
+        )
+    match = _FLAT_JEST_JUNIT_NAME.match(junit_filename)
+    if match is None:
+        return info
+    return replace(
+        info,
+        suite="frontend",
+        segment=match.group("segment"),
+        group=int(match.group("chunk")),
+        total=None,
+        attempt=current_run_attempt(),
+    )
 
 
 def parse_iso_utc(value: str) -> datetime | None:
@@ -301,7 +465,36 @@ def parse_testsuite_properties(suite_elem: Any) -> dict[str, str]:
     return result
 
 
-def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
+def load_jest_quarantine_signals(artifact_path: Path) -> frozenset[str]:
+    """Read best-effort tolerated-failure markers emitted by Jest workers in this artifact."""
+    test_ids: set[str] = set()
+    bytes_read = 0
+    for signal_path in sorted(artifact_path.glob(JEST_QUARANTINE_SIGNAL_GLOB)):
+        try:
+            bytes_read += signal_path.stat().st_size
+            if bytes_read > MAX_QUARANTINE_SIGNAL_BYTES:
+                logger.warning("ignored oversized Jest quarantine signals in %s", artifact_path)
+                return frozenset(test_ids)
+            with signal_path.open() as signals:
+                for line in signals:
+                    try:
+                        signal = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    test_id = signal.get("test_id") if isinstance(signal, dict) else None
+                    if isinstance(test_id, str) and 0 < len(test_id) <= 16_384:
+                        test_ids.add(test_id)
+        except OSError as exc:
+            logger.warning("failed to read %s: %s", signal_path, exc)
+    return frozenset(test_ids)
+
+
+def parse_shard(
+    xml_path: Path,
+    info: ArtifactInfo,
+    runner: Runner = DEFAULT_RUNNER,
+    quarantined_test_ids: frozenset[str] = frozenset(),
+) -> Shard | None:
     """One Shard per junit XML file. Tolerant of malformed input."""
     try:
         root = ET.parse(xml_path).getroot()
@@ -309,82 +502,128 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
         logger.warning("failed to parse %s: %s", xml_path, exc)
         return None
 
-    suite_elem = root if root.tag == "testsuite" else root.find("testsuite")
-    if suite_elem is None:
+    suite_elements = [root] if root.tag == "testsuite" else root.findall("testsuite")
+    if not suite_elements:
         return None
 
-    start = parse_iso_utc(suite_elem.get("timestamp", ""))
-    if start is None:
-        return None
-    try:
-        wall_seconds = float(suite_elem.get("time", "0"))
-    except ValueError:
-        wall_seconds = 0.0
+    info = flat_shard_info(product_shard_info(info, xml_path.name), xml_path.name, runner)
+    jest_root = jest_root_for_suite(info.suite)
 
-    properties = parse_testsuite_properties(suite_elem)
-    try:
-        setup_seconds = max(0.0, float(properties.get("posthog.setup_seconds", "0")))
-    except ValueError:
-        setup_seconds = 0.0
-    # Clamp to wall time so a clock skew or malformed property can't push tests past `end`.
-    setup_seconds = min(setup_seconds, wall_seconds)
-
+    # jest-junit writes one <testsuite> per test file, each with a real start timestamp
+    # and its own `perfStats.runtime` as `time`, in both serial and parallel layouts — so
+    # the same parsing path serves both and no serial-specific reconstruction is needed.
     tests: list[TestCase] = []
-    cursor = start + timedelta(seconds=setup_seconds)
-    for tc in suite_elem.iter("testcase"):
-        classname = tc.get("classname", "")
-        name = tc.get("name", "")
-        # Products run pytest with `--rootdir ../..`, so `file`/`classname` are already
-        # repo-relative (`products/<name>/...`) — no prefixing needed here.
-        file = tc.get("file", "")
-        outcome, attempts = classify_testcase(tc)
+    file_durations: list[float] = []
+    file_launch_seconds: list[float] = []
+    setup_seconds = 0.0
+    # Per-suite timestamps for wall bounds. jest-junit gives each testsuite (= test file)
+    # its own start timestamp + per-file `time` (= perfStats.runtime), so the union of
+    # per-suite spans is the shard's wall in both serial and parallel layouts. Per-file
+    # launch+teardown is suite_time - sum(test durations): module load, setupFilesAfterEnv,
+    # worker boot, per-file teardown. That's the "time wasted in setup" signal.
+    per_suite_anchor: list[tuple[datetime | None, float, float]] = []
+    suite_spans: list[tuple[datetime, datetime]] = []
+    for suite_elem in suite_elements:
+        suite_start = parse_iso_utc(suite_elem.get("timestamp", ""))
         try:
-            duration = float(tc.get("time", "0"))
+            suite_wall = max(0.0, float(suite_elem.get("time", "0")))
         except ValueError:
-            duration = 0.0
-        for child in tc:
-            if is_retry_attempt(child.tag):
-                try:
-                    duration += max(0.0, float(child.get("time", "0")))
-                except ValueError:
-                    pass
-        test_start = cursor
-        test_end = cursor + timedelta(seconds=duration)
-        cursor = test_end
-        tests.append(
-            TestCase(
-                nodeid=to_nodeid(classname, name),
-                classname=classname,
-                name=name,
-                file=file,
-                selector=to_selector(file, classname, name),
-                duration_seconds=duration,
-                start=test_start,
-                end=test_end,
-                outcome=outcome,
-                attempts=attempts,
+            suite_wall = 0.0
+        if suite_start is not None:
+            suite_spans.append((suite_start, suite_start + timedelta(seconds=suite_wall)))
+        properties = parse_testsuite_properties(suite_elem)
+        try:
+            suite_setup_seconds = max(0.0, float(properties.get("posthog.setup_seconds", "0")))
+        except ValueError:
+            suite_setup_seconds = 0.0
+        suite_setup_seconds = min(suite_setup_seconds, suite_wall)
+        setup_seconds += suite_setup_seconds
+        per_suite_anchor.append((suite_start, suite_setup_seconds, suite_wall))
+        file_testcase_seconds = 0.0
+        for tc in suite_elem.iter("testcase"):
+            classname = tc.get("classname", "")
+            name = tc.get("name", "")
+            file, nodeid, selector, file_source = test_identity(runner, tc.get("file", ""), classname, name, jest_root)
+            outcome, attempts = classify_testcase(tc)
+            if outcome == "passed" and nodeid in quarantined_test_ids:
+                outcome = "xfailed"
+            try:
+                duration = max(0.0, float(tc.get("time", "0")))
+            except ValueError:
+                duration = 0.0
+            for child in tc:
+                if is_retry_attempt(child.tag):
+                    try:
+                        duration += max(0.0, float(child.get("time", "0")))
+                    except ValueError:
+                        pass
+            file_testcase_seconds += duration
+            tests.append(
+                TestCase(
+                    nodeid=nodeid,
+                    classname=classname,
+                    name=name,
+                    file=file,
+                    file_source=file_source,
+                    selector=selector,
+                    duration_seconds=duration,
+                    start=datetime.min,
+                    end=datetime.min,
+                    outcome=outcome,
+                    attempts=attempts,
+                )
             )
-        )
+        file_durations.append(file_testcase_seconds)
+        file_launch_seconds.append(max(0.0, suite_wall - file_testcase_seconds))
 
-    end = start + timedelta(seconds=wall_seconds)
-    testcase_seconds = sum(t.duration_seconds for t in tests)
+    if not file_durations:
+        return None
+
+    # Wall bounds from the union of per-suite spans (works for both serial and parallel
+    # layouts: serial suites tile, parallel suites overlap — either way the span extrema
+    # bound the run).
+    if not suite_spans:
+        return None
+    start = min(span[0] for span in suite_spans)
+    end = max(span[1] for span in suite_spans)
+    wall_seconds = (end - start).total_seconds()
+    testcase_seconds = sum(file_durations)
+
+    # Per-test windows: each suite's tests run contiguously from that suite's own
+    # (timestamp + setup gap) anchor — the historical behavior for both runners.
+    tests_with_windows: list[TestCase] = []
+    cursor_index = 0
+    for suite_index, suite_elem in enumerate(suite_elements):
+        case_count = sum(1 for _ in suite_elem.iter("testcase"))
+        suite_test_start, suite_setup, _ = per_suite_anchor[suite_index]
+        anchor = suite_test_start + timedelta(seconds=suite_setup) if suite_test_start is not None else None
+        for _ in range(case_count):
+            test = tests[cursor_index]
+            base = anchor if anchor is not None else start
+            repl = replace(test, start=base, end=base + timedelta(seconds=test.duration_seconds))
+            anchor = repl.end
+            tests_with_windows.append(repl)
+            cursor_index += 1
+
     return Shard(
-        info=product_shard_info(info, xml_path.name),
+        info=info,
         junit_filename=xml_path.name,
         start=start,
         end=end,
         testcase_seconds=testcase_seconds,
         overhead_seconds=max(0.0, wall_seconds - testcase_seconds),
-        tests=tests,
+        tests=tests_with_windows,
         setup_seconds=setup_seconds,
+        file_launch_seconds=file_launch_seconds,
     )
 
 
-def collect_shards(artifacts_root: Path) -> list[Shard]:
+def collect_shards(artifacts_root: Path, runner: Runner = DEFAULT_RUNNER) -> list[Shard]:
     shards: list[Shard] = []
     for artifact in collect_artifact_infos(artifacts_root):
+        quarantined_test_ids = load_jest_quarantine_signals(artifact.path) if runner == "jest" else frozenset()
         for xml_path in sorted(artifact.path.rglob("junit*.xml")):
-            shard = parse_shard(xml_path, artifact)
+            shard = parse_shard(xml_path, artifact, runner, quarantined_test_ids)
             if shard is not None:
                 shards.append(shard)
     return shards
@@ -430,6 +669,7 @@ def filter_shards(
             overhead_seconds=s.overhead_seconds,
             tests=kept_tests(s),
             setup_seconds=s.setup_seconds,
+            file_launch_seconds=s.file_launch_seconds,
         )
         for s in shards
     ]
@@ -567,7 +807,9 @@ def owner_team_lookup() -> Callable[[str], str]:
     losing the emit.
     """
     try:
-        resolver = OwnersResolver()
+        # The explicit root skips the resolver's own `git rev-parse`, whose failure would
+        # silently unown every span in the run.
+        resolver = OwnersResolver(REPO_ROOT)
     except Exception:
         logger.exception("owners resolver unavailable; emitting spans without team attribution")
         return lambda _file: ""
@@ -581,19 +823,26 @@ def owner_team_lookup() -> Callable[[str], str]:
         except Exception:
             logger.exception("owners resolution failed for %s; emitting span without team attribution", file)
             return ""
-        return owners[0] if owners else ""
+        return first_team_owner(owners)
 
     return lookup
 
 
-def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
+def emit_traces(shards: list[Shard], endpoint: str, token: str, runner: Runner = DEFAULT_RUNNER) -> None:
     """Emit one trace per job: a `<workflow> / <job>` root span with test children, shipped via OTLP HTTP."""
     run_id = os.environ.get("GITHUB_RUN_ID", "0")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    workflow = os.environ.get("GITHUB_WORKFLOW", "") or SERVICE_NAME
+    service_name = SERVICE_NAMES[runner]
+    suites = {shard.info.suite for shard in shards}
+    if runner == "jest" and suites:
+        # Prefer a jest sub-suite label (ci-nodejs, ci-frontend) when the artifact run is
+        # homogeneous; GITHUB_WORKFLOW's real value still rides on ci.workflow either way.
+        if len(suites) == 1:
+            service_name = SUITE_SERVICE_NAMES.get(next(iter(suites)), service_name)
+    workflow = os.environ.get("GITHUB_WORKFLOW", "") or service_name
 
     id_generator = _FixedTraceIdGenerator()
-    resource = Resource.create({"service.name": SERVICE_NAME, **workflow_resource_attributes()})
+    resource = Resource.create({"service.name": service_name, **workflow_resource_attributes()})
     provider = TracerProvider(resource=resource, id_generator=id_generator)
     exporter = OTLPSpanExporter(endpoint=endpoint, headers={"Authorization": f"Bearer {token}"})
     provider.add_span_processor(BatchSpanProcessor(exporter, max_export_batch_size=SPAN_BATCH_SIZE))
@@ -608,12 +857,18 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str) -> None:
         # Mutate the shared generator before each job so its root span (and the test
         # children that inherit the active parent's trace ID) form a distinct trace.
         id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
-        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_of)
+        _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_of, runner)
 
     provider.shutdown()
 
 
-def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_of: Callable[[str], str]) -> bool:
+def _emit_shard_span(
+    tracer: trace.Tracer,
+    shard: Shard,
+    root_name: str,
+    owner_of: Callable[[str], str],
+    runner: Runner = DEFAULT_RUNNER,
+) -> bool:
     """Emit the job's root span and its test children. Returns True iff any child has Error."""
     info = shard.info
     shard_span = tracer.start_span(root_name, start_time=_to_ns(shard.start))
@@ -643,10 +898,15 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_o
         # that stay stable even after threshold filtering.
         for test in shard.tests:
             test_span = tracer.start_span(test.nodeid, start_time=_to_ns(test.start))
+            test_span.set_attribute("test.runner", runner)
+            test_span.set_attribute("test.job_key", job_trace_key(info))
             test_span.set_attribute("test.outcome", test.outcome)
             test_span.set_attribute("test.attempts", test.attempts)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
+            if test.file:
+                test_span.set_attribute("test.file", test.file)
+            test_span.set_attribute("test.file_source", test.file_source)
             if test.selector:
                 test_span.set_attribute("test.selector", test.selector)
             owner_team = owner_of(test.file)
@@ -661,6 +921,87 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str, owner_o
         shard_span.set_status(Status(StatusCode.ERROR))
     shard_span.end(end_time=_to_ns(shard.end))
     return has_error
+
+
+# ---------- timings JSON ----------
+
+TIMINGS_SCHEMA_VERSION = 1
+
+
+def _percentile(sorted_values: list[float], fraction: float) -> float:
+    """Nearest-rank percentile; the values come in pre-sorted."""
+    if not sorted_values:
+        return 0.0
+    index = min(len(sorted_values) - 1, max(0, math.ceil(fraction * len(sorted_values)) - 1))
+    return sorted_values[index]
+
+
+def shard_metrics(shard: Shard) -> dict[str, Any]:
+    """Per-job (one JUnit XML) timings payload consumed by bin/report-jest-timings."""
+    info = shard.info
+    wall_seconds = (shard.end - shard.start).total_seconds()
+
+    # Per-file launch+teardown, aligned to the distinct-file order the suites emit.
+    # filter_shards drops tests but keeps file_launch_seconds aligned by construction
+    # only when the kept tests preserve every file's first appearance, so rebuild the
+    # expensive split from the full shard whenever it's still consistent, and degrade
+    # to shard-level totals otherwise.
+    launch_overhead: dict[str, float] = {}
+    if shard.file_launch_seconds:
+        files = list(dict.fromkeys(t.file for t in shard.tests))
+        if len(files) == len(shard.file_launch_seconds):
+            launch_overhead = {file: max(0.0, v) for file, v in zip(files, shard.file_launch_seconds)}
+    launch_seconds = sum(launch_overhead.values()) if launch_overhead else sum(shard.file_launch_seconds or [])
+
+    durations = sorted(t.duration_seconds for t in shard.tests)
+    slowest = sorted(shard.tests, key=lambda t: t.duration_seconds, reverse=True)
+    result: dict[str, Any] = {
+        "suite": info.suite,
+        "segment": info.segment,
+        "group": info.group,
+        "total": info.total,
+        "junit_filename": shard.junit_filename,
+        "test_count": len(shard.tests),
+        "file_count": len(launch_overhead) if launch_overhead else len(dict.fromkeys(t.file for t in shard.tests)),
+        "wall_seconds": round(wall_seconds, 3),
+        "testcase_seconds": round(shard.testcase_seconds, 3),
+        "overhead_seconds": round(shard.overhead_seconds, 3),
+        "launch_seconds": round(launch_seconds, 3),
+        "median_test_seconds": round(_percentile(durations, 0.5), 3),
+        "p90_test_seconds": round(_percentile(durations, 0.9), 3),
+        "max_test_seconds": round(durations[-1] if durations else 0.0, 3),
+        "slowest_tests": [
+            {
+                "name": t.name,
+                "file": t.file,
+                "duration_seconds": round(t.duration_seconds, 3),
+                "start_offset_seconds": round((t.start - shard.start).total_seconds(), 3)
+                if t.start != datetime.min
+                else None,
+                "outcome": t.outcome,
+            }
+            for t in slowest
+        ],
+    }
+    if launch_overhead:
+        result["per_file_launch_overhead_seconds"] = {k: round(v, 3) for k, v in sorted(launch_overhead.items())}
+    return result
+
+
+def build_timings_report(shards: list[Shard], artifacts_root: Path, runner: Runner) -> dict[str, Any]:
+    """Assemble the machine-readable payload, ordered dt-start for downstream diffing."""
+    suites = sorted({shard.info.suite for shard in shards})
+    return {
+        "schema_version": TIMINGS_SCHEMA_VERSION,
+        "runner": runner,
+        "captured_at": datetime.now(tz=UTC).isoformat(),
+        "artifacts_root": str(artifacts_root),
+        "suites": suites,
+        "shards": [
+            shard_metrics(shard)
+            for shard in sorted(shards, key=lambda s: (s.info.suite, s.info.segment or "", s.info.group or 0))
+        ],
+    }
 
 
 # ---------- CLI ----------
@@ -681,8 +1022,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "artifacts_root",
         type=Path,
-        help="directory of downloaded JUnit artifacts (junit-results-backend-* and product-junit-results-*)",
+        help="directory of downloaded JUnit artifacts (junit-results-backend-*, junit-results-frontend-*, "
+        "and product-junit-results-*)",
     )
+    parser.add_argument("--runner", choices=tuple(SERVICE_NAMES), default=DEFAULT_RUNNER, help="JUnit producer")
     parser.add_argument(
         "--min-duration-seconds",
         type=float,
@@ -695,6 +1038,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=f"OTLP /v1/traces endpoint (default: $POSTHOG_OTLP_TRACES_ENDPOINT or {DEFAULT_OTLP_ENDPOINT})",
     )
     parser.add_argument("--dry-run", action="store_true", help="parse and summarize, do not emit")
+    parser.add_argument(
+        "--signals-only",
+        action="store_true",
+        help="emit failures and recovery evidence, but omit ordinary passing tests",
+    )
+    parser.add_argument(
+        "--timings",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write per-shard timings JSON to PATH, then exit (no OTLP emission). Pass '-'"
+        " to print to stdout. Used by the test-speed report jobs and bin/report-jest-timings.",
+    )
     return parser.parse_args(argv)
 
 
@@ -707,7 +1063,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        shards = collect_shards(args.artifacts_root)
+        shards = collect_shards(args.artifacts_root, args.runner)
     except Exception:
         logger.exception("failed to collect shards")
         return 0
@@ -724,17 +1080,33 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     pre_filter = sum(len(s.tests) for s in shards)
-    shards = filter_shards(shards, args.min_duration_seconds, prior_failed_by_job)
+    min_duration_seconds = math.inf if args.signals_only else args.min_duration_seconds
+    shards = filter_shards(shards, min_duration_seconds, prior_failed_by_job)
+    if args.signals_only:
+        shards = [shard for shard in shards if shard.tests]
     post_filter = sum(len(s.tests) for s in shards)
     logger.info(
         "collected %d shards, %d testcases (%d after %.2fs threshold filter)",
         len(shards),
         pre_filter,
         post_filter,
-        args.min_duration_seconds,
+        min_duration_seconds,
     )
 
     if not shards:
+        return 0
+
+    if args.timings is not None:
+        # Metrics need the full unfiltered run, not the signal-trimmed emission set.
+        full_shards = collect_shards(args.artifacts_root, args.runner)
+        if run_attempt > 1:
+            full_shards, _ = partition_run_attempt(full_shards, run_attempt)
+        payload = json.dumps(build_timings_report(full_shards, args.artifacts_root, args.runner), indent=2)
+        if str(args.timings) == "-":
+            sys.stdout.write(payload + "\n")
+        else:
+            args.timings.write_text(payload + "\n")
+            logger.info("wrote timings for %d shards to %s", len(full_shards), args.timings)
         return 0
 
     if args.dry_run or os.environ.get("DRY_RUN") == "1":
@@ -757,7 +1129,7 @@ def main(argv: list[str] | None = None) -> int:
     for token in tokens:
         # Per-token isolation: one project's ingest failing must not block the other's.
         try:
-            emit_traces(shards, args.otlp_endpoint, token)
+            emit_traces(shards, args.otlp_endpoint, token, args.runner)
             logger.info("emitted %d testcase spans to %s", post_filter, args.otlp_endpoint)
         except Exception:
             logger.exception("failed to emit traces")

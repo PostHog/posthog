@@ -1,12 +1,14 @@
 import os
 import time
+import socket
 import asyncio
 import threading
+import dataclasses
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from databricks.sql.exc import RequestError, ServerOperationError
+from databricks.sql.exc import OperationalError, RequestError, ServerOperationError
 
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
@@ -51,6 +53,43 @@ def mock_cursor(client: DatabricksClient) -> MagicMock:
     connection.cursor.return_value = cursor
     client._connection = connection
     return cursor
+
+
+@pytest.fixture
+def fast_backoff(monkeypatch):
+    """Speed up the connect-retry backoff so tests don't actually sleep."""
+    monkeypatch.setattr("products.batch_exports.backend.temporal.utils.asyncio.sleep", AsyncMock())
+
+
+@dataclasses.dataclass
+class MockDatabricksSqlConnect:
+    """Holder for the mocks a successful ``connect()`` interacts with."""
+
+    sql_connect: MagicMock
+    ping: AsyncMock
+    use_catalog: AsyncMock
+    use_schema: AsyncMock
+
+
+@pytest.fixture
+def mock_sql_connect(client: DatabricksClient):
+    """Patch the SDK's ``sql.connect`` plus the post-connect lifecycle calls."""
+
+    with (
+        patch(
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect",
+            return_value=MagicMock(),
+        ) as sql_connect_mock,
+        patch.object(client, "ping", new=AsyncMock()) as ping_mock,
+        patch.object(client, "use_catalog", new=AsyncMock()) as use_catalog_mock,
+        patch.object(client, "use_schema", new=AsyncMock()) as use_schema_mock,
+    ):
+        yield MockDatabricksSqlConnect(
+            sql_connect=sql_connect_mock,
+            ping=ping_mock,
+            use_catalog=use_catalog_mock,
+            use_schema=use_schema_mock,
+        )
 
 
 class TestExecuteQuery:
@@ -138,7 +177,7 @@ class TestConnect:
 
         use_catalog_mock.assert_not_called()
 
-    async def test_when_invalid_host(self):
+    async def test_when_invalid_host(self, client: DatabricksClient, mock_sql_connect: MockDatabricksSqlConnect):
         """An invalid/unreachable host must fail fast rather than hang for ~5 minutes in the SDK's
         OIDC discovery (https://github.com/databricks/databricks-sdk-py/issues/1046).
 
@@ -148,27 +187,89 @@ class TestConnect:
         """
         # 192.0.2.1 is reserved as non-routable (RFC 5737 TEST-NET-1), so the preflight connect fails
         # fast (no DNS, no real host).
-        client = DatabricksClient(
-            server_hostname="192.0.2.1",
-            http_path="test",
-            client_id="test",
-            client_secret="test",
-            catalog="test",
-            schema="test",
-            connect_timeout_seconds=0.01,
-        )
+        client.server_hostname = "192.0.2.1"
+        client.connect_timeout_seconds = 0.01
+        client.connect_max_attempts = 1
+
+        with pytest.raises(
+            DatabricksConnectionError,
+            match="Failed to connect to Databricks. Please check that your connection details are valid.",
+        ):
+            async with client.connect():
+                pass
+
+        mock_sql_connect.sql_connect.assert_not_called()
+
+    async def test_retries_transient_connection_failure(
+        self, client: DatabricksClient, fast_backoff, mock_sql_connect: MockDatabricksSqlConnect
+    ):
+        """A transient DNS blip must not permanently fail the run: connect() should retry until the
+        host becomes reachable, then complete the connection."""
+        attempts = {"n": 0}
+
+        def reachability_result(*_args, **_kwargs):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+            return MagicMock()
 
         with patch(
-            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect"
-        ) as mock_sql_connect:
-            with pytest.raises(
-                DatabricksConnectionError,
-                match="Failed to connect to Databricks. Please check that your connection details are valid.",
-            ):
-                async with client.connect():
-                    pass
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            side_effect=reachability_result,
+        ):
+            async with client.connect():
+                pass
 
-        mock_sql_connect.assert_not_called()
+        assert attempts["n"] == 3
+        mock_sql_connect.use_catalog.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "errno,expected_match",
+        [
+            (socket.EAI_NONAME, "Could not resolve Databricks server hostname"),
+            (socket.EAI_FAIL, "Could not resolve Databricks server hostname"),
+        ],
+    )
+    async def test_does_not_retry_unresolvable_hostname(
+        self,
+        client: DatabricksClient,
+        fast_backoff,
+        mock_sql_connect: MockDatabricksSqlConnect,
+        errno: int,
+        expected_match: str,
+    ):
+        """A hostname that does not exist is a config error, so we should fail fast with a targeted
+        message instead of backing off for minutes."""
+        create_connection_mock = MagicMock(side_effect=socket.gaierror(errno, "Name or service not known"))
+
+        with (
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+                new=create_connection_mock,
+            ),
+            pytest.raises(DatabricksConnectionError, match=expected_match),
+        ):
+            async with client.connect():
+                pass
+
+        assert create_connection_mock.call_count == 1
+        mock_sql_connect.sql_connect.assert_not_called()
+
+    async def test_does_not_retry_invalid_credentials(
+        self, client: DatabricksClient, fast_backoff, mock_sql_connect: MockDatabricksSqlConnect
+    ):
+        """Rejected OAuth credentials are a config error, so we should fail fast rather than keep
+        hammering the token endpoint."""
+        mock_sql_connect.sql_connect.side_effect = OperationalError("Failed to fetch OAuth token: invalid_client")
+
+        with (
+            patch.object(client, "_check_host_reachable", new=AsyncMock()),
+            pytest.raises(DatabricksConnectionError, match="invalid credentials"),
+        ):
+            async with client.connect():
+                pass
+
+        assert mock_sql_connect.sql_connect.call_count == 1
 
 
 class TestQueryBuilders:

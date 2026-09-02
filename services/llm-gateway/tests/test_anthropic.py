@@ -260,6 +260,32 @@ class TestAnthropicMessagesEndpoint:
         assert response.status_code == 200
         assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-opus-4-8"
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_orphaned_clear_thinking_edit_not_forwarded_to_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        # Anthropic 400s `clear_thinking_20251015` when thinking isn't enabled; the drop rules
+        # themselves live in test_anthropic_request.py.
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-opus-4-8",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert "context_management" not in mock_anthropic.call_args.kwargs
+
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",
         [
@@ -425,6 +451,32 @@ class TestAnthropicMessagesEndpoint:
         data = response.json()
         assert data["id"] == "msg_123"
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_wizard_opus_5_high_effort_enables_thinking(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/wizard/v1/messages",
+            json={
+                "model": "claude-opus-5",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "output_config": {"effort": "xhigh"},
+                "thinking": {"type": "disabled"},
+            },
+            headers=provider_request_headers,
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["thinking"] == {"type": "adaptive"}
+
     @pytest.mark.parametrize(
         "product",
         [
@@ -516,13 +568,13 @@ class TestAnthropicMessagesEndpoint:
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 
         with patch(
-            "llm_gateway.glm_routing.make_cloudflare_anthropic_call",
+            "llm_gateway.inference_routing.make_cloudflare_anthropic_call",
         ) as mock_make_call:
             mock_llm_call = AsyncMock(return_value=mock_response)
             mock_make_call.return_value = mock_llm_call
 
             with patch(
-                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
@@ -555,10 +607,10 @@ class TestAnthropicMessagesEndpoint:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 
-        with patch("llm_gateway.glm_routing.make_cloudflare_anthropic_call") as mock_make_call:
+        with patch("llm_gateway.inference_routing.make_cloudflare_anthropic_call") as mock_make_call:
             mock_make_call.return_value = AsyncMock(return_value=mock_response)
             with patch(
-                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
@@ -603,12 +655,12 @@ class TestAnthropicMessagesEndpoint:
             yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
 
         with patch(
-            "llm_gateway.glm_routing.make_cloudflare_anthropic_call",
+            "llm_gateway.inference_routing.make_cloudflare_anthropic_call",
         ) as mock_make_call:
             mock_make_call.return_value = AsyncMock(return_value=fake_stream())
 
             with patch(
-                "llm_gateway.glm_routing.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 with authenticated_client.stream(
@@ -637,8 +689,8 @@ class TestAnthropicMessagesEndpoint:
         self,
         authenticated_client: TestClient,
     ) -> None:
-        with patch("llm_gateway.glm_routing.ensure_cloudflare_configured") as mock_ensure_configured:
-            with patch("llm_gateway.glm_routing.make_cloudflare_anthropic_call") as mock_make_call:
+        with patch("llm_gateway.inference_routing.ensure_cloudflare_configured") as mock_ensure_configured:
+            with patch("llm_gateway.inference_routing.make_cloudflare_anthropic_call") as mock_make_call:
                 response = authenticated_client.post(
                     "/v1/messages",
                     json={
@@ -1433,6 +1485,28 @@ class TestAnthropicCountTokensEndpoint:
                     "messages": [{"role": "user", "content": "Hello"}],
                 },
                 # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+        mock_real_count.assert_not_called()
+
+    def test_modal_model_approximates_count_without_provider_header(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        with (
+            patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count,
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),  # entitle the gated model
+        ):
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json={
+                    "model": "moonshotai/kimi-k3",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
                 headers={"Authorization": "Bearer phx_test_key"},
             )
 

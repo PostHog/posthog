@@ -83,6 +83,8 @@ export function useDragToZoom({
                     if (onAreaSelectRef.current) {
                         onAreaSelectRef.current({
                             ...labelRange,
+                            xPixel0: Math.min(origin.x, mouseX),
+                            xPixel1: Math.max(origin.x, mouseX),
                             yPixel0: Math.min(origin.y, mouseY),
                             yPixel1: Math.max(origin.y, mouseY),
                         })

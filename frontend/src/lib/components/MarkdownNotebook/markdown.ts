@@ -57,6 +57,11 @@ export function isDiscussionCommentProps(props: NotebookComponentProps): boolean
 }
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
+/** One blank line separates two blocks of the same card; a second one starts a new card
+ * (`startsGroup` in `types.ts`). Programmatic writers append blocks with this separator so each
+ * one lands as its own node. */
+export const NOTEBOOK_BLOCK_SEPARATOR = '\n\n\n'
+const NOTEBOOK_BLOCK_JOINER = '\n\n'
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
 // the literal character for exactly this set, so the two must stay in sync.
 const INLINE_ESCAPABLE_CHARS = new Set([
@@ -114,6 +119,7 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     }
 
     let lineIndex = 0
+    let blankLinesBeforeBlock = 0
     while (lineIndex < lines.length) {
         const line = lines[lineIndex]
 
@@ -122,12 +128,15 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
                 id: '',
                 type: 'paragraph',
                 children: [],
+                startsGroup: nodes.length > 0 && blankLinesBeforeBlock > 1 ? true : undefined,
             })
+            blankLinesBeforeBlock = 0
             lineIndex += 1
             continue
         }
 
         if (!line.trim()) {
+            blankLinesBeforeBlock += 1
             lineIndex += 1
             continue
         }
@@ -137,8 +146,12 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
             errors.push(result.error)
         }
         if (result.node) {
+            if (nodes.length > 0 && blankLinesBeforeBlock > 1) {
+                result.node.startsGroup = true
+            }
             pushParsedNode(result.node)
         }
+        blankLinesBeforeBlock = 0
         lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
     }
 
@@ -152,8 +165,14 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
 
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
-        .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
-        .join('\n\n')
+        .map((node, index) => {
+            const block = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            if (index === 0) {
+                return block
+            }
+            return `${node.startsGroup ? NOTEBOOK_BLOCK_SEPARATOR : NOTEBOOK_BLOCK_JOINER}${block}`
+        })
+        .join('')
     const lastNode = document.nodes[document.nodes.length - 1]
     const previousNode = document.nodes[document.nodes.length - 2]
     const shouldPreserveTrailingEmptyParagraph =
@@ -1327,20 +1346,31 @@ function serializeComponentProps(props: NotebookComponentProps): string {
 
 function getSerializableComponentProps(props: NotebookComponentProps): NotebookComponentProps {
     const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
+        ) {
             accumulator[key] = value
         }
         return accumulator
     }, {})
     const legacyViewPanelVisible = typeof props.view === 'boolean' ? props.view : undefined
-    const legacyEditPanelVisible = typeof props.edit === 'boolean' ? props.edit : undefined
-    const hideFilters = typeof props.hideFilters === 'boolean' ? props.hideFilters : legacyEditPanelVisible === false
-    const hideResults = typeof props.hideResults === 'boolean' ? props.hideResults : legacyViewPanelVisible === false
+    const showFilters = props.showFilters === true
+    const showResults =
+        typeof props.showResults === 'boolean'
+            ? props.showResults
+            : props.hideResults === true
+              ? false
+              : (legacyViewPanelVisible ?? true)
 
-    if (hideFilters) {
-        nextProps.hideFilters = true
+    if (showFilters) {
+        nextProps.showFilters = true
     }
-    if (hideResults) {
+    if (!showResults) {
         nextProps.hideResults = true
     }
 
@@ -1349,7 +1379,7 @@ function getSerializableComponentProps(props: NotebookComponentProps): NotebookC
 
 function getOrderedComponentPropEntries(props: NotebookComponentProps): [string, NotebookPropValue][] {
     const entries = Object.entries(props)
-    const orderedKeys = ['hideFilters', 'hideResults']
+    const orderedKeys = ['showFilters', 'hideResults']
     return [
         ...orderedKeys.flatMap((key): [string, NotebookPropValue][] =>
             Object.prototype.hasOwnProperty.call(props, key) ? [[key, props[key]]] : []

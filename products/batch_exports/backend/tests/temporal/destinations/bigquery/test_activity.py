@@ -828,7 +828,7 @@ async def test_insert_into_bigquery_activity_creates_tables_with_the_right_parti
     final_table = bigquery_client.get_table(f"{bigquery_dataset.dataset_id}.{table_id}")
 
     data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
-    stage_table_id = f"stage_{table_id}_{data_interval_end_str}_{ateam.pk}_1"
+    stage_table_id = f"stage_{table_id}_{data_interval_end_str}_{ateam.pk}_1_0"
     consumer_table = bigquery_client.get_table(f"{bigquery_dataset.dataset_id}.{stage_table_id}")
 
     mocked_delete.assert_called_once()

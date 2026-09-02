@@ -11,15 +11,21 @@ Run this snapshot once and reuse the results across the dispatch table in `SKILL
 
 Powers A1/A2, B0, C2.
 
+**Which event to query.** When `exposure_criteria.exposure_config.event` is set, query that custom
+event (second query below). Otherwise query the experiment's default exposure event — read it from
+`resolved_exposure_event` in `experiment-get` (`$feature_flag_called`, or `$experiment_exposure` for
+newer experiments; resolved server-side, so don't hardcode either name). Both default events carry
+the same properties — only the event name changes.
+
 ```sql
--- Default exposure event ($feature_flag_called):
+-- Default exposure event (resolved_exposure_event from experiment-get):
 SELECT
   properties.$feature_flag_response AS variant,
   count() AS exposures,
   count(DISTINCT person_id) AS persons,
   count(DISTINCT distinct_id) AS distinct_ids
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event = '<resolved_exposure_event>'
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= '<start_date>'
 GROUP BY variant
@@ -44,7 +50,7 @@ GROUP BY variant
 ORDER BY exposures DESC
 ```
 
-Reason: `$feature_flag_called` carries `$feature_flag` (the flag key being evaluated) and
+Reason: the default exposure events carry `$feature_flag` (the flag key being evaluated) and
 `$feature_flag_response` (the variant returned). Custom exposure events don't carry those — the SDK
 stamps `$feature/<flag-key>` onto subsequent events instead. Querying a custom exposure event with
 `$feature_flag_response` returns zero rows even when exposure capture is working fine.
@@ -69,7 +75,7 @@ Read off:
     `feature-flags-activity-retrieve`: if there are no post-launch flag edits, the flag config
     can't explain the plateau and the cause is application-side. Walk B-series footer.
 
-**Ignore `$feature_flag_response = false` / `None` / `null` rows.** `$feature_flag_called` fires on
+**Ignore `$feature_flag_response = false` / `None` / `null` rows.** The default exposure event fires on
 every flag evaluation, including ones that didn't bucket the user into the experiment — flag returned
 `false` (user didn't match release conditions), evaluation failed, or the SDK didn't stamp the
 response. PostHog's experiment query filters these out via `in(properties.$feature_flag_response,

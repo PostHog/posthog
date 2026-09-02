@@ -11,11 +11,18 @@ message Person {
   bytes properties = 4;
   bytes properties_last_updated_at = 5;
   bytes properties_last_operation = 6;
+  // Epoch milliseconds, as are all timestamps in this message.
   int64 created_at = 7;
   int64 version = 8;
   bool is_identified = 9;
   optional bool is_user_id = 10;
+  // Epoch milliseconds (matching created_at); the writer decodes it as such.
   optional int64 last_seen_at = 11;
+  // True on a death document: the changelog record the leader produces when
+  // a lifecycle saga destroys the person (version = sealed_version + 1).
+  // Consumers treat the person as gone; the writer projects it as the
+  // Postgres tombstone. proto3 default (false) keeps old records live.
+  bool is_deleted = 12;
 }
 
 // DistinctIdWithVersion pairs a distinct_id with its version for consistency tracking
@@ -133,15 +140,36 @@ message GetDistinctIdsForPersonsResponse {
 message UpdatePersonPropertiesRequest {
   int64 team_id = 1;
   int64 person_id = 2;
-  // The event name that triggered this update (e.g. "$set", "$identify", "$pageview").
-  // Used to determine filtering behavior (person events bypass property filtering).
+  // The event name that triggered this update (e.g. "$set", "$identify",
+  // "$pageview"). The leader checks it against a small denylist of events
+  // that must never write person properties and otherwise ignores it.
+  // Callers folding many events into one request filter denylisted
+  // events' ops at fold time and send a representative name.
   string event_name = 3;
   // JSON-encoded map of properties to set (overwrites existing values).
   bytes set_properties = 4;
   // JSON-encoded map of properties to set only if not already present.
+  // Resolved by the leader against authoritative state under the
+  // per-person lock — callers must not pre-resolve set_once against a
+  // fetched snapshot, or a concurrent writer's earlier value gets
+  // clobbered. When the same key appears here and in set_properties,
+  // set wins.
   bytes set_once_properties = 5;
   // Property keys to remove from the person.
   repeated string unset_properties = 6;
+  // OR-merged: true marks the person identified; false and absent are
+  // no-ops (identification never reverts through this RPC). The
+  // false→true transition counts as a change and produces a changelog
+  // record on its own.
+  optional bool is_identified = 7;
+  // Epoch milliseconds (matching Person.last_seen_at). The leader floors
+  // the value to the hour (ingestion's own granularity) and max-merges,
+  // so the stored value only ever advances. An advance is a change that
+  // produces a changelog record on its own — matching ingestion's direct
+  // write path, which persists a last-seen-only advance — and the
+  // flooring bounds record volume at one per person-hour regardless of
+  // the caller's precision.
+  optional int64 last_seen_at = 8;
 }
 
 message UpdatePersonPropertiesResponse {
@@ -176,20 +204,6 @@ message DeletePersonsBatchForTeamRequest {
 
 message DeletePersonsBatchForTeamResponse {
   // Number of persons deleted. 0 means no more persons to delete.
-  int64 deleted_count = 1;
-}
-
-// DeletePersonlessDistinctIdsBatchForTeamRequest deletes up to batch_size
-// posthog_personlessdistinctid rows for a team. These rows have no person FK, so
-// they aren't covered by person deletion. Callers should loop until deleted_count is 0.
-message DeletePersonlessDistinctIdsBatchForTeamRequest {
-  int64 team_id = 1;
-  // Max rows to delete per call. Must be > 0 and <= 50000.
-  int64 batch_size = 2;
-}
-
-message DeletePersonlessDistinctIdsBatchForTeamResponse {
-  // Number of rows deleted. 0 means no more rows to delete.
   int64 deleted_count = 1;
 }
 
@@ -257,4 +271,133 @@ message SetPersonVersionFloorRequest {
 message SetPersonVersionFloorResponse {
   // True if a row was updated (the stored version was below min_version).
   bool updated = 1;
+}
+
+// FencePersonRequest freezes a person for a lifecycle operation (see
+// PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
+// op_type selects the rejection surfaced to writers while the fence holds.
+message FencePersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  string op_id = 3;
+  LifecycleOpType op_type = 4;
+}
+
+// The kind of lifecycle operation — mirrors lifecycle_op.op_type. The
+// canonical string mapping lives on this enum's impl in personhog-proto;
+// derive from it everywhere instead of repeating the literals.
+enum LifecycleOpType {
+  LIFECYCLE_OP_TYPE_UNSPECIFIED = 0;
+  LIFECYCLE_OP_TYPE_DELETE = 1;
+  LIFECYCLE_OP_TYPE_MERGE = 2;
+}
+
+message FencePersonResponse {
+  // The sealed state: the person's final word — no write can follow it
+  // while the fence holds. Delete uses sealed.version only; merge seals
+  // the full document (properties included).
+  //
+  // Failure is reported through the gRPC status, never in-band:
+  // FAILED_PRECONDITION with x-person-fenced metadata when another op
+  // holds the person, NOT_FOUND when the person is destroyed,
+  // FAILED_PRECONDITION when this pod does not serve the partition (the
+  // retry re-routes), and RESOURCE_EXHAUSTED when the fence map is at
+  // capacity (retry later).
+  Person sealed = 1;
+}
+
+// ReleaseFenceRequest closes a fence (see PersonHogLeader.ReleaseFence).
+// person_uuid, sealed_version, and created_at travel in the request so a
+// leader with no cache entry — after a restart — re-derives the death
+// document deterministically. All three come from the sealed state the
+// fence returned (the saga persists it in the mark row for replay).
+message ReleaseFenceRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  string person_uuid = 3;
+  string op_id = 4;
+  ReleaseOutcome outcome = 5;
+  // The version sealed at fence time. The death document is produced at
+  // sealed_version + 1. Required when outcome = COMMITTED. Explicitly
+  // optional because 0 is a legitimate sealed version — a fresh person
+  // stub is created at version 0 — so absence must stay distinguishable
+  // from it.
+  optional int64 sealed_version = 6;
+  // The person's creation time as sealed at fence time, in epoch
+  // milliseconds — the unit Person.created_at carries end to end (the
+  // leader loads `timestamp_millis()`, the writer binds via
+  // `epoch_ms_to_datetime`). The death document carries it verbatim — a
+  // cold leader has nothing to re-derive it from, and the writer
+  // projects it onto the tombstone row. Required when outcome =
+  // COMMITTED.
+  int64 created_at = 7;
+}
+
+enum ReleaseOutcome {
+  RELEASE_OUTCOME_UNSPECIFIED = 0;
+  // The person was destroyed: produce the death document, evict, unfence.
+  RELEASE_OUTCOME_COMMITTED = 1;
+  // The op backed out: unfence, keep the entry, produce nothing.
+  RELEASE_OUTCOME_ABORTED = 2;
+}
+
+message ReleaseFenceResponse {}
+
+// A sealed source snapshot paired with its precedence ordinal — the
+// pair order the saga recorded in lifecycle_op_person. The fold sorts
+// by ordinal itself rather than trusting request order, so a re-drive
+// that lists sources differently still folds the same document.
+message SealedSourceSnapshot {
+  Person person = 1;
+  int32 ordinal = 2;
+}
+
+// FoldPersonDocumentRequest folds sealed source snapshots into the merge
+// target's document (see PersonHogLeader.FoldPersonDocument). The
+// snapshots are the sources' final word — each was returned by
+// FencePerson and no write can follow it while the merge op lives.
+message FoldPersonDocumentRequest {
+  int64 team_id = 1;
+  // The merge target. The fold is computed by its owning leader from its
+  // authoritative cache plus the snapshots below.
+  int64 person_id = 2;
+  // Sealed source snapshots. Property precedence follows the ordinals —
+  // a lower ordinal beats a higher one on contested keys, and the
+  // target beats all — in whatever order the request lists them;
+  // duplicate ordinals are rejected. Must be non-empty — a merge with
+  // no sealed sources has nothing to fold.
+  repeated SealedSourceSnapshot sealed_snapshots = 3;
+  // JSON-encoded maps from the merge event. event_set overrides on
+  // conflict (matching ingestion's $identify behavior); event_set_once
+  // fills only still-absent keys.
+  bytes event_set = 4;
+  bytes event_set_once = 5;
+  // The merge saga's op id, verified against the lifecycle database:
+  // the fold is refused unless this op holds the person as its live
+  // ('marked') merge target, closing late re-drives from a settled or
+  // superseded op. The check is read-time only — a fold already past it
+  // when the op settles can still land — so it narrows the late-fold
+  // residual rather than eliminating it. Re-applying a fold on
+  // unchanged target state changes no content and only bumps the
+  // version; the id is not a dedup key. The accepted at-least-once
+  // residual applies while the op lives: the target is never fenced, so
+  // a re-driven fold recomputes over writes that landed in between and
+  // can clobber them where they overlap the event's $set or a
+  // snapshot's keys — the same residual every re-appliable leader merge
+  // carries today, closed later by operation identity in the write
+  // path.
+  string op_id = 6;
+}
+
+message FoldPersonDocumentResponse {
+  // The folded document exactly as produced to the changelog:
+  // target-wins properties, created_at = min(target, sources),
+  // is_identified = true, last_seen_at = max(target, sources),
+  // version = max(target, max sealed) + 1.
+  // One exception: when the target's stored properties violate the size
+  // constraint beyond remediation (protected keys alone exceed the
+  // ceiling), no applyable document exists — the fold produces nothing
+  // and returns the person unchanged, skipping its property and scalar
+  // effects for this person.
+  Person person = 1;
 }

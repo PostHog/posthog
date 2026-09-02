@@ -1,6 +1,17 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# Harvey moved its Usage and Query History APIs from v1 to the v2 event-based schema and retired v1
+# on 2025-06-30. The source's history requests (sync and probe) already target the v2 endpoints
+# (`/api/v2/history/...`) and read the v2 `events` payload, so both labels resolve to the same wire;
+# the version bump is a declaration plus deprecation, with no request-layer branching. v1 keeps the
+# pre-versioning UNVERSIONED default so already-pinned rows resolve unchanged.
+HARVEY_API_VERSION_V1 = UNVERSIONED_API_VERSION
+HARVEY_API_VERSION_V2 = "v2"
+SUPPORTED_VERSIONS = (HARVEY_API_VERSION_V1, HARVEY_API_VERSION_V2)
+DEFAULT_VERSION = HARVEY_API_VERSION_V2
 
 HARVEY_BASE_URLS: dict[str, str] = {
     "us": "https://api.harvey.ai",

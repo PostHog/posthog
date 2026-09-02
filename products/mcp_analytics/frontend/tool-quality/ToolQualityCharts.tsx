@@ -73,33 +73,53 @@ export function ToolQualityCharts({
     theme,
     timezone,
     interval,
+    incompleteTail,
 }: {
     data: DailyChartData
     loading: boolean
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
+    // When true, the final bucket is the current in-progress interval — dash that segment so a
+    // partial period doesn't read as a fall in calls or an improvement in latency. Required rather
+    // than optional: an omitted prop silently renders the partial bucket as settled data.
+    incompleteTail: boolean
 }): JSX.Element {
     const isEmpty = data.labels.length === 0
 
+    // `incompleteTail` is only true when the window has ≥2 buckets (lastBucketIsInProgress owns that
+    // rule), and every series is filled to the bucket count, so the final segment exists.
+    const partialStroke = useMemo(
+        () => (incompleteTail ? { partial: { fromIndex: data.labels.length - 1 } } : undefined),
+        [incompleteTail, data.labels.length]
+    )
+
     const callsSeries = useMemo<Series[]>(
         () => [
-            { key: 'calls', label: 'Calls', color: theme.colors[0], data: data.calls },
-            { key: 'errors', label: 'Errors', color: theme.colors[4], data: data.errors },
+            { key: 'calls', label: 'Calls', color: theme.colors[0], data: data.calls, stroke: partialStroke },
+            { key: 'errors', label: 'Errors', color: theme.colors[4], data: data.errors, stroke: partialStroke },
         ],
-        [data, theme]
+        [data, theme, partialStroke]
     )
     const successSeries = useMemo<Series[]>(
-        () => [{ key: 'successRate', label: 'Success rate', color: theme.colors[2], data: data.successRate }],
-        [data, theme]
+        () => [
+            {
+                key: 'successRate',
+                label: 'Success rate',
+                color: theme.colors[2],
+                data: data.successRate,
+                stroke: partialStroke,
+            },
+        ],
+        [data, theme, partialStroke]
     )
     const latencySeries = useMemo<Series[]>(
         () => [
-            { key: 'p50', label: 'p50', color: theme.colors[1], data: data.p50 },
-            { key: 'p95', label: 'p95', color: theme.colors[0], data: data.p95 },
-            { key: 'p99', label: 'p99', color: theme.colors[4], data: data.p99 },
+            { key: 'p50', label: 'p50', color: theme.colors[1], data: data.p50, stroke: partialStroke },
+            { key: 'p95', label: 'p95', color: theme.colors[0], data: data.p95, stroke: partialStroke },
+            { key: 'p99', label: 'p99', color: theme.colors[4], data: data.p99, stroke: partialStroke },
         ],
-        [data, theme]
+        [data, theme, partialStroke]
     )
 
     const countsConfig = useChartConfig(() => buildConfig(timezone, interval), [timezone, interval])

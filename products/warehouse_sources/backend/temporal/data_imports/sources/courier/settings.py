@@ -1,10 +1,21 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
 COURIER_BASE_URL = "https://api.courier.com"
+
+# Courier's REST API is unversioned on the wire: one https://api.courier.com host, Bearer auth, and
+# no version header or path segment (per the vendor API reference). "1.0.0" and "2.0.0" are
+# documentation-site labels — the 1.0.0 reference now redirects to 2.0.0. UNVERSIONED_API_VERSION
+# ("v1") is the framework placeholder pre-versioning rows carry, and it already hits the same live
+# API the 2.0.0 docs describe. Both labels therefore resolve to identical requests, so nothing
+# branches on the version — these are declared for source pinning and the default only.
+COURIER_API_VERSION_2_0_0 = "2.0.0"
+SUPPORTED_VERSIONS = (UNVERSIONED_API_VERSION, COURIER_API_VERSION_2_0_0)
+DEFAULT_VERSION = COURIER_API_VERSION_2_0_0
 
 # Courier's default page size is small (~10 messages/page per the vendor docs); raising `limit`
 # cuts the round-trips a full backfill needs. No documented maximum, so we stay conservative.

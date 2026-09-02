@@ -15,7 +15,6 @@ from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
     parse_delay_duration_seconds,
-    use_workflows_timing_reschedule,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 
@@ -85,13 +84,13 @@ class TestTimingRescheduleDiff(SimpleTestCase):
             ("max_wait_unchanged", _condition(), _condition(), False),
             ("max_wait_clamped_shortening", _condition(max_wait="7d"), _condition(max_wait="168h"), True),
             ("max_wait_unparseable_after", _condition(max_wait="7d"), _condition(max_wait="banana"), True),
-            # Condition edits never move a parked run's wake time (the matcher and the poll
-            # both evaluate live config), so they must not trigger a sweep
+            # An edited condition must re-evaluate against parked runs promptly (e.g. fixing a
+            # filter that could never match) - the sweep wake replaces the poll re-check
             (
                 "condition_only_change",
                 _condition(),
                 _condition(condition={"filters": {"events": [{"id": "$identify"}]}}),
-                False,
+                True,
             ),
         ]
     )
@@ -130,15 +129,26 @@ class TestTimingRescheduleDiff(SimpleTestCase):
         result = get_timing_reschedule_action_ids([before], [after])
         assert result == (["a"] if expect_sweep else [])
 
-    def test_added_and_deleted_timing_actions_do_not_sweep(self):
+    @parameterized.expand(
+        [
+            ("deleted_delay", _delay(action_id="a"), True),
+            ("deleted_time_window", _window(action_id="a"), True),
+            ("deleted_wait_condition", _condition(action_id="a"), True),
+            ("deleted_non_timing", {"id": "a", "type": "function", "config": {}}, False),
+        ]
+    )
+    def test_deleted_actions(self, _name, before_action, expect_sweep):
+        result = get_timing_reschedule_action_ids([before_action], [])
+        assert result == (["a"] if expect_sweep else [])
+
+    def test_added_timing_actions_do_not_sweep(self):
         assert get_timing_reschedule_action_ids([], [_delay()]) == []
-        assert get_timing_reschedule_action_ids([_delay()], []) == []
         assert get_timing_reschedule_action_ids(None, None) == []
 
     def test_multiple_changed_actions_are_sorted_and_deduped(self):
-        before = [_delay("delay_b", "7d"), _delay("delay_a", "7d"), _window("wait_1")]
+        before = [_delay("delay_b", "7d"), _delay("delay_a", "7d"), _window("wait_1"), _condition("cond_gone")]
         after = [_delay("delay_b", "1d"), _delay("delay_a", "1d"), _window("wait_1", day="weekend")]
-        assert get_timing_reschedule_action_ids(before, after) == ["delay_a", "delay_b", "wait_1"]
+        assert get_timing_reschedule_action_ids(before, after) == ["cond_gone", "delay_a", "delay_b", "wait_1"]
 
     def test_pathological_diff_over_cap_sweeps_nothing(self):
         before = [_delay(f"delay_{i}", "7d") for i in range(101)]
@@ -157,20 +167,6 @@ class TestTimingRescheduleDiff(SimpleTestCase):
 
     def test_all_timing_action_ids_over_cap_sweeps_nothing(self):
         assert get_all_timing_action_ids([_delay(f"delay_{i}") for i in range(101)]) == []
-
-
-class TestTimingRescheduleFlag(SimpleTestCase):
-    def _team(self) -> MagicMock:
-        return MagicMock(uuid="team-uuid", organization_id="org-id", id=1)
-
-    @parameterized.expand([("on", True), ("off", False)])
-    def test_flag_value_passthrough(self, _name, enabled):
-        with patch("posthoganalytics.feature_enabled", return_value=enabled):
-            assert use_workflows_timing_reschedule(self._team()) is enabled
-
-    def test_flag_check_failure_defaults_off(self):
-        with patch("posthoganalytics.feature_enabled", side_effect=Exception("flag service down")):
-            assert use_workflows_timing_reschedule(self._team()) is False
 
 
 class TestRescheduleParkedJobsClient(BaseTest):

@@ -53,6 +53,7 @@ impl TryInto<SymbolSetUpload> for ProguardFile {
             chunk_id: self.map_id,
             release_id: self.release_id,
             data,
+            content_hash: None,
         })
     }
 }

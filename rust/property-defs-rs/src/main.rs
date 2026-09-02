@@ -8,12 +8,14 @@ use property_defs_rs::{
     app_context::AppContext,
     config::Config,
     measuring_channel::measuring_channel,
-    metrics_consts::CHANNEL_CAPACITY,
+    metrics_buckets::bucket_overrides,
+    metrics_consts::{CHANNEL_CAPACITY, CHANNEL_CAPACITY_TOTAL},
+    types::MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
     update_cache::Cache,
     update_consumer_loop, update_producer_loop,
 };
 
-use serve_metrics::setup_metrics_routes;
+use common_metrics::setup_metrics_routes_with_overrides;
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tracing::level_filters::LevelFilter;
@@ -42,6 +44,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting up property definitions service...");
 
     let config = Config::init_with_defaults()?;
+
+    // Refuse the "0 disables it" convention: with flooring off, every event's last_seen_at is
+    // unique, dedup filters nothing, and the full event stream lands on posthog_eventdefinition
+    // as row updates. Failing the deploy is cheaper than that. The upper bound guards the same
+    // outcome from the other direction, where the jitter offset outruns the timestamp range.
+    if config.eventdef_last_seen_floor_secs <= 0
+        || config.eventdef_last_seen_floor_secs > MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS
+    {
+        return Err(format!(
+            "EVENTDEF_LAST_SEEN_FLOOR_SECS must be in 1..={MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS}, got {}: flooring bounds how often event-definition writes are re-issued and must not be disabled",
+            config.eventdef_last_seen_floor_secs
+        )
+        .into());
+    }
 
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     let _profiling_agent = match config.continuous_profiling.start_agent() {
@@ -78,11 +94,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)
-    // TODO: update this to conditionally point to new isolated propdefs & persons (grouptypemapping)
-    // DBs after those migrations are completed, prior to deployment
-    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-    let api_pool = options.connect(&config.database_url).await?;
+    // Dedicated PG conn pool for serving propdefs API queries only. The API is mounted but
+    // receives no production traffic today, so connect lazily: `connect` would open a connection
+    // at startup and hold it idle for a surface nothing calls, and would also make boot depend on
+    // Postgres being reachable. The first request pays the connect cost instead.
+    let api_pool = PgPoolOptions::new()
+        .max_connections(config.max_pg_connections)
+        .connect_lazy(&config.database_url)?;
     let query_manager = QueryManager::new(api_pool).await?;
 
     let context = Arc::new(AppContext::new(&config, query_manager).await?);
@@ -118,13 +136,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     drop(producer_handle);
 
-    // Publish the tx capacity metric every 10 seconds
+    // Publish the tx capacity metrics every 10 seconds. Both are needed to read occupancy:
+    // `capacity()` is remaining slots, `max_capacity()` is the channel size.
     tokio::spawn({
         let tx = tx.clone();
         async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 metrics::gauge!(CHANNEL_CAPACITY).set(tx.capacity() as f64);
+                metrics::gauge!(CHANNEL_CAPACITY_TOTAL).set(tx.max_capacity() as f64);
             }
         }
     });
@@ -163,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         );
     let app = apply_routes(app, context);
-    let app = setup_metrics_routes(app);
+    let app = setup_metrics_routes_with_overrides(app, &bucket_overrides());
 
     let bind = format!("{}:{}", config.host, config.port);
     info!(address = %bind, "HTTP server starting");

@@ -77,6 +77,13 @@ export interface healthCategoryDetailLogicActions {
     setShowDismissed: (show: boolean) => {
         show: boolean
     }
+    snoozeIssue: (
+        id: string,
+        duration: string
+    ) => {
+        duration: string
+        id: string
+    }
     undismissIssue: (id: string) => {
         id: string
     }
@@ -119,6 +126,7 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
 
     actions({
         setShowDismissed: (show: boolean) => ({ show }),
+        snoozeIssue: (id: string, duration: string) => ({ id, duration }),
         dismissIssue: (id: string) => ({ id }),
         undismissIssue: (id: string) => ({ id }),
         refreshHealthData: true,
@@ -240,6 +248,17 @@ export const healthCategoryDetailLogic = kea<healthCategoryDetailLogicType>([
         },
         setShowDismissed: () => {
             actions.loadHealthIssues()
+        },
+        snoozeIssue: async ({ id, duration }) => {
+            try {
+                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                    snoozed_until: duration,
+                })
+                actions.loadHealthIssues()
+                healthSummaryLogic.actions.loadHealthSummary()
+            } catch {
+                lemonToast.error("Couldn't snooze this issue. Try again.")
+            }
         },
         dismissIssue: async ({ id }) => {
             try {

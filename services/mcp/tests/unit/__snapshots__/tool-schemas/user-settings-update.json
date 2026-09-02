@@ -81,8 +81,18 @@
             "type": "string"
         },
         "role_at_organization": {
-            "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other",
-            "enum": ["engineering", "data", "product", "founder", "leadership", "marketing", "sales", "other"],
+            "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+            "enum": [
+                "engineering",
+                "data",
+                "product",
+                "founder",
+                "leadership",
+                "marketing",
+                "sales",
+                "student",
+                "other"
+            ],
             "type": "string"
         },
         "set_current_organization": {
@@ -138,6 +148,9 @@
                     "type": "null"
                 }
             ]
+        },
+        "ui_configuration": {
+            "description": "Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown."
         },
         "uuid": {
             "description": "User UUID, or `@me` to target the authenticated user.",

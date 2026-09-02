@@ -7,6 +7,8 @@ import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUT
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -15,10 +17,10 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
-import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
+import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
 import { AiIngestionPipelineConfig, createAiIngestionPipeline } from './pipeline'
@@ -38,14 +40,12 @@ describe('AiIngestionPipeline', () => {
     let mockEventFilterManager: { getFilter: jest.Mock }
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let mockHogTransformer: jest.Mocked<
-        Pick<
-            HogTransformer,
-            'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchTransformationStatesForTeams'
-        >
+        Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
     >
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let promiseScheduler: PromiseScheduler
+    let ingestedUsage: UsageRecordInput[]
     let config: AiIngestionPipelineConfig
 
     const team = createTestTeam({ id: 123, api_token: 'token-123' })
@@ -80,7 +80,7 @@ describe('AiIngestionPipeline', () => {
     const runPipeline = async (messages: Message[]): Promise<void> => {
         const pipeline = createAiIngestionPipeline(config)
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        await pipeline.feed(batch)
+        await pipeline.feed(batch, {})
         let result = await pipeline.next()
         while (result !== null) {
             // The pipeline handles its own side effects; none may leak to drivers.
@@ -124,12 +124,8 @@ describe('AiIngestionPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
-            prefetchTransformationStatesForTeams: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<
-            Pick<
-                HogTransformer,
-                'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchTransformationStatesForTeams'
-            >
+            Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
         >
 
         mockPersonRepository = {
@@ -145,6 +141,14 @@ describe('AiIngestionPipeline', () => {
         } as unknown as jest.Mocked<ReadOnlyGroupTypeManager>
 
         promiseScheduler = new PromiseScheduler()
+
+        ingestedUsage = []
+        const usageClient = {
+            ingest: jest.fn((records: UsageRecordInput[]) => {
+                ingestedUsage.push(...records)
+                return Promise.resolve()
+            }),
+        } as unknown as UsageIngestionClient
 
         const single = (output: string, topic: string) =>
             new SingleIngestionOutput(output, topic, mockKafkaProducer, 'test')
@@ -171,11 +175,9 @@ describe('AiIngestionPipeline', () => {
             overflowRedirectService: new DisabledOverflowRedirect(),
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),
             concurrentBatches: 1,
-            cdpHogWatcherSampleRate: 1,
             eventSchemaEnforcementEnabled: false,
             eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
-            // No-op metrics wrapper — these tests assert pipeline output, not topHog counters.
-            topHog: ((step) => step) as TopHogWrapper,
+            topHog: createNoopTopHog(),
             aiBlobStore: null,
             aiBlobOffloadConfig: {
                 isTeamEnabled: (): boolean => false,
@@ -183,7 +185,21 @@ describe('AiIngestionPipeline', () => {
                 maxBlobsPerEvent: 50,
                 uploadMaxConcurrency: 8,
             },
+            createEventUsageBatch: () =>
+                new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: () => true }),
         }
+    })
+
+    it('reports one ai_events usage record per event', async () => {
+        await runPipeline([createMessage('$ai_generation'), createMessage('$ai_span')])
+
+        expect(ingestedUsage).toHaveLength(2)
+        // What the identity is made of belongs to usage-records-steps.test.ts. Here it only has to
+        // be one record per event, on the event's own day.
+        expect(new Set(ingestedUsage.map((r) => r.recordId)).size).toBe(2)
+        expect(ingestedUsage.every((r) => /^2024-01-01:[0-9a-f]{32}$/.test(r.recordId))).toBe(true)
+        expect(ingestedUsage.every((r) => r.usageKey === 'ai_events' && r.quantity === 1)).toBe(true)
+        expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
 
     it('double-writes AI events to both the events and ai_events outputs', async () => {
@@ -192,6 +208,13 @@ describe('AiIngestionPipeline', () => {
         expect(producedForTopic(EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(AI_EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
+    })
+
+    it('nulls invalid AI token properties before emitting', async () => {
+        await runPipeline([createMessage('$ai_generation', { $ai_input_tokens: 'not-a-number' })])
+
+        const [emitted] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(parseJSON(emitted.properties).$ai_input_tokens).toBeNull()
     })
 
     it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event'])(
@@ -226,6 +249,5 @@ describe('AiIngestionPipeline', () => {
 
         // Without this prefetch the transformer can't see Hog watcher's disabled state,
         // so disabled transformations would still run.
-        expect(mockHogTransformer.prefetchTransformationStatesForTeams).toHaveBeenCalledWith([123])
     })
 })

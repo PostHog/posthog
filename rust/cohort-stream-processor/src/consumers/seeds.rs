@@ -1,17 +1,20 @@
 //! The `cohort_stream_seed_events` follower consumer — the backfill day-tile input.
 //!
-//! Assignment arrives via the events group's rebalance mirror. The apply fence is enforced at
-//! admission: a tile dispatches only once its partition's live watermark clears
-//! `s_chunk + margin`; fence-closed and channel-full tiles share one holdover + pause mechanism,
-//! and an un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
+//! Assignment arrives via the events group's rebalance mirror. Four admission gates share one
+//! holdover + pause mechanism: the apply fence (a tile dispatches only once its partition's live
+//! watermark clears `s_chunk + margin`), a full worker channel, live-priority (the partition's
+//! live watermark age crossed the pause threshold — live traffic always wins), and pod-wide disk
+//! pressure. An un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
 //! Consume-side skips ride the worker channel so their offsets mark in order; they never close
-//! the fence.
+//! the fence, but a live-lag/disk gate holds them too (nothing leapfrogs a gated partition).
+//! The [`PauseLedger`] records why each partition is held and since when; the pause target and
+//! the age/count gauges all derive from it.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use cohort_core::seed::{decode_seed, DecodedSeed, ReconcileTile, SChunkMs, SeedTile};
+use cohort_core::seed::{decode_seed, DecodedSeed, PersonSeed, ReconcileTile, SChunkMs, SeedTile};
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -21,12 +24,19 @@ use tracing::{debug, info, warn};
 
 use crate::consumers::events::{fsync_then_commit, run_pauser_loop, EventDispatcher};
 use crate::consumers::merges::owned_committable_offsets;
+use crate::observability::disk::{DiskUtilization, SharedDiskUtilization};
 use crate::observability::metrics::{
     COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_SEEDS_CONSUMED,
     COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE, COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
     LIVE_WATERMARK_AGE_MS, SEED_FENCED_PARTITIONS, SEED_FENCE_DEFICIT_MS,
+    SEED_IDLE_PROBE_DURATION_SECONDS, SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS,
+    SEED_NO_WATERMARK_PARTITIONS, SEED_OLDEST_HELD_AGE_MS, SEED_PAUSED_PARTITIONS,
+    SEED_PAUSE_AGE_MS,
 };
 use crate::partitions::backpressure::PartitionHoldover;
+use crate::partitions::pacing::{
+    AgeMs, CauseSet, Hysteresis, PauseCause, PauseLedger, SeedPacing, SeedPacingConfig, UsedPct,
+};
 use crate::partitions::pause::PartitionPauser;
 use crate::partitions::rebalance::CohortConsumerContext;
 use crate::partitions::shuffle_message::ShuffleMessage;
@@ -64,6 +74,7 @@ impl SeedSkipReason {
 #[derive(Debug)]
 pub enum SeedWork {
     Tile(SeedTile),
+    Person(PersonSeed),
     Reconcile(ReconcileTile),
     Skip(SeedSkipReason),
 }
@@ -74,6 +85,9 @@ pub struct ConsumedSeed {
     pub work: SeedWork,
     pub partition: i32,
     pub offset: i64,
+    /// Broker timestamp of the consumed message — the oldest-held age gauge's input. `None`
+    /// (`Timestamp::NotAvailable`) reads as age 0.
+    pub broker_ts_ms: Option<i64>,
 }
 
 impl ConsumedSeed {
@@ -81,26 +95,33 @@ impl ConsumedSeed {
         ShuffleMessage::Seed {
             work: Box::new(self.work),
             offset: self.offset,
+            broker_ts_ms: self.broker_ts_ms,
         }
     }
 
     /// Inverse of [`into_message`](Self::into_message); `None` for a non-seed message.
     pub(crate) fn from_message(partition: i32, message: ShuffleMessage) -> Option<Self> {
         match message {
-            ShuffleMessage::Seed { work, offset } => Some(Self {
+            ShuffleMessage::Seed {
+                work,
+                offset,
+                broker_ts_ms,
+            } => Some(Self {
                 work: *work,
                 partition,
                 offset,
+                broker_ts_ms,
             }),
             _ => None,
         }
     }
 
-    /// The fence input; control messages and skips are fence-open.
+    /// The fence input. Control messages, person seeds, and skips are fence-open: none of them
+    /// bounds the arrival of events over the live stream.
     fn s_chunk_ms(&self) -> Option<SChunkMs> {
         match &self.work {
             SeedWork::Tile(tile) => Some(tile.s_chunk_ms()),
-            SeedWork::Reconcile(_) | SeedWork::Skip(_) => None,
+            SeedWork::Person(_) | SeedWork::Reconcile(_) | SeedWork::Skip(_) => None,
         }
     }
 }
@@ -134,40 +155,95 @@ pub(crate) fn fence_decision(
     }
 }
 
-/// A consumed batch split at the fence, preserving per-partition FIFO.
+/// The gates evaluated at admission, beyond the per-tile fence.
+pub(crate) struct AdmissionPolicy<'a, F: Fn(i32) -> Option<WatermarkMs>> {
+    pub fence_margin_ms: i64,
+    pub watermark_of: F,
+    /// Partitions gated by live-priority: hold everything, including leading skips.
+    pub live_lagging: &'a HashSet<i32>,
+    /// Pod-wide disk gate: hold everything for every partition.
+    pub disk_pressure: bool,
+}
+
+/// A consumed batch split at the admission gates, preserving per-partition FIFO.
 #[derive(Debug, Default)]
-pub(crate) struct FenceSplit {
+pub(crate) struct AdmissionSplit {
     pub admitted: Vec<ConsumedSeed>,
     pub held: HashMap<i32, Vec<ConsumedSeed>>,
+    /// Why each partition that closed in this split is held.
+    pub causes: HashMap<i32, CauseSet>,
     /// Deficit per partition whose fence closed in this split.
     pub deficits: HashMap<i32, Option<i64>>,
 }
 
 /// Admit each partition's open prefix; from the first fence-closed tile hold everything for that
-/// partition (skips included) so nothing leapfrogs a held offset. `already_held` partitions queue
-/// entirely behind their holdover.
-pub(crate) fn split_at_fence(
+/// partition (skips included) so nothing leapfrogs a held offset. A gated partition
+/// (live-lag/disk) holds everything from its first message, leading skips included.
+/// `already_held` partitions queue entirely behind their holdover (their causes were attributed
+/// when the holdover re-split this cycle).
+pub(crate) fn split_for_admission<F: Fn(i32) -> Option<WatermarkMs>>(
     seeds: Vec<ConsumedSeed>,
     already_held: &HashSet<i32>,
-    margin_ms: i64,
-    watermark_of: impl Fn(i32) -> Option<WatermarkMs>,
-) -> FenceSplit {
-    let mut split = FenceSplit::default();
+    policy: &AdmissionPolicy<'_, F>,
+) -> AdmissionSplit {
+    let mut split = AdmissionSplit::default();
     let mut closed: HashSet<i32> = HashSet::new();
+    // Gated partitions whose first tile has not been fence-probed yet: even when gated, the first
+    // tile still evaluates the fence so the fence cause and deficit stay continuous through a
+    // live-lag/disk episode.
+    let mut fence_probe_pending: HashSet<i32> = HashSet::new();
     for seed in seeds {
         let partition = seed.partition;
-        if already_held.contains(&partition) || closed.contains(&partition) {
+        if already_held.contains(&partition) {
+            split.held.entry(partition).or_default().push(seed);
+            continue;
+        }
+        if !closed.contains(&partition) {
+            let gate = gate_causes(policy, partition);
+            if !gate.is_empty() {
+                closed.insert(partition);
+                fence_probe_pending.insert(partition);
+                split.causes.insert(partition, gate);
+            }
+        }
+        if closed.contains(&partition) {
+            if fence_probe_pending.contains(&partition) {
+                if let Some(s_chunk) = seed.s_chunk_ms() {
+                    fence_probe_pending.remove(&partition);
+                    if let FenceDecision::Closed { deficit_ms } = fence_decision(
+                        (policy.watermark_of)(partition),
+                        s_chunk,
+                        policy.fence_margin_ms,
+                    ) {
+                        split
+                            .causes
+                            .entry(partition)
+                            .or_default()
+                            .insert(PauseCause::Fence);
+                        split.deficits.insert(partition, deficit_ms);
+                    }
+                }
+            }
             split.held.entry(partition).or_default().push(seed);
             continue;
         }
         let decision = match seed.s_chunk_ms() {
             None => FenceDecision::Open,
-            Some(s_chunk) => fence_decision(watermark_of(partition), s_chunk, margin_ms),
+            Some(s_chunk) => fence_decision(
+                (policy.watermark_of)(partition),
+                s_chunk,
+                policy.fence_margin_ms,
+            ),
         };
         match decision {
             FenceDecision::Open => split.admitted.push(seed),
             FenceDecision::Closed { deficit_ms } => {
                 closed.insert(partition);
+                split
+                    .causes
+                    .entry(partition)
+                    .or_default()
+                    .insert(PauseCause::Fence);
                 split.deficits.insert(partition, deficit_ms);
                 split.held.entry(partition).or_default().push(seed);
             }
@@ -176,7 +252,22 @@ pub(crate) fn split_at_fence(
     split
 }
 
-/// Holdover of fence-closed or backpressured seeds.
+/// The partition-level gate verdict under `policy`, independent of any tile.
+fn gate_causes<F: Fn(i32) -> Option<WatermarkMs>>(
+    policy: &AdmissionPolicy<'_, F>,
+    partition: i32,
+) -> CauseSet {
+    let mut causes = CauseSet::default();
+    if policy.live_lagging.contains(&partition) {
+        causes.insert(PauseCause::LiveLag);
+    }
+    if policy.disk_pressure {
+        causes.insert(PauseCause::DiskPressure);
+    }
+    causes
+}
+
+/// Holdover of fence-closed, backpressured, or pacing-gated seeds.
 type SeedHoldover = PartitionHoldover<ConsumedSeed>;
 
 /// The holdover flattened in per-partition FIFO order.
@@ -186,6 +277,200 @@ fn drain_held(holdover: &mut SeedHoldover) -> Vec<ConsumedSeed> {
         .into_iter()
         .flat_map(|(_, seeds)| seeds)
         .collect()
+}
+
+/// One pass over the owned partitions: watermark ages (for the age gauge), the live-lag verdicts,
+/// and the no-watermark count.
+#[derive(Debug, Default)]
+struct LiveLagAssessment {
+    /// Partitions whose seed applies must yield to live consumption this cycle.
+    lagging: HashSet<i32>,
+    /// Watermark age per partition that has one.
+    ages_ms: HashMap<i32, i64>,
+    /// Owned partitions with no watermark at all: fence-fail-closed with an unknown deficit, so
+    /// otherwise invisible on the deficit gauge.
+    no_watermark: usize,
+}
+
+/// An absent watermark is never a live-lag hold — tiles are already fence-fail-closed there, and
+/// a redundant hold would poison the hysteresis memory on a new tenure — it is only counted.
+fn assess_live_lag(
+    owned: &HashSet<i32>,
+    watermark_of: impl Fn(i32) -> Option<WatermarkMs>,
+    ledger: &PauseLedger,
+    hysteresis: Option<Hysteresis<AgeMs>>,
+    now_ms: i64,
+) -> LiveLagAssessment {
+    let mut assessment = LiveLagAssessment::default();
+    for &partition in owned {
+        let Some(WatermarkMs(watermark_ms)) = watermark_of(partition) else {
+            assessment.no_watermark += 1;
+            continue;
+        };
+        let age_ms = now_ms.saturating_sub(watermark_ms);
+        assessment.ages_ms.insert(partition, age_ms);
+        let Some(hysteresis) = hysteresis else {
+            continue;
+        };
+        let engaged = ledger.has_cause(partition, PauseCause::LiveLag);
+        if hysteresis.decide(engaged, AgeMs(age_ms)) {
+            assessment.lagging.insert(partition);
+        }
+    }
+    assessment
+}
+
+/// This cycle's per-partition causes: the two splits' verdicts unioned, plus `ChannelFull` for
+/// every partition whose dispatch bounced. Feeds [`PauseLedger::reconcile`], so a partition absent
+/// here has drained and its episode ends.
+fn merge_cycle_causes(
+    refence: HashMap<i32, CauseSet>,
+    fresh: HashMap<i32, CauseSet>,
+    bounced: impl IntoIterator<Item = i32>,
+) -> HashMap<i32, CauseSet> {
+    let mut merged = refence;
+    for (partition, causes) in fresh {
+        let entry = merged.entry(partition).or_default();
+        *entry = entry.union(causes);
+    }
+    for partition in bounced {
+        merged
+            .entry(partition)
+            .or_default()
+            .insert(PauseCause::ChannelFull);
+    }
+    merged
+}
+
+/// The admission core of one consume cycle: prune revoked state, assess the gates, split and
+/// dispatch held seeds before fresh ones, reconcile the ledger, and emit the pacing gauges.
+/// Both clock readings are inputs, so tests can drive it without a consumer.
+#[allow(clippy::too_many_arguments)]
+fn run_admission_cycle(
+    dispatcher: &EventDispatcher,
+    pacing_config: &SeedPacingConfig,
+    disk_sample: Option<DiskUtilization>,
+    fence_margin_ms: i64,
+    seeds: Vec<ConsumedSeed>,
+    holdover: &mut SeedHoldover,
+    pacing: &mut SeedPacing,
+    prev_paused_target: &mut HashSet<i32>,
+    pause_tx: &tokio::sync::mpsc::UnboundedSender<HashSet<i32>>,
+    now_ms: i64,
+    now: Instant,
+) {
+    let owned = dispatcher.owned_set();
+    holdover.prune_revoked(&owned);
+    pacing.ledger.drop_unowned(&owned);
+
+    let watermarks = dispatcher.merge_deps().live_watermarks.clone();
+    let watermark_of = |partition: i32| watermarks.get(partition);
+
+    let live_lag = assess_live_lag(
+        &owned,
+        watermark_of,
+        &pacing.ledger,
+        pacing_config.live_lag,
+        now_ms,
+    );
+    for (&partition, &age_ms) in &live_lag.ages_ms {
+        gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string()).set(age_ms as f64);
+    }
+    gauge!(SEED_NO_WATERMARK_PARTITIONS).set(live_lag.no_watermark as f64);
+
+    // Pod-wide disk verdict; an absent sample can never pause (fail-open).
+    pacing.disk_engaged = match (pacing_config.disk, disk_sample) {
+        (Some(hysteresis), Some(sample)) => {
+            hysteresis.decide(pacing.disk_engaged, UsedPct(sample.used_pct()))
+        }
+        _ => false,
+    };
+
+    let policy = AdmissionPolicy {
+        fence_margin_ms,
+        watermark_of,
+        live_lagging: &live_lag.lagging,
+        disk_pressure: pacing.disk_engaged,
+    };
+
+    // Held before fresh; the channel-full remainder re-absorbs before the still-fenced
+    // suffix so per-partition FIFO holds.
+    let refence = split_for_admission(drain_held(holdover), &HashSet::new(), &policy);
+    let still_full = dispatcher.dispatch_seeds(refence.admitted);
+    let mut bounced: Vec<i32> = still_full.keys().copied().collect();
+    holdover.absorb(still_full);
+    holdover.absorb(refence.held);
+
+    // Fresh seeds queue behind held partitions rather than leapfrogging older offsets.
+    let fresh = split_for_admission(seeds, &holdover.held_partitions(), &policy);
+    let fresh_full = dispatcher.dispatch_seeds(fresh.admitted);
+    bounced.extend(fresh_full.keys().copied());
+    holdover.absorb(fresh_full);
+    holdover.absorb(fresh.held);
+
+    for (partition, deficit) in refence.deficits.into_iter().chain(fresh.deficits) {
+        if let Some(deficit_ms) = deficit {
+            gauge!(SEED_FENCE_DEFICIT_MS, "partition" => partition.to_string())
+                .set(deficit_ms as f64);
+        }
+    }
+
+    let causes = merge_cycle_causes(refence.causes, fresh.causes, bounced);
+    // Reconcile owned ∪ caused: owned partitions with no causes drain (episode ends), and a
+    // just-revoked partition whose polled seeds were held this cycle still enters the ledger so
+    // the target matches the holdover until both prune next cycle.
+    let mut to_reconcile = owned;
+    to_reconcile.extend(causes.keys().copied());
+    for partition in to_reconcile {
+        pacing.ledger.reconcile(
+            partition,
+            causes.get(&partition).copied().unwrap_or_default(),
+            now,
+        );
+    }
+
+    // A partition is paused iff its holdover is non-empty; the ledger is the causes-and-age view
+    // of that same set.
+    debug_assert_eq!(pacing.ledger.pause_target(), holdover.held_partitions());
+
+    let target = pacing.ledger.pause_target();
+    for partition in prev_paused_target.difference(&target) {
+        // Zero the per-partition gauges for drained partitions so they clear.
+        let label: Arc<str> = Arc::from(partition.to_string());
+        gauge!(SEED_FENCE_DEFICIT_MS, "partition" => label.clone()).set(0.0);
+        gauge!(SEED_PAUSE_AGE_MS, "partition" => label.clone()).set(0.0);
+        gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => label).set(0.0);
+    }
+    // A partition can stay held (live-lag/disk/channel-full) after its fence opens; nothing
+    // rewrites the deficit then, so clear it rather than pin the last fence-closed reading.
+    for &partition in &target {
+        if !pacing.ledger.has_cause(partition, PauseCause::Fence) {
+            gauge!(SEED_FENCE_DEFICIT_MS, "partition" => partition.to_string()).set(0.0);
+        }
+    }
+    if (!target.is_empty() || !prev_paused_target.is_empty())
+        && pause_tx.send(target.clone()).is_err()
+    {
+        debug!("seed pauser task has exited; skipping a pause/resume update");
+    }
+
+    for &partition in &target {
+        if let Some(age) = pacing.ledger.age(partition, now) {
+            gauge!(SEED_PAUSE_AGE_MS, "partition" => partition.to_string())
+                .set(age.as_millis() as f64);
+        }
+    }
+    for (partition, head) in holdover.held_heads() {
+        let age_ms = head.broker_ts_ms.map_or(0, |ts| (now_ms - ts).max(0));
+        gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => partition.to_string()).set(age_ms as f64);
+    }
+    for cause in PauseCause::ALL {
+        gauge!(SEED_PAUSED_PARTITIONS, "cause" => cause.as_str())
+            .set(pacing.ledger.count_with(cause) as f64);
+    }
+    gauge!(SEED_FENCED_PARTITIONS).set(holdover.held_partition_count() as f64);
+
+    *prev_paused_target = target;
 }
 
 /// The seed-topic follower consume loop. Commits go through the seed tracker +
@@ -204,6 +489,8 @@ pub struct SeedFollowerConsumer {
     offset_commit_interval: Duration,
     fence_margin_ms: i64,
     idle_probe_interval: Duration,
+    pacing_config: SeedPacingConfig,
+    disk_state: Arc<SharedDiskUtilization>,
 }
 
 impl SeedFollowerConsumer {
@@ -221,6 +508,8 @@ impl SeedFollowerConsumer {
         offset_commit_interval: Duration,
         fence_margin_ms: i64,
         idle_probe_interval: Duration,
+        pacing_config: SeedPacingConfig,
+        disk_state: Arc<SharedDiskUtilization>,
     ) -> Self {
         Self {
             consumer,
@@ -235,6 +524,8 @@ impl SeedFollowerConsumer {
             offset_commit_interval,
             fence_margin_ms,
             idle_probe_interval,
+            pacing_config,
+            disk_state,
         }
     }
 
@@ -256,6 +547,7 @@ impl SeedFollowerConsumer {
         ));
 
         let mut holdover = SeedHoldover::default();
+        let mut pacing = SeedPacing::default();
         let mut prev_paused_target: HashSet<i32> = HashSet::new();
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
 
@@ -267,7 +559,7 @@ impl SeedFollowerConsumer {
                     break;
                 }
                 outcome = self.consume_batch() => {
-                    self.cycle(outcome, &mut holdover, &mut prev_paused_target, &pause_tx).await;
+                    self.cycle(outcome, &mut holdover, &mut pacing, &mut prev_paused_target, &pause_tx).await;
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
                         fsync_then_commit(
@@ -305,12 +597,14 @@ impl SeedFollowerConsumer {
         info!(topic = %self.topic, "seed follower consume loop stopped");
     }
 
-    /// One non-blocking cycle: prune revoked holdover, re-fence and redispatch held seeds before
-    /// fresh ones, dispatch the polled batch, reconcile the paused target and gauges.
+    /// One non-blocking cycle: prune revoked holdover, assess the pacing gates, re-admit and
+    /// redispatch held seeds before fresh ones, dispatch the polled batch, reconcile the paused
+    /// target and gauges.
     async fn cycle(
         &self,
         outcome: SeedConsumeOutcome,
         holdover: &mut SeedHoldover,
+        pacing: &mut SeedPacing,
         prev_paused_target: &mut HashSet<i32>,
         pause_tx: &tokio::sync::mpsc::UnboundedSender<HashSet<i32>>,
     ) {
@@ -322,60 +616,19 @@ impl SeedFollowerConsumer {
             counter!(COHORT_STREAM_SEED_DESERIALIZE_ERRORS).increment(outcome.deserialize_errors);
         }
 
-        let owned = self.dispatcher.owned_set();
-        holdover.prune_revoked(&owned);
-        let watermarks = self.dispatcher.merge_deps().live_watermarks.clone();
-        let watermark_of = |partition: i32| watermarks.get(partition);
-
-        // Held before fresh; the channel-full remainder re-absorbs before the still-fenced
-        // suffix so per-partition FIFO holds.
-        let refence = split_at_fence(
-            drain_held(holdover),
-            &HashSet::new(),
+        run_admission_cycle(
+            &self.dispatcher,
+            &self.pacing_config,
+            self.disk_state.latest(),
             self.fence_margin_ms,
-            watermark_of,
-        );
-        let still_full = self.dispatcher.dispatch_seeds(refence.admitted);
-        holdover.absorb(still_full);
-        holdover.absorb(refence.held);
-
-        // Fresh seeds queue behind held partitions rather than leapfrogging older offsets.
-        let fresh = split_at_fence(
             outcome.seeds,
-            &holdover.held_partitions(),
-            self.fence_margin_ms,
-            watermark_of,
+            holdover,
+            pacing,
+            prev_paused_target,
+            pause_tx,
+            chrono::Utc::now().timestamp_millis(),
+            Instant::now(),
         );
-        let fresh_full = self.dispatcher.dispatch_seeds(fresh.admitted);
-        holdover.absorb(fresh_full);
-        holdover.absorb(fresh.held);
-
-        for (partition, deficit) in refence.deficits.into_iter().chain(fresh.deficits) {
-            if let Some(deficit_ms) = deficit {
-                gauge!(SEED_FENCE_DEFICIT_MS, "partition" => partition.to_string())
-                    .set(deficit_ms as f64);
-            }
-        }
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        for &partition in &owned {
-            if let Some(WatermarkMs(watermark_ms)) = watermarks.get(partition) {
-                gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string())
-                    .set(now_ms.saturating_sub(watermark_ms) as f64);
-            }
-        }
-
-        let target = holdover.held_partitions();
-        if !target.is_empty() || !prev_paused_target.is_empty() {
-            for partition in prev_paused_target.difference(&target) {
-                // Zero the deficit for drained partitions so the gauge clears.
-                gauge!(SEED_FENCE_DEFICIT_MS, "partition" => partition.to_string()).set(0.0);
-            }
-            if pause_tx.send(target.clone()).is_err() {
-                debug!("seed pauser task has exited; skipping a pause/resume update");
-            }
-            *prev_paused_target = target;
-        }
-        gauge!(SEED_FENCED_PARTITIONS).set(holdover.held_partition_count() as f64);
 
         if outcome.transport_error {
             tokio::time::sleep(RECV_ERROR_BACKOFF).await;
@@ -403,7 +656,12 @@ impl SeedFollowerConsumer {
                             if matches!(work, SeedWork::Skip(SeedSkipReason::DecodeError)) {
                                 outcome.deserialize_errors += 1;
                             }
-                            outcome.seeds.push(ConsumedSeed { work, partition, offset });
+                            outcome.seeds.push(ConsumedSeed {
+                                work,
+                                partition,
+                                offset,
+                                broker_ts_ms: message.timestamp().to_millis(),
+                            });
                         }
                         Err(err) => {
                             outcome.transport_error = true;
@@ -435,6 +693,7 @@ fn decode_payload(payload: Option<&[u8]>, partition: i32, offset: i64) -> SeedWo
     };
     match decode_seed(payload) {
         Ok(DecodedSeed::Tile(tile)) => SeedWork::Tile(tile),
+        Ok(DecodedSeed::Person(seed)) => SeedWork::Person(seed),
         Ok(DecodedSeed::Reconcile(tile)) => SeedWork::Reconcile(tile),
         Ok(DecodedSeed::UnknownKind { kind, .. }) => {
             debug!(partition, offset, kind, "skipping seed of unknown kind");
@@ -489,6 +748,7 @@ async fn run_idle_probe_loop(
                 let folded = dispatcher.events_tracker().committable_offsets();
                 let consumer = events_consumer.clone();
                 let topic = events_topic.clone();
+                let pass_started = Instant::now();
                 let probe = tokio::task::spawn_blocking(move || {
                     probe_idle_partitions(consumer.as_ref(), &topic, &owned, &folded)
                 });
@@ -501,7 +761,11 @@ async fn run_idle_probe_loop(
                 };
                 match probed {
                     Ok(idle_partitions) => {
+                        histogram!(SEED_IDLE_PROBE_DURATION_SECONDS)
+                            .record(pass_started.elapsed().as_secs_f64());
                         let now_ms = chrono::Utc::now().timestamp_millis();
+                        gauge!(SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS)
+                            .set(now_ms as f64 / 1_000.0);
                         advance_probed_idle(
                             &dispatcher.merge_deps().live_watermarks,
                             &dispatcher.owned_set(),
@@ -605,7 +869,8 @@ mod tests {
     use std::num::NonZeroU32;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, RunId, SChunkMs,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileScope, ReconcileTile,
+        RunId, SChunkMs, ScannedAtMs,
     };
     use uuid::Uuid;
 
@@ -634,6 +899,7 @@ mod tests {
             work: SeedWork::Tile(tile_at(s_chunk_ms)),
             partition,
             offset,
+            broker_ts_ms: None,
         }
     }
 
@@ -642,11 +908,55 @@ mod tests {
             work: SeedWork::Skip(SeedSkipReason::UnknownKind),
             partition,
             offset,
+            broker_ts_ms: None,
+        }
+    }
+
+    fn person_seed() -> PersonSeed {
+        PersonSeed::new(
+            TeamId(2),
+            Uuid::from_u128(7),
+            vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+            vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+            ScannedAtMs(1_700_000_000_000),
+            RunId(Uuid::nil()),
+            ClaimEpoch(1),
+        )
+        .unwrap()
+    }
+
+    fn person(partition: i32, offset: i64) -> ConsumedSeed {
+        ConsumedSeed {
+            work: SeedWork::Person(person_seed()),
+            partition,
+            offset,
+            broker_ts_ms: None,
         }
     }
 
     fn offsets(seeds: &[ConsumedSeed]) -> Vec<i64> {
         seeds.iter().map(|seed| seed.offset).collect()
+    }
+
+    /// A policy with only the fence gate active: no live-lag set, no disk pressure.
+    fn fence_only<F: Fn(i32) -> Option<WatermarkMs>>(
+        live_lagging: &HashSet<i32>,
+        watermark_of: F,
+    ) -> AdmissionPolicy<'_, F> {
+        AdmissionPolicy {
+            fence_margin_ms: MARGIN_MS,
+            watermark_of,
+            live_lagging,
+            disk_pressure: false,
+        }
+    }
+
+    fn causes_of(list: &[PauseCause]) -> CauseSet {
+        let mut set = CauseSet::default();
+        for &cause in list {
+            set.insert(cause);
+        }
+        set
     }
 
     #[test]
@@ -700,7 +1010,12 @@ mod tests {
             seed(1, 14, 100),        // would be open, but queues behind the held offset
         ];
 
-        let split = split_at_fence(batch, &HashSet::new(), MARGIN_MS, |p| watermarks.get(p));
+        let none = HashSet::new();
+        let split = split_for_admission(
+            batch,
+            &HashSet::new(),
+            &fence_only(&none, |p| watermarks.get(p)),
+        );
 
         assert_eq!(offsets(&split.admitted), vec![10, 11]);
         assert_eq!(offsets(&split.held[&1]), vec![12, 13, 14]);
@@ -708,13 +1023,15 @@ mod tests {
             split.deficits[&1],
             Some(10_000_000 + MARGIN_MS - (100 + MARGIN_MS + 1))
         );
+        assert_eq!(split.causes[&1], causes_of(&[PauseCause::Fence]));
     }
 
     #[test]
     fn split_holds_everything_for_an_absent_watermark_except_leading_skips() {
         let batch = vec![skip(3, 1), seed(3, 2, 0), skip(3, 3)];
 
-        let split = split_at_fence(batch, &HashSet::new(), MARGIN_MS, |_| None);
+        let none = HashSet::new();
+        let split = split_for_admission(batch, &HashSet::new(), &fence_only(&none, |_| None));
 
         assert_eq!(
             offsets(&split.admitted),
@@ -731,7 +1048,12 @@ mod tests {
         watermarks.observe(5, i64::MAX); // fence wide open
         let batch = vec![seed(5, 20, 0), skip(5, 21)];
 
-        let split = split_at_fence(batch, &HashSet::from([5]), MARGIN_MS, |p| watermarks.get(p));
+        let none = HashSet::new();
+        let split = split_for_admission(
+            batch,
+            &HashSet::from([5]),
+            &fence_only(&none, |p| watermarks.get(p)),
+        );
 
         assert!(split.admitted.is_empty(), "nothing leapfrogs a held offset");
         assert_eq!(offsets(&split.held[&5]), vec![20, 21]);
@@ -744,11 +1066,173 @@ mod tests {
         // Partition 2 has no watermark: closed.
         let batch = vec![seed(1, 1, 0), seed(2, 1, 0), seed(1, 2, 0)];
 
-        let split = split_at_fence(batch, &HashSet::new(), MARGIN_MS, |p| watermarks.get(p));
+        let none = HashSet::new();
+        let split = split_for_admission(
+            batch,
+            &HashSet::new(),
+            &fence_only(&none, |p| watermarks.get(p)),
+        );
 
         assert_eq!(offsets(&split.admitted), vec![1, 2]);
         assert!(split.admitted.iter().all(|seed| seed.partition == 1));
         assert_eq!(offsets(&split.held[&2]), vec![1]);
+    }
+
+    /// Live-priority violated by leaking fence-open tiles: a lagging partition must hold its
+    /// whole batch — leading skips included — while other partitions stay unaffected.
+    #[test]
+    fn live_lag_gate_holds_everything_including_leading_skips() {
+        let watermarks = LiveWatermarks::new();
+        watermarks.observe(3, i64::MAX); // fence wide open — the gate must hold regardless
+        watermarks.observe(4, i64::MAX);
+        let batch = vec![skip(3, 1), seed(3, 2, 0), skip(3, 3), seed(4, 7, 0)];
+
+        let lagging = HashSet::from([3]);
+        let split = split_for_admission(
+            batch,
+            &HashSet::new(),
+            &fence_only(&lagging, |p| watermarks.get(p)),
+        );
+
+        assert_eq!(
+            offsets(&split.admitted),
+            vec![7],
+            "only the un-gated partition flows"
+        );
+        assert_eq!(offsets(&split.held[&3]), vec![1, 2, 3]);
+        assert_eq!(split.causes[&3], causes_of(&[PauseCause::LiveLag]));
+        assert!(
+            !split.deficits.contains_key(&3),
+            "an open fence adds neither a fence cause nor a deficit while gated",
+        );
+    }
+
+    /// The pod-wide disk gate must hold every partition, fence state notwithstanding.
+    #[test]
+    fn disk_gate_holds_all_partitions() {
+        let watermarks = LiveWatermarks::new();
+        watermarks.observe(1, i64::MAX);
+        watermarks.observe(2, i64::MAX);
+        let batch = vec![seed(1, 10, 0), skip(1, 11), seed(2, 20, 0)];
+
+        let none = HashSet::new();
+        let policy = AdmissionPolicy {
+            disk_pressure: true,
+            ..fence_only(&none, |p| watermarks.get(p))
+        };
+        let split = split_for_admission(batch, &HashSet::new(), &policy);
+
+        assert!(split.admitted.is_empty());
+        assert_eq!(offsets(&split.held[&1]), vec![10, 11]);
+        assert_eq!(offsets(&split.held[&2]), vec![20]);
+        assert_eq!(split.causes[&1], causes_of(&[PauseCause::DiskPressure]));
+        assert_eq!(split.causes[&2], causes_of(&[PauseCause::DiskPressure]));
+    }
+
+    /// The fence gauges must stay continuous through a live-lag/disk episode: a gated partition
+    /// still probes its first tile's fence and attributes the cause + deficit.
+    #[test]
+    fn gated_partition_still_attributes_fence_and_deficit() {
+        let watermarks = LiveWatermarks::new();
+        watermarks.observe(1, 100 + MARGIN_MS + 1); // clears s_chunk 100, not 10_000_000
+        let batch = vec![skip(1, 9), seed(1, 10, 10_000_000), seed(1, 11, 100)];
+
+        let lagging = HashSet::from([1]);
+        let split = split_for_admission(
+            batch,
+            &HashSet::new(),
+            &fence_only(&lagging, |p| watermarks.get(p)),
+        );
+
+        assert!(split.admitted.is_empty());
+        assert_eq!(offsets(&split.held[&1]), vec![9, 10, 11]);
+        assert_eq!(
+            split.causes[&1],
+            causes_of(&[PauseCause::LiveLag, PauseCause::Fence]),
+        );
+        assert_eq!(
+            split.deficits[&1],
+            Some(10_000_000 + MARGIN_MS - (100 + MARGIN_MS + 1)),
+            "the first tile's deficit is attributed even while gated",
+        );
+    }
+
+    /// An absent watermark is fence-fail-closed already; a redundant live-lag hold would poison
+    /// the hysteresis memory on a new tenure. It must be counted, never gated.
+    #[test]
+    fn absent_watermark_counts_no_watermark_but_never_live_lags() {
+        let watermarks = LiveWatermarks::new();
+        let now_ms = 1_000_000;
+        watermarks.observe(1, now_ms - 500_000); // deep lag: gated
+                                                 // Partition 2 has no watermark at all.
+        let owned = HashSet::from([1, 2]);
+        let hysteresis = Hysteresis::new(AgeMs(120_000), AgeMs(60_000)).unwrap();
+
+        let assessment = assess_live_lag(
+            &owned,
+            |p| watermarks.get(p),
+            &PauseLedger::default(),
+            Some(hysteresis),
+            now_ms,
+        );
+
+        assert_eq!(assessment.lagging, HashSet::from([1]));
+        assert_eq!(assessment.no_watermark, 1);
+        assert_eq!(assessment.ages_ms, HashMap::from([(1, 500_000)]));
+    }
+
+    /// The release threshold must apply only to partitions the ledger remembers as live-lagging;
+    /// an age between the thresholds engages nothing new.
+    #[test]
+    fn live_lag_hysteresis_uses_ledger_memory() {
+        let watermarks = LiveWatermarks::new();
+        let now_ms = 1_000_000;
+        // Both partitions sit between release (60s) and engage (120s).
+        watermarks.observe(1, now_ms - 90_000);
+        watermarks.observe(2, now_ms - 90_000);
+        let owned = HashSet::from([1, 2]);
+        let hysteresis = Hysteresis::new(AgeMs(120_000), AgeMs(60_000)).unwrap();
+
+        let mut ledger = PauseLedger::default();
+        ledger.reconcile(1, causes_of(&[PauseCause::LiveLag]), Instant::now());
+
+        let assessment = assess_live_lag(
+            &owned,
+            |p| watermarks.get(p),
+            &ledger,
+            Some(hysteresis),
+            now_ms,
+        );
+
+        assert_eq!(
+            assessment.lagging,
+            HashSet::from([1]),
+            "only the remembered partition stays engaged between the thresholds",
+        );
+    }
+
+    /// A partition whose ledger causes cleared but whose dispatch bounced must re-enter the
+    /// causes map as channel-full, or the ledger would resume a partition that still holds work.
+    #[test]
+    fn merge_cycle_causes_adds_channel_full_for_bounced_partitions() {
+        let refence = HashMap::from([(1, causes_of(&[PauseCause::Fence]))]);
+        let fresh = HashMap::from([
+            (1, causes_of(&[PauseCause::LiveLag])),
+            (2, causes_of(&[PauseCause::DiskPressure])),
+        ]);
+
+        let merged = merge_cycle_causes(refence, fresh, [1, 3]);
+
+        assert_eq!(
+            merged[&1],
+            causes_of(&[
+                PauseCause::Fence,
+                PauseCause::LiveLag,
+                PauseCause::ChannelFull
+            ]),
+        );
+        assert_eq!(merged[&2], causes_of(&[PauseCause::DiskPressure]));
+        assert_eq!(merged[&3], causes_of(&[PauseCause::ChannelFull]));
     }
 
     #[test]
@@ -787,16 +1271,27 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            )
-            .unwrap(),
+            ReconcileScope::Behavioral(
+                BehavioralShapeHash::parse(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                )
+                .unwrap(),
+            ),
             RunId(Uuid::nil()),
         );
         let bytes = serde_json::to_vec(&reconcile).unwrap();
         assert!(matches!(
             decode_payload(Some(&bytes), 0, 0),
             SeedWork::Reconcile(decoded) if decoded == reconcile,
+        ));
+
+        // An undecodable person seed would skip-and-commit and never replay, so the decode arm has
+        // to land before any seeder emits the kind.
+        let person = person_seed();
+        let bytes = serde_json::to_vec(&person).unwrap();
+        assert!(matches!(
+            decode_payload(Some(&bytes), 0, 0),
+            SeedWork::Person(decoded) if decoded == person,
         ));
 
         let mut newer = serde_json::to_value(&tile).unwrap();
@@ -817,29 +1312,37 @@ mod tests {
         ));
     }
 
+    /// A channel-full bounce round-trips through the shuffle message; losing `broker_ts_ms` there
+    /// would zero the oldest-held age gauge exactly when the partition is stuck.
     #[test]
     fn consumed_seed_round_trips_through_its_shuffle_message() {
-        let consumed = seed(9, 42, 123);
+        let consumed = ConsumedSeed {
+            broker_ts_ms: Some(1_700_000_000_000),
+            ..seed(9, 42, 123)
+        };
         let message = consumed.into_message();
         assert_eq!(message.seed_offset(), Some(42));
         let back = ConsumedSeed::from_message(9, message).unwrap();
         assert_eq!(back.partition, 9);
         assert_eq!(back.offset, 42);
+        assert_eq!(back.broker_ts_ms, Some(1_700_000_000_000));
         assert!(matches!(back.work, SeedWork::Tile(tile) if tile.s_chunk_ms() == SChunkMs(123)));
 
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
         );
         let consumed = ConsumedSeed {
             work: SeedWork::Reconcile(reconcile.clone()),
             partition: 9,
             offset: 43,
+            broker_ts_ms: None,
         };
         let back = ConsumedSeed::from_message(9, consumed.into_message()).unwrap();
         assert_eq!(back.offset, 43);
+        assert_eq!(back.broker_ts_ms, None);
         assert!(matches!(back.work, SeedWork::Reconcile(tile) if tile == reconcile));
 
         let not_seed = ShuffleMessage::RedrivePendingTransfers;
@@ -851,32 +1354,64 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
         );
         let reconcile_seed = |offset| ConsumedSeed {
             work: SeedWork::Reconcile(reconcile.clone()),
             partition: 3,
             offset,
+            broker_ts_ms: None,
         };
 
-        let open_prefix = split_at_fence(
+        let none = HashSet::new();
+        let open_prefix = split_for_admission(
             vec![reconcile_seed(1), seed(3, 2, 0)],
             &HashSet::new(),
-            MARGIN_MS,
-            |_| None,
+            &fence_only(&none, |_| None),
         );
         assert_eq!(offsets(&open_prefix.admitted), vec![1]);
         assert_eq!(offsets(&open_prefix.held[&3]), vec![2]);
 
-        let closed_prefix = split_at_fence(
+        let closed_prefix = split_for_admission(
             vec![seed(3, 3, 0), reconcile_seed(4)],
             &HashSet::new(),
-            MARGIN_MS,
-            |_| None,
+            &fence_only(&none, |_| None),
         );
         assert!(closed_prefix.admitted.is_empty());
         assert_eq!(offsets(&closed_prefix.held[&3]), vec![3, 4]);
+    }
+
+    #[test]
+    fn person_seeds_are_fence_open_but_never_leapfrog_a_held_partition() {
+        let none = HashSet::new();
+        let open_prefix = split_for_admission(
+            vec![person(3, 1), seed(3, 2, 0)],
+            &HashSet::new(),
+            &fence_only(&none, |_| None),
+        );
+        assert_eq!(offsets(&open_prefix.admitted), vec![1]);
+        assert_eq!(offsets(&open_prefix.held[&3]), vec![2]);
+
+        let closed_prefix = split_for_admission(
+            vec![seed(3, 3, 0), person(3, 4)],
+            &HashSet::new(),
+            &fence_only(&none, |_| None),
+        );
+        assert!(closed_prefix.admitted.is_empty());
+        assert_eq!(offsets(&closed_prefix.held[&3]), vec![3, 4]);
+
+        let watermarks = LiveWatermarks::new();
+        watermarks.observe(3, i64::MAX); // fence wide open — live-priority must hold regardless
+        let lagging = HashSet::from([3]);
+        let gated = split_for_admission(
+            vec![person(3, 5), person(3, 6)],
+            &HashSet::new(),
+            &fence_only(&lagging, |p| watermarks.get(p)),
+        );
+        assert!(gated.admitted.is_empty());
+        assert_eq!(offsets(&gated.held[&3]), vec![5, 6]);
+        assert_eq!(gated.causes[&3], causes_of(&[PauseCause::LiveLag]));
     }
 
     /// A wrong `true` declares a partition with unfolded live events idle — the fence's
@@ -948,5 +1483,221 @@ mod tests {
             Some(WatermarkMs(2_000)),
             "the still-owned partition advances",
         );
+    }
+
+    mod admission_cycle {
+        //! Behavioral checks of [`run_admission_cycle`] against a real dispatcher and store;
+        //! the pause channel and the seed tracker's ceiling are the observables.
+
+        use tempfile::TempDir;
+
+        use crate::observability::disk::DiskUtilization;
+        use crate::partitions::{OffsetTracker, PartitionRouter};
+        use crate::producer::CaptureSink;
+        use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle};
+        use crate::workers::MergeWorkerDeps;
+
+        use super::*;
+
+        fn pacing_dispatcher(dir: &TempDir) -> Arc<EventDispatcher> {
+            let store = CohortStore::open(&StoreConfig {
+                path: dir.path().join("db"),
+                ..StoreConfig::default()
+            })
+            .expect("open store");
+            let handle = StoreHandle::new(
+                store,
+                OffloadConfig {
+                    mode: OffloadMode::All,
+                    event_read_permits: 16,
+                    maintenance_permits: 6,
+                },
+            );
+            Arc::new(EventDispatcher::new(
+                PartitionRouter::new(64),
+                Arc::new(OffsetTracker::new()),
+                handle,
+                Arc::new(crate::filters::CatalogHandle::new()),
+                Arc::new(CaptureSink::new()),
+                MergeWorkerDeps::capture(),
+            ))
+        }
+
+        /// The spawned worker marks a dispatched skip processed; a held skip never advances.
+        async fn wait_for_committable(dispatcher: &EventDispatcher, partition: i32, expected: i64) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let committable = dispatcher
+                    .merge_deps()
+                    .seed_tracker
+                    .committable_offsets()
+                    .get(&partition)
+                    .copied();
+                if committable == Some(expected) {
+                    return;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for partition {partition} committable {expected}, at {committable:?}",
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+
+        /// A lagging live watermark holds the polled seeds and pauses the partition within one
+        /// cycle; recovery past the release threshold redispatches the held offset before the
+        /// fresh one.
+        #[tokio::test]
+        async fn live_lag_pauses_within_a_cycle_and_resumes_held_before_fresh() {
+            let dir = TempDir::new().unwrap();
+            let dispatcher = pacing_dispatcher(&dir);
+            dispatcher.assign_partition(0);
+            let watermarks = dispatcher.merge_deps().live_watermarks.clone();
+
+            let pacing_config = SeedPacingConfig {
+                live_lag: Some(Hysteresis::new(AgeMs(120_000), AgeMs(60_000)).unwrap()),
+                disk: None,
+            };
+            let mut holdover = SeedHoldover::default();
+            let mut pacing = SeedPacing::default();
+            let mut prev = HashSet::new();
+            let (pause_tx, mut pause_rx) = tokio::sync::mpsc::unbounded_channel();
+
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            watermarks.observe(0, now_ms - 300_000);
+            run_admission_cycle(
+                &dispatcher,
+                &pacing_config,
+                None,
+                MARGIN_MS,
+                vec![skip(0, 5)],
+                &mut holdover,
+                &mut pacing,
+                &mut prev,
+                &pause_tx,
+                now_ms,
+                Instant::now(),
+            );
+            assert_eq!(holdover.held_partitions(), HashSet::from([0]));
+            assert_eq!(pause_rx.try_recv().unwrap(), HashSet::from([0]));
+            assert!(
+                dispatcher
+                    .merge_deps()
+                    .seed_tracker
+                    .committable_offsets()
+                    .is_empty(),
+                "a gated skip never dispatches, so its offset cannot commit",
+            );
+
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            watermarks.observe(0, now_ms);
+            run_admission_cycle(
+                &dispatcher,
+                &pacing_config,
+                None,
+                MARGIN_MS,
+                vec![skip(0, 6)],
+                &mut holdover,
+                &mut pacing,
+                &mut prev,
+                &pause_tx,
+                now_ms,
+                Instant::now(),
+            );
+            assert!(holdover.held_partitions().is_empty());
+            assert_eq!(pause_rx.try_recv().unwrap(), HashSet::new());
+            // Committable 7 requires both offsets marked: held 5 redispatched before fresh 6.
+            wait_for_committable(&dispatcher, 0, 7).await;
+        }
+
+        /// A sample at or above the pause threshold holds every partition, a between-thresholds
+        /// sample stays engaged (hysteresis), and an absent sample releases — a broken probe
+        /// must never wedge seeding.
+        #[tokio::test]
+        async fn disk_pressure_pauses_all_partitions_and_an_absent_sample_never_pauses() {
+            let dir = TempDir::new().unwrap();
+            let dispatcher = pacing_dispatcher(&dir);
+            dispatcher.assign_partition(1);
+            dispatcher.assign_partition(2);
+            let watermarks = dispatcher.merge_deps().live_watermarks.clone();
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            watermarks.observe(1, now_ms);
+            watermarks.observe(2, now_ms);
+
+            let pacing_config = SeedPacingConfig {
+                live_lag: None,
+                disk: Some(Hysteresis::new(UsedPct(60.0), UsedPct(55.0)).unwrap()),
+            };
+            let mut holdover = SeedHoldover::default();
+            let mut pacing = SeedPacing::default();
+            let mut prev = HashSet::new();
+            let (pause_tx, mut pause_rx) = tokio::sync::mpsc::unbounded_channel();
+
+            let over = DiskUtilization {
+                total_bytes: 100,
+                available_bytes: 30, // 70% used
+            };
+            run_admission_cycle(
+                &dispatcher,
+                &pacing_config,
+                Some(over),
+                MARGIN_MS,
+                vec![skip(1, 0), skip(2, 0)],
+                &mut holdover,
+                &mut pacing,
+                &mut prev,
+                &pause_tx,
+                now_ms,
+                Instant::now(),
+            );
+            assert!(pacing.disk_engaged);
+            assert_eq!(holdover.held_partitions(), HashSet::from([1, 2]));
+            assert_eq!(pause_rx.try_recv().unwrap(), HashSet::from([1, 2]));
+
+            // Between the thresholds: sticky, still held.
+            let between = DiskUtilization {
+                total_bytes: 100,
+                available_bytes: 43, // 57% used
+            };
+            run_admission_cycle(
+                &dispatcher,
+                &pacing_config,
+                Some(between),
+                MARGIN_MS,
+                vec![],
+                &mut holdover,
+                &mut pacing,
+                &mut prev,
+                &pause_tx,
+                now_ms,
+                Instant::now(),
+            );
+            assert!(
+                pacing.disk_engaged,
+                "57% is above the 55% release threshold"
+            );
+            assert_eq!(holdover.held_partitions(), HashSet::from([1, 2]));
+            assert_eq!(pause_rx.try_recv().unwrap(), HashSet::from([1, 2]));
+
+            // The probe breaks: fail-open, everything drains.
+            run_admission_cycle(
+                &dispatcher,
+                &pacing_config,
+                None,
+                MARGIN_MS,
+                vec![],
+                &mut holdover,
+                &mut pacing,
+                &mut prev,
+                &pause_tx,
+                now_ms,
+                Instant::now(),
+            );
+            assert!(!pacing.disk_engaged);
+            assert!(holdover.held_partitions().is_empty());
+            assert_eq!(pause_rx.try_recv().unwrap(), HashSet::new());
+            wait_for_committable(&dispatcher, 1, 1).await;
+            wait_for_committable(&dispatcher, 2, 1).await;
+        }
     }
 }

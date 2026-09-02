@@ -27,6 +27,10 @@ def generate_evaluation_cluster_labels(
     eval_metadata: dict[str, EvaluationMetadata],
     window_start: str,
     window_end: str,
+    trace_id: str = "",
+    session_id: str = "",
+    clustering_run_id: str = "",
+    clustering_job_id: str = "",
 ) -> dict[int, ClusterLabel]:
     """Build eval-agent inputs from compute outputs and run the labeling agent."""
     labels_array = np.array(labels)
@@ -49,6 +53,10 @@ def generate_evaluation_cluster_labels(
         all_eval_contents=all_eval_contents,
         window_start=window_start,
         window_end=window_end,
+        trace_id=trace_id,
+        session_id=session_id,
+        clustering_run_id=clustering_run_id,
+        clustering_job_id=clustering_job_id,
     )
 
 

@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout import (
     FilloutSubmissionsPaginator,
+    _fillout_incremental_window,
     _format_fillout_datetime,
     _validated_api_base_url,
     fillout_source,
@@ -91,6 +92,12 @@ class TestFilloutTransport:
     )
     def test_format_fillout_datetime(self, _name, value, expected) -> None:
         assert _format_fillout_datetime(value) == expected
+
+    def test_fillout_incremental_window_initial_value_is_not_unix_epoch(self) -> None:
+        # Fillout's API 400s on an `afterDate` of exactly 1970-01-01T00:00:00Z (any
+        # millisecond precision), so the pre-watermark sentinel must land elsewhere.
+        config = _fillout_incremental_window("submissionTime")
+        assert config["initial_value"] not in ("1970-01-01T00:00:00Z", "1970-01-01T00:00:00.000Z")
 
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(

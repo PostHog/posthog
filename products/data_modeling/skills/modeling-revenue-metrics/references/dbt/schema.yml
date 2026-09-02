@@ -1,0 +1,35 @@
+version: 2
+
+models:
+    - name: dim_customer
+      description: One row per paying customer.
+      columns:
+          - name: customer_id
+            data_tests: [unique, not_null]
+          - name: country
+
+    - name: fct_revenue_item
+      description: Deferred-revenue recognition at (line item, service month) grain, in base currency.
+      data_tests:
+          - dbt_utils.unique_combination_of_columns:
+                combination_of_columns: [revenue_item_id, month]
+      columns:
+          - name: revenue_item_id
+            data_tests: [not_null]
+          - name: customer_id
+            data_tests:
+                - not_null
+                - relationships:
+                      to: ref('dim_customer')
+                      field: customer_id
+          - name: amount
+            description: Revenue recognized in this month, in the reporting base currency.
+            data_tests: [not_null]
+
+    - name: fct_mrr
+      description: Monthly MRR/ARR with the new/expansion/contraction/churn bridge.
+      columns:
+          - name: month
+            data_tests: [unique, not_null]
+          - name: mrr
+            data_tests: [not_null]

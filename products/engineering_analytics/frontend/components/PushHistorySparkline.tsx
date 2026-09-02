@@ -76,7 +76,6 @@ export function PushHistorySparkline({
                             height={barHeight}
                             fill={pushRoundColor(round)}
                             fillOpacity={round.failed ? 1 : round.pending ? 0.9 : 0.55}
-                            className={cn(round.pending && 'animate-pulse')}
                         />
                         {/* Full-height transparent hit area so hovering a short bar still shows its title. */}
                         <rect x={offset + i} y={0} width={1} height={VIEW_HEIGHT} fill="transparent">

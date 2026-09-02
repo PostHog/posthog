@@ -15,7 +15,7 @@ import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { RunActivity } from './RunActivity'
 import { RunAlertActivity } from './RunAlertActivity'
-import { CompactBoundaryItem, StatusItem, TaskNotificationItem } from './ThreadItems'
+import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
 
 type ToolInvocations = typeof runStreamLogic.values.toolInvocations
@@ -160,6 +160,9 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'compact_boundary') {
         return <CompactBoundaryItem item={item} />
+    }
+    if (item.type === 'conversation_cleared') {
+        return <ConversationClearedItem item={item} />
     }
     if (item.type === 'task_notification') {
         return <TaskNotificationItem item={item} />

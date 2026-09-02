@@ -10,7 +10,6 @@ the per-org `count()` N+1 in the legacy helper never fires for Temporal.
 Activities import from here.
 """
 
-import itertools
 import dataclasses
 from collections.abc import Iterable, Iterator
 from datetime import datetime
@@ -34,6 +33,13 @@ from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.temporal.usage_report.storage import bucket, read_json
 from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
 
+_SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+_SANDBOX_COMPUTE_DESTINATION_KEYS = (
+    "teams_with_sandbox_compute_credits_used_in_period",
+    "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
+    "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+)
+
 
 def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int, int]]:
     """Reconstruct the legacy `all_data` map from per-query S3 files.
@@ -54,6 +60,14 @@ def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int
         else:
             all_data[spec.name] = convert_team_usage_rows_to_dict(raw)
     return all_data
+
+
+def add_pre_sandbox_compute_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _SANDBOX_COMPUTE_QUERY_NAME for result in query_results):
+        for key in _SANDBOX_COMPUTE_DESTINATION_KEYS:
+            all_data[key] = {}
 
 
 def iter_chunk_lines(
@@ -83,18 +97,6 @@ def filter_orgs_with_usage(org_reports: dict[str, OrgReport]) -> dict[str, OrgRe
     win in the aggregation activity.
     """
     return {oid: report for oid, report in org_reports.items() if has_non_zero_usage(report)}
-
-
-def batched(iterable: Iterable[Any], size: int) -> Iterator[list[Any]]:
-    """Local `itertools.batched` so the module stays usable on 3.11."""
-    if size <= 0:
-        raise ValueError("batch size must be positive")
-    it = iter(iterable)
-    while True:
-        batch = list(itertools.islice(it, size))
-        if not batch:
-            return
-        yield batch
 
 
 def build_manifest(

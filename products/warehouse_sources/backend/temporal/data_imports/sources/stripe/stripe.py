@@ -1,8 +1,10 @@
 import os
 import re
+import time
+import inspect
 import dataclasses
-from collections.abc import Callable, Mapping
-from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
 import stripe as stripe_lib
@@ -14,45 +16,96 @@ from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 
-from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.models.external_table_definitions import (
+    external_tables,
+    get_dlt_mapping_for_external_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSyncResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    log_fanout_parent_rows_consumed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
+    APPLICATION_FEE_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    CHECKOUT_SESSION_RESOURCE_NAME,
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
+    EARLY_FRAUD_WARNING_RESOURCE_NAME,
+    ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
+    ENTITLEMENTS_FEATURE_RESOURCE_NAME,
+    EVENT_RESOURCE_NAME,
+    HISTORY_CAPTURED_AT_COLUMN,
+    HISTORY_EVENT_ID_COLUMN,
+    HISTORY_EVENT_TYPE_COLUMN,
+    HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
+    HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    PAYMENT_INTENT_RESOURCE_NAME,
+    PAYMENT_LINK_RESOURCE_NAME,
     PAYOUT_RESOURCE_NAME,
+    PLAN_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    PROMOTION_CODE_RESOURCE_NAME,
+    QUOTE_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    REVIEW_RESOURCE_NAME,
+    SETUP_ATTEMPT_RESOURCE_NAME,
+    SETUP_INTENT_RESOURCE_NAME,
+    SHIPPING_RATE_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
+    TAX_ID_RESOURCE_NAME,
+    TAX_RATE_RESOURCE_NAME,
+    TOPUP_RESOURCE_NAME,
+    TRANSFER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
+    DEFAULT_PRIMARY_KEYS,
+    NON_PARTITIONED_ENDPOINTS,
+    PRIMARY_KEYS,
+    WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS,
 )
+
+if TYPE_CHECKING:
+    # Type-only: importing the reader eagerly would pull deltalake/pyarrow into every Stripe
+    # import, and it is only needed when a warehouse-parent sweep actually runs.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+        ParentTableRef,
+        ScanPosition,
+    )
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
@@ -67,6 +120,14 @@ SUBSCRIPTION_PAGE_LIMIT = 20
 
 # Small write batch so each chunk (and its durable `earliest` watermark) commits well inside the heartbeat window, letting a large backfill make progress every attempt.
 STRIPE_CHUNK_SIZE = 1000
+
+# How many parents a nested sweep may walk before it records its position, independent of whether
+# any rows were produced. `STRIPE_CHUNK_SIZE` already checkpoints a sweep that is finding data, but
+# it measures rows, not parents: a sparse nested resource (CustomerPaymentMethod over a customer
+# base where few have a stored payment method) spends one API call per parent and produces almost
+# nothing, so thousands of parents can pass between chunks — and every pod death throws that walk
+# away. Counting parents bounds the work a restart repeats no matter how sparse the data is.
+NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -306,11 +367,73 @@ class StripeNestedResource:
     parent: StripeResource
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Optional builder for request params that depend on fields of the parent object beyond its id
+    # (e.g. the credit balance summary needs the grant's customer as well as the grant id). Merged
+    # over the resource's static params; unset for every resource keyed solely by the parent id.
+    nested_params_from_parent: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
     # Optional predicate over a parent object. When set and it returns False, we skip the nested
     # API call for that parent entirely. Stripe has no top-level list for these nested resources, so
     # the default behaviour fans out one call per parent — most of which return nothing. A cheap
     # signal already present on the parent object lets us avoid the calls that can't yield data.
     parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+    # Optional per-row rewrite applied to each nested row (after the parent id is stamped, before
+    # secret scrubbing). The history table uses it to stamp its observation-metadata columns onto
+    # the seed sweep's rows.
+    row_transform: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
+
+
+class _SingleObjectList:
+    """Presents one retrieved Stripe object through the ``auto_paging_iter`` interface every other
+    resource in ``_build_resources`` exposes, so a retrieve-only endpoint rides the same fan-out
+    path as the list endpoints instead of needing its own branch in ``get_rows``."""
+
+    def __init__(self, obj: Any) -> None:
+        self._obj = obj
+
+    def auto_paging_iter(self):
+        yield self._obj
+
+
+def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_summary` is a retrieve, not a list: it returns the balance for one
+    customer under a required `filter`. We scope it to a single credit grant so each row is the
+    current balance of a grant we already sync."""
+
+    def _retrieve(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        summary = client.billing.credit_balance_summary.retrieve(
+            params={
+                "customer": params["customer"],
+                "filter": {"type": "credit_grant", "credit_grant": credit_grant},
+            }
+        )
+        return cast(ListObject[Any], _SingleObjectList(summary))
+
+    return _retrieve
+
+
+def _credit_grant_customer_params(credit_grant: dict[str, Any]) -> dict[str, Any]:
+    return {"customer": credit_grant.get("customer")}
+
+
+def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_transactions` requires a `customer` filter — like credit balance
+    summary, it has no unscoped list. Scope it to a single credit grant (also filtering on
+    `credit_grant` so a customer with several grants doesn't return the same transaction once per
+    grant) so each row is a transaction against a grant we already sync."""
+
+    def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        return client.billing.credit_balance_transactions.list(
+            params=cast(Any, {**params, "credit_grant": credit_grant})
+        )
+
+    return _list
+
+
+def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
+    """Credit grants issued to an Account rather than a Customer carry `customer_account` instead of
+    `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
+    rest rather than sending a request Stripe would reject."""
+    return bool(credit_grant.get("customer"))
 
 
 def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
@@ -329,9 +452,202 @@ def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
     return balance is None or balance != 0
 
 
-@dataclasses.dataclass
+def _payment_method_history_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Stamp observation metadata onto one payment-method row from the history seed sweep.
+
+    The sweep can only observe currently-attached payment methods, so each row is a "snapshot"
+    observation keyed by payment method + customer: re-running the sweep (e.g. the poll fallback
+    while the webhook handler is disabled) refreshes the same row instead of appending a
+    duplicate, and a payment method later attached to a different customer gets a distinct
+    snapshot row rather than overwriting the first customer's history.
+    """
+    return {
+        **row,
+        HISTORY_EVENT_ID_COLUMN: f"{HISTORY_SNAPSHOT_EVENT_TYPE}:{row.get('id')}:{row.get('customer')}",
+        HISTORY_EVENT_TYPE_COLUMN: HISTORY_SNAPSHOT_EVENT_TYPE,
+        HISTORY_CAPTURED_AT_COLUMN: int(time.time()),
+    }
+
+
+@frozen
 class StripeResumeConfig:
-    starting_after: str
+    """Where a sweep stopped, in whichever coordinate system it was walking.
+
+    `starting_after` is a Stripe list cursor and only means anything against Stripe's own
+    ordering, so it cannot carry over to a warehouse parent scan (and vice versa). The
+    warehouse fields are the `ScanPosition` triple; a run that finds the wrong kind of state,
+    or state from another table, version or filter, discards it and starts the sweep over.
+    """
+
+    starting_after: str | None = None
+    nested_parent_id: str | None = None
+    nested_starting_after: str | None = None
+    warehouse_fragment_index: int | None = None
+    warehouse_row_offset: int | None = None
+    warehouse_table_uri: str | None = None
+    warehouse_version: int | None = None
+
+
+def _scrub_client_secrets(obj: Any) -> Any:
+    """Recursively strip Stripe ``client_secret`` values before an object is persisted to a warehouse table.
+
+    PaymentIntent, SetupIntent, and embedded/custom Checkout Session objects carry a ``client_secret``
+    that authorizes Stripe's client-side API to retrieve or confirm that specific payment or setup flow.
+    Stripe requires it never be stored, logged, or exposed to anyone but the customer it belongs to, so
+    persisting it into a queryable table would let anyone with warehouse access act on another customer's
+    flow. Event objects embed full copies of these resources under ``data.object`` and
+    ``data.previous_attributes``, so the walk descends into every nested mapping and list rather than only
+    checking the top level.
+
+    Returns scrubbed plain ``dict``/``list`` structures (scalars pass through unchanged). ``StripeObject``
+    is a ``dict`` subclass, so nested SDK objects flatten into plain dicts, which the batcher already
+    serializes the same way it handles the nested-resource dicts.
+    """
+    if isinstance(obj, Mapping):
+        return {key: _scrub_client_secrets(value) for key, value in obj.items() if key != "client_secret"}
+    if isinstance(obj, list):
+        return [_scrub_client_secrets(value) for value in obj]
+    return obj
+
+
+class _WarehouseParentRows:
+    """Parent rows streamed from the parent schema's Delta table, tracking where it is.
+
+    Iterating yields the same plain dicts the Stripe listing yields, so the sweep body is
+    identical on both paths. `position_after_current` is the coordinate to resume from once
+    the row just yielded is finished with — the warehouse analogue of `starting_after`.
+    `position_at_current` points at that row instead, for re-entering a parent whose own
+    pages were only half read.
+    """
+
+    def __init__(
+        self,
+        table: "ParentTableRef",
+        columns: list[str],
+        page_size: int,
+        schema_name: str,
+        parent_name: str,
+        start_position: Optional["ScanPosition"],
+    ) -> None:
+        self._table = table
+        self._columns = columns
+        self._parent_name = parent_name
+        self._page_size = page_size
+        self._schema_name = schema_name
+        self._start_position = start_position
+        self.position_at_current: Optional[ScanPosition] = None
+        self.position_after_current: Optional[ScanPosition] = None
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        # noqa reason: keeps deltalake/pyarrow off the import path of the Stripe module — the
+        # reader stack loads only when a warehouse-parent sweep actually runs.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            iter_parent_pages_with_positions,
+        )
+
+        for page in iter_parent_pages_with_positions(
+            table=self._table,
+            parent_name=self._parent_name,
+            columns=self._columns,
+            page_size=self._page_size,
+            schema_name=self._schema_name,
+            start_position=self._start_position,
+        ):
+            for index, row in enumerate(page.rows):
+                self.position_at_current = page.position_at(index, table=self._table)
+                self.position_after_current = page.position_after(index, table=self._table)
+                yield row
+
+
+def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) -> StripeResumeConfig:
+    """Resume state in whichever coordinate system this sweep is walking."""
+    if position is not None:
+        return StripeResumeConfig(
+            warehouse_fragment_index=position.fragment_index,
+            warehouse_row_offset=position.row_offset,
+            warehouse_table_uri=position.table_uri,
+            warehouse_version=position.version,
+        )
+    return StripeResumeConfig(starting_after=parent_id)
+
+
+def _nested_checkpoint(
+    py_table: pa.Table,
+    parent_param: str,
+    in_flight_parent: str,
+    parent_pages: Optional["_WarehouseParentRows"],
+    last_finished_parent: Optional[str],
+) -> Optional[StripeResumeConfig]:
+    """Where to restart after yielding `py_table`, or None when this chunk cannot name a position.
+
+    A chunk that ends inside the parent still being paginated has to re-enter that parent. Skipping
+    an unfinished parent drops the rest of its rows for good, while re-entering one that turns out
+    to be exhausted costs a single empty call.
+    """
+    chunk_parent = py_table.column(parent_param)[-1].as_py()
+    if chunk_parent != in_flight_parent:
+        # Only a split batch ends a chunk on an earlier parent, whose position is no longer to
+        # hand. Leave the previous checkpoint alone rather than claim progress past rows this
+        # drain has not yielded yet.
+        return None
+    if "id" not in py_table.column_names:
+        # Without an id there is no cursor into the parent's own pages, so the sweep can only move
+        # past it. The one resource in this shape returns a single row per parent, which is
+        # therefore finished by the time that row is written.
+        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent)
+    return dataclasses.replace(
+        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent),
+        nested_parent_id=chunk_parent,
+        nested_starting_after=py_table.column("id")[-1].as_py(),
+    )
+
+
+def _trusted_nested_resume(
+    resume_config: Optional[StripeResumeConfig],
+    warehouse_start: Optional["ScanPosition"],
+    from_warehouse: bool,
+) -> Optional[StripeResumeConfig]:
+    """`resume_config` when its nested cursor can still be trusted, else None.
+
+    A nested cursor only means anything beside the parent cursor it was saved with. Whenever that
+    parent cursor is discarded — state from the other coordinate system, or from another table or
+    version — the sweep restarts from the first parent, and a cursor into some parent's pages
+    would then skip rows this run has not written.
+    """
+    if resume_config is None or resume_config.nested_parent_id is None:
+        return None
+    if from_warehouse:
+        return resume_config if warehouse_start is not None else None
+    return resume_config if resume_config.warehouse_fragment_index is None else None
+
+
+def _warehouse_start_position(
+    resume_config: Optional[StripeResumeConfig], table: "ParentTableRef"
+) -> Optional["ScanPosition"]:
+    """A stored warehouse position, if it is still safe to resume from.
+
+    Discards state saved against another table, version or coordinate system — including
+    `starting_after` cursors from a run that took the API path, which name a place in Stripe's
+    ordering and mean nothing here. A discarded position restarts the sweep rather than
+    resuming somewhere arbitrary.
+    """
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+        ScanPosition,
+    )
+
+    if resume_config is None or resume_config.warehouse_fragment_index is None:
+        return None
+    if resume_config.warehouse_row_offset is None or resume_config.warehouse_table_uri is None:
+        return None
+    if resume_config.warehouse_version is None:
+        return None
+    position = ScanPosition(
+        fragment_index=resume_config.warehouse_fragment_index,
+        row_offset=resume_config.warehouse_row_offset,
+        table_uri=resume_config.warehouse_table_uri,
+        version=resume_config.warehouse_version,
+    )
+    return position if position.matches(table, None) else None
 
 
 def _batch_and_yield(
@@ -347,7 +663,7 @@ def _batch_and_yield(
         if stop_at_or_before is not None and incremental_field_name is not None:
             if obj[incremental_field_name] <= stop_at_or_before:
                 break
-        batcher.batch(obj)
+        batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
 
@@ -402,6 +718,9 @@ def _build_resources(
         ),
         CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
         COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
+        # The one nested resource that reads its parent from the warehouse. Its skip predicate
+        # answers from the parent row itself, so a run is dominated by paging the customer
+        # listing rather than by child calls — the shape where dropping the listing pays.
         CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.balance_transactions.list,
             nested_parent_param="customer",
@@ -410,12 +729,102 @@ def _build_resources(
             parent_name=CUSTOMER_RESOURCE_NAME,
             parent_has_nested=_customer_might_have_balance_transactions,
         ),
+        # Stays on the parent API: one child call per customer with no skip signal, so the
+        # listing is a small fraction of the run and reusing the parent table saves ~nothing.
+        # Its cost needs a skip signal or webhook-driven sync, not parent reuse.
         CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.payment_methods.list,
             nested_parent_param="customer",
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        # Same sweep as CustomerPaymentMethod, used only to seed the history table on its initial
+        # sync; from then on `payment_method.*` webhook events land one row per event. The sweep
+        # cannot see payment methods detached before it ran — Stripe exposes no endpoint listing
+        # detached payment methods — so history from before the source connected is unrecoverable.
+        CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME: StripeNestedResource(
+            method=client.customers.payment_methods.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+            row_transform=_payment_method_history_snapshot_row,
+        ),
+        PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.payment_intents.list),
+        CHECKOUT_SESSION_RESOURCE_NAME: StripeResource(method=client.checkout.sessions.list),
+        SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: StripeResource(method=client.subscription_schedules.list),
+        PROMOTION_CODE_RESOURCE_NAME: StripeResource(method=client.promotion_codes.list),
+        # Tiers are only returned when expanded, same as Price. Key must be "expand[]" for a single
+        # string value (see the Subscription note above for the list-valued form).
+        PLAN_RESOURCE_NAME: StripeResource(method=client.plans.list, params={"expand[]": "data.tiers"}),
+        TAX_RATE_RESOURCE_NAME: StripeResource(method=client.tax_rates.list),
+        # `/v1/tax_ids` without an `owner` filter lists the account's own tax IDs. Customer-owned tax
+        # IDs live under the customer and are not part of this list.
+        TAX_ID_RESOURCE_NAME: StripeResource(method=client.tax_ids.list),
+        QUOTE_RESOURCE_NAME: StripeResource(method=client.quotes.list),
+        EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
+        BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
+        BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
+        # Stays on the parent API: the credit-grant listing fits in one page, so there is
+        # no listing cost to remove.
+        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_transaction_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
+        ),
+        ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
+        INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),
+        SETUP_INTENT_RESOURCE_NAME: StripeResource(method=client.setup_intents.list),
+        PAYMENT_LINK_RESOURCE_NAME: StripeResource(method=client.payment_links.list),
+        TRANSFER_RESOURCE_NAME: StripeResource(method=client.transfers.list),
+        APPLICATION_FEE_RESOURCE_NAME: StripeResource(method=client.application_fees.list),
+        TOPUP_RESOURCE_NAME: StripeResource(method=client.topups.list),
+        REVIEW_RESOURCE_NAME: StripeResource(method=client.reviews.list),
+        EARLY_FRAUD_WARNING_RESOURCE_NAME: StripeResource(method=client.radar.early_fraud_warnings.list),
+        SHIPPING_RATE_RESOURCE_NAME: StripeResource(method=client.shipping_rates.list),
+        # `/v1/subscription_items` requires a `subscription`, so it fans out over subscriptions. The
+        # parent list skips the discount expansions the Subscription table uses — we only need ids.
+        # Stays on the parent API: one call per subscription, no skip signal, so the listing is a small fraction of the run.
+        SUBSCRIPTION_ITEM_RESOURCE_NAME: StripeNestedResource(
+            method=client.subscription_items.list,
+            nested_parent_param="subscription",
+            parent_id="id",
+            parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            parent_name=SUBSCRIPTION_RESOURCE_NAME,
+        ),
+        # `/v1/entitlements/active_entitlements` requires a `customer`.
+        # Stays on the parent API: one call per customer, no skip signal, so the listing is a small fraction of the run.
+        ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME: StripeNestedResource(
+            method=client.entitlements.active_entitlements.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        # Stays on the parent API: the credit-grant listing fits in one page, so there is
+        # no listing cost to remove.
+        BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_summary_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
+        ),
+        # `/v1/setup_attempts` requires a `setup_intent`.
+        # Stays on the parent API: one call per setup intent, no skip signal, so the listing is a small fraction of the run.
+        SETUP_ATTEMPT_RESOURCE_NAME: StripeNestedResource(
+            method=client.setup_attempts.list,
+            nested_parent_param="setup_intent",
+            parent_id="id",
+            parent=StripeResource(method=client.setup_intents.list),
+            parent_name=SETUP_INTENT_RESOURCE_NAME,
         ),
     }
 
@@ -430,6 +839,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     api_version: str,
     should_use_incremental_field: bool = False,
+    warehouse_parent: Optional["ParentTableRef"] = None,
 ):
     client = StripeClient(
         api_key,
@@ -459,7 +869,6 @@ def get_rows(
 
     logger.debug(f"Stripe: reading from resource {resource}")
 
-    # Get the incremental field name for this endpoint
     incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
@@ -471,37 +880,120 @@ def get_rows(
         or isinstance(resource, StripeNestedResource)
     ):
         logger.debug(f"Stripe: iterating all objects from resource")
+        # Set only on the nested warehouse path; the final flush below is shared with flat
+        # resources, which have no parent sweep to checkpoint.
+        parent_pages: Optional[_WarehouseParentRows] = None
         resume_params = {}
-        if resume_config is not None:
+        if resume_config is not None and resume_config.starting_after is not None:
             resume_params = {"starting_after": resume_config.starting_after}
             logger.debug(f"Stripe: resuming from object id: {resume_config.starting_after}")
 
         if isinstance(resource, StripeNestedResource):
-            stripe_parent_objects = _call_stripe(
-                resource.parent.method,
-                params={**default_params, **resource.parent.params, **resume_params},
+            # Reading the parent from its synced table replaces the whole paged listing with
+            # one filtered scan. Everything downstream — the skip predicate, the child call,
+            # the 404 skip, the row stamping — is untouched: only where parent rows come from
+            # changes, and an unresolved table leaves this on the API path exactly as before.
+            parent_rows: Iterable[dict[str, Any]]
+            warehouse_start = (
+                _warehouse_start_position(resume_config, warehouse_parent) if warehouse_parent is not None else None
             )
+            if warehouse_parent is not None:
+                converted = WAREHOUSE_PARENT_FANOUT[endpoint]
+                parent_pages = _WarehouseParentRows(
+                    table=warehouse_parent,
+                    columns=[resource.parent_id, *converted.extra_columns],
+                    page_size=DEFAULT_LIMIT,
+                    schema_name=endpoint,
+                    parent_name=converted.schema,
+                    start_position=warehouse_start,
+                )
+                parent_rows = parent_pages
+            else:
+                parent_rows = _call_stripe(
+                    resource.parent.method,
+                    params={**default_params, **resource.parent.params, **resume_params},
+                ).auto_paging_iter()
+            # Path-scoped services (e.g. customers.payment_methods.list) take the parent id as a
+            # method keyword, while flat services with a required filter (e.g.
+            # entitlements.active_entitlements.list) accept it only inside `params`. Route by the
+            # method's actual signature so both shapes get the parent id where Stripe expects it.
+            parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
-            for obj in stripe_parent_objects.auto_paging_iter():
+            parents_consumed = 0
+            parents_since_checkpoint = 0
+            # Seeded from where this run started, so an interruption before any parent finishes
+            # checkpoints there rather than back at the first parent.
+            last_finished_parent: Optional[str] = resume_config.starting_after if resume_config else None
+            last_finished_position: Optional[ScanPosition] = warehouse_start
+            nested_resume = _trusted_nested_resume(
+                resume_config, warehouse_start, from_warehouse=warehouse_parent is not None
+            )
+            sweep_resumed = bool(resume_params) or warehouse_start is not None
+
+            # Counts every parent row the listing handed over, including the ones
+            # `parent_has_nested` ruled out, so that the number means the same thing on both
+            # parent sources. Reported at every checkpoint and not only after the loop, because
+            # the pipeline raises `WorkerShuttingDownError` inside this loop for a resumable
+            # source: a line emitted only after the loop would be lost on every deploy that lands
+            # mid-sweep, which is when the longest sweeps are running.
+            def report_parent_rows_consumed() -> None:
+                log_fanout_parent_rows_consumed(
+                    logger,
+                    parent_source="warehouse" if warehouse_parent is not None else "api",
+                    rows_total=parents_consumed,
+                    resumed=sweep_resumed,
+                )
+
+            for obj in parent_rows:
+                # Checkpoint the sweep's position through the parent list every so often. The only
+                # other checkpoint fires when a chunk fills, which for a sparse nested resource
+                # (most customers have no payment methods) can take the entire customer base — so a
+                # sweep could walk hundreds of thousands of parents, one API call each, without ever
+                # recording progress, and a pod death restarted it from the first parent forever.
+                # Flushing first is what makes the position safe to save: every row up to
+                # `last_finished_parent` has been yielded by the time `starting_after` names it.
+                if parents_since_checkpoint >= NESTED_SWEEP_CHECKPOINT_PARENTS and last_finished_parent is not None:
+                    while batcher.should_yield(include_incomplete_chunk=True):
+                        yield batcher.get_table()
+                    resumable_source_manager.save_state(_resume_state(last_finished_position, last_finished_parent))
+                    parents_since_checkpoint = 0
+                    report_parent_rows_consumed()
+
                 parent_obj_id = obj[resource.parent_id]
+                parents_consumed += 1
+                parents_since_checkpoint += 1
+                nested_resume_params: dict[str, Any] = {}
+                if nested_resume is not None and parent_obj_id == nested_resume.nested_parent_id:
+                    nested_resume_params = {"starting_after": nested_resume.nested_starting_after}
+                    nested_resume = None
                 # Skip parents that a cheap signal on the parent object rules out — avoids one empty
                 # nested call per parent (the bulk of Stripe API volume for these resources).
                 if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
                     skipped_parents += 1
+                    last_finished_parent = parent_obj_id
+                    last_finished_position = parent_pages.position_after_current if parent_pages else None
                     continue
+                parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
+                nested_params = {**default_params, **resource.params, **parent_params, **nested_resume_params}
+                nested_kwargs: dict[str, Any] = {}
+                if parent_param_is_kwarg:
+                    nested_kwargs[resource.nested_parent_param] = parent_obj_id
+                else:
+                    nested_params[resource.nested_parent_param] = parent_obj_id
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
-                        **{resource.nested_parent_param: parent_obj_id},
-                        params={**default_params, **resource.params},
+                        params=nested_params,
+                        **nested_kwargs,
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
-                        batcher.batch(
-                            {
-                                **nested_obj,
-                                **{resource.nested_parent_param: parent_obj_id},
-                            }
-                        )
+                        row = {
+                            **nested_obj,
+                            **{resource.nested_parent_param: parent_obj_id},
+                        }
+                        if resource.row_transform is not None:
+                            row = resource.row_transform(row)
+                        batcher.batch(_scrub_client_secrets(row))
 
                         # A single batch can split into several ready chunks, so drain them all
                         # before batching the next item — otherwise the next batch() trips the
@@ -510,8 +1002,15 @@ def get_rows(
                             py_table = batcher.get_table()
                             yield py_table
 
-                            last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
-                            resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                            checkpoint = _nested_checkpoint(
+                                py_table,
+                                resource.nested_parent_param,
+                                parent_obj_id,
+                                parent_pages,
+                                last_finished_parent,
+                            )
+                            if checkpoint is not None:
+                                resumable_source_manager.save_state(checkpoint)
                 except stripe_lib.InvalidRequestError as e:
                     # The parent was deleted between listing it and fetching its nested resources,
                     # so Stripe 404s the nested call. Skip the now-gone parent and keep syncing the
@@ -519,6 +1018,11 @@ def get_rows(
                     if not _is_stripe_resource_missing_error(e):
                         raise
                     logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
+                # Reached whether the nested call succeeded or the parent had vanished: either way
+                # this parent contributes nothing further, so the sweep may resume after it.
+                last_finished_parent = parent_obj_id
+                last_finished_position = parent_pages.position_after_current if parent_pages else None
+            report_parent_rows_consumed()
             if skipped_parents:
                 logger.debug(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
@@ -528,7 +1032,7 @@ def get_rows(
                 resource.method, params={**default_params, **resource.params, **resume_params}
             )
             for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(obj)
+                batcher.batch(_scrub_client_secrets(obj))
 
                 while batcher.should_yield():
                     py_table = batcher.get_table()
@@ -546,7 +1050,9 @@ def get_rows(
             else:
                 last_cur = py_table.column("id")[-1].as_py()
 
-            resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+            resumable_source_manager.save_state(
+                _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
+            )
 
         return
 
@@ -607,8 +1113,85 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         if existing is None or ts > existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
-    rows = [obj for _, obj in best_by_id.values()]
+    rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
+
+
+def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
+    """Turn a batch of webhook events into history rows: one immutable row per event.
+
+    Unlike `_webhook_table_transformer` there is no latest-per-object collapse — several events
+    for the same payment method in one batch (attached, updated, detached) must all survive, or
+    the intermediate states the table exists to record are lost. Rows are keyed by the Stripe
+    event id instead, so a redelivered event refreshes its own row rather than duplicating it.
+
+    Reading columns through `_column` (None-filled when absent) keeps a malformed payload — only
+    reachable with the signature check bypassed — from raising and wedging the batch forever:
+    the S3 files are only deleted after a successful yield, so a raising transformer would replay
+    the same poison batch on every sync.
+    """
+
+    def _column(name: str) -> list[Any]:
+        if name in table.column_names:
+            return table.column(name).to_pylist()
+        return [None] * table.num_rows
+
+    rows: dict[str, dict] = {}
+    for event_id, event_type, data_str, event_created in zip(
+        _column("id"), _column("type"), _column("data"), _column("created")
+    ):
+        if event_id is None or data_str is None:
+            continue
+        data = _scrub_client_secrets(orjson.loads(data_str))
+        obj = data.get("object")
+        if not isinstance(obj, dict) or obj.get("id") is None:
+            continue
+        # `previous_attributes` carries the pre-event values of the fields the event changed —
+        # for `payment_method.detached` that's the customer the method was detached from, which
+        # the object itself no longer shows (its `customer` is null after detachment).
+        previous_attributes = data.get("previous_attributes")
+        rows[event_id] = {
+            **obj,
+            HISTORY_EVENT_ID_COLUMN: event_id,
+            HISTORY_EVENT_TYPE_COLUMN: event_type,
+            HISTORY_CAPTURED_AT_COLUMN: event_created if isinstance(event_created, int) else None,
+            HISTORY_PREVIOUS_ATTRIBUTES_COLUMN: (
+                orjson.dumps(previous_attributes).decode() if previous_attributes else None
+            ),
+        }
+
+    return table_from_py_list(list(rows.values()))
+
+
+def _resolve_warehouse_parent(
+    endpoint: str,
+    team_id: Optional[int],
+    source_id: Optional[str],
+    use_warehouse_parent: bool,
+) -> Optional["ParentTableRef"]:
+    """The parent's Delta table for this sweep, or None to page the parent endpoint instead.
+
+    Resolved here rather than inside the sweep because this runs in sync source-build context:
+    it reads the ORM, and the pipeline's iterator threads are the wrong place for ad-hoc DB
+    connections. Resolving eagerly also pins the parent's version for the whole fan-out and
+    validates the projected columns while falling back to the API is still possible.
+    """
+    if not use_warehouse_parent or endpoint not in WAREHOUSE_PARENT_FANOUT or team_id is None or not source_id:
+        return None
+
+    # noqa reason: keeps deltalake/pyarrow off the import path of every Stripe import.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+        try_resolve_parent_table,
+    )
+
+    converted = WAREHOUSE_PARENT_FANOUT[endpoint]
+    return try_resolve_parent_table(
+        team_id=team_id,
+        source_id=source_id,
+        parent_name=converted.schema,
+        required_columns=["id", *converted.extra_columns],
+        schema_name=endpoint,
+    )
 
 
 def stripe_source(
@@ -622,8 +1205,14 @@ def stripe_source(
     webhook_source_manager: WebhookSourceManager,
     api_version: str,
     should_use_incremental_field: bool = False,
+    team_id: Optional[int] = None,
+    source_id: Optional[str] = None,
+    use_warehouse_parent: bool = False,
 ):
-    column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
+    # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
+    # pipeline infer their columns from the rows Stripe returns.
+    table_name = f"stripe_{endpoint.lower()}"
+    column_mapping = get_dlt_mapping_for_external_table(table_name) if table_name in external_tables else {}
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
@@ -635,10 +1224,18 @@ def stripe_source(
     # re-enable — a poll could never rebuild the table.
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
+    warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
 
     def items():
         if webhook_enabled:
-            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+            # History tables keep every event as its own row; everything else collapses each
+            # batch to the latest state per object id and upserts it.
+            table_transformer = (
+                _webhook_history_table_transformer
+                if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME
+                else _webhook_table_transformer
+            )
+            return webhook_source_manager.get_items(table_transformer=table_transformer)
 
         return get_rows(
             api_key=api_key,
@@ -650,21 +1247,26 @@ def stripe_source(
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
             api_version=api_version,
+            warehouse_parent=warehouse_parent,
         )
+
+    # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
+    # datetime partitioner would KeyError looking for the fallback `created` field.
+    partitioned = endpoint not in NON_PARTITIONED_ENDPOINTS
 
     return SourceResponse(
         items=items,
-        primary_keys=["id"],
+        primary_keys=PRIMARY_KEYS.get(endpoint, DEFAULT_PRIMARY_KEYS),
         name=endpoint,
         column_hints=column_hints,
         webhook_only=webhook_only,
         # Stripe data is returned in descending timestamp order
         sort_mode="desc",
-        partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
-        partition_mode="datetime",
-        partition_format="week",
-        partition_keys=[incremental_field_name],
+        partition_count=1 if partitioned else None,  # this enables partitioning
+        partition_size=1 if partitioned else None,  # this enables partitioning
+        partition_mode="datetime" if partitioned else None,
+        partition_format="week" if partitioned else None,
+        partition_keys=[incremental_field_name] if partitioned else None,
     )
 
 
@@ -685,11 +1287,24 @@ class StripeAuthenticationError(Exception):
         super().__init__(stripe_message)
 
 
+class StripeTransientError(Exception):
+    """Raised when a credential probe fails because Stripe itself was unavailable (a 5xx APIError,
+    a connection failure, or a rate limit) rather than because the credentials are wrong. The key
+    may be perfectly valid, so callers surface a retry hint instead of Stripe's internal error text
+    (e.g. "Error while communicating with one of our backends")."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
 class StripeValidationError(Exception):
-    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
-    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
-    decide whether to surface the verbose underlying message — permission errors are
-    self-explanatory from the resource name, but unknown errors need the raw detail."""
+    """Raised when one or more resources failed with a non-403, non-transient exception (e.g. an
+    unexpected response or schema error) during credential validation. Transient Stripe-side
+    failures (5xx, connection, rate limit) raise StripeTransientError instead. Distinct from
+    StripePermissionError so callers can decide whether to surface the verbose underlying message —
+    permission errors are self-explanatory from the resource name, but unknown errors need the raw
+    detail."""
 
     def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
         self.errors = errors
@@ -725,6 +1340,11 @@ def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
     except stripe_lib.PermissionError as e:
         raw = getattr(e, "user_message", None) or str(e)
         return _clean_stripe_error_message(raw), None
+    except (stripe_lib.APIError, stripe_lib.APIConnectionError, stripe_lib.RateLimitError) as e:
+        # Stripe was unreachable or returned a 5xx/rate-limit — transient and unrelated to the
+        # credentials. Fail fast with a distinct error so the caller can tell the user to retry
+        # rather than reporting Stripe's internal text as a validation failure.
+        raise StripeTransientError(_clean_stripe_error_message(str(e))) from e
     except Exception as e:
         return None, _clean_stripe_error_message(str(e))
 
@@ -813,7 +1433,13 @@ def check_endpoint_permissions(
             continue
 
         _, probe_resource = _resolve_to_flat(name, all_resources)
-        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        try:
+            permission_msg, error_msg = _probe_endpoint(probe_resource)
+        except StripeTransientError as e:
+            # A transient Stripe outage isn't a per-endpoint verdict, but this function must return
+            # the full picture rather than raise (401 aside), so record it as this endpoint's reason.
+            results[name] = e.stripe_message
+            continue
         results[name] = permission_msg or error_msg
 
     return results
@@ -849,7 +1475,24 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+def _is_stripe_webhook_limit_error(error_str: str) -> bool:
+    """Detect Stripe's webhook-endpoint cap rejection.
+
+    Stripe caps an account's webhook endpoints and rejects further creates with an
+    ``invalid_request_error`` that carries no distinct ``code``, so it never matches the
+    permission/403 branch. Classifying it lets us tell the user the cap is the cause and point them
+    at the manual-setup fallback instead of surfacing Stripe's raw message.
+    """
+    lowered = error_str.lower()
+    return "maximum of" in lowered and "webhook endpoint" in lowered
+
+
+def create_webhook(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     filtered_events = _all_known_webhook_events()
@@ -903,7 +1546,22 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
                 ),
             )
 
+        if _is_stripe_webhook_limit_error(error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Your Stripe account has reached its webhook endpoint limit. Delete an unused "
+                    "endpoint in the Stripe dashboard (Developers → Webhooks) and retry, or set up "
+                    "the webhook manually below."
+                ),
+            )
+
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            if auth_method == "oauth":
+                return WebhookCreationResult(
+                    success=False,
+                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                )
             return WebhookCreationResult(
                 success=False,
                 error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",

@@ -9,10 +9,12 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
@@ -27,9 +29,11 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
+from . import run_evaluation as run_evaluation_module
 from .evaluation_errors import (
     MAX_STATUS_REASON_DETAIL_LENGTH,
     require_user_error_spec,
@@ -41,6 +45,7 @@ from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     EmitEvaluationEventInputs,
+    EmitInternalTelemetryInputs,
     EvaluationActivityResult,
     ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
@@ -146,6 +151,98 @@ def active_key_config(setup_data):
 
 
 class TestRunEvaluationWorkflow:
+    @pytest.mark.asyncio
+    async def test_new_runs_skip_legacy_eval_signal_while_old_history_replays(self, monkeypatch):
+        @activity.defn(name="fetch_evaluation_activity")
+        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
+            return {
+                "id": inputs.evaluation_id,
+                "name": "Boolean evaluation",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer grounded?"},
+                "output_type": "boolean",
+                "output_config": {},
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_llm_judge_activity")
+        async def mock_execute_llm_judge(_: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+            return {
+                "result_type": "boolean",
+                "verdict": True,
+                "reasoning": "The answer is grounded.",
+                "allows_na": False,
+                "model": "gpt-4.1-mini",
+                "provider": "openai",
+            }
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(_: EmitEvaluationEventInputs) -> None:
+            return
+
+        @activity.defn(name="emit_internal_telemetry_activity")
+        async def mock_emit_internal_telemetry(_: EmitInternalTelemetryInputs) -> None:
+            return
+
+        original_patched = run_evaluation_module.temporalio.workflow.patched
+
+        def legacy_patched(patch_id: str) -> bool:
+            if patch_id == "remove-per-evaluation-signal-2026-08":
+                return False
+            return original_patched(patch_id)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[
+                    mock_fetch_evaluation,
+                    mock_execute_llm_judge,
+                    mock_emit_evaluation_event,
+                    mock_emit_internal_telemetry,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", legacy_patched)
+                legacy_handle = await env.client.start_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id="legacy-evaluation",
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                await legacy_handle.result()
+                legacy_history = await legacy_handle.fetch_history()
+
+                monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", original_patched)
+                new_handle = await env.client.start_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id="new-evaluation",
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                await new_handle.result()
+                new_history = await new_handle.fetch_history()
+
+        assert EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED in {
+            event.event_type for event in legacy_history.events
+        }
+        assert EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED not in {
+            event.event_type for event in new_history.events
+        }
+
+        await Replayer(
+            workflows=[RunEvaluationWorkflow],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ).replay_workflow(legacy_history)
+
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_fetch_evaluation_activity(self, setup_data):
@@ -343,13 +440,9 @@ class TestRunEvaluationWorkflow:
             "output_tokens": 18,
         }
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
-        ) as mock_team_get:
-            with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
-            ) as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_evaluation_event_activity(
@@ -374,6 +467,52 @@ class TestRunEvaluationWorkflow:
                 assert props["$ai_input_tokens"] == 42
                 assert props["$ai_output_tokens"] == 18
                 assert props["$ai_evaluation_type"] == "online"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status_code,should_raise",
+        [
+            pytest.param(402, False, id="billing_limit_is_swallowed"),
+            pytest.param(500, True, id="server_error_still_raises"),
+        ],
+    )
+    async def test_emit_evaluation_event_activity_billing_limit(self, setup_data, status_code: int, should_raise: bool):
+        team = setup_data["team"]
+        evaluation = {"id": str(setup_data["evaluation"].id), "name": "Test Evaluation"}
+        event_data = create_mock_event_data(team.id, properties={})
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": True,
+            "reasoning": "Test passed",
+            "allows_na": False,
+            "model": "gpt-5-mini",
+            "provider": "openai",
+        }
+
+        capture_result = MagicMock(
+            raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=status_code))
+        )
+        inputs = EmitEvaluationEventInputs(
+            evaluation=evaluation,
+            event_data=event_data,
+            result=result,
+            start_time=datetime(2024, 1, 1, 12, 0, 0),
+        )
+
+        with patch(
+            "posthog.temporal.ai_observability.team_capture.get_team_api_token",
+            return_value=team.api_token,
+        ):
+            with patch(
+                "posthog.temporal.ai_observability.team_capture.capture_internal",
+                return_value=capture_result,
+            ):
+                if should_raise:
+                    with pytest.raises(CaptureInternalError):
+                        await emit_evaluation_event_activity(inputs)
+                else:
+                    await emit_evaluation_event_activity(inputs)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -406,13 +545,9 @@ class TestRunEvaluationWorkflow:
             "skip_reason": "trace_errored",
         }
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
-        ) as mock_team_get:
-            with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
-            ) as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_evaluation_event_activity(
@@ -466,13 +601,9 @@ class TestRunEvaluationWorkflow:
             "sentiment_message_count": 1,
         }
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
-        ) as mock_team_get:
-            with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
-            ) as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_evaluation_event_activity(
@@ -515,13 +646,9 @@ class TestRunEvaluationWorkflow:
             "skip_reason": "no_user_messages",
         }
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
-        ) as mock_team_get:
-            with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
-            ) as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_evaluation_event_activity(
@@ -971,13 +1098,9 @@ class TestRunEvaluationWorkflow:
             "allows_na": True,
         }
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
-        ) as mock_team_get:
-            with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
-            ) as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_evaluation_event_activity(
@@ -1018,13 +1141,9 @@ class TestRunEvaluationWorkflow:
             "allows_na": True,
         }
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
-        ) as mock_team_get:
-            with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
-            ) as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_evaluation_event_activity(
@@ -1050,6 +1169,12 @@ class TestRunEvaluationWorkflow:
 
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
+
+        directory = await sync_to_async(
+            lambda: EvaluationDirectory.objects.for_team(team.id).create(team=team, name="Quality")
+        )()
+        await sync_to_async(lambda: Evaluation.objects.filter(id=evaluation.id).update(directory=directory))()
+        await sync_to_async(evaluation.refresh_from_db)()
 
         assert evaluation.enabled
 

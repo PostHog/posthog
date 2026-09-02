@@ -1,17 +1,13 @@
 """Bulk sync of materialized-view columns into account custom property values.
 
 Reads a configured view via HogQL, matches each row to an account by external_id, and writes the
-selected column as that account's custom property value (through set_custom_property_value).
-`run_custom_property_sync` is the entrypoint the Celery task calls: it runs the sync and persists
-the outcome (success/failure, auto-disable) onto the sources.
+selected column as that account's custom property value. The account create path uses a sync scoped
+to one account.
 """
 
 import dataclasses
 from typing import Any
 from uuid import UUID
-
-from django.db import transaction
-from django.utils import timezone
 
 import structlog
 
@@ -35,10 +31,6 @@ logger = structlog.get_logger(__name__)
 _WRITE_CONFLICT_RETRIES = 3
 _SYNC_KEYS_PER_QUERY = 1000
 
-# Mirrors data_modeling's CONSECUTIVE_TIMEOUTS_TO_PAUSE: auto-disable a source that keeps failing.
-MAX_CONSECUTIVE_SYNC_FAILURES = 5
-_MAX_ERROR_LENGTH = 500
-
 
 @dataclasses.dataclass
 class SyncResult:
@@ -50,7 +42,9 @@ class SyncResult:
     source_errors: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
-def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> SyncResult:
+def sync_custom_property_values(
+    *, team_id: int, saved_query_id: str | UUID, external_id: str | None = None
+) -> SyncResult:
     sources = list(
         CustomPropertySource.objects.for_team(team_id)
         .filter(saved_query_id=saved_query_id, is_enabled=True)
@@ -82,7 +76,7 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
 
     ordered = sorted(selected_columns)
     column_index = {column: position for position, column in enumerate(ordered)}
-    account_ids_by_external_id = _get_account_ids_by_external_id(team_id)
+    account_ids_by_external_id = _get_account_ids_by_external_id(team_id, external_id=external_id)
     external_ids = sorted(account_ids_by_external_id)
     team = Team.objects.get(id=team_id)
     rows_by_key_column = {
@@ -114,8 +108,10 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
     return result
 
 
-def _get_account_ids_by_external_id(team_id: int) -> dict[str, UUID]:
+def _get_account_ids_by_external_id(team_id: int, external_id: str | None = None) -> dict[str, UUID]:
     accounts = Account.objects.for_team(team_id).exclude(external_id=None).exclude(external_id="")
+    if external_id is not None:
+        accounts = accounts.filter(external_id=external_id)
     return {
         external_id: account_id for external_id, account_id in accounts.values_list("external_id", "id") if external_id
     }
@@ -176,70 +172,28 @@ def _read_view(team: Team, view_name: str, columns: list[str], key_column: str, 
     return rows
 
 
-def record_sync_outcome(
-    *,
-    team_id: int,
-    saved_query_id: str | UUID,
-    view_found: bool = True,
-    run_failed: bool = False,
-    run_error: str | None = None,
-    source_errors: dict[str, str] | None = None,
-) -> None:
-    """Persist a sync run's outcome onto every enabled source for the view.
+def sync_custom_properties_for_account(*, team_id: int, external_id: str) -> None:
+    """Best-effort synchronous population of warehouse-backed custom properties for one account.
 
-    Clean success resets the failure streak; a missing view disables immediately; a whole-run
-    failure or a per-source column error increments the streak and auto-disables at the cap.
+    Runs on the external create path so a workflow that creates an account can read the values
+    in its next step. Only materialized views are read — an unmaterialized view would run its raw
+    query inside the request. No sync outcome is recorded: failure streaks, auto-disable and
+    last_synced_at belong to the scheduled full sync.
     """
-    source_errors = source_errors or {}
-    sources = CustomPropertySource.objects.for_team(team_id).filter(saved_query_id=saved_query_id, is_enabled=True)
-    now = timezone.now()
-    with transaction.atomic():
-        for source in sources:
-            source.last_synced_at = now
-            if not view_found:
-                source.last_sync_error = "View not found"
-                source.is_enabled = False
-                source.consecutive_failures = 0
-            elif run_failed or str(source.id) in source_errors:
-                error = run_error if run_failed else source_errors[str(source.id)]
-                source.last_sync_error = (error or "Sync failed")[:_MAX_ERROR_LENGTH]
-                source.consecutive_failures += 1
-                if source.consecutive_failures >= MAX_CONSECUTIVE_SYNC_FAILURES:
-                    source.is_enabled = False
-            else:
-                source.last_sync_error = None
-                source.consecutive_failures = 0
-            source.save()
-
-
-def run_custom_property_sync(*, team_id: int, saved_query_id: str | UUID) -> SyncResult:
-    """Run one sync and persist its outcome. The Celery task's entrypoint.
-
-    On a hard failure the outcome is recorded (so the failure streak/auto-disable still advance)
-    and the error is captured, then re-raised so the run shows as failed.
-    """
+    # enrichment must never break account creation — the outer try also covers source discovery,
+    # which the queryset's laziness would otherwise let escape
     try:
-        result = sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id)
+        saved_query_ids = (
+            CustomPropertySource.objects.for_team(team_id)
+            .filter(is_enabled=True, source_column__isnull=False, saved_query__table__isnull=False)
+            .exclude(saved_query__deleted=True)
+            .values_list("saved_query_id", flat=True)
+            .distinct()
+        )
+        for saved_query_id in saved_query_ids:
+            try:
+                sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id, external_id=external_id)
+            except Exception as e:
+                capture_exception(e)
     except Exception as e:
-        record_sync_outcome(team_id=team_id, saved_query_id=saved_query_id, run_failed=True, run_error=str(e))
         capture_exception(e)
-        raise
-
-    record_sync_outcome(
-        team_id=team_id,
-        saved_query_id=saved_query_id,
-        view_found=result.view_found,
-        source_errors=result.source_errors,
-    )
-    logger.info(
-        "custom_property_sync.completed",
-        team_id=team_id,
-        saved_query_id=str(saved_query_id),
-        view_found=result.view_found,
-        written=result.written,
-        unmatched_keys=result.unmatched_keys,
-        accounts_total=result.accounts_total,
-        rows_fetched=result.rows_fetched,
-        source_errors=len(result.source_errors),
-    )
-    return result

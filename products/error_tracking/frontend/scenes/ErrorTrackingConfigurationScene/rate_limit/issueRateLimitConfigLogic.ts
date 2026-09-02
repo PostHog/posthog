@@ -308,15 +308,15 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                         kind: NodeKind.HogQLQuery,
                         query: `
                             SELECT
-                                toString(issue_id_v2) AS issue_id,
+                                toString(issue_id) AS issue_id,
                                 any(issue_name) AS name,
                                 any(issue_description) AS description,
                                 count() AS occurrences
                             FROM events
                             WHERE event = '$exception'
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
-                              AND issue_id_v2 IS NOT NULL
-                            GROUP BY issue_id_v2
+                              AND issue_id IS NOT NULL
+                            GROUP BY issue_id
                             ORDER BY occurrences DESC
                             LIMIT 10
                         `,
@@ -360,7 +360,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                             FROM events
                             WHERE event = '$exception'
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
-                              AND toString(issue_id_v2) = {issueId}
+                              AND toString(issue_id) = {issueId}
                             GROUP BY bucket
                             ORDER BY bucket
                             LIMIT ${option.bucketCount + 1}

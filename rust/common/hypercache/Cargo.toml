@@ -26,3 +26,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 mockall = { workspace = true }
 common-hypercache = { path = ".", features = ["mock-client"] }
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,14 @@
+# TYPE http_requests counter
+# HELP http_requests Total HTTP requests.
+http_requests_total{path="/api"} 42 # {trace_id="4bf92f3577b34da6a3ce929d0e0e4736",span_id="00f067aa0ba902b7"} 1.0
+# TYPE request_duration_seconds histogram
+# HELP request_duration_seconds Request duration.
+request_duration_seconds_bucket{le="0.1"} 5 # {trace_id="4bf92f3577b34da6a3ce929d0e0e4736",span_id="00f067aa0ba902b7"} 0.05
+request_duration_seconds_bucket{le="1.0"} 9
+request_duration_seconds_bucket{le="+Inf"} 10
+request_duration_seconds_sum 1.2
+request_duration_seconds_count 10
+# TYPE cpu_usage gauge
+# HELP cpu_usage CPU usage ratio (gauges cannot carry exemplars).
+cpu_usage 0.5
+# EOF

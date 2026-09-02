@@ -11,6 +11,7 @@ import time
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -85,9 +86,15 @@ def get_teams_with_expiring_caches(
         return []
 
 
+@frozen
+class CacheRefreshCounts:
+    successful: int
+    failed: int
+
+
 def refresh_expiring_caches(
     config: HyperCacheManagementConfig, ttl_threshold_hours: int = 24, limit: int = 5000
-) -> tuple[int, int]:
+) -> CacheRefreshCounts:
     """
     Refresh caches that are expiring soon to prevent cache misses.
 
@@ -102,13 +109,13 @@ def refresh_expiring_caches(
         limit: Maximum number of teams to refresh per run (default 5000)
 
     Returns:
-        Tuple of (successful_count, failed_count)
+        CacheRefreshCounts with successful and failed counts
     """
     teams = get_teams_with_expiring_caches(config, ttl_threshold_hours, limit)
 
     if not teams:
         logger.info(f"No {config.log_prefix} to refresh")
-        return 0, 0
+        return CacheRefreshCounts(successful=0, failed=0)
 
     successful = 0
     failed = 0
@@ -144,7 +151,7 @@ def refresh_expiring_caches(
         failed=failed,
     )
 
-    return successful, failed
+    return CacheRefreshCounts(successful=successful, failed=failed)
 
 
 def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:

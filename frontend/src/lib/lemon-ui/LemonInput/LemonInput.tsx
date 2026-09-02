@@ -124,6 +124,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
 
     const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
+    // A cleared number field reports NaN, which consumers routinely collapse back into a default and
+    // echo into the input. While the user is still editing, their empty text wins over that default.
+    const [numberDraftEmpty, setNumberDraftEmpty] = useState<boolean>(false)
 
     if (autoWidth && fullWidth) {
         throw new Error('Cannot use `autoWidth` and `fullWidth` props together')
@@ -178,6 +181,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     }
                     if (onChange) {
                         if (type === 'number') {
+                            setNumberDraftEmpty(false)
                             // @ts-expect-error - onChange is typed as never, force it to match the right one
                             onChange(0)
                         } else {
@@ -201,6 +205,17 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     }
 
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
+    // A cleared controlled number input holds NaN; show '' so it stays controlled instead of feeding
+    // NaN to the DOM. While the field is focused and the user has emptied it, their empty text also
+    // wins over the fallback a consumer echoes back. Both branches require a controlled input —
+    // `undefined` means the consumer passed only `defaultValue`, and swapping that for '' mid-edit
+    // would flip the input uncontrolled -> controlled and back on the next keystroke.
+    const displayValue =
+        type === 'number' &&
+        value !== undefined &&
+        ((focused && numberDraftEmpty) || (typeof value === 'number' && Number.isNaN(value)))
+            ? ''
+            : value
     return (
         <Tooltip
             title={disabledReason ?? undefined}
@@ -215,7 +230,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     type && `LemonInput--type-${type}`,
                     size && `LemonInput--${size}`,
                     fullWidth && 'LemonInput--full-width',
-                    value && 'LemonInput--has-content',
+                    displayValue && 'LemonInput--has-content',
                     !disabled && !disabledReason && focused && 'LemonInput--focused',
                     transparentBackground && 'LemonInput--transparent-background',
                     badgeText && 'relative',
@@ -237,13 +252,20 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className="LemonInput__input"
                     ref={mergedInputRef}
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
-                    // A cleared controlled number input holds NaN; pass '' so the input stays
-                    // controlled instead of feeding NaN to the DOM (undefined stays uncontrolled)
-                    value={type === 'number' && typeof value === 'number' && Number.isNaN(value) ? '' : value}
+                    value={displayValue}
                     disabled={disabled || !!disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {
                             event.stopPropagation()
+                        }
+
+                        if (type === 'number') {
+                            // Value sanitization empties `value` for anything that isn't a valid float,
+                            // so intermediate states like '-' and '0.' count as draft-empty too. That is
+                            // what we want: the browser keeps showing the half-typed text, and marking it
+                            // empty stops React's `value === 0 && node.value === ''` case from replacing
+                            // it with a fallback of 0 before the user can finish the number.
+                            setNumberDraftEmpty(event.currentTarget.value === '')
                         }
 
                         if (onChange) {
@@ -268,14 +290,20 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                             event.stopPropagation()
                         }
                         setFocused(false)
+                        setNumberDraftEmpty(false)
                         onBlur?.(event)
                     }}
                     onKeyDown={(event) => {
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (onPressEnter && event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                            onPressEnter(event)
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                            // Enter commits without blurring — through onPressEnter, and through a
+                            // surrounding form's implicit submission even when there is no handler
+                            // here. End the draft either way, so the field stops showing empty while
+                            // the consumer's value is what actually got submitted.
+                            setNumberDraftEmpty(false)
+                            onPressEnter?.(event)
                         }
                     }}
                     {...props}

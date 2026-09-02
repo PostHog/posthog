@@ -64,35 +64,36 @@ describe('withRetry', () => {
         ['Canceled', Code.Canceled],
     ])('does not retry on %s', async (_name, code) => {
         let callCount = 0
-        await expect(
-            withRetry(
-                () => {
-                    callCount++
-                    throw new ConnectError('non-retryable', code)
-                },
-                'test-client',
-                'test-method'
-            )
-        ).rejects.toThrow(ConnectError)
+        const error: unknown = await withRetry(
+            () => {
+                callCount++
+                throw new ConnectError('non-retryable', code)
+            },
+            'test-client',
+            'test-method'
+        ).catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(ConnectError)
+        // Not tagged retriable: outer retry layers must not absorb these.
+        expect(error).not.toHaveProperty('isRetriable')
         expect(callCount).toBe(1)
     })
 
     it('does not retry non-ConnectError errors', async () => {
         let callCount = 0
-        await expect(
-            withRetry(
-                () => {
-                    callCount++
-                    throw new Error('plain error')
-                },
-                'test-client',
-                'test-method'
-            )
-        ).rejects.toThrow('plain error')
+        const error: unknown = await withRetry(
+            () => {
+                callCount++
+                throw new Error('plain error')
+            },
+            'test-client',
+            'test-method'
+        ).catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(Error)
+        expect(error).not.toHaveProperty('isRetriable')
         expect(callCount).toBe(1)
     })
 
-    it('throws after max retries exhausted', async () => {
+    it('throws after max retries exhausted, tagged retriable for outer retry layers', async () => {
         let callCount = 0
         await expect(
             withRetry(
@@ -103,7 +104,7 @@ describe('withRetry', () => {
                 'test-client',
                 'test-method'
             )
-        ).rejects.toThrow(ConnectError)
+        ).rejects.toMatchObject({ code: Code.Unavailable, isRetriable: true })
         // 1 initial + 2 retries = 3 total (default maxRetries=2)
         expect(callCount).toBe(3)
     })

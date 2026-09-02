@@ -27,7 +27,10 @@ jobs:
         # Skip forks for security - they could manipulate package.json to trigger unwanted reviews.
         # Only request reviewers for PRs targeting master. Stacked PR diffs can include package.json
         # changes from the stack base and leave stale reviewer requests after the PR is retargeted.
+        # Skip trunk-merge/**: requesting a review on the queue's throwaway PR
+        # pings the client-libraries team for a copy nobody will look at.
         if: >-
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             github.event.pull_request.head.repo.fork == false &&
             github.event.pull_request.base.ref == 'master' &&
             (github.event.action != 'edited' || github.event.changes.base.ref.from != '')

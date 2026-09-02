@@ -719,7 +719,10 @@ mod tests {
         let result = get_flags_from_redis(redis_client, team.id).await;
         assert!(matches!(
             result,
-            Err(FlagError::DataParsingErrorWithContext(_))
+            Err(FlagError::InternalError {
+                code: "flag_data_parsing_error",
+                ..
+            })
         ));
 
         // Test database query error (using a non-existent table)

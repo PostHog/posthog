@@ -26,7 +26,71 @@ from products.exports.backend.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
+
+
+class TestSubscriptionScheduling:
+    def test_weekly_schedule_ignores_stale_monthly_position(self) -> None:
+        subscription = Subscription(
+            frequency=Subscription.SubscriptionFrequency.WEEKLY,
+            interval=1,
+            start_date=datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC")),
+            byweekday=["monday", "wednesday", "friday"],
+            bysetpos=1,
+        )
+
+        assert subscription.summary == "sent every week on Monday, Wednesday and Friday"
+        assert subscription.rrule[0] == datetime(2026, 8, 3, 9, tzinfo=ZoneInfo("UTC"))
+        assert subscription.rrule[1] == datetime(2026, 8, 5, 9, tzinfo=ZoneInfo("UTC"))
+        assert subscription.rrule[2] == datetime(2026, 8, 7, 9, tzinfo=ZoneInfo("UTC"))
+
+    @parameterized.expand(
+        [
+            (
+                "daily_weekdays",
+                "daily",
+                ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                datetime(2024, 1, 5, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 8, 9, 0, tzinfo=ZoneInfo("UTC")),
+            ),
+            (
+                "weekly_multiple_days",
+                "weekly",
+                ["wednesday", "friday"],
+                datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2024, 1, 3, 9, 0, tzinfo=ZoneInfo("UTC")),
+            ),
+        ]
+    )
+    @freeze_time("2024-01-01 08:00:00")
+    def test_selected_weekdays_control_delivery_dates(
+        self,
+        _name: str,
+        frequency: str,
+        byweekday: list[str],
+        from_dt: datetime,
+        expected_next_delivery: datetime,
+    ) -> None:
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency=frequency,
+            interval=1,
+            start_date=datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+            from_dt=from_dt,
+            byweekday=byweekday,
+        )
+
+        assert next_delivery_date == expected_next_delivery
+
+    @freeze_time("2024-01-01 08:00:00")
+    def test_daily_interval_without_a_possible_weekday_returns_none(self) -> None:
+        next_delivery_date = Subscription._compute_next_delivery_date(
+            frequency="daily",
+            interval=7,
+            start_date=datetime(2024, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+            byweekday=["tuesday"],
+        )
+
+        assert next_delivery_date is None
 
 
 @patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
@@ -321,12 +385,43 @@ class TestSubscription(BaseTest):
             (
                 "weekly_last_wednesday",
                 {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"], "bysetpos": -1},
-                "sent every week on the last Wednesday",
+                "sent every week on Wednesday",
             ),
             (
                 "weekly_wednesday_no_bysetpos",
                 {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"]},
-                "sent every week",
+                "sent every week on Wednesday",
+            ),
+            (
+                "daily_weekdays",
+                {
+                    "interval": 1,
+                    "frequency": "daily",
+                    "byweekday": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                },
+                "sent every day on weekdays",
+            ),
+            (
+                "weekly_multiple_days",
+                {"interval": 1, "frequency": "weekly", "byweekday": ["monday", "wednesday", "friday"]},
+                "sent every week on Monday, Wednesday and Friday",
+            ),
+            (
+                "weekly_all_days",
+                {
+                    "interval": 1,
+                    "frequency": "weekly",
+                    "byweekday": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday",
+                    ],
+                },
+                "sent every week on Monday, Tuesday, Wednesday, Thursday, Friday, Saturday and Sunday",
             ),
             (
                 "monthly_third_day",
@@ -356,7 +451,7 @@ class TestSubscription(BaseTest):
             ("third_weekday", 3, "sent every month on the third weekday"),
             ("fourth_weekday", 4, "sent every month on the fourth weekday"),
             ("last_weekday", -1, "sent every month on the last weekday"),
-            ("no_bysetpos", None, "sent every month"),
+            ("no_bysetpos", None, "sent every month on weekdays"),
         ]
     )
     def test_subscription_summary_weekday(self, _name, bysetpos, expected_summary):

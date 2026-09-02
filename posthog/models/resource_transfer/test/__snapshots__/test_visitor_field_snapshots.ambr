@@ -26,8 +26,10 @@
     'last_backfill_person_properties_at',
     'last_calculation',
     'last_error_at',
+    'last_realtime_cohort_calculation_at',
     'pending_version',
     'people',
+    'person_filters_shape_hash',
     'version',
   ])
 # ---
@@ -113,6 +115,7 @@
     'refresh_attempt',
     'refreshing',
     'short_id',
+    'subscriptions_dashboard_export',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Survey
@@ -157,7 +160,8 @@
     'is_static',
     'kind',
     'last_calculation_duration_ms',
-    'last_realtime_cohort_calculation_at',
+    'last_import_total_count',
+    'last_import_unmatched_count',
     'name',
     'query',
   ])
@@ -167,6 +171,7 @@
     'breakdown_colors',
     'created_at',
     'creation_mode',
+    'customization',
     'deleted',
     'deprecated_tags',
     'deprecated_tags_v2',
@@ -226,6 +231,7 @@
     'stats_config',
     'type',
     'variants',
+    'version',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_ExperimentHoldout
@@ -368,6 +374,8 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
   list([
+    'assigned_role',
+    'assigned_user',
     'created_by',
     'feature_flag',
     'team',
@@ -413,7 +421,6 @@
   list([
     'created_by',
     'last_modified_by',
-    'subscriptions_dashboard_export',
     'team',
   ])
 # ---
@@ -500,8 +507,10 @@
     '_insert_batch_via_personhog',
     '_insert_resolved_batch',
     '_insert_users_list_with_batching',
-    '_maintain_behavioral_shape',
+    '_leaf_shape_changed',
+    '_maintain_filter_shape_hashes',
     '_meta',
+    '_person_shape_changed',
     '_safe_reset_calculating_state',
     '_safe_save_cohort_state',
     'backfill_participations',
@@ -536,9 +545,11 @@
     'last_backfill_person_properties_at',
     'last_calculation',
     'last_error_at',
+    'last_realtime_cohort_calculation_at',
     'objects',
     'pending_version',
     'people',
+    'person_filters_shape_hash',
     'properties',
     'remove_user_by_uuid',
     'save',
@@ -662,6 +673,8 @@
     '__static_attributes__',
     '__str__',
     '_meta',
+    'assigned_role_id',
+    'assigned_user_id',
     'created_at',
     'created_by_id',
     'feature_flag_id',
@@ -922,6 +935,7 @@
     'short_id',
     'show_legend',
     'subscription_set',
+    'subscriptions_dashboard_export',
     'surveys_linked_insight',
     'tagged_items',
     'team_id',

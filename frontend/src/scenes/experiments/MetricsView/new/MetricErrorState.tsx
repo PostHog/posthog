@@ -90,7 +90,6 @@ export const MetricErrorState = ({
                     onClick={() =>
                         openSupportForm({
                             kind: 'bug',
-                            target_area: 'experiments',
                         })
                     }
                 >

@@ -13,9 +13,9 @@ from posthog.schema import (
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
+from posthog.hogql_queries.utils.breakdowns import humanize_breakdown_label
 
 # These helpers also back the anomaly detector, so they remain in the tasks module for now.
 from posthog.tasks.alerts.trends import (
@@ -35,7 +35,7 @@ from products.alerts.backend.evaluation.contract import (
 )
 from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TrendsExtractor:

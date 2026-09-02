@@ -2,9 +2,9 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from posthog.models import Team, User
 from posthog.models.group.util import get_group_by_key
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade.api import get_account_context_data
 from products.customer_analytics.backend.facade.constants import (
     BILLING_SPEND_INSIGHT_SHORT_IDS,
@@ -72,6 +72,8 @@ class AccountContext:
             account_id=str(account.id),
             external_id=account.external_id or "Not set",
             created_at=account.created_at.isoformat() if account.created_at else "Unknown",
+            churned_at=account.churned_at.isoformat() if account.churned_at else "Not churned",
+            ignored_at=f"Ignored since {account.ignored_at.isoformat()}" if account.ignored_at else "Tracked",
             roles_section=self._roles_section(account),
             external_ids_section=self._external_ids_section(account),
             tags_section=self._tags_section(account),

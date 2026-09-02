@@ -14,9 +14,20 @@ Reference: https://docs.mem0.ai/api-reference
 
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 MEM0_BASE_URL = "https://api.mem0.ai"
+
+# Mem0's memory API is served at v3 (``POST /v3/memories/`` — the version we already read from),
+# while entities and operation events stay on the stable ``/v1/`` paths. UNVERSIONED_API_VERSION
+# ("v1") is the framework placeholder that pre-versioning source rows carry; it resolves to the
+# exact same wire as "v3" here (memories on ``/v3/``, entities and events on ``/v1/``), so nothing
+# on the request branches on the version. Declaring "v3" as the default just labels new sources for
+# the memory API they actually target.
+MEM0_API_VERSION_V3 = "v3"
+SUPPORTED_VERSIONS = (UNVERSIONED_API_VERSION, MEM0_API_VERSION_V3)
+DEFAULT_VERSION = MEM0_API_VERSION_V3
 
 MEMORIES_ENDPOINT = "memories"
 ENTITIES_ENDPOINT = "entities"

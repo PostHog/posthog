@@ -42,8 +42,8 @@ lens**, not on every run:
 - `posthog:exploring-llm-traces` — finding traces by filter, the event hierarchy, drilling
   a single trace/session, parsing scripts. (Message content lives on the `posthog.ai_events`
   table, not `events.properties`.)
-- `posthog:exploring-llm-evaluations` — the real eval-results path: AI pass/fail/N/A
-  pattern summaries and raw `$ai_evaluation` SQL, plus config inspection and Hog dry-runs.
+- `posthog:exploring-llm-evaluations` — the real eval-results path: raw `$ai_evaluation`
+  SQL and scheduled eval reports, plus config inspection and Hog dry-runs.
 - `posthog:exploring-llm-clusters` — per-cluster cost/latency/error metrics, comparing
   clusters across runs.
 
@@ -100,11 +100,10 @@ lens**, not on every run:
 - **How to read it.** `llma-evaluation-list` only gives **config** — the pass-rate lives in
   `$ai_evaluation` events. Read the **trend straight from those events** (fails/day with the
   N/A guard) following the eval skill's "Why is evaluation X suddenly failing more?"
-  workflow — that raw query is the reliable spine. `llma-evaluation-summary-create
-{evaluation_id, filter:"fail"}` is an optional drill-down that groups failures into
-  patterns with example IDs, but it's billed, rate-limited, and currently prone to 500s —
-  treat it as a bonus, not a dependency, and fall back to sampling the raw failing rows via
-  `query-llm-trace` when it's unavailable.
+  workflow — that raw query is the reliable spine. When the eval has report configs,
+  `llma-evaluation-report-list` / `-run-list` give you the AI reports already written about
+  it as an optional drill-down; either way, sample the raw failing rows via
+  `query-llm-trace`.
 - **Discipline.** Pass-rate regressions **also auto-flow to the inbox** via the enabled
   `llm_analytics:evaluation` signal source — so only report when you've localized something
   the auto-flow won't (a specific eval + a specific failure pattern + a cause); otherwise
@@ -117,7 +116,8 @@ LLM/Hog jobs that can silently break.
 
 - **Signal.** A config that's meant to be running but isn't doing its job: an eval / tagger
   / scorer disabled or status-flipped unexpectedly, an N/A-heavy eval (applicability too
-  broad — `summary-create {filter:"na"}`), a job pointed at a **deprecated model** or a
+  broad — count the `$ai_evaluation_applicable = false` rows), a job pointed at a
+  **deprecated model** or a
   **disabled/revoked provider key**, or a Hog evaluator hitting the 5s execution limit.
 - **How to read it.** `llma-evaluation-list` (status/enabled, type), `llma-tagger-list`
   (`enabled`, `model_configuration.provider_key_id`, `conditions`),

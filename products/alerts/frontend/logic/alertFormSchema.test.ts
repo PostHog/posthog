@@ -105,7 +105,7 @@ describe('alertFormSchema', () => {
         ).toBe(false)
     })
 
-    it('skips threshold bounds when detector_config is set', () => {
+    it.each([{}, null])('skips threshold bounds when detector_config is set and bounds are %p', (bounds) => {
         expect(
             getAlertFormValidationErrors({
                 ...baseAlert,
@@ -113,7 +113,7 @@ describe('alertFormSchema', () => {
                 threshold: {
                     configuration: {
                         type: InsightThresholdType.ABSOLUTE,
-                        bounds: {},
+                        bounds,
                     },
                 },
             })

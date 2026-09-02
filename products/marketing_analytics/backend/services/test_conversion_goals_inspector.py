@@ -10,6 +10,7 @@ from posthog.schema import DateRange
 
 from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
+    UtmSplitCounts,
     explain_conversion_goal,
     list_conversion_goals,
 )
@@ -25,12 +26,21 @@ def _events_goal(goal_id: str = "purchase", event: str | None = "purchase"):
     }
 
 
-def _actions_goal(goal_id: str = "42"):
+def _actions_goal(goal_id: str = "42", action_id: int | str | None = None):
+    """An ActionsNode goal.
+
+    `conversion_goal_id` identifies the goal in the team's config; `id` is the action
+    it points at. Real goals use a slug for the former ("cg_demos") and the action's
+    primary key for the latter — the default here keeps them equal only because older
+    tests were written that way, which is exactly how a bug conflating the two went
+    unnoticed. Pass `action_id` to exercise the realistic shape.
+    """
     return {
         "conversion_goal_id": goal_id,
         "conversion_goal_name": "Sign up action",
         "kind": "ActionsNode",
         "schema_map": {},
+        "id": action_id if action_id is not None else goal_id,
     }
 
 
@@ -70,8 +80,12 @@ class _InspectorMixin(APIBaseTest):
 
         self.mocks["config"].return_value = ([], 90, "last_touch")
         self.mocks["alias_map"].return_value = dict(canonical_source_aliases())
-        self.mocks["event_count"].return_value = (0, 0, 0, 0)
-        self.mocks["action_count"].return_value = (0, 0, 0, 0)
+        self.mocks["event_count"].return_value = UtmSplitCounts(
+            total=0, integrated=0, without_utm=0, unmatched_with_utm=0
+        )
+        self.mocks["action_count"].return_value = UtmSplitCounts(
+            total=0, integrated=0, without_utm=0, unmatched_with_utm=0
+        )
         self.mocks["dw_count"].return_value = (0, None)
         self.mocks["resolve_action"].return_value = (None, None)
 
@@ -88,7 +102,9 @@ class TestListConversionGoals(_InspectorMixin):
     async def test_events_node_goal_summarized_with_split(self):
         self.mocks["config"].return_value = ([_events_goal("purchase")], 60, "first_touch")
         # 200 total: 80 integrated, 70 events without utm_source, 50 with unmatched utm_source
-        self.mocks["event_count"].return_value = (200, 80, 70, 50)
+        self.mocks["event_count"].return_value = UtmSplitCounts(
+            total=200, integrated=80, without_utm=70, unmatched_with_utm=50
+        )
 
         response = await list_conversion_goals(self.team)
 
@@ -96,7 +112,7 @@ class TestListConversionGoals(_InspectorMixin):
         assert response.attribution_mode == "first_touch"
         assert len(response.goals) == 1
         goal = response.goals[0]
-        assert goal.id == "purchase"
+        assert goal.conversion_goal_id == "purchase"
         assert goal.kind == "EventsNode"
         assert goal.target_label == "purchase"
         assert goal.last_30d_count == 200
@@ -110,7 +126,9 @@ class TestListConversionGoals(_InspectorMixin):
     @pytest.mark.asyncio
     async def test_events_node_with_null_event_uses_all_events_label(self):
         self.mocks["config"].return_value = ([_events_goal("any", event=None)], 90, "last_touch")
-        self.mocks["event_count"].return_value = (10, 0, 10, 0)
+        self.mocks["event_count"].return_value = UtmSplitCounts(
+            total=10, integrated=0, without_utm=10, unmatched_with_utm=0
+        )
 
         response = await list_conversion_goals(self.team)
         assert response.goals[0].target_label == "(all events)"
@@ -128,13 +146,38 @@ class TestListConversionGoals(_InspectorMixin):
         assert "999" in (response.goals[0].misconfig_reason or "")
 
     @pytest.mark.asyncio
+    async def test_actions_node_resolves_the_action_id_not_the_goal_id(self):
+        # `conversion_goal_id` names the goal; `id` names the action it points at.
+        # Resolving against the former made every real ActionsNode goal report itself
+        # misconfigured ("'cg_demos' is not a valid integer"), because real goals use a
+        # slug there. The earlier tests missed it by mocking `_resolve_action` away and
+        # using a numeric goal id, so the two values were accidentally interchangeable.
+        action_mock = MagicMock()
+        action_mock.name = "Demo booked"
+        self.mocks["config"].return_value = ([_actions_goal("cg_demos", action_id=42)], 90, "last_touch")
+        self.mocks["resolve_action"].return_value = (action_mock, None)
+        self.mocks["action_count"].return_value = UtmSplitCounts(
+            total=10, integrated=10, without_utm=0, unmatched_with_utm=0
+        )
+
+        response = await list_conversion_goals(self.team)
+
+        self.mocks["resolve_action"].assert_awaited_once_with(self.team, "42")
+        assert response.goals[0].is_misconfigured is False
+        # The summary still identifies the goal by its own id, which is what the setup
+        # plan uses to open the right editor.
+        assert response.goals[0].conversion_goal_id == "cg_demos"
+
+    @pytest.mark.asyncio
     async def test_actions_node_with_resolved_action_uses_action_name(self):
         action_mock = MagicMock()
         action_mock.name = "Sign up"
         self.mocks["config"].return_value = ([_actions_goal("42")], 90, "last_touch")
         self.mocks["resolve_action"].return_value = (action_mock, None)
         # 50 total: 30 integrated, 12 without utm_source, 8 with unmatched utm_source.
-        self.mocks["action_count"].return_value = (50, 30, 12, 8)
+        self.mocks["action_count"].return_value = UtmSplitCounts(
+            total=50, integrated=30, without_utm=12, unmatched_with_utm=8
+        )
 
         response = await list_conversion_goals(self.team)
         goal = response.goals[0]
@@ -317,6 +360,33 @@ class TestCountDwGoalSafety:
         assert count == 0
         assert reason is not None
         p_exec.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_casts_the_timestamp_column_before_comparing(self):
+        # Regression: warehouse timestamp columns routinely land as String (CSV and
+        # several DLT sources do it), and ClickHouse refuses `String >= DateTime64`.
+        # An uncast health check reported "DW table or column not queryable" for a
+        # goal that the dashboard queries perfectly well — a false alarm that also
+        # blocked ROAS and cost-per-customer in the setup plan.
+        from posthog.hogql import ast
+
+        from products.marketing_analytics.backend.services.conversion_goals_inspector import _count_dw_goal
+
+        team = MagicMock()
+        goal = {"table_name": "demo_stripe_invoices", "timestamp_field": "created_at"}
+        with patch(
+            "products.marketing_analytics.backend.services.conversion_goals_inspector.execute_hogql_query",
+        ) as p_exec:
+            p_exec.return_value = MagicMock(results=[[7]])
+            count, reason = await _count_dw_goal(team, goal)
+
+        assert (count, reason) == (7, None)
+        where = p_exec.call_args.args[0].where
+        assert isinstance(where.left, ast.Call) and where.left.name == "toDateTime"
+        timestamp_field = where.left.args[0]
+        assert isinstance(timestamp_field, ast.Field) and timestamp_field.chain == ["created_at"]
+        # Both sides, or ClickHouse still has two types to reconcile.
+        assert isinstance(where.right, ast.Call) and where.right.name == "toDateTime"
 
 
 def _make_events_goal(goal_id: str, event: str | None) -> dict:
@@ -515,7 +585,7 @@ class TestListGoalCountsClickhouse(ClickhouseTestMixin, BaseTest):
 
         assert len(response.goals) == 1
         goal = response.goals[0]
-        assert goal.id == "signup"
+        assert goal.conversion_goal_id == "signup"
         assert goal.kind == "EventsNode"
         assert goal.last_30d_count == 3
         assert goal.integrated_count == 3

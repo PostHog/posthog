@@ -4,7 +4,7 @@ from collections.abc import (  # noqa: F401 — Sequence resolves inherited lang
     Sequence,
 )
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from django.conf import settings
 
@@ -41,7 +41,7 @@ Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)
 Key URL patterns:
 - Dashboard: `/dashboard/<id>`, e.g. `/dashboard/12345`
 - Insights: `/insights/<short_id>`, e.g. `/insights/abc123`
-- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
+- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`. Section IDs are a fixed set, so never guess one because it sounds plausible; if you are not certain an ID is real, link `/settings` and name the section in the anchor text. Members and invites are organization-level (`/settings/organization-members`); there is no project members page, and per-project access is `/settings/environment-access-control`.
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
@@ -86,6 +86,7 @@ class MaxChatMixin(BaseModel):
     Additional PostHog properties to be added to the $ai_generation event.
     These will be merged with the standard properties like $ai_billable and team_id.
     """
+    posthog_provider: ClassVar[str]
 
     def model_post_init(self, __context: Any) -> None:
         if self.max_retries is None:
@@ -176,6 +177,7 @@ class MaxChatMixin(BaseModel):
         posthog_props["team_id"] = self.team.id
         posthog_props.setdefault("ai_product", "posthog_ai")
 
+        metadata.setdefault("ls_provider", self.posthog_provider)
         metadata["posthog_properties"] = posthog_props
         new_kwargs["metadata"] = metadata
 
@@ -190,6 +192,8 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     If billable is set to True, the generation will be marked as billable in the usage report for calculating AI billing credits.
     If inject_context is set to False, no context will be included in the system prompt.
     """
+
+    posthog_provider: ClassVar[str] = "openai"
 
     def model_post_init(self, __context: Any) -> None:
         super().model_post_init(__context)
@@ -253,6 +257,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     This subclass automatically injects project, organization, and user context as the final part of the system prompt.
     It also makes sure we retry automatically in case of errors.
     """
+
+    posthog_provider: ClassVar[str] = "anthropic"
 
     bypass_proxy: bool = False
     """

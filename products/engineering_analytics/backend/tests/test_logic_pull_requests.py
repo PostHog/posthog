@@ -12,11 +12,13 @@ from parameterized import parameterized
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _issue_event_row,
     _pr_row,
     _run_row,
     connect_github_source_without_data,
@@ -110,6 +112,35 @@ class TestPRLifecycleMapping(BaseTest):
         assert [e.kind for e in lifecycle.events] == [PRLifecycleEventKind.OPENED, PRLifecycleEventKind.CLOSED]
 
 
+class TestPRLifecycleTransitionsMapping(BaseTest):
+    """The lifecycle path with the issue-events schema linked; the side_effect order pins the
+    header -> transitions -> runs issuance order."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team, include_issue_events=True)
+
+    def test_interleaves_transitions_with_actor_detail(self) -> None:
+        header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
+        transitions = [
+            ("convert_to_draft", _dt("2026-01-10T10:00:00"), "alice"),
+            ("ready_for_review", _dt("2026-01-11T08:00:00"), "bob"),
+        ]
+        runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(transitions), _resp(runs)]):
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+
+        assert lifecycle is not None
+        assert [(e.kind, e.detail) for e in lifecycle.events] == [
+            (PRLifecycleEventKind.OPENED, None),
+            (PRLifecycleEventKind.CONVERTED_TO_DRAFT, "alice"),
+            (PRLifecycleEventKind.READY_FOR_REVIEW, "bob"),
+            (PRLifecycleEventKind.CI_STARTED, "CI"),
+            (PRLifecycleEventKind.CI_FINISHED, "CI: success"),
+            (PRLifecycleEventKind.MERGED, None),
+        ]
+
+
 class TestPullRequestEndpointMapping(BaseTest):
     """Row mapping for the aggregate endpoints (the query method mocked, no warehouse).
     A GitHub source is connected (ORM only) so the resolver succeeds before the mocked
@@ -136,6 +167,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             "open",
             False,
             _dt("2026-01-10T09:00:00"),
+            None,
             None,
             None,
             ["bug", "p1"],
@@ -165,6 +197,7 @@ class TestPullRequestEndpointMapping(BaseTest):
         assert item.state == PRState.OPEN
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
+        assert item.ready_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
         assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
@@ -188,6 +221,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             "open",
             False,
             _dt("2026-01-10T09:00:00"),
+            None,
             None,
             None,
             ["bug"],
@@ -260,10 +294,15 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
         assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
         # pushes = distinct head SHAs across runs attributed to the PR; rerun_cycles = 2nd+ attempts.
+        # PR 10 also has a merge-queue gate run credited to it. That run is CI the PR paid for, but
+        # its head SHA is a rebase the queue made, so it must not inflate the author's push count.
         assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
+        assert {sample.head_sha for sample in by_number[10].push_history} == {"sha10", "sha10b"}
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
+        # No issue-events source seeded: the column degrades to NULL (never 0) and the query still runs.
+        assert by_number[14].merged_at is not None and by_number[14].ready_to_merge_seconds is None
 
     def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
         # With the jobs source synced, the list carries per-PR cost + billable minutes.
@@ -283,8 +322,57 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
         item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
-        assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
-        assert item.billable_minutes is not None and item.billable_minutes > 0
+        # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
+        assert item.estimated_cost_usd == pytest.approx(0.016)
+        assert item.billable_minutes == pytest.approx(2.0)
+
+    def test_ready_to_merge_semantics(self) -> None:
+        # PR 20: only the LAST ready counts. PR 21: no transitions, whole life inside the window ->
+        # open-to-merge fallback. PR 22: created pre-window -> NULL. PR 23: re-drafted -> NULL.
+        # PR 24: same-second flip, the event id breaks the tie -> the higher-id ready wins.
+        # PR 25: merged past the window end (events not synced yet) -> NULL, never a wrong number.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(20, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha20"),
+                _pr_row(21, "alice", "closed", 0, _ago(5), merged_at=_ago(1), head_sha="sha21"),
+                _pr_row(22, "alice", "closed", 0, _ago(40), merged_at=_ago(1), head_sha="sha22"),
+                _pr_row(23, "alice", "open", 1, _ago(6), head_sha="sha23"),
+                _pr_row(24, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha24"),
+                _pr_row(25, "alice", "closed", 0, _ago(5), merged_at=_ago(0), head_sha="sha25"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9500, "CI", "sha20", "completed", "success", _ago(1), _ago(1), pr_number=20)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [
+                # The window must come from the WHOLE table, not the filtered transitions view.
+                _issue_event_row(5000, "labeled", 20, _ago(20)),
+                _issue_event_row(5001, "ready_for_review", 20, _ago(9)),
+                _issue_event_row(5002, "convert_to_draft", 20, _ago(8)),
+                _issue_event_row(5003, "ready_for_review", 20, _ago(2)),
+                _issue_event_row(5004, "ready_for_review", 23, _ago(4)),
+                _issue_event_row(5005, "convert_to_draft", 23, _ago(3)),
+                _issue_event_row(5006, "convert_to_draft", 24, _ago(2)),
+                _issue_event_row(5007, "ready_for_review", 24, _ago(2)),
+                # PR 21's merge event: proves the window covers its merge, arming the fallback.
+                _issue_event_row(5008, "merged", 21, _ago(1)),
+            ],
+        )
+        by_number = {item.number: item for item in api.list_pull_requests(team=self.team).items}
+        day = 86400
+        assert by_number[20].ready_to_merge_seconds == day
+        assert by_number[21].ready_to_merge_seconds == by_number[21].open_to_merge_seconds == 4 * day
+        assert by_number[22].ready_to_merge_seconds is None
+        assert by_number[23].ready_to_merge_seconds is None
+        assert by_number[24].ready_to_merge_seconds == day
+        assert by_number[25].ready_to_merge_seconds is None
 
     def test_pr_cost_sums_all_jobs_past_the_default_row_cap(self) -> None:
         # A PR with more jobs than HogQL's default 100-row cap: the detail cost must sum every job, not
@@ -524,7 +612,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
 class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
     """LLM token spend attributed to a PR by git branch, over a real warehouse PR row plus
-    $ai_generation events. Skips when object storage is unreachable."""
+    $ai_generation events."""
 
     def _generation(
         self,
@@ -753,3 +841,57 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         assert cost.llm_spend is not None
         assert cost.llm_spend.generations == 1
         assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+
+
+class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
+    """The recently-merged discovery seam over real warehouse tables: only PRs merged at or after
+    `since` in the scoped repo surface, each with its branch-tip head SHA."""
+
+    def test_returns_merged_prs_since_cutoff_scoped_to_repo(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                # merged within the window -> returned, carrying its branch-tip head SHA
+                _pr_row(20, "alice", "closed", 0, _ago(7), merged_at=_ago(5), head_sha="sha20"),
+                # open / never merged -> excluded by merged_at IS NOT NULL
+                _pr_row(21, "bob", "open", 0, _ago(3), head_sha="sha21"),
+                # merged before the cutoff -> excluded by merged_at >= since
+                _pr_row(22, "carol", "closed", 0, _ago(40), merged_at=_ago(30), head_sha="sha22"),
+                # merged in-window but a different repo -> excluded by the repo scope
+                _pr_row(
+                    23, "dave", "closed", 0, _ago(4), merged_at=_ago(3), head_sha="sha23", full_name="PostHog/other"
+                ),
+                # merged in-window -> returned unless a `numbers` scope excludes it
+                _pr_row(24, "erin", "closed", 0, _ago(2), merged_at=_ago(1), head_sha="sha24"),
+                # merged in-window but the snapshot carries no branch-tip SHA -> excluded; a NULL
+                # would otherwise fail MergedPullRequest's non-null contract and crash the batch,
+                # and an empty SHA is useless to callers (it feeds a GitHub compare)
+                _pr_row(25, "faye", "closed", 0, _ago(2), merged_at=_ago(1), head_sha=""),
+            ],
+        )
+        # workflow_runs is required for the source to resolve, though this read only touches PRs.
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(3001, "CI", "sha20", "completed", "success", _ago(5), _ago(5), pr_number=20)],
+        )
+
+        since = timezone.now() - timedelta(days=10)
+        merged = api.list_recently_merged_pull_requests(team=self.team, repository="PostHog/posthog", since=since)
+        assert [(pr.number, pr.head_sha) for pr in merged] == [(24, "sha24"), (20, "sha20")]
+
+        # `numbers` scopes the lookup to the PRs a caller is waiting on, so a high-merge-volume repo
+        # can't push them past the query's row ceiling.
+        scoped = api.list_recently_merged_pull_requests(
+            team=self.team, repository="PostHog/posthog", since=since, numbers=[20]
+        )
+        assert [pr.number for pr in scoped] == [20]
+
+        # 22 merged before the cutoff, so the open-ended read above excludes it. Naming it makes the
+        # ask exact and `since` no longer applies: a caller waiting on one PR must not get a silent
+        # empty result that reads identically to "no such merge".
+        by_number = api.list_recently_merged_pull_requests(
+            team=self.team, repository="PostHog/posthog", since=since, numbers=[22]
+        )
+        assert [(pr.number, pr.head_sha) for pr in by_number] == [(22, "sha22")]

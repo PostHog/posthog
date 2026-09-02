@@ -1,8 +1,9 @@
 from enum import Enum
 from typing import Union
 
-from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES
 from posthog.scopes import APIScopeObject
+
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 
 
 class NotificationType(str, Enum):
@@ -19,6 +20,10 @@ class NotificationType(str, Enum):
     WEB_ANALYTICS_DIGEST = "web_analytics_digest"
     ACHIEVEMENT_UNLOCKED = "achievement_unlocked"
     SUBSCRIPTION_NUDGE = "subscription_nudge"
+    EMAIL_REPUTATION = "email_reputation"
+    MATERIALIZATION_FAILURE = "materialization_failure"
+    NOTIFICATION_SETTINGS_CHANGED = "notification_settings_changed"
+    DATA_QUALITY_CHECK_FAILURE = "data_quality_check_failure"
 
 
 class Priority(str, Enum):

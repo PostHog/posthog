@@ -25,10 +25,11 @@
 # to --reset-db.
 #
 # --- TRIGGER (who gets a preview) -----------------------------------------------
-# The `decide` job (cheap, credential-free) is the gate. A same-repo, human,
-# ready (non-draft) PR gets a preview when it carries the `hogbox-preview` label
-# (manual opt-in, ANY paths) OR its diff touches the frontend (frontend/**,
-# products/*/frontend/**, common/esbuilder/**). The `no-preview` label opts out.
+# The `decide` job (cheap, credential-free) is the gate. A same-repo, human PR
+# gets a preview when it carries the `hogbox-preview` label (manual opt-in, ANY
+# paths, draft or ready) OR it is ready (non-draft) and its diff touches the
+# frontend (frontend/**, products/*/frontend/**, common/esbuilder/**). A draft
+# only ever previews through the label. The `no-preview` label opts out.
 # Auto-previews for frontend PRs are org-visible default behavior; the opt-out +
 # hibernation (below) keep them cheap. See the trigger notes on `on.pull_request`.
 #
@@ -38,8 +39,8 @@
 #     see the permissions note below) and `deploy` (trusted, brings the box up)
 #     run IN PARALLEL. deploy no longer waits on the dist: it restores + mounts +
 #     migrates immediately, and only blocks on build-frontend right at the end,
-#     to swap the finished dist in before it posts "ready". Cuts wall-clock from
-#     ~9.5 min (serial) to ~6 (the FE build hides under the longer bring-up).
+#     to swap the finished dist in before it posts "ready". Cuts wall-clock:
+#     the FE build hides under the longer bring-up.
 #   - teardown on PR close + the daily stale-sweep: pr-closed.yml (box + pen) +
 #     hogbox-preview-cleanup.yml's cron. The GitHub Deployment/environment
 #     (preview-pr-<n>) is reaped by pr-cleanup.yml's existing deployment cleanup.
@@ -52,7 +53,8 @@
 #   - the golden is referenced by its global alias `posthog-preview-golden`
 #   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE + a github_oidc
 #     TrustMapping for PostHog/posthog on prod-us
-#   - frontend PRs auto-preview; `hogbox-preview` forces it for any paths,
+#   - ready frontend PRs auto-preview; `hogbox-preview` forces it for any paths
+#     and any draft state,
 #     `no-preview` opts out (see the TRIGGER section above)
 # The box is driven entirely by the posthog-hogland SDK (pip-installable, keyless
 # over hogplane's HTTP API) — no `hogland` CLI binary and no box SSH key needed.
@@ -114,6 +116,11 @@ jobs:
     # unlabeled-cancel trap: a no-op event runs only this job, never touches the
     # `preview`/`teardown` concurrency group, so it can't cancel an active build.
     decide:
+        # A preview for the queue's branch would outlive it by minutes, so the
+        # answer is always "do nothing" — skip before spending the API calls.
+        # Downstream jobs key off `needs.decide.outputs.build`, which is empty
+        # when this skips, so they stay skipped too.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: '[Optional] decide eligibility'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -174,8 +181,9 @@ jobs:
                           return decide(false, false, `label ${action} '${label}' — not preview-relevant → skip`);
                       }
 
-                      // Build eligibility: same-repo AND human AND ready AND not
-                      // opted-out AND (labeled OR frontend-touching).
+                      // Build eligibility: same-repo AND human AND (ready OR
+                      // labeled) AND not opted-out AND (labeled OR
+                      // frontend-touching).
                       const labels = (pr.labels || []).map(l => l.name);
                       const hasPreviewLabel = labels.includes('hogbox-preview');
                       const optedOut = labels.includes('no-preview');
@@ -188,8 +196,19 @@ jobs:
 
                       if (!sameRepo) return decide(false, false, `fork PR (${pr.head && pr.head.repo && pr.head.repo.full_name}) → skip`);
                       if (isBot) return decide(false, false, `bot author (${login}) → skip`);
-                      if (!ready) return decide(false, false, 'draft PR → skip');
+                      // A draft never AUTO-previews, but `hogbox-preview` opts one
+                      // in: self-review wants a clickable box before the PR is
+                      // ready. An unlabeled draft still waits for the draft→ready
+                      // flip.
+                      if (!ready && !hasPreviewLabel) return decide(false, false, 'draft PR without hogbox-preview → skip');
                       if (optedOut) return decide(false, false, 'no-preview label present → skip');
+
+                      // A labeled draft already has its preview (pushes keep it
+                      // current), so the draft→ready flip has nothing to build —
+                      // skip the identical rebuild at the same SHA.
+                      if (action === 'ready_for_review' && hasPreviewLabel) {
+                          return decide(false, false, 'ready_for_review on an already-previewed draft → skip');
+                      }
 
                       // The manual label opts a PR in for ANY paths; without it we
                       // require a frontend-touching diff. Only pay for the files
@@ -277,7 +296,7 @@ jobs:
     # the other forever). The group therefore lives on `deploy`/`teardown` ONLY.
     # ACCEPTED COST: a superseded push cancels the newer run's deploy (via the
     # group), but this run's build-frontend is NOT cancelable, so it may run to
-    # completion wasted (~3.5 min of runner time). No correctness impact — its
+    # completion wasted (runner time only). No correctness impact — its
     # artifact is namespaced to its own run_id, so a stale build can't leak into
     # the winning run's swap.
     # Hard-fails on purpose: it runs PR code, and deploy reads its conclusion to tell
@@ -325,7 +344,7 @@ jobs:
               with:
                   # A dispatched run would otherwise check out master (the dispatch ref)
                   # and ship master's SPA as the "PR frontend" — dispatch is the only
-                  # preview path for draft/bot-authored PRs. The PR head is safe here:
+                  # preview path for bot-authored PRs. The PR head is safe here:
                   # the fork guard above has already hard-failed non-same-repo numbers,
                   # and this job runs without credentials. pull_request events keep the
                   # default merge-ref behavior (empty ref).
@@ -336,7 +355,7 @@ jobs:
             # change the frontend. So for FE-touching PRs, build the PR's
             # frontend here (the canonical Dockerfile build) and hand the dist to
             # the tool, which lays it in + re-runs collectstatic in-box. Non-FE
-            # PRs skip all of this and keep the ~1-min preview.
+            # PRs skip all of this and keep the fast preview.
             - name: Detect frontend changes
               id: fe
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -383,6 +402,7 @@ jobs:
               with:
                   name: hogbox-preview-frontend-dist
                   path: ${{ runner.temp }}/frontend-dist.tgz
+                  compression-level: 0
                   retention-days: 1
 
     # ----------------------------------------------------------------------------
@@ -400,8 +420,8 @@ jobs:
     # healthy does deploy block on build-frontend (the "Wait for the PR frontend"
     # step polls this run's jobs), then swap the finished dist in BEFORE posting
     # "ready" — a reviewer must never open a green link and get :master's
-    # frontend for their frontend PR. The FE build (~3m27s) hides entirely under
-    # the longer bring-up (~6m), so the pipeline is bring-up-bound, not their sum.
+    # frontend for their frontend PR. The FE build hides entirely under the
+    # longer bring-up, so the pipeline is bring-up-bound, not their sum.
     #
     # FAIL-OPEN, so infra failures leave this job green: success()/failure() are
     # meaningless here, the `outcome` step is the verdict. The fork guard is exempt —
@@ -450,6 +470,15 @@ jobs:
                               `not ${base}. Manual dispatch only runs same-repo PRs — fork code must never run ` +
                               `with the hogland token in scope.`);
                       }
+
+            # Shared t0 for the stage breadcrumbs. Bring-up and the frontend swap
+            # are separate tool processes, so each timed from its own start and
+            # their `+NNNs` lines couldn't be read as one timeline. Anchoring both
+            # here makes the whole job one clock. Computed in a step rather than
+            # a job-level env because no `github` context field is reliably epoch
+            # seconds, and a non-numeric value silently falls back to per-process.
+            - name: Anchor preview stage timings
+              run: echo "HOGBOX_PREVIEW_T0=$(date +%s)" >> "$GITHUB_ENV"
 
             # Trusted checkout: the tool code that runs with HOG_TOKEN comes from
             # the default branch, never the PR.

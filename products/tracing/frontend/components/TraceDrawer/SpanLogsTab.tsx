@@ -11,13 +11,12 @@ import { traceLookupDateRange } from '../../traceLinks'
 import { buildLogScopeFilter, logsDeepLinkUrl, type TraceLogScope } from '../../traceLogScope'
 import type { Span } from '../../types'
 
-// Logs correlated to the inspected span (default) or the whole trace, via the embedded LogsViewer
-// pinned to a trace_id/span_id filter. Span scope keeps the tab coherent with the rest of the
-// inspector; the toggle rescues the common case where a span emitted no logs of its own. The
-// pinned filter fixes the scope — the viewer's own filters can only narrow within it — and this
-// toggle is the scope control.
+// Logs correlated to the whole trace (default) or the inspected span, via the embedded LogsViewer
+// pinned to a trace_id/span_id filter. Trace scope is the default because a single span often emits
+// no logs of its own; narrow to the span with the toggle when needed. The pinned filter fixes the
+// scope — the viewer's own filters can only narrow within it — and this toggle is the scope control.
 export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
-    const [scope, setScope] = useState<TraceLogScope>('span')
+    const [scope, setScope] = useState<TraceLogScope>('trace')
 
     // `initialFilters` (the date range) is stable across scope changes — recompute only when the
     // span timestamp changes. Otherwise a scope toggle would mint a fresh `initialFilters` object;
@@ -47,8 +46,8 @@ export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
                     value={scope}
                     onChange={setScope}
                     options={[
-                        { value: 'span', label: 'This span' },
                         { value: 'trace', label: 'Whole trace' },
+                        { value: 'span', label: 'This span' },
                     ]}
                     data-attr="tracing-logs-scope"
                 />
@@ -68,11 +67,10 @@ export function SpanLogsTab({ span }: { span: Span }): JSX.Element {
                 id={`tracing-logs-${span.trace_id}`}
                 pinnedFilters={pinnedFilters}
                 initialFilters={initialFilters}
-                // Full-screen is off (like PersonLogsTab): the shared modal can't carry pinnedFilters,
-                // so it would open unscoped and clear this viewer's scope. "Open in Logs" preserves
-                // the scope via the URL filterGroup instead.
-                showFullScreenButton={false}
                 showSavedViewsButton={false}
+                // Start with the facet/filter rail hidden — the drawer is narrow and the pinned
+                // scope already covers the common case; "Show filters" re-expands it.
+                defaultFacetRailCollapsed
             />
         </div>
     )

@@ -24,6 +24,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
@@ -104,9 +105,7 @@ const VALIDATION_RULES = {
             ? 'You must add at least one mapping'
             : undefined,
     INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
-        data.type === 'internal_destination' && data.filters?.events?.length === 0
-            ? 'You must choose a filter'
-            : undefined,
+        data.type === 'internal_destination' && !data.filters?.events?.length ? 'You must choose a filter' : undefined,
 } as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
@@ -121,7 +120,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     status: 'stable',
 }
 
-export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
+export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'transformation_log', 'destination']
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
@@ -129,7 +128,24 @@ const TYPE_TO_PRODUCT_KEY: Partial<Record<HogFunctionTypeType, ProductKey>> = {
     destination: ProductKey.PIPELINE_DESTINATIONS,
     site_destination: ProductKey.PIPELINE_DESTINATIONS,
     transformation: ProductKey.PIPELINE_TRANSFORMATIONS,
+    transformation_log: ProductKey.LOGS,
     site_app: ProductKey.SITE_APPS,
+}
+
+// Sample record shown in the log transformation testing UI (no events table to sample from).
+const EXAMPLE_LOG_RECORD: NonNullable<CyclotronJobInvocationGlobals['record']> = {
+    body: 'GET /api/users 200 in 42ms user=jane@example.com',
+    attributes: { 'http.method': 'GET', 'http.status_code': '200' },
+    resource_attributes: { 'service.name': 'api', 'k8s.namespace.name': 'production' },
+    severity_text: 'info',
+    severity_number: 9,
+    service_name: 'api',
+    instrumentation_scope: 'http.server',
+    event_name: null,
+    timestamp: 1780000000000000000,
+    observed_timestamp: 1780000000000000000,
+    trace_id: null,
+    span_id: null,
 }
 
 export function sanitizeInputs(
@@ -143,9 +159,11 @@ export function sanitizeInputs(
         let value = input?.value
 
         if (secret) {
-            // If set this means we haven't changed the value
+            // The value was not retyped, so keep the stored secret. Leave value undefined - it is
+            // dropped from the JSON payload, and a placeholder here can be encrypted as the new
+            // secret if the backend does not strip it.
             sanitizedInputs[inputSchema.key] = {
-                value: '********', // Don't send the actual value
+                value: undefined,
                 secret: true,
             }
             return
@@ -170,12 +188,15 @@ export function sanitizeInputs(
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
-    filters.source = filters.source ?? 'events'
+    filters.source = data.type === 'internal_destination' ? 'internal-events' : (filters.source ?? 'events')
 
     if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events
+    } else if (filters.source === 'internal-events') {
+        delete filters.actions
+        delete filters.data_warehouse
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -988,7 +1009,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return null
                     }
 
-                    return await api.hogFunctions.get(props.id)
+                    try {
+                        return await api.hogFunctions.get(props.id)
+                    } catch (e) {
+                        // A missing id, or one from another project reached via a cross-project deep
+                        // link, 404s here. Fall back to null so the scene renders its not-found state
+                        // instead of filing the rejection in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
@@ -1258,9 +1289,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             ? 'Web scripts'
                             : type === 'transformation'
                               ? 'Transformations'
-                              : type === 'source_webhook'
-                                ? 'Sources'
-                                : 'Destinations'
+                              : type === 'transformation_log'
+                                ? 'Log transformations'
+                                : type === 'source_webhook'
+                                  ? 'Sources'
+                                  : 'Destinations'
                     payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
@@ -1373,6 +1406,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 contextId: HogFunctionConfigurationContextId,
                 survey: Survey | null
             ): CyclotronJobInvocationGlobals => {
+                // Log transformations are seeded with a sample record (no event), so the inline
+                // tester shows something useful to run against instead of an empty object.
+                if (configuration?.type === 'transformation_log') {
+                    return {
+                        project: {
+                            id: currentProject?.id ?? 0,
+                            name: currentProject?.name ?? '',
+                            url: `${window.location.origin}/project/${currentProject?.id}`,
+                        },
+                        record: EXAMPLE_LOG_RECORD,
+                    } as CyclotronJobInvocationGlobals
+                }
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -1520,6 +1565,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     return {
                         project: baseGlobals.project,
                         event: baseGlobals.event,
+                        inputs,
+                    }
+                }
+
+                // Log transformations receive `project` and `record` at runtime (see
+                // buildLogRecordGlobals). There is no event table to sample from, so show a
+                // representative record the user can edit.
+                if (configuration.type === 'transformation_log') {
+                    return {
+                        project: baseGlobals.project,
+                        record: EXAMPLE_LOG_RECORD,
                         inputs,
                     }
                 }
@@ -1776,7 +1832,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         mightDropEvents: [
             (s) => [s.configuration, s.type],
             (configuration: HogFunctionConfigurationType, type: HogFunctionTypeType) => {
-                if (type !== 'transformation') {
+                if (type !== 'transformation' && type !== 'transformation_log') {
                     return false
                 }
                 const hogCode = configuration.hog || ''
@@ -1848,14 +1904,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     return false
                 }
 
-                return ['source_webhook', 'transformation', 'destination'].includes(type)
+                return ['source_webhook', 'transformation', 'transformation_log', 'destination'].includes(type)
             },
         ],
 
         showTesting: [
             (s) => [s.type],
             (type: HogFunctionTypeType) => {
-                return ['destination', 'internal_destination', 'transformation'].includes(type)
+                return ['destination', 'internal_destination', 'transformation', 'transformation_log'].includes(type)
             },
         ],
 
@@ -1915,7 +1971,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
 
-            if (maybeValidationError?.type === 'validation_error') {
+            if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {
+                // Errors on `type` (the feature gate and the enabled-function cap reject there)
+                // have no rendered form field, so a toast is the only way the user sees them.
+                if (maybeValidationError.attr === 'type') {
+                    lemonToast.error(maybeValidationError.detail)
+                }
                 setTimeout(() => {
                     // TRICKY: We want to run on the next tick otherwise the errors don't show (possibly because of the async wait in the submit)
                     if (maybeValidationError.attr.includes('inputs__')) {
@@ -1925,14 +1986,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             },
                         })
                     } else {
+                        // A nested attr names a path inside a form field (`filters__events`), and the
+                        // form only has a manual-error slot for the field itself — anchoring the
+                        // message at the leaf renders nothing at all.
                         actions.setConfigurationManualErrors({
-                            [maybeValidationError.attr]: maybeValidationError.detail,
+                            [maybeValidationError.attr.split('__')[0]]: maybeValidationError.detail,
                         })
                     }
                 }, 1)
             } else {
                 console.error(errorObject)
-                lemonToast.error('Error submitting configuration')
+                lemonToast.error(maybeValidationError?.detail ?? 'Error submitting configuration')
             }
         },
 
@@ -2011,7 +2075,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.setConfigurationValues({
                     ...config,
                     enabled: values.configuration.enabled,
-                    filters: config.filters ?? values.configuration.filters,
+                    filters: values.configuration.filters ?? config.filters,
                     // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
                     mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template

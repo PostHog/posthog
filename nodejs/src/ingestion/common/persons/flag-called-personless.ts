@@ -31,9 +31,7 @@ export function eventHasGroups(properties: PluginEvent['properties']): boolean {
 
 /**
  * Whether a $feature_flag_called event should default to personless so server-side flag
- * evaluation does not create orphan person profiles (see #60581). Shared by the per-event
- * step that makes the final decision and the batch step that pre-inserts the
- * posthog_personlessdistinctid rows.
+ * evaluation does not create orphan person profiles (see #60581).
  *
  * `processPersonExplicitlyTrue` must be supplied by the caller because the per-event step
  * runs after normalizeProcessPerson has stripped $process_person_profile, while the batch

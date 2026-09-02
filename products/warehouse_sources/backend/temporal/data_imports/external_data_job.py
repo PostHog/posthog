@@ -7,8 +7,11 @@ import dataclasses
 from django.conf import settings
 
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
+from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
@@ -20,10 +23,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
-    DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsWorkflow,
-)
+from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -32,8 +32,19 @@ from products.data_warehouse.backend.facade.api import (
     create_warehouse_templates_for_source,
     update_external_job_status,
 )
+from products.managed_warehouse.backend.facade.temporal import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsInputs,
+    DuckLakeRegisterDataImportsWorkflow,
+    build_register_data_imports_workflow_id,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.models.external_data_schema import (
+    AUTO_DISABLED_JOB_ERROR,
+    ExternalDataSchema,
+    update_should_sync,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
@@ -41,11 +52,21 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
+    get_fast_returned_run_metric,
     get_v3_lock_skipped_metric,
+    get_version_check_skipped_metric,
+)
+from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+    PostImportWorkflow,
+    PostImportWorkflowInputs,
+    build_post_import_workflow_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -75,6 +96,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
@@ -135,10 +157,96 @@ Any_Source_Errors: dict[str, str | None] = {
         "A column's type changed in your source and no longer fits the type we stored. We can't widen "
         "an existing column in place — please reset and fully re-sync this table to adopt the new type."
     ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a column imported
+    # as a number contains non-numeric text. The same cells fail identically on every retry regardless
+    # of source. Already non-retryable for Google Sheets via its own get_non_retryable_errors; declare
+    # it here so every other source stops retrying too. The enriched message names the offending column
+    # and shows example cells, so keep the raw error rather than replacing it with a generic one.
+    "must be real number, not str": None,
+    # Raised by botocore (`is_valid_endpoint_url`) when the object storage endpoint URL has a
+    # hostname it rejects — most often an underscore, invalid in a DNS hostname but common in a
+    # self-hosted deployment's OBJECT_STORAGE_ENDPOINT (e.g. a docker service name). The endpoint is
+    # fixed for the deployment, so every retry replays the identical ValueError. Batch exports already
+    # classifies this the same way (InvalidS3EndpointError). Match the stable "Invalid endpoint:"
+    # prefix, not the URL itself, which can carry deployment host detail.
+    "Invalid endpoint: ": (
+        "The object storage endpoint URL isn't valid. Its hostname contains characters that S3 "
+        "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
+        "then re-enable the sync."
+    ),
 }
 
 
-@dataclasses.dataclass
+UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
+
+CANCELLED_RUN_MESSAGE = (
+    "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
+    "it or the source is paused. It will run again on its next schedule."
+)
+
+
+def _customer_facing_error(cause: BaseException | None) -> str:
+    """`latest_error` text a customer reads, without the leaked internal exception class name.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    `ApplicationError.__str__`), so ``str(cause)`` prefixes the customer-facing error with an
+    internal Python class name that means nothing to them: ``RESTClientRetryableError`` for a
+    REST source that exhausted its retries on an HTTP 429/5xx, ``NonReportableError`` for a
+    retryable connection drop, or a raw driver ``OperationalError``. The wrapped ``message``
+    carries the same detail without that prefix. This only affects errors we don't rewrite via
+    the non-retryable map below (retryable exhaustion and unclassified failures); ``internal_error``
+    still records the full ``str(cause)`` for debugging.
+    """
+    # A wrapped ActivityError can carry no cause; `str(None)` would show the customer "None".
+    if cause is None:
+        return UNEXPECTED_ERROR_MESSAGE
+    # A cancelled activity surfaces as a Temporal `CancelledError` whose `message` is the bare word
+    # "Cancelled" — meaningless to a customer, and not a failure they caused (a newer run superseded
+    # this one, the source was paused, or a worker was rolled). Give them something readable.
+    if isinstance(cause, exceptions.CancelledError):
+        return CANCELLED_RUN_MESSAGE
+    message = getattr(cause, "message", None)
+    return message or str(cause)
+
+
+def _is_app_db_failure(internal_error: str) -> bool:
+    """Whether a run failed against PostHog's own app DB rather than the customer's source.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    ``ApplicationError.__str__``), so the class the activity failed with survives into
+    ``internal_error``. ``django.db.InternalError`` is our own ORM: a source reaches a customer
+    database over a raw driver connection, whose read-only error is psycopg's
+    ``ReadOnlySqlTransaction`` and renders under that name instead. The two carry the same message,
+    which is why the class name has to do the telling.
+
+    The phrase narrows the class, mirroring ``is_stale_connection_read_only_error``: Django reports
+    corrupted data and failed-transaction states under the same class, and those are defects rather
+    than an outage that clears on its own.
+    """
+    normalized = internal_error.lower()
+    return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
+
+
+def _fail_stale_running_schema(
+    schema_id: str, team_id: int, latest_error: str | None, logger: FilteringBoundLogger
+) -> None:
+    """Repaint a schema stuck on Running when a run failed without leaving a job to finalize.
+
+    Mirrors `update_external_job_status`: CDC halted markers absorb status updates, so a halted
+    schema is left alone.
+    """
+    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).first()
+    if schema is None or schema.status != ExternalDataSchema.Status.RUNNING or schema.cdc_halted:
+        return
+    schema.status = ExternalDataSchema.Status.FAILED
+    schema.latest_error = latest_error
+    schema.save(update_fields=["status", "latest_error", "updated_at"])
+    logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
+
+
+# The workflow fills this in as a run unwinds — status, then the error fields on the failure
+# paths — so it is mutated after construction by design.
+@dataclasses.dataclass(frozen=False)
 class UpdateExternalDataJobStatusInputs:
     team_id: int
     job_id: str | None
@@ -170,9 +278,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
-        msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
-        logger.debug(msg)
-        capture_exception(Exception(msg))
+        # `rows_tracked` is decremented by rows actually written, but incremented by
+        # `resource.rows_to_sync`, a pre-extraction COUNT(*) probe (see e.g. `_get_rows_to_sync`)
+        # that can race with concurrent changes on a live source table. A small positive leftover
+        # here is an expected consequence of that estimate rather than a pipeline bug, so log it
+        # instead of capture_exception; finish_row_tracking below clears the key regardless.
+        logger.warning(f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}")
 
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -199,11 +310,17 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
             # A FAILED finalization with no resolvable job means an early activity (e.g. create-job)
-            # failed before a row was committed — nothing is stranded and that failure is already
-            # reported on its own, so don't double-alarm. A non-FAILED finalization that can't find
-            # its job is a real anomaly (work we think succeeded has nowhere to record it) — surface it.
+            # failed before a row was committed. That failure is already reported on its own, so
+            # don't double-alarm. But the schema may have been painted Running by whatever triggered
+            # this run, and with no job there is no later finalization to repaint it, so reset it
+            # here or it stays stuck on Running forever. A non-FAILED finalization that can't find
+            # its job is a real anomaly (work we think succeeded has nowhere to record it): surface it.
             logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
-            if inputs.status != ExternalDataJob.Status.FAILED:
+            if inputs.status == ExternalDataJob.Status.FAILED:
+                await database_sync_to_async_pool(_fail_stale_running_schema)(
+                    inputs.schema_id, inputs.team_id, inputs.latest_error, logger
+                )
+            else:
                 capture_exception(Exception("Data import finalization could not resolve a job to update"))
             return
 
@@ -211,6 +328,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     else:
         job_id = inputs.job_id
 
+    source: ExternalDataSource | None = None
+    has_non_retryable_error = False
     if inputs.internal_error:
         logger.exception(
             f"External data job failed for external data schema {inputs.schema_id} on job {inputs.job_id} with error: {inputs.internal_error}"
@@ -218,9 +337,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = await database_sync_to_async_pool(ExternalDataSource.objects.get)(
-            pk=inputs.source_id
-        )
+        source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
@@ -229,33 +346,39 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         else:
             non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
-        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
-        if has_non_retryable_error:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="schema non-retryable error",
-                properties={
-                    "schemaId": inputs.schema_id,
-                    "sourceId": inputs.source_id,
-                    "sourceType": source.source_type,
-                    "jobId": inputs.job_id,
-                    "teamId": inputs.team_id,
-                    "error": inputs.internal_error,
-                },
-            )
-            await database_sync_to_async_pool(update_should_sync)(
-                schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False
-            )
+        # A failure against our own app DB carries the same text as several source-side conditions
+        # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
+        # matching it here would disable a sync whose source never failed, and hand the customer a
+        # message telling them to go fix a database that is working.
+        platform_failure = _is_app_db_failure(internal_error_normalized)
+        if platform_failure:
+            inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
 
+        has_non_retryable_error = not platform_failure and error_message_matches(
+            internal_error_normalized, non_retryable_errors.keys()
+        )
+
+        if has_non_retryable_error:
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
-                if error in internal_error_normalized
+                if error_message_matches(internal_error_normalized, [error])
             ]
 
             if friendly_errors and friendly_errors[0] is not None:
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
+
+            # Computed after the friendly error so the teardown records the same message
+            # the job will show. Excluding this workflow keeps the disable's teardown from
+            # cancelling the very run that is already finishing through its failure path.
+            await database_sync_to_async_pool(update_should_sync)(
+                schema_id=inputs.schema_id,
+                team_id=inputs.team_id,
+                should_sync=False,
+                disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
+                disable_exclude_workflow_id=activity.info().workflow_id,
+            )
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
@@ -264,6 +387,29 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         logger=logger,
         team_id=inputs.team_id,
     )
+
+    if inputs.internal_error and source is not None:
+        # This activity runs once the workflow has given up, so every error reaching here has
+        # already exhausted its retries — including the ones no source classified. Those used to
+        # leave a schema in error state with no event behind it, which is why whole classes of
+        # failure only ever surfaced through support tickets. Emit for both outcomes and
+        # distinguish them with a property. The capture comes after the DB writes because this
+        # activity retries without limit: emitting first would duplicate the event on every
+        # attempt a transient DB failure causes. The error text is uncurated exception output,
+        # so cap what flows into analytics.
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="schema non-retryable error" if has_non_retryable_error else "schema unclassified error",
+            properties={
+                "schemaId": inputs.schema_id,
+                "sourceId": inputs.source_id,
+                "sourceType": source.source_type,
+                "jobId": inputs.job_id,
+                "teamId": inputs.team_id,
+                "error": inputs.internal_error[:1000],
+                "classified": has_non_retryable_error,
+            },
+        )
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
@@ -317,14 +463,53 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
+@async_to_sync
+async def _start_non_billable_resume_workflow(
+    temporal: Client, workflow_id: str, inputs: ExternalDataWorkflowInputs
+) -> None:
+    await temporal.start_workflow(
+        "external-data-job",
+        inputs,
+        id=workflow_id,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+    )
+
+
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     schema = ExternalDataSchema.objects.get(id=schedule_id)
     logger = LOGGER.bind(team_id=schema.team.pk)
 
-    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+    info = activity.info()
+    billable = (
+        ExternalDataJob.objects.filter(
+            schema_id=schema.id, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id
+        )
+        .values_list("billable", flat=True)
+        .first()
+    )
 
     temporal = sync_connect()
+
+    # The schedule's stored action is always billable, so resuming through it would charge the customer
+    # for a sync we told them was free (admin resyncs, corruption rebuilds). Start an ad-hoc run instead.
+    if billable is False:
+        workflow_id = f"{schema.id}-non-billable-resume-{info.workflow_run_id}"
+        logger.debug(f"Starting non-billable resume workflow {workflow_id} for schema {schedule_id}")
+        _start_non_billable_resume_workflow(
+            temporal,
+            workflow_id,
+            ExternalDataWorkflowInputs(
+                team_id=schema.team_id,
+                external_data_source_id=schema.source_id,
+                external_data_schema_id=schema.id,
+                billable=False,
+            ),
+        )
+        return
+
+    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
@@ -359,6 +544,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         source_type = None
         consumer_manages_job_status = False
+        skip_post_import_activities = False
+        workflow_starts_post_import = False
         is_v3 = False
         lock_token = None
 
@@ -369,12 +556,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 CheckPipelineVersionActivityInputs(
                     team_id=inputs.team_id,
                     source_id=inputs.external_data_source_id,
+                    schema_id=inputs.external_data_schema_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             is_v3 = version_result.is_v3
         except Exception:
+            # Guessing the version is not safe: a buffered CDC schema consumed on v2 records no
+            # load position, so the buffer re-merges in full and nothing is ever deleted. Skip
+            # the run and let the schedule fire again, matching the lock-not-acquired path.
+            # patched() keeps in-flight pre-patch executions replaying their recorded fall-through.
+            if workflow.patched("data-imports-skip-run-on-version-check-failure-v1"):
+                workflow.logger.error(
+                    "Failed to check pipeline version, skipping run",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                get_version_check_skipped_metric().add(1)
+                return
             workflow.logger.warning(
                 "Failed to check pipeline version, defaulting to V2",
                 extra={"schema_id": str(inputs.external_data_schema_id)},
@@ -435,6 +634,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = False
                 statistics_needed = False
                 person_property_sync_enabled = False
+                fast_return_eligible = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -445,6 +645,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = create_job_result.enrichment_needed
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
+                fast_return_eligible = create_job_result.fast_return_eligible
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -492,6 +693,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
                 reset_pipeline=inputs.reset_pipeline,
+                fast_return_eligible=fast_return_eligible,
             )
 
             is_resumable_source = False
@@ -534,8 +736,33 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 **timeout_params,
             )  # type: ignore
 
+            # Run-finalization ownership (terminal status write, v3 lock release, post-import
+            # start) — the full contract lives on the PipelineResult docstring. False on every
+            # failure path by construction: a raising activity returns no result, so this line
+            # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
+
+            # A fast-returned run completed on a negative source probe, before any extraction.
+            # Its skip_post_import_activities=True does the actual skipping below; the job row,
+            # COMPLETED status and last_synced_at are all written as usual.
+            if pipeline_result.get("fast_returned", False):
+                get_fast_returned_run_metric(source_type=source_type).add(1)
+
+            # The load-dependent post-import steps have one home: `data-import-post-import`
+            # (post_import_job.py). V3 with batches: the load consumer starts it after the final
+            # batch is loaded, so the steps must not race the load from here. Everywhere else:
+            # this workflow starts it in the finally block, after the COMPLETED status write its
+            # resolve activity gates on. Gated on recorded history only: consumer_manages_job_status
+            # is activity output, and patched() keeps in-flight pre-patch executions replaying the
+            # old command sequence (which still runs the steps inline below).
+            consumer_runs_post_import = consumer_manages_job_status and workflow.patched(
+                "v3-consumer-post-import-2026-07"
+            )
+            workflow_starts_post_import = not consumer_runs_post_import and workflow.patched(
+                "v2-post-import-workflow-2026-07"
+            )
+            post_import_in_workflow = consumer_runs_post_import or workflow_starts_post_import
 
             if pipeline_result.get("should_trigger_cdp_producer", False):
                 await start_child_workflow(
@@ -566,7 +793,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Emit signals for new records (if registered for this source type + schema), if FF enabled.
             # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.
-            if source_type is not None and schema_name is not None and emit_signals_enabled:
+            if (
+                source_type is not None
+                and schema_name is not None
+                and emit_signals_enabled
+                and not post_import_in_workflow
+            ):
                 # Started by registered workflow name (not class import) so warehouse_sources
                 # doesn't import the signals product, which depends on it. See external_product_hooks.
                 await workflow.start_child_workflow(
@@ -627,7 +859,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent
             # sync gets WorkflowAlreadyStartedError, which we swallow. Fire-and-forget child on the
             # dedicated metadata queue; ABANDON means it never blocks or fails the import.
-            if enrichment_needed:
+            if enrichment_needed and not post_import_in_workflow:
                 try:
                     await workflow.start_child_workflow(
                         EnrichTableSemanticsWorkflow.run,
@@ -653,7 +885,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # tries to start a second one gets WorkflowAlreadyStartedError, which we swallow (the running
             # one already covers this schema). The activity itself re-checks recency. Fire-and-forget
             # metadata queue; ABANDON so it never blocks or fails the import.
-            if statistics_needed:
+            if statistics_needed and not post_import_in_workflow:
                 try:
                     await workflow.start_child_workflow(
                         ComputeTableStatisticsWorkflow.run,
@@ -681,33 +913,58 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            await workflow.execute_activity(
-                calculate_table_size_activity,
-                CalculateTableSizeActivityInputs(
-                    team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            # Start DuckLake copy workflow as a child (fire-and-forget)
-            try:
-                await workflow.start_child_workflow(
-                    DuckLakeCopyDataImportsWorkflow.run,
-                    DataImportsDuckLakeCopyInputs(
-                        team_id=inputs.team_id,
-                        job_id=job_id,
-                        schema_ids=[inputs.external_data_schema_id],
+            if not post_import_in_workflow:
+                await workflow.execute_activity(
+                    calculate_table_size_activity,
+                    CalculateTableSizeActivityInputs(
+                        team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
                     ),
-                    id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
-                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-            except WorkflowAlreadyStartedError:
-                workflow.logger.warning(
-                    "DuckLake copy already running, skipping",
-                    extra={"schema_id": str(inputs.external_data_schema_id)},
-                )
+
+                # Start DuckLake copy workflow as a child (fire-and-forget)
+                try:
+                    await workflow.start_child_workflow(
+                        DuckLakeCopyDataImportsWorkflow.run,
+                        DataImportsDuckLakeCopyInputs(
+                            team_id=inputs.team_id,
+                            job_id=job_id,
+                            schema_ids=[inputs.external_data_schema_id],
+                        ),
+                        id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
+                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.warning(
+                        "DuckLake copy already running, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+
+            prepared_queryable_folder = pipeline_result.get("prepared_queryable_folder")
+            if prepared_queryable_folder and workflow.patched("data-imports-ducklake-registration-workflow-v1"):
+                try:
+                    await workflow.start_child_workflow(
+                        DuckLakeRegisterDataImportsWorkflow.run,
+                        DuckLakeRegisterDataImportsInputs(
+                            team_id=inputs.team_id,
+                            job_id=job_id,
+                            schema_id=inputs.external_data_schema_id,
+                            prepared_queryable_folder=prepared_queryable_folder,
+                        ),
+                        id=build_register_data_imports_workflow_id(
+                            team_id=inputs.team_id,
+                            schema_id=str(inputs.external_data_schema_id),
+                        ),
+                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.warning(
+                        "DuckLake prepared-file registration already running, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id), "job_id": job_id},
+                    )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
@@ -728,18 +985,21 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause.cause)
-                update_inputs.latest_error = str(e.cause.cause)
+                # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
+                # friendly mapping is None keeps its raw message, and the finalization activity won't
+                # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
+                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
                 raise
             else:
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = str(e.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause)
                 raise
         except Exception as e:
             # Catch all
             update_inputs.internal_error = str(e)
-            update_inputs.latest_error = "An unexpected error has ocurred"
+            update_inputs.latest_error = UNEXPECTED_ERROR_MESSAGE
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:
@@ -768,6 +1028,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # Release the V3 pipeline lock when the consumer is NOT managing job
             # status (extraction failed before producing batches, or non-V3).
             # When consumer_manages_job_status is True, the consumer releases.
+            # Runs before the post-import start so a raise there (cancellation)
+            # can't leave the lock held.
             if is_v3 and lock_token and not consumer_manages_job_status:
                 try:
                     await workflow.execute_activity(
@@ -784,4 +1046,34 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     workflow.logger.warning(
                         "Failed to release V3 pipeline lock in workflow finally block",
                         extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+
+            # Post-import must start after the COMPLETED write above: its resolve activity
+            # skips every step for a non-completed job. Excluded paths keep their pre-fork
+            # behavior — externally managed schemas (skip_post_import_activities) and
+            # non-COMPLETED outcomes never ran these steps here either.
+            if (
+                workflow_starts_post_import
+                and not skip_post_import_activities
+                and update_inputs.status == ExternalDataJob.Status.COMPLETED
+                and update_inputs.job_id is not None
+            ):
+                try:
+                    await workflow.start_child_workflow(
+                        PostImportWorkflow.run,
+                        PostImportWorkflowInputs(
+                            team_id=inputs.team_id,
+                            job_id=update_inputs.job_id,
+                            schema_id=str(inputs.external_data_schema_id),
+                            source_id=str(inputs.external_data_source_id),
+                        ),
+                        id=build_post_import_workflow_id(update_inputs.job_id),
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.info(
+                        "Post-import workflow already started for job, skipping",
+                        extra={"job_id": update_inputs.job_id},
                     )

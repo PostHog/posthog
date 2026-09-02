@@ -44,8 +44,8 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible, navbarWidth } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { activeSceneId } = useValues(sceneLogic)
-    const { registerScenePanelElement } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
+    const { registerScenePanelElement, registerSceneTakeoverElement } = useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
 
@@ -79,6 +79,13 @@ export function Navigation({
             registerScenePanelElement(null)
         }
     }, [registerScenePanelElement])
+
+    // Unlike the inline panel above, nothing else ever overrides this registration, so the
+    // callback ref's own null call on unmount is enough cleanup.
+    const takeoverCallbackRef = useCallback(
+        (node: HTMLDivElement | null) => registerSceneTakeoverElement(node),
+        [registerSceneTakeoverElement]
+    )
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -187,28 +194,54 @@ export function Navigation({
                             )}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
-                                {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
-                                    <div
-                                        className={cn({
-                                            'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
-                                            // Settings scene's nav is viewport-fixed on desktop, so the
-                                            // banner needs to clear it (nav width + column gap) to align
-                                            // with the settings content column.
-                                            'md:ml-[calc(var(--settings-nav-width)+2rem)]':
-                                                activeSceneId === Scene.Settings,
-                                        })}
-                                    >
-                                        <ProjectNotice
-                                            className={cn('my-0 mb-4', {
-                                                'mt-4': noPaddingScene,
+                                {/* While a takeover covers the scene its controls must leave the tab
+                                    order and the accessibility tree, or keyboard and screen-reader
+                                    users can operate them invisibly. The side panel stays outside the
+                                    wrapper: it renders beside the takeover and must stay usable. */}
+                                {/* The attribute rides a spread with the empty-string form: React 18's
+                                    types lack `inert`, and its runtime serializes `inert={false}` to a
+                                    string, which is still inert (presence-based attribute). */}
+                                <div className="contents" {...(sceneTakeoverActive ? { inert: '' } : {})}>
+                                    {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
+                                        <div
+                                            className={cn({
+                                                'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                                // Settings scene's nav is viewport-fixed on desktop, so the
+                                                // banner needs to clear it (nav width + column gap) to align
+                                                // with the settings content column.
+                                                'md:ml-[calc(var(--settings-nav-width)+2rem)]':
+                                                    activeSceneId === Scene.Settings,
                                             })}
-                                        />
-                                    </div>
-                                )}
-                                {children}
+                                        >
+                                            <ProjectNotice
+                                                className={cn('my-0 mb-4', {
+                                                    'mt-4': noPaddingScene,
+                                                })}
+                                            />
+                                        </div>
+                                    )}
+                                    {children}
+                                </div>
                                 <SidePanel />
                             </SceneLayout>
                         </main>
+
+                        {/* Scene takeover host: fullscreen-in-scene surfaces (the email editor)
+                            portal here to fill the main well at full height, while the navigation
+                            stays visible and the side panel stays usable beside it (z-50 keeps this
+                            under the side panel). Mirrors main's max-width shrink so it never sits
+                            underneath the open side panel. */}
+                        <div
+                            ref={takeoverCallbackRef}
+                            tabIndex={-1}
+                            className={cn(
+                                'absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col outline-none',
+                                {
+                                    hidden: !sceneTakeoverActive,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOpen,
+                                }
+                            )}
+                        />
 
                         {scenePanelIsPresent && (
                             <>

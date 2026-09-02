@@ -79,6 +79,7 @@ export interface mcpHintLogicActions {
     dismissSurface: (surfaceKey: SurfaceKey) => {
         surfaceKey:
             | 'actions.create'
+            | 'ai_observability_evaluations.create'
             | 'alerts.create'
             | 'annotations.create'
             | 'cohorts.create'
@@ -124,6 +125,7 @@ export interface mcpHintLogicActions {
         derivedPrompt: string | undefined
         surfaceKey:
             | 'actions.create'
+            | 'ai_observability_evaluations.create'
             | 'alerts.create'
             | 'annotations.create'
             | 'cohorts.create'

@@ -1,6 +1,6 @@
 import re
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +15,7 @@ from rest_framework import exceptions
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
     from types_boto3_sesv2.client import SESV2Client
+    from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +48,122 @@ class SESProvider:
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"
 
+    def get_tenant_reputation(self, team_id: int) -> dict[str, Any] | None:
+        """
+        Sending status and open reputation findings for the team's SES tenant, or None when the
+        tenant doesn't exist. AWS judges tenant reputation from signals we can't see (mailbox
+        provider feedback loops, third-party listings), so this is the authoritative health source;
+        our own app metrics only provide the per-workflow diagnosis.
+        """
+        tenant_name = self._tenant_name_for_team(team_id)
+        try:
+            tenant = self.ses_v2_client.get_tenant(TenantName=tenant_name)["Tenant"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("NotFoundException", "BadRequestException"):
+                return None
+            raise
+
+        sending_status: str = tenant.get("SendingStatus", "ENABLED")
+        tenant_arn = tenant.get("TenantArn")
+        reputation_impact: str | None = None
+        findings: list[dict[str, Any]] = []
+
+        if tenant_arn:
+            try:
+                entity = self.ses_v2_client.get_reputation_entity(
+                    ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE"
+                )["ReputationEntity"]
+            except ClientError as e:
+                # A tenant with no attributed sends yet has no reputation entity.
+                if e.response["Error"]["Code"] != "NotFoundException":
+                    raise
+                entity = {}
+            reputation_impact = entity.get("ReputationImpact")
+            # The aggregate folds in both AWS-managed and customer-managed pauses.
+            sending_status = entity.get("SendingStatusAggregate", sending_status)
+
+            # RESOURCE_ARN is the only filter key AWS documents as usable on its own with this
+            # scoping (see _iter_open_recommendations for why STATUS is filtered locally).
+            findings.extend(
+                {
+                    "finding_type": recommendation.get("Type", ""),
+                    "impact": recommendation.get("Impact", "LOW"),
+                    "description": recommendation.get("Description", ""),
+                    "last_updated_at": recommendation.get("LastUpdatedTimestamp"),
+                }
+                for recommendation in self._iter_open_recommendations({"RESOURCE_ARN": tenant_arn})
+            )
+
+        return {
+            "sending_status": sending_status,
+            "reputation_impact": reputation_impact,
+            "findings": findings,
+        }
+
+    def _iter_open_recommendations(self, finding_filter: dict[Any, str] | None) -> Iterator["RecommendationTypeDef"]:
+        """
+        Walk every page of ListRecommendations, yielding only OPEN recommendations. The local
+        STATUS check exists for RESOURCE_ARN-filtered calls: AWS documents STATUS as combinable
+        only with IMPACT or TYPE, so tenant-scoped listings must drop FIXED entries client-side.
+        """
+        kwargs: dict[str, Any] = {"Filter": finding_filter} if finding_filter else {}
+        while True:
+            page = self.ses_v2_client.list_recommendations(**kwargs)
+            for recommendation in page.get("Recommendations", []):
+                if recommendation.get("Status") == "OPEN":
+                    yield recommendation
+            next_token = page.get("NextToken")
+            if not next_token:
+                return
+            kwargs["NextToken"] = next_token
+
+    def get_account_reputation(self) -> dict[str, Any]:
+        """
+        Account-level SES verdict: enforcement status plus every open reputation finding,
+        classified by the resource it references. AWS opens findings well before it enforces,
+        so this is the earliest account-scoped warning available.
+        """
+        # Strict access on purpose: a response without EnforcementStatus must fail the poll
+        # (surfacing via the staleness alert) rather than be reported as healthy.
+        enforcement_status: str = self.ses_v2_client.get_account()["EnforcementStatus"]
+        findings = [
+            {
+                "finding_type": recommendation.get("Type", ""),
+                "impact": recommendation.get("Impact", "LOW"),
+                "scope": self._finding_scope(recommendation.get("ResourceArn", "")),
+                "description": recommendation.get("Description", ""),
+            }
+            for recommendation in self._iter_open_recommendations({"STATUS": "OPEN"})
+        ]
+        return {"enforcement_status": enforcement_status, "findings": findings}
+
+    @staticmethod
+    def _finding_scope(resource_arn: str) -> str:
+        # Tenant and identity findings are a customer's sender health; anything else
+        # (configuration sets, the account itself, an unrecognized or missing ARN) is
+        # treated as shared infrastructure so classification errs toward alerting us.
+        if ":tenant/" in resource_arn:
+            return "tenant"
+        if ":identity/" in resource_arn:
+            return "identity"
+        return "account"
+
     @cached_property
     def _aws_account_id(self) -> str:
         return self.sts_client.get_caller_identity()["Account"]
 
     def _identity_arn(self, domain: str) -> str:
         return f"arn:aws:ses:{settings.SES_REGION}:{self._aws_account_id}:identity/{domain}"
+
+    def _configuration_set_arn(self, name: str) -> str:
+        return f"arn:aws:ses:{settings.SES_REGION}:{self._aws_account_id}:configuration-set/{name}"
+
+    def _associate_tenant_resource(self, tenant_name: str, resource_arn: str) -> None:
+        try:
+            self.ses_v2_client.create_tenant_resource_association(TenantName=tenant_name, ResourceArn=resource_arn)
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "AlreadyExistsException":
+                raise
 
     def _list_identity_tenants(self, domain: str) -> set[str]:
         try:
@@ -94,15 +205,20 @@ class SESProvider:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
-        # Associate the new domain identity with the tenant
-        try:
-            self.ses_v2_client.create_tenant_resource_association(
-                TenantName=expected_tenant,
-                ResourceArn=self._identity_arn(domain),
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] != "AlreadyExistsException":
-                raise
+        # Associate the new domain identity with the tenant, plus the configuration sets sends
+        # reference — an attributed send fails unless EVERY resource it uses is associated.
+        self._associate_tenant_resource(expected_tenant, self._identity_arn(domain))
+        for config_set in settings.SES_TENANT_CONFIGURATION_SETS:
+            # Unlike the identity (created moments ago in this same call), config sets are
+            # provisioned externally — a missing or drifted one must not fail the customer's
+            # add-domain request. The gap is caught by migrate_ses_tenants / at attributed send
+            # time instead.
+            try:
+                self._associate_tenant_resource(expected_tenant, self._configuration_set_arn(config_set))
+            except (ClientError, BotoCoreError):
+                logger.exception(
+                    "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
+                )
 
     def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name

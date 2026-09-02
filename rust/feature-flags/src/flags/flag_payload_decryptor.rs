@@ -11,6 +11,7 @@
 
 use base64::{prelude::BASE64_URL_SAFE, Engine};
 use fernet::{Fernet, MultiFernet};
+use sha2::{Digest, Sha256};
 
 /// Returned for encrypted payloads when the caller is not allowed to decrypt
 /// (i.e. not authenticated with a personal API key). Byte-identical to Django's
@@ -23,10 +24,26 @@ pub enum FlagPayloadDecryptorError {
     NoKeys,
     #[error("{built} of {configured} configured keys are valid Fernet keys")]
     InvalidKeys { built: usize, configured: usize },
-    #[error("failed to decrypt payload")]
-    Decrypt,
+    /// `key_count` is how many keys were tried (never which ones, or any key material).
+    /// `token_fingerprint` is a truncated hash of the ciphertext, for correlating repeat
+    /// failures on the same stored payload across log lines. It is not a security primitive.
+    #[error("failed to decrypt payload with any of {key_count} configured key(s) (token {token_fingerprint})")]
+    Decrypt {
+        key_count: usize,
+        token_fingerprint: String,
+    },
     #[error("decrypted payload is not valid UTF-8")]
     Utf8,
+}
+
+/// Short, non-reversible identifier for a ciphertext, safe to log: lets an operator tell
+/// "same broken payload failing repeatedly" from "many different payloads failing" without
+/// exposing the token or any key material. Not a security primitive.
+fn token_fingerprint(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    let result = hasher.finalize();
+    hex::encode(&result[..6])
 }
 
 /// Derive a Fernet from raw key material, mirroring Django's `_prepare_key`.
@@ -52,6 +69,10 @@ fn flag_fernet(raw: &str) -> Option<Fernet> {
 #[derive(Clone)]
 pub struct FlagPayloadDecryptor {
     multi: MultiFernet,
+    /// Number of keys `multi` was built with. `MultiFernet` doesn't expose this, and it's
+    /// useful on decrypt failure to distinguish "tried 1 key" (no rotation fallback
+    /// configured) from "tried N keys" (payload predates every configured key).
+    key_count: usize,
 }
 
 impl FlagPayloadDecryptor {
@@ -100,8 +121,10 @@ impl FlagPayloadDecryptor {
                 configured: keys.len(),
             });
         }
+        let key_count = fernets.len();
         Ok(Self {
             multi: MultiFernet::new(fernets),
+            key_count,
         })
     }
 
@@ -110,7 +133,10 @@ impl FlagPayloadDecryptor {
         let bytes = self
             .multi
             .decrypt(token)
-            .map_err(|_| FlagPayloadDecryptorError::Decrypt)?;
+            .map_err(|_| FlagPayloadDecryptorError::Decrypt {
+                key_count: self.key_count,
+                token_fingerprint: token_fingerprint(token),
+            })?;
         String::from_utf8(bytes).map_err(|_| FlagPayloadDecryptorError::Utf8)
     }
 }
@@ -173,9 +199,26 @@ mod tests {
     #[test]
     fn wrong_key_fails_to_decrypt() {
         let d = FlagPayloadDecryptor::from_keys(&[K2.to_string()]).unwrap();
-        assert!(matches!(
-            d.decrypt(TOK_PRIMARY),
-            Err(FlagPayloadDecryptorError::Decrypt)
-        ));
+        match d.decrypt(TOK_PRIMARY) {
+            Err(FlagPayloadDecryptorError::Decrypt {
+                key_count,
+                token_fingerprint,
+            }) => {
+                assert_eq!(key_count, 1);
+                // 12 hex chars (6 bytes), and never the token or key material itself.
+                assert_eq!(token_fingerprint.len(), 12);
+                assert!(!TOK_PRIMARY.contains(&token_fingerprint));
+            }
+            other => panic!("expected Decrypt error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decrypt_failure_reports_every_configured_key_was_tried() {
+        let d = FlagPayloadDecryptor::from_keys(&[K2.to_string(), SHORT_KEY.to_string()]).unwrap();
+        match d.decrypt(TOK_PRIMARY) {
+            Err(FlagPayloadDecryptorError::Decrypt { key_count, .. }) => assert_eq!(key_count, 2),
+            other => panic!("expected Decrypt error, got {other:?}"),
+        }
     }
 }

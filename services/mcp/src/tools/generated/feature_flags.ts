@@ -2,58 +2,38 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    FeatureFlagsActivityRetrieveParams,
-    FeatureFlagsActivityRetrieveQueryParams,
-    FeatureFlagsBulkDeleteCreateBody,
-    FeatureFlagsBulkKeysRetrieveBody,
-    FeatureFlagsBulkUpdateTagsCreateBody,
-    FeatureFlagsCopyFlagsCreateBody,
-    FeatureFlagsCreateBody,
-    FeatureFlagsDependentFlagsListParams,
-    FeatureFlagsDestroyParams,
-    FeatureFlagsEvaluationReasonsRetrieveQueryParams,
-    FeatureFlagsListQueryParams,
-    FeatureFlagsMyFlagsRetrieveQueryParams,
-    FeatureFlagsPartialUpdateBody,
-    FeatureFlagsPartialUpdateParams,
-    FeatureFlagsRetrieveParams,
-    FeatureFlagsStatusRetrieveParams,
-    FeatureFlagsTestEvaluationCreateBody,
-    FeatureFlagsTestEvaluationCreateParams,
-    FeatureFlagsUserBlastRadiusCreateBody,
-    ScheduledChangesCreateBody,
-    ScheduledChangesDestroyParams,
-    ScheduledChangesListQueryParams,
-    ScheduledChangesPartialUpdateBody,
-    ScheduledChangesPartialUpdateParams,
-    ScheduledChangesRetrieveParams,
-} from '@/generated/feature_flags/api'
+import * as orvalSchemas from '@/generated/feature_flags/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CreateFeatureFlagSchema = FeatureFlagsCreateBody.omit({ archived: true }).extend({
-    is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
-        'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
-    ),
-    ensure_experience_continuity: FeatureFlagsCreateBody.shape['ensure_experience_continuity'].describe(
-        'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
-    ),
-    evaluation_runtime: FeatureFlagsCreateBody.shape['evaluation_runtime'].describe(
-        'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
-    ),
-    bucketing_identifier: FeatureFlagsCreateBody.shape['bucketing_identifier'].describe(
-        'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
-    ),
-})
+const CreateFeatureFlagSchema = () => {
+    const FeatureFlagsCreateBody = orvalSchemas.FeatureFlagsCreateBody()
+    return FeatureFlagsCreateBody.omit({ archived: true }).extend({
+        is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
+            'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
+        ),
+        ensure_experience_continuity: FeatureFlagsCreateBody.shape['ensure_experience_continuity'].describe(
+            'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
+        ),
+        evaluation_runtime: FeatureFlagsCreateBody.shape['evaluation_runtime'].describe(
+            'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
+        ),
+        bucketing_identifier: FeatureFlagsCreateBody.shape['bucketing_identifier'].describe(
+            'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
+        ),
+    })
+}
 
-const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
+const createFeatureFlag = (): ToolBase<
+    ReturnType<typeof CreateFeatureFlagSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
     name: 'create-feature-flag',
-    schema: CreateFeatureFlagSchema,
-    handler: async (context: Context, params: z.infer<typeof CreateFeatureFlagSchema>) => {
+    schema: CreateFeatureFlagSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CreateFeatureFlagSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.key !== undefined) {
@@ -95,14 +75,17 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
     },
 })
 
-const DeleteFeatureFlagSchema = FeatureFlagsDestroyParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, FeatureFlagsDestroyParams.shape['id']),
-})
+const DeleteFeatureFlagSchema = () => {
+    const FeatureFlagsDestroyParams = orvalSchemas.FeatureFlagsDestroyParams()
+    return FeatureFlagsDestroyParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsDestroyParams.shape['id']),
+    })
+}
 
-const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.FeatureFlag> => ({
+const deleteFeatureFlag = (): ToolBase<ReturnType<typeof DeleteFeatureFlagSchema>, Schemas.FeatureFlag> => ({
     name: 'delete-feature-flag',
-    schema: DeleteFeatureFlagSchema,
-    handler: async (context: Context, params: z.infer<typeof DeleteFeatureFlagSchema>) => {
+    schema: DeleteFeatureFlagSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DeleteFeatureFlagSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',
@@ -113,21 +96,24 @@ const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.F
     },
 })
 
-const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams.extend({
-    search: FeatureFlagsListQueryParams.shape['search'].describe(
-        'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
-    ),
-    limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
-    offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
-})
+const FeatureFlagGetAllSchema = () => {
+    const FeatureFlagsListQueryParams = orvalSchemas.FeatureFlagsListQueryParams()
+    return FeatureFlagsListQueryParams.extend({
+        search: FeatureFlagsListQueryParams.shape['search'].describe(
+            'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
+        ),
+        limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
+    })
+}
 
 const featureFlagGetAll = (): ToolBase<
-    typeof FeatureFlagGetAllSchema,
+    ReturnType<typeof FeatureFlagGetAllSchema>,
     WithPostHogUrl<Schemas.PaginatedFeatureFlagList>
 > => ({
     name: 'feature-flag-get-all',
-    schema: FeatureFlagGetAllSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagGetAllSchema>) => {
+    schema: FeatureFlagGetAllSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagGetAllSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedFeatureFlagList>({
             method: 'GET',
@@ -168,17 +154,20 @@ const featureFlagGetAll = (): ToolBase<
     },
 })
 
-const FeatureFlagGetDefinitionSchema = FeatureFlagsRetrieveParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, FeatureFlagsRetrieveParams.shape['id']),
-})
+const FeatureFlagGetDefinitionSchema = () => {
+    const FeatureFlagsRetrieveParams = orvalSchemas.FeatureFlagsRetrieveParams()
+    return FeatureFlagsRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsRetrieveParams.shape['id']),
+    })
+}
 
 const featureFlagGetDefinition = (): ToolBase<
-    typeof FeatureFlagGetDefinitionSchema,
+    ReturnType<typeof FeatureFlagGetDefinitionSchema>,
     WithPostHogUrl<Schemas.FeatureFlag>
 > => ({
     name: 'feature-flag-get-definition',
-    schema: FeatureFlagGetDefinitionSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagGetDefinitionSchema>) => {
+    schema: FeatureFlagGetDefinitionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagGetDefinitionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'GET',
@@ -188,17 +177,21 @@ const featureFlagGetDefinition = (): ToolBase<
     },
 })
 
-const FeatureFlagsActivityRetrieveSchema = FeatureFlagsActivityRetrieveParams.omit({ project_id: true })
-    .extend(FeatureFlagsActivityRetrieveQueryParams.shape)
-    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsActivityRetrieveParams.shape['id']) })
+const FeatureFlagsActivityRetrieveSchema = () => {
+    const FeatureFlagsActivityRetrieveParams = orvalSchemas.FeatureFlagsActivityRetrieveParams()
+    const FeatureFlagsActivityRetrieveQueryParams = orvalSchemas.FeatureFlagsActivityRetrieveQueryParams()
+    return FeatureFlagsActivityRetrieveParams.omit({ project_id: true })
+        .extend(FeatureFlagsActivityRetrieveQueryParams.shape)
+        .extend({ id: z.preprocess(castStringToInt, FeatureFlagsActivityRetrieveParams.shape['id']) })
+}
 
 const featureFlagsActivityRetrieve = (): ToolBase<
-    typeof FeatureFlagsActivityRetrieveSchema,
+    ReturnType<typeof FeatureFlagsActivityRetrieveSchema>,
     Schemas.ActivityLogPaginatedResponse
 > => ({
     name: 'feature-flags-activity-retrieve',
-    schema: FeatureFlagsActivityRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsActivityRetrieveSchema>) => {
+    schema: FeatureFlagsActivityRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsActivityRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
@@ -212,15 +205,18 @@ const featureFlagsActivityRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsBulkDeleteCreateSchema = FeatureFlagsBulkDeleteCreateBody
+const FeatureFlagsBulkDeleteCreateSchema = () => {
+    const FeatureFlagsBulkDeleteCreateBody = orvalSchemas.FeatureFlagsBulkDeleteCreateBody()
+    return FeatureFlagsBulkDeleteCreateBody
+}
 
 const featureFlagsBulkDeleteCreate = (): ToolBase<
-    typeof FeatureFlagsBulkDeleteCreateSchema,
+    ReturnType<typeof FeatureFlagsBulkDeleteCreateSchema>,
     Schemas.BulkDeleteResponse
 > => ({
     name: 'feature-flags-bulk-delete-create',
-    schema: FeatureFlagsBulkDeleteCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkDeleteCreateSchema>) => {
+    schema: FeatureFlagsBulkDeleteCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsBulkDeleteCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.filters !== undefined) {
@@ -238,15 +234,18 @@ const featureFlagsBulkDeleteCreate = (): ToolBase<
     },
 })
 
-const FeatureFlagsBulkKeysRetrieveSchema = FeatureFlagsBulkKeysRetrieveBody
+const FeatureFlagsBulkKeysRetrieveSchema = () => {
+    const FeatureFlagsBulkKeysRetrieveBody = orvalSchemas.FeatureFlagsBulkKeysRetrieveBody()
+    return FeatureFlagsBulkKeysRetrieveBody
+}
 
 const featureFlagsBulkKeysRetrieve = (): ToolBase<
-    typeof FeatureFlagsBulkKeysRetrieveSchema,
+    ReturnType<typeof FeatureFlagsBulkKeysRetrieveSchema>,
     Schemas.BulkKeysResponse
 > => ({
     name: 'feature-flags-bulk-keys-retrieve',
-    schema: FeatureFlagsBulkKeysRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkKeysRetrieveSchema>) => {
+    schema: FeatureFlagsBulkKeysRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsBulkKeysRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.ids !== undefined) {
@@ -261,15 +260,18 @@ const featureFlagsBulkKeysRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsBulkUpdateTagsCreateSchema = FeatureFlagsBulkUpdateTagsCreateBody
+const FeatureFlagsBulkUpdateTagsCreateSchema = () => {
+    const FeatureFlagsBulkUpdateTagsCreateBody = orvalSchemas.FeatureFlagsBulkUpdateTagsCreateBody()
+    return FeatureFlagsBulkUpdateTagsCreateBody
+}
 
 const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
-    typeof FeatureFlagsBulkUpdateTagsCreateSchema,
+    ReturnType<typeof FeatureFlagsBulkUpdateTagsCreateSchema>,
     Schemas.BulkUpdateTagsResponse
 > => ({
     name: 'feature-flags-bulk-update-tags-create',
-    schema: FeatureFlagsBulkUpdateTagsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkUpdateTagsCreateSchema>) => {
+    schema: FeatureFlagsBulkUpdateTagsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsBulkUpdateTagsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.ids !== undefined) {
@@ -290,15 +292,18 @@ const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
     },
 })
 
-const FeatureFlagsCopyFlagsCreateSchema = FeatureFlagsCopyFlagsCreateBody
+const FeatureFlagsCopyFlagsCreateSchema = () => {
+    const FeatureFlagsCopyFlagsCreateBody = orvalSchemas.FeatureFlagsCopyFlagsCreateBody()
+    return FeatureFlagsCopyFlagsCreateBody
+}
 
 const featureFlagsCopyFlagsCreate = (): ToolBase<
-    typeof FeatureFlagsCopyFlagsCreateSchema,
+    ReturnType<typeof FeatureFlagsCopyFlagsCreateSchema>,
     Schemas.CopyFlagsResponse
 > => ({
     name: 'feature-flags-copy-flags-create',
-    schema: FeatureFlagsCopyFlagsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsCopyFlagsCreateSchema>) => {
+    schema: FeatureFlagsCopyFlagsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsCopyFlagsCreateSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
         const body: Record<string, unknown> = {}
         if (params.feature_flag_key !== undefined) {
@@ -328,17 +333,20 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
     },
 })
 
-const FeatureFlagsDependentFlagsRetrieveSchema = FeatureFlagsDependentFlagsListParams.omit({ project_id: true }).extend(
-    { id: z.preprocess(castStringToInt, FeatureFlagsDependentFlagsListParams.shape['id']) }
-)
+const FeatureFlagsDependentFlagsRetrieveSchema = () => {
+    const FeatureFlagsDependentFlagsListParams = orvalSchemas.FeatureFlagsDependentFlagsListParams()
+    return FeatureFlagsDependentFlagsListParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsDependentFlagsListParams.shape['id']),
+    })
+}
 
 const featureFlagsDependentFlagsRetrieve = (): ToolBase<
-    typeof FeatureFlagsDependentFlagsRetrieveSchema,
+    ReturnType<typeof FeatureFlagsDependentFlagsRetrieveSchema>,
     Schemas.DependentFlag[]
 > => ({
     name: 'feature-flags-dependent-flags-retrieve',
-    schema: FeatureFlagsDependentFlagsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsDependentFlagsRetrieveSchema>) => {
+    schema: FeatureFlagsDependentFlagsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsDependentFlagsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DependentFlag[]>({
             method: 'GET',
@@ -348,15 +356,22 @@ const featureFlagsDependentFlagsRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsEvaluationReasonsRetrieveSchema = FeatureFlagsEvaluationReasonsRetrieveQueryParams
+const FeatureFlagsEvaluationReasonsRetrieveSchema = () => {
+    const FeatureFlagsEvaluationReasonsRetrieveQueryParams =
+        orvalSchemas.FeatureFlagsEvaluationReasonsRetrieveQueryParams()
+    return FeatureFlagsEvaluationReasonsRetrieveQueryParams
+}
 
 const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
-    typeof FeatureFlagsEvaluationReasonsRetrieveSchema,
+    ReturnType<typeof FeatureFlagsEvaluationReasonsRetrieveSchema>,
     unknown
 > => ({
     name: 'feature-flags-evaluation-reasons-retrieve',
-    schema: FeatureFlagsEvaluationReasonsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsEvaluationReasonsRetrieveSchema>) => {
+    schema: FeatureFlagsEvaluationReasonsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof FeatureFlagsEvaluationReasonsRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -371,20 +386,24 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsMyFlagsRetrieveSchema = FeatureFlagsMyFlagsRetrieveQueryParams
+const FeatureFlagsMyFlagsRetrieveSchema = () => {
+    const FeatureFlagsMyFlagsRetrieveQueryParams = orvalSchemas.FeatureFlagsMyFlagsRetrieveQueryParams()
+    return FeatureFlagsMyFlagsRetrieveQueryParams
+}
 
 const featureFlagsMyFlagsRetrieve = (): ToolBase<
-    typeof FeatureFlagsMyFlagsRetrieveSchema,
+    ReturnType<typeof FeatureFlagsMyFlagsRetrieveSchema>,
     WithPostHogUrl<Schemas.MyFlagsResponse[]>
 > => ({
     name: 'feature-flags-my-flags-retrieve',
-    schema: FeatureFlagsMyFlagsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsMyFlagsRetrieveSchema>) => {
+    schema: FeatureFlagsMyFlagsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsMyFlagsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MyFlagsResponse[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/my_flags/`,
             query: {
+                flag_keys: params.flag_keys,
                 groups: params.groups,
             },
         })
@@ -392,17 +411,20 @@ const featureFlagsMyFlagsRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsStatusRetrieveSchema = FeatureFlagsStatusRetrieveParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, FeatureFlagsStatusRetrieveParams.shape['id']),
-})
+const FeatureFlagsStatusRetrieveSchema = () => {
+    const FeatureFlagsStatusRetrieveParams = orvalSchemas.FeatureFlagsStatusRetrieveParams()
+    return FeatureFlagsStatusRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsStatusRetrieveParams.shape['id']),
+    })
+}
 
 const featureFlagsStatusRetrieve = (): ToolBase<
-    typeof FeatureFlagsStatusRetrieveSchema,
+    ReturnType<typeof FeatureFlagsStatusRetrieveSchema>,
     Schemas.FeatureFlagStatusResponse
 > => ({
     name: 'feature-flags-status-retrieve',
-    schema: FeatureFlagsStatusRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsStatusRetrieveSchema>) => {
+    schema: FeatureFlagsStatusRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsStatusRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FeatureFlagStatusResponse>({
             method: 'GET',
@@ -412,19 +434,26 @@ const featureFlagsStatusRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
-    .extend(FeatureFlagsTestEvaluationCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsTestEvaluationCreateParams.shape['id']) })
-    .superRefine(validateDistinctIdPersonIdExclusive)
+const FeatureFlagsTestEvaluationCreateSchema = () => {
+    const FeatureFlagsTestEvaluationCreateBody = orvalSchemas.FeatureFlagsTestEvaluationCreateBody()
+    const FeatureFlagsTestEvaluationCreateParams = orvalSchemas.FeatureFlagsTestEvaluationCreateParams()
+    return FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
+        .extend(FeatureFlagsTestEvaluationCreateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, FeatureFlagsTestEvaluationCreateParams.shape['id']) })
+        .superRefine(validateDistinctIdPersonIdExclusive)
+}
 
 const featureFlagsTestEvaluationCreate = (): ToolBase<
-    typeof FeatureFlagsTestEvaluationCreateSchema,
+    ReturnType<typeof FeatureFlagsTestEvaluationCreateSchema>,
     Schemas.FeatureFlagTestEvaluationResponse
 > =>
     withUiApp('feature-flag-testing', {
         name: 'feature-flags-test-evaluation-create',
-        schema: FeatureFlagsTestEvaluationCreateSchema,
-        handler: async (context: Context, params: z.infer<typeof FeatureFlagsTestEvaluationCreateSchema>) => {
+        schema: FeatureFlagsTestEvaluationCreateSchema(),
+        handler: async (
+            context: Context,
+            params: z.infer<ReturnType<typeof FeatureFlagsTestEvaluationCreateSchema>>
+        ) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.distinct_id !== undefined) {
@@ -448,15 +477,18 @@ const featureFlagsTestEvaluationCreate = (): ToolBase<
         },
     })
 
-const FeatureFlagsUserBlastRadiusCreateSchema = FeatureFlagsUserBlastRadiusCreateBody
+const FeatureFlagsUserBlastRadiusCreateSchema = () => {
+    const FeatureFlagsUserBlastRadiusCreateBody = orvalSchemas.FeatureFlagsUserBlastRadiusCreateBody()
+    return FeatureFlagsUserBlastRadiusCreateBody
+}
 
 const featureFlagsUserBlastRadiusCreate = (): ToolBase<
-    typeof FeatureFlagsUserBlastRadiusCreateSchema,
+    ReturnType<typeof FeatureFlagsUserBlastRadiusCreateSchema>,
     Schemas.UserBlastRadiusResponse
 > => ({
     name: 'feature-flags-user-blast-radius-create',
-    schema: FeatureFlagsUserBlastRadiusCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsUserBlastRadiusCreateSchema>) => {
+    schema: FeatureFlagsUserBlastRadiusCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagsUserBlastRadiusCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.condition !== undefined) {
@@ -474,12 +506,18 @@ const featureFlagsUserBlastRadiusCreate = (): ToolBase<
     },
 })
 
-const ScheduledChangesCreateSchema = ScheduledChangesCreateBody
+const ScheduledChangesCreateSchema = () => {
+    const ScheduledChangesCreateBody = orvalSchemas.ScheduledChangesCreateBody()
+    return ScheduledChangesCreateBody
+}
 
-const scheduledChangesCreate = (): ToolBase<typeof ScheduledChangesCreateSchema, Schemas.ScheduledChange> => ({
+const scheduledChangesCreate = (): ToolBase<
+    ReturnType<typeof ScheduledChangesCreateSchema>,
+    Schemas.ScheduledChange
+> => ({
     name: 'scheduled-changes-create',
-    schema: ScheduledChangesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesCreateSchema>) => {
+    schema: ScheduledChangesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScheduledChangesCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.record_id !== undefined) {
@@ -515,12 +553,15 @@ const scheduledChangesCreate = (): ToolBase<typeof ScheduledChangesCreateSchema,
     },
 })
 
-const ScheduledChangesDeleteSchema = ScheduledChangesDestroyParams.omit({ project_id: true })
+const ScheduledChangesDeleteSchema = () => {
+    const ScheduledChangesDestroyParams = orvalSchemas.ScheduledChangesDestroyParams()
+    return ScheduledChangesDestroyParams.omit({ project_id: true })
+}
 
-const scheduledChangesDelete = (): ToolBase<typeof ScheduledChangesDeleteSchema, unknown> => ({
+const scheduledChangesDelete = (): ToolBase<ReturnType<typeof ScheduledChangesDeleteSchema>, unknown> => ({
     name: 'scheduled-changes-delete',
-    schema: ScheduledChangesDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesDeleteSchema>) => {
+    schema: ScheduledChangesDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScheduledChangesDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -530,12 +571,15 @@ const scheduledChangesDelete = (): ToolBase<typeof ScheduledChangesDeleteSchema,
     },
 })
 
-const ScheduledChangesGetSchema = ScheduledChangesRetrieveParams.omit({ project_id: true })
+const ScheduledChangesGetSchema = () => {
+    const ScheduledChangesRetrieveParams = orvalSchemas.ScheduledChangesRetrieveParams()
+    return ScheduledChangesRetrieveParams.omit({ project_id: true })
+}
 
-const scheduledChangesGet = (): ToolBase<typeof ScheduledChangesGetSchema, Schemas.ScheduledChange> => ({
+const scheduledChangesGet = (): ToolBase<ReturnType<typeof ScheduledChangesGetSchema>, Schemas.ScheduledChange> => ({
     name: 'scheduled-changes-get',
-    schema: ScheduledChangesGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesGetSchema>) => {
+    schema: ScheduledChangesGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScheduledChangesGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScheduledChange>({
             method: 'GET',
@@ -545,22 +589,25 @@ const scheduledChangesGet = (): ToolBase<typeof ScheduledChangesGetSchema, Schem
     },
 })
 
-const ScheduledChangesListSchema = ScheduledChangesListQueryParams.extend({
-    model_name: ScheduledChangesListQueryParams.shape['model_name'].describe(
-        'Filter by model type. Use "FeatureFlag" to see feature flag schedules.'
-    ),
-    record_id: ScheduledChangesListQueryParams.shape['record_id'].describe(
-        'Filter by the ID of a specific feature flag.'
-    ),
-})
+const ScheduledChangesListSchema = () => {
+    const ScheduledChangesListQueryParams = orvalSchemas.ScheduledChangesListQueryParams()
+    return ScheduledChangesListQueryParams.extend({
+        model_name: ScheduledChangesListQueryParams.shape['model_name'].describe(
+            'Filter by model type. Use "FeatureFlag" to see feature flag schedules.'
+        ),
+        record_id: ScheduledChangesListQueryParams.shape['record_id'].describe(
+            'Filter by the ID of a specific feature flag.'
+        ),
+    })
+}
 
 const scheduledChangesList = (): ToolBase<
-    typeof ScheduledChangesListSchema,
+    ReturnType<typeof ScheduledChangesListSchema>,
     WithPostHogUrl<Schemas.PaginatedScheduledChangeList>
 > => ({
     name: 'scheduled-changes-list',
-    schema: ScheduledChangesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesListSchema>) => {
+    schema: ScheduledChangesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScheduledChangesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedScheduledChangeList>({
             method: 'GET',
@@ -576,14 +623,21 @@ const scheduledChangesList = (): ToolBase<
     },
 })
 
-const ScheduledChangesUpdateSchema = ScheduledChangesPartialUpdateParams.omit({ project_id: true }).extend(
-    ScheduledChangesPartialUpdateBody.shape
-)
+const ScheduledChangesUpdateSchema = () => {
+    const ScheduledChangesPartialUpdateBody = orvalSchemas.ScheduledChangesPartialUpdateBody()
+    const ScheduledChangesPartialUpdateParams = orvalSchemas.ScheduledChangesPartialUpdateParams()
+    return ScheduledChangesPartialUpdateParams.omit({ project_id: true }).extend(
+        ScheduledChangesPartialUpdateBody.shape
+    )
+}
 
-const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema, Schemas.ScheduledChange> => ({
+const scheduledChangesUpdate = (): ToolBase<
+    ReturnType<typeof ScheduledChangesUpdateSchema>,
+    Schemas.ScheduledChange
+> => ({
     name: 'scheduled-changes-update',
-    schema: ScheduledChangesUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesUpdateSchema>) => {
+    schema: ScheduledChangesUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScheduledChangesUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.record_id !== undefined) {
@@ -619,28 +673,35 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
     },
 })
 
-const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_id: true })
-    .extend(FeatureFlagsPartialUpdateBody.shape)
-    .extend({
-        id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
-        is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
-            'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
-        ),
-        ensure_experience_continuity: FeatureFlagsPartialUpdateBody.shape['ensure_experience_continuity'].describe(
-            'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
-        ),
-        evaluation_runtime: FeatureFlagsPartialUpdateBody.shape['evaluation_runtime'].describe(
-            'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
-        ),
-        bucketing_identifier: FeatureFlagsPartialUpdateBody.shape['bucketing_identifier'].describe(
-            'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
-        ),
-    })
+const UpdateFeatureFlagSchema = () => {
+    const FeatureFlagsPartialUpdateBody = orvalSchemas.FeatureFlagsPartialUpdateBody()
+    const FeatureFlagsPartialUpdateParams = orvalSchemas.FeatureFlagsPartialUpdateParams()
+    return FeatureFlagsPartialUpdateParams.omit({ project_id: true })
+        .extend(FeatureFlagsPartialUpdateBody.shape)
+        .extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
+            is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
+                'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
+            ),
+            ensure_experience_continuity: FeatureFlagsPartialUpdateBody.shape['ensure_experience_continuity'].describe(
+                'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
+            ),
+            evaluation_runtime: FeatureFlagsPartialUpdateBody.shape['evaluation_runtime'].describe(
+                'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
+            ),
+            bucketing_identifier: FeatureFlagsPartialUpdateBody.shape['bucketing_identifier'].describe(
+                'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
+            ),
+        })
+}
 
-const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
+const updateFeatureFlag = (): ToolBase<
+    ReturnType<typeof UpdateFeatureFlagSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
     name: 'update-feature-flag',
-    schema: UpdateFeatureFlagSchema,
-    handler: async (context: Context, params: z.infer<typeof UpdateFeatureFlagSchema>) => {
+    schema: UpdateFeatureFlagSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UpdateFeatureFlagSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.key !== undefined) {

@@ -107,6 +107,60 @@ class TestFold(SimpleTestCase):
         self.assertEqual(members(state[10]), {"p2"})
         self.assertEqual(stats.dropped_before_since, 1)
 
+    def test_until_bound_converges_the_fold_to_the_pinned_instant(self) -> None:
+        # A pinned comparison clock must see the state as of that instant: an entry stamped after it
+        # is invisible to the oracle's window and would otherwise read as an unexplained over-count,
+        # and a later `left` must not retroactively remove a person who was a member at the instant.
+        state, stats = fold_membership_changes(
+            [
+                _msg("entered", "2026-07-07 19:01:00.000001", person_id="P1"),
+                _msg("left", "2026-07-07 19:09:00.000001", person_id="P1"),
+                _msg("entered", "2026-07-07 19:09:00.000001", person_id="P2"),
+            ],
+            team_id=2,
+            since=SINCE,
+            until=datetime(2026, 7, 7, 19, 5, tzinfo=UTC),
+        )
+        self.assertEqual(members(state[10]), {"p1"})
+        self.assertEqual(stats.dropped_after_until, 2)
+
+    def test_until_by_cohort_bounds_each_cohort_on_its_own_clock(self) -> None:
+        # Each cohort's legacy population is calculated on its own schedule, so the population oracle
+        # bounds per cohort; one cohort's clock leaking onto another silently mis-scopes its fold.
+        # Cohorts absent from the map fall back to the global `until`.
+        state, stats = fold_membership_changes(
+            [
+                _msg("entered", "2026-07-07 19:09:00.000001", cohort_id=10, person_id="P1"),
+                _msg("entered", "2026-07-07 19:09:00.000001", cohort_id=20, person_id="P2"),
+                _msg("entered", "2026-07-07 19:19:00.000001", cohort_id=30, person_id="P3"),
+                _marker(0, cohort_id=20, ts="2026-07-07 19:09:00.000001"),
+                # Past cohort 10's own bound: a marker recorded here would flip has_complete_reconcile
+                # and silence the only_legacy-is-an-upper-bound warning in population mode, where the
+                # global until is always None.
+                _marker(0, cohort_id=10, ts="2026-07-07 19:09:00.000001"),
+            ],
+            team_id=2,
+            since=SINCE,
+            until=datetime(2026, 7, 7, 19, 15, tzinfo=UTC),
+            until_by_cohort={10: datetime(2026, 7, 7, 19, 5, tzinfo=UTC)},
+        )
+        self.assertNotIn(10, state)
+        self.assertEqual(members(state[20]), {"p2"})
+        self.assertNotIn(30, state)
+        self.assertEqual(reconcile_completeness(stats, 20)[0].partitions_seen, 1)
+        self.assertEqual(reconcile_completeness(stats, 10), ())
+        self.assertEqual(stats.dropped_after_until, 3)
+
+    def test_until_bound_drops_later_reconcile_markers(self) -> None:
+        _state, stats = fold_membership_changes(
+            [_marker(0, ts="2026-07-07 19:01:00.000001"), _marker(1, ts="2026-07-07 19:09:00.000001")],
+            team_id=2,
+            since=SINCE,
+            until=datetime(2026, 7, 7, 19, 5, tzinfo=UTC),
+        )
+        self.assertEqual(reconcile_completeness(stats, 10)[0].partitions_seen, 1)
+        self.assertEqual(stats.dropped_after_until, 1)
+
     def test_wrong_team_messages_are_dropped(self) -> None:
         state, stats = fold_membership_changes(
             [

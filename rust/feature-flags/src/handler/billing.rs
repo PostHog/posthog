@@ -4,7 +4,9 @@ use crate::{
         flag_analytics::is_billable_flag_key, flag_models::FeatureFlagList,
         flag_request::FlagRequestType,
     },
+    metrics::consts::FLAG_QUOTA_LIMITED_COUNTER,
 };
+use common_metrics::inc;
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
 
@@ -21,6 +23,7 @@ pub async fn check_limits(
         .await;
 
     if billing_limited {
+        inc(FLAG_QUOTA_LIMITED_COUNTER, &[], 1);
         return Ok(Some(FlagsResponse::new(
             false,
             HashMap::new(),

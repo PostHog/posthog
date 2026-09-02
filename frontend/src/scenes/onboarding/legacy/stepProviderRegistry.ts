@@ -8,6 +8,7 @@ import { experimentsOnboarding } from 'products/experiments/frontend/onboarding/
 import { featureFlagsOnboarding } from 'products/feature_flags/frontend/onboarding/steps'
 import { logsOnboarding } from 'products/logs/frontend/onboarding/steps'
 import { mcpAnalyticsOnboarding } from 'products/mcp_analytics/frontend/onboarding/steps'
+import { metricsOnboarding } from 'products/metrics/frontend/onboarding/steps'
 import { productAnalyticsOnboarding } from 'products/product_analytics/frontend/onboarding/steps'
 import { sessionReplayOnboarding } from 'products/session_replay/frontend/onboarding/steps'
 import { surveysOnboarding } from 'products/surveys/frontend/onboarding/steps'
@@ -38,6 +39,7 @@ export const onboardingProviderRegistry: Partial<Record<ProductKey, ProductOnboa
     [ProductKey.AI_OBSERVABILITY]: aiObservabilityOnboarding,
     [ProductKey.WORKFLOWS]: workflowsOnboarding,
     [ProductKey.LOGS]: logsOnboarding,
+    [ProductKey.METRICS]: metricsOnboarding,
     [ProductKey.MCP_ANALYTICS]: mcpAnalyticsOnboarding,
     [ProductKey.CONVERSATIONS]: conversationsOnboarding,
 }

@@ -1,6 +1,6 @@
 import json
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
@@ -379,6 +379,11 @@ class TestSlackChannelPermissions(BaseTest):
 
         response = self.client.get("/api/conversations/v1/slack/authorize")
         assert response.status_code == 200
+
+        requested_scopes = parse_qs(urlparse(response.json()["url"]).query)["scope"][0].split(",")
+        # Attachment sync in both directions silently degrades without these
+        assert "files:read" in requested_scopes
+        assert "files:write" in requested_scopes
 
     @patch(
         "products.conversations.backend.api.slack_oauth.clear_supporthog_slack_token",

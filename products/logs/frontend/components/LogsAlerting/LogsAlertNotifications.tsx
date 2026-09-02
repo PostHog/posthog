@@ -19,14 +19,16 @@ import {
     resolveGroupLabel,
 } from './logsAlertUtils'
 
-function getNotificationLabel(notification: PendingLogsAlertNotification): string {
+function getPendingNotificationDestination(
+    notification: PendingLogsAlertNotification
+): Pick<PendingAlertNotificationDestinationView, 'title' | 'detail'> {
     if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
-        return `Slack: #${notification.slackChannelName ?? 'channel'}`
+        return { title: 'Slack', detail: `#${notification.slackChannelName ?? 'channel'}` }
     }
     if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
-        return `Microsoft Teams: ${notification.webhookUrl}`
+        return { title: 'Microsoft Teams', detail: notification.webhookUrl }
     }
-    return `Webhook: ${notification.webhookUrl}`
+    return { title: 'Webhook', detail: notification.webhookUrl }
 }
 
 export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
@@ -34,6 +36,9 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         existingHogFunctionsLoading,
         destinationGroups,
         pendingNotifications,
+        integrationsLoading,
+        integrationsFailed,
+        slackIntegrations,
         firstSlackIntegration,
         selectedType,
         slackChannelValue,
@@ -48,6 +53,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
+        loadIntegrations,
     } = useActions(logsAlertNotificationLogic)
 
     const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
@@ -85,8 +91,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
         (notification, index) => ({
             key: `${notification.type}-${index}`,
-            label: getNotificationLabel(notification),
-            status: alertId ? '(saving...)' : '(pending, save alert to apply)',
+            ...getPendingNotificationDestination(notification),
             onRemove: () => removePendingNotification(index),
         })
     )
@@ -107,6 +112,10 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             }}
             slack={{
                 notificationType: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+                integrationsLoading,
+                integrationsFailed,
+                onRetryIntegrations: loadIntegrations,
+                integrations: slackIntegrations,
                 integration: firstSlackIntegration,
                 channelValue: slackChannelValue,
                 onChannelValueChange: setSlackChannelValue,

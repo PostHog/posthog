@@ -62,6 +62,10 @@ OperatorType = Literal[
     "is_not",
     "icontains",
     "not_icontains",
+    "starts_with",
+    "not_starts_with",
+    "ends_with",
+    "not_ends_with",
     "regex",
     "not_regex",
     "gt",
@@ -81,7 +85,10 @@ OperatorInterval = Literal["day", "week", "month", "year"]
 GroupTypeName = str
 PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
-NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
+NEGATED_OPERATORS = ["is_not", "not_icontains", "not_starts_with", "not_ends_with", "not_regex", "is_not_set"]
+# Single source of truth for the starts_with/ends_with operator family, so each backend
+# allowlist (feature flags, logs, tracing, sessions) stays in sync without hand-copying.
+STRING_PREFIX_SUFFIX_OPERATORS: tuple[str, ...] = ("starts_with", "not_starts_with", "ends_with", "not_ends_with")
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
     "dynamic-cohort",
@@ -150,6 +157,8 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     ],
 }
 
+# Mirrored in frontend/src/models/cohortsModel.ts (BEHAVIORAL_VALUE_ALIASES) so the cohort
+# editor renders an aliased criterion rather than flagging it as invalid. Add to both.
 # Behavioral `value`s that don't match BehavioralPropertyType's enum value but are
 # produced by cohort filter generators and are equivalent for validation purposes.
 # Keyed by the raw stored value string; resolves to the canonical type whose

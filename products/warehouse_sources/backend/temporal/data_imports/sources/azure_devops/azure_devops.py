@@ -9,15 +9,35 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
     AZURE_DEVOPS_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 AZURE_DEVOPS_BASE_URL = "https://dev.azure.com"
-API_VERSION = "7.1"
+
+# Source version labels. The legacy label predates versioning and keeps sending
+# api-version 7.1 so existing syncs are unchanged; 7.2 is the current GA stable API.
+AZURE_DEVOPS_VERSION_LEGACY = UNVERSIONED_API_VERSION
+AZURE_DEVOPS_VERSION_7_2 = "7.2"
+
+# Source label → `api-version` query param actually sent on the wire.
+_WIRE_API_VERSION: dict[str, str] = {
+    AZURE_DEVOPS_VERSION_LEGACY: "7.1",
+    AZURE_DEVOPS_VERSION_7_2: "7.2",
+}
+
+
+def wire_api_version(api_version: str) -> str:
+    try:
+        return _WIRE_API_VERSION[api_version]
+    except KeyError:
+        raise ValueError(f"Unsupported Azure DevOps API version: {api_version}")
+
+
 PAGE_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 60
 # Rate limiting is 200 TSTUs per identity per sliding 5-minute window; 429s
@@ -75,20 +95,60 @@ def _flatten_revision(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def validate_credentials(organization: str, personal_access_token: str) -> bool:
-    """Confirm the PAT and organization are valid with a cheap projects probe.
+# Actionable reasons returned by the create-time credential probe. The sync-time equivalents live in
+# AzureDevOpsSource.get_non_retryable_errors, keyed on the raw HTTP error text raise_for_status emits.
+_INVALID_ORGANIZATION_MESSAGE = "That doesn't look like a valid Azure DevOps organization name. Enter just the organization name, for example myorg."
+_INVALID_PAT_MESSAGE = (
+    "Azure DevOps authentication failed. Please check your personal access token (it may have expired)."
+)
+_FORBIDDEN_MESSAGE = (
+    "Azure DevOps denied access. Please check that your personal access token has read scopes for this data."
+)
+_ORGANIZATION_NOT_FOUND_MESSAGE = "Azure DevOps organization not found. Please check the organization name."
+_UNREACHABLE_MESSAGE = "Couldn't reach Azure DevOps to validate your credentials. Please try again in a few minutes."
+
+
+def _unexpected_status_message(status_code: int) -> str:
+    # Any status the probe doesn't map explicitly (a 429, a 5xx, an unexpected redirect) lands here.
+    # Name the status and point at both inputs rather than asserting the credentials are invalid,
+    # which misdirects the user when the real cause is throttling or an Azure-side error.
+    return (
+        f"Azure DevOps returned an unexpected response (HTTP {status_code}). "
+        "Check your organization name and personal access token, then try again."
+    )
+
+
+def validate_credentials(organization: str, personal_access_token: str, api_version: str) -> tuple[bool, str | None]:
+    """Confirm the PAT and organization are valid with a cheap projects probe, reporting an
+    actionable reason on failure rather than collapsing every cause into one generic message.
 
     Azure DevOps answers an invalid PAT with a 203 + HTML sign-in page rather
     than a 401, so only an exact 200 counts."""
     try:
         org = _validate_organization(organization)
+    except ValueError:
+        return False, _INVALID_ORGANIZATION_MESSAGE
+
+    try:
+        wire_version = wire_api_version(api_version)
         response = _get_session(personal_access_token).get(
-            f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}/_apis/projects?{urlencode({'$top': 1, 'api-version': API_VERSION})}",
+            f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}/_apis/projects?{urlencode({'$top': 1, 'api-version': wire_version})}",
             timeout=10,
         )
-        return response.status_code == 200
     except Exception:
-        return False
+        return False, _UNREACHABLE_MESSAGE
+
+    status_code = response.status_code
+    if status_code == 200:
+        return True, None
+    # An invalid or expired PAT yields a 203 + HTML sign-in page rather than a 401.
+    if status_code in (203, 401):
+        return False, _INVALID_PAT_MESSAGE
+    if status_code == 403:
+        return False, _FORBIDDEN_MESSAGE
+    if status_code == 404:
+        return False, _ORGANIZATION_NOT_FOUND_MESSAGE
+    return False, _unexpected_status_message(status_code)
 
 
 def get_rows(
@@ -97,12 +157,14 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AzureDevOpsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = AZURE_DEVOPS_ENDPOINTS[endpoint]
     session = _get_session(personal_access_token)
     org = _validate_organization(organization)
+    wire_version = wire_api_version(api_version)
 
     @retry(
         retry=retry_if_exception_type((AzureDevOpsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -111,7 +173,7 @@ def get_rows(
         reraise=True,
     )
     def fetch(path: str, params: dict[str, Any]) -> requests.Response:
-        url = f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}{path}?{urlencode({**params, 'api-version': API_VERSION})}"
+        url = f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}{path}?{urlencode({**params, 'api-version': wire_version})}"
         response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -240,6 +302,7 @@ def azure_devops_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AzureDevOpsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -253,6 +316,7 @@ def azure_devops_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),

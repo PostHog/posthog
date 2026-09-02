@@ -75,6 +75,27 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
+export function getAccountFieldDefinitionIcon(): JSX.Element {
+    return (
+        <IconWithBadge icon={<IconList />} tooltipTitle="Account field" className="taxonomy-icon taxonomy-icon-muted" />
+    )
+}
+
+export function getAccountCustomPropertyDefinitionIcon(
+    definition: PropertyDefinition & { is_canonical?: boolean }
+): JSX.Element {
+    if (definition.is_canonical) {
+        return (
+            <IconWithBadge
+                icon={<IconLogomark />}
+                tooltipTitle="PostHog sets this property automatically"
+                className="taxonomy-icon taxonomy-icon-muted"
+            />
+        )
+    }
+    return getPropertyDefinitionIcon(definition)
+}
+
 export function getPersonPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[definition.name]) {
         return (

@@ -1,6 +1,17 @@
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
+
+import { initKeaTests } from '~/test/init'
 import { PathCleaningFilter, PropertyOperator } from '~/types'
 
-import { buildPageUrlOptions, cleanPageURLForDisplay, createPageReportsFilters } from './pageReportsLogic'
+import {
+    buildPageUrlOptions,
+    cleanPageURLForDisplay,
+    createPageReportsFilters,
+    pageReportsLogic,
+} from './pageReportsLogic'
 
 describe('createPageReportsFilters', () => {
     const hostFilters = (
@@ -198,5 +209,34 @@ describe('buildPageUrlOptions', () => {
         expect(buildPageUrlOptions(urls('a.com/p/1'), 'a.com/p/9', idRule, true)).toEqual([
             { key: 'a.com/p/9', label: 'a.com/p/:id' },
         ])
+    })
+})
+
+describe('pageReportsLogic setPageUrl', () => {
+    let logic: ReturnType<typeof pageReportsLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        logic = pageReportsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    test('picking a page URL keeps other search params instead of replacing them', () => {
+        router.actions.push('/web/page-reports', { domain: 'posthog.com' })
+        const paramsBeforePick = router.values.searchParams
+
+        logic.actions.setPageUrl('/pricing')
+
+        expect(router.values.searchParams).toEqual({ ...paramsBeforePick, pageURL: '/pricing' })
+        expect(router.values.searchParams.domain).toEqual('posthog.com')
     })
 })

@@ -53,7 +53,7 @@ export const AI_TASKS: SetupTask[] = [
             'An AI devtool that understands your product, not just your codebase — it triages bugs and opens pull requests from your product data.',
         taskType: 'ai',
         requiresManualCompletion: true,
-        docsUrl: 'https://posthog.com/code',
+        docsUrl: 'https://posthog.com/desktop',
     },
     {
         id: SetupTaskId.UsePosthogMcp,

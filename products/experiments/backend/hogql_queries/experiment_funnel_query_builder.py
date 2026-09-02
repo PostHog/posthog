@@ -7,6 +7,8 @@ from posthog.schema import ExperimentDataWarehouseNode, ExperimentFunnelMetric, 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from posthog.dataclasses import frozen
+
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
@@ -19,6 +21,13 @@ from products.experiments.backend.hogql_queries.metric_source import MetricSourc
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
+
+
+@frozen
+class FunnelTemporalSetup:
+    first_exposures_cte: str
+    temporal_join: str
+    having_clause: str
 
 
 class FunnelQueryBuilder:
@@ -61,6 +70,11 @@ class FunnelQueryBuilder:
             return False
         # Route DW funnels to legacy path which supports UNION ALL
         if isinstance(self._b.metric, ExperimentFunnelMetric) and self.has_datawarehouse_steps():
+            return False
+        # Activation-mode exposure is a join against flag exposures, not a single-event
+        # predicate, so it cannot be inlined into the single-scan WHERE and its step_0
+        # variant attribution. The legacy path consumes the exposures CTE as a black box.
+        if self._b.context.activation_config is not None:
             return False
         return True
 
@@ -152,8 +166,16 @@ class FunnelQueryBuilder:
         # because the funnel UDF doesn't filter out events before the exposure.
         # Ordered funnels don't need this - the UDF handles temporal ordering internally.
 
-        # Build the JOIN clause with conditional temporal filter
-        temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered_funnel else ""
+        # Build the JOIN clause with conditional temporal filter. Activation mode needs it
+        # for ordered funnels too: step_0 rows are plain activation-event matches, and the
+        # UDF's ordering cannot express "at/after the first flag exposure", so events before
+        # the qualifying activation must be excluded here.
+        is_activation_mode = self._b.context.activation_config is not None
+        temporal_filter = (
+            "AND metric_events.timestamp >= exposures.first_exposure_time"
+            if is_unordered_funnel or is_activation_mode
+            else ""
+        )
 
         # DW steps join via events_join_key (e.g. properties.$user_id) → data_warehouse_join_key
         # (e.g. userid). The exposure CTE uses person_id (UUID) as entity_id. To bridge
@@ -206,7 +228,7 @@ class FunnelQueryBuilder:
             )
 
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
-            "exposure_predicate": self._b._build_exposure_predicate(),
+            "exposure_predicate": self._b._build_exposure_step_predicate(),
             "variant_property": self._b._build_variant_property(),
             "variant_expr": self.build_variant_expr_for_funnel(),
             "entity_key": parse_expr(self._b.entity_key),
@@ -322,13 +344,11 @@ class FunnelQueryBuilder:
         is_unordered_funnel = self._b.metric.funnel_order_type == StepOrderValue.UNORDERED
 
         # CTE 2: entity_metrics - GROUP BY entity_id, no JOIN
-        first_exposures_cte_str, temporal_join, having_clause = self.build_funnel_optimized_temporal_setup(
-            is_unordered_funnel
-        )
+        temporal_setup = self.build_funnel_optimized_temporal_setup(is_unordered_funnel)
 
         ctes_sql = f"""
             {base_events_cte_str},
-            {first_exposures_cte_str}
+            {temporal_setup.first_exposures_cte}
             entity_metrics AS (
                 SELECT
                     base_events.entity_id AS entity_id,
@@ -336,8 +356,8 @@ class FunnelQueryBuilder:
                     {{funnel_aggregation}} AS value
                     -- covariate_value added programmatically below when CUPED is enabled
                 FROM base_events
-                {temporal_join}
-                GROUP BY base_events.entity_id{having_clause}
+                {temporal_setup.temporal_join}
+                GROUP BY base_events.entity_id{temporal_setup.having_clause}
             )
         """
 
@@ -420,10 +440,10 @@ class FunnelQueryBuilder:
 
         return query
 
-    def build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
+    def build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> FunnelTemporalSetup:
         """
-        Returns (first_exposures_cte_str, temporal_join, having_clause) for the
-        optimized funnel query.
+        Returns the FunnelTemporalSetup (first exposures CTE, temporal join,
+        having clause) for the optimized funnel query.
 
         Three call sites collapse into one place:
 
@@ -466,7 +486,11 @@ class FunnelQueryBuilder:
             having_clause = """
                 HAVING countIf(step_0 = 1) > 0"""
 
-        return first_exposures_cte_str, temporal_join, having_clause
+        return FunnelTemporalSetup(
+            first_exposures_cte=first_exposures_cte_str,
+            temporal_join=temporal_join,
+            having_clause=having_clause,
+        )
 
     def build_variant_expr_for_funnel(self) -> ast.Expr:
         """
@@ -570,7 +594,7 @@ class FunnelQueryBuilder:
 
         # Use FunnelStepBuilder abstraction for boolean columns
         step_builder = FunnelStepBuilder(self._b.metric.series, self._b.team)
-        exposure_filter = self._b._build_exposure_predicate()
+        exposure_filter = self._b._build_exposure_step_predicate()
         return step_builder.build_boolean_columns(exposure_filter)
 
     def build_funnel_steps_filter(self) -> ast.Expr:
@@ -702,7 +726,7 @@ class FunnelQueryBuilder:
         # - step_N (event/action): if(step_filter, 1, 0)
         # - step_N (DW): 0 (always 0 in events subquery)
 
-        exposure_filter = self._b._build_exposure_predicate()
+        exposure_filter = self._b._build_exposure_step_predicate()
 
         # step_0: exposure
         step_0 = ast.Alias(
@@ -781,11 +805,11 @@ class FunnelQueryBuilder:
         # Combine step matching with time range
         where: ast.Expr
         if event_action_filters:
-            step_match = ast.Or(exprs=[self._b._build_exposure_predicate(), ast.Or(exprs=event_action_filters)])
+            step_match = ast.Or(exprs=[self._b._build_exposure_step_predicate(), ast.Or(exprs=event_action_filters)])
             where = ast.And(exprs=[time_range_filter, step_match])
         else:
             # Only exposure events (all steps are DW)
-            where = ast.And(exprs=[time_range_filter, self._b._build_exposure_predicate()])
+            where = ast.And(exprs=[time_range_filter, self._b._build_exposure_step_predicate()])
 
         # Build query
         query = ast.SelectQuery(

@@ -7,6 +7,8 @@ rules:
       owners: team-workflows
     - match: '/clickhouse/hcl/'
       owners: clickhouse
+    - match: '/data_freshness.py'
+      owners: team-platform-features
     - match: '/email.py'
       owners: team-platform-features
     - match: '/heatmaps/'

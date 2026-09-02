@@ -6,21 +6,39 @@
 //! message). Scope is one `anonymize_message` call; the map is dropped when it returns.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{bail, Result};
+use serde::Serialize;
 
 use crate::allow_lists::AllowLists;
 use crate::assets::PLACEHOLDER_SRC;
 use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
-use crate::collect::{collectable_data_uri_bytes, CollectedImage, ImageCollection, ImageCollector};
+use crate::collect::{
+    collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
+};
 use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
 use crate::timings::PhaseTimings;
+use crate::url_collect::{CollectedUrl, UrlCollection, UrlCollector};
 
 /// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
 /// `compression::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
 /// fields can't decompress gigabytes serially. Real messages total under 10 MB.
 const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ImageSource {
+    CssProperty(&'static str),
+    HtmlAttribute(&'static str),
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ImageSourceCount {
+    pub source: &'static str,
+    pub property: &'static str,
+    pub kind: &'static str,
+    pub count: u32,
+}
 
 /// Scrub context: the allow lists, the cv decompression budget, the blur memo, the image scrub
 /// policy (inline blur, or deferred onto the shared worker pool), and the optional collection lane.
@@ -36,6 +54,12 @@ pub struct Ctx<'a> {
     images: ImageQueue,
     // `Some` routes collectable images to the scrub lane instead of the blur (inline or pooled).
     collector: Option<RefCell<ImageCollector>>,
+    // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
+    url_collector: Option<RefCell<UrlCollector>>,
+    image_source_counts: RefCell<BTreeMap<(ImageSource, &'static str), u32>>,
+    // Whether a well-formed ref already present in the *input* is left alone. Off unless the
+    // caller vouches for the input's provenance; see `preserving_image_refs`.
+    preserve_image_refs: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -70,7 +94,27 @@ impl<'a> Ctx<'a> {
             image_policy,
             images: ImageQueue::default(),
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
+            url_collector: None,
+            image_source_counts: RefCell::new(BTreeMap::new()),
+            preserve_image_refs: false,
         }
+    }
+
+    /// Leave well-formed image refs already present in the input alone instead of scrubbing them.
+    ///
+    /// Off by default, and it must stay off for anything scrubbing untrusted capture input: the
+    /// ref format is not a secret, so a page could set a media attribute to a forged one and have
+    /// it copied into output unscrubbed. Enable it only where the input is known to be this
+    /// anonymizer's own mirrored output being re-scrubbed — there a ref is a join key whose bytes
+    /// were already scrubbed out of band, and re-scrubbing it destroys the only route back to them.
+    pub fn preserving_image_refs(mut self) -> Self {
+        self.preserve_image_refs = true;
+        self
+    }
+
+    /// Whether an input-side ref may skip scrubbing (see [`Self::preserving_image_refs`]).
+    pub(crate) fn keeps_image_refs(&self) -> bool {
+        self.preserve_image_refs
     }
 
     /// Scrub one image data URI: the collection lane's content ref when it takes the image (no blur
@@ -99,6 +143,19 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    pub(crate) fn scrub_image_from(
+        &self,
+        original: &str,
+        fallback: ImageFallback,
+        source: ImageSource,
+    ) -> String {
+        let scrubbed = self.scrub_image(original, fallback);
+        if is_image_ref(&scrubbed) {
+            self.record_image_source(source, "inline");
+        }
+        scrubbed
+    }
+
     pub(crate) fn has_pending_images(&self) -> bool {
         self.images.has_pending()
     }
@@ -118,6 +175,75 @@ impl<'a> Ctx<'a> {
         match self.timings {
             Some(t) => t.time_op(op, f),
             None => f(),
+        }
+    }
+
+    /// Route remote image URLs to the fetch lane. Off unless set, exactly like image collection.
+    /// The media source keeps its placeholder either way.
+    pub fn collecting_urls(mut self, url_collection: Option<UrlCollection>) -> Self {
+        self.url_collector = url_collection.map(|c| RefCell::new(UrlCollector::new(c)));
+        self
+    }
+
+    /// The fetch lane's ref for a remote image URL.
+    ///
+    /// `None` when collection is off, when the URL is not fetchable, or when the per-message cap
+    /// is reached. The caller writes the placeholder regardless and stashes a returned ref beside
+    /// it.
+    pub(crate) fn collect_url(&self, original: &str) -> Option<String> {
+        let collector = self.url_collector.as_ref()?;
+        collector.borrow_mut().collect(original)
+    }
+
+    pub(crate) fn collect_url_from(&self, original: &str, source: ImageSource) -> Option<String> {
+        let reference = self.collect_url(original)?;
+        self.record_image_source(source, "url");
+        Some(reference)
+    }
+
+    fn record_image_source(&self, source: ImageSource, kind: &'static str) {
+        let mut counts = self.image_source_counts.borrow_mut();
+        let count = counts.entry((source, kind)).or_default();
+        *count = count.saturating_add(1);
+    }
+
+    pub fn take_image_source_counts(&self) -> Vec<ImageSourceCount> {
+        let counts = std::mem::take(&mut *self.image_source_counts.borrow_mut());
+        counts
+            .into_iter()
+            .map(|((source, kind), count)| {
+                let (source, property) = match source {
+                    ImageSource::CssProperty(property) => ("css", property),
+                    ImageSource::HtmlAttribute(property) => ("html", property),
+                };
+                ImageSourceCount {
+                    source,
+                    property,
+                    kind,
+                    count,
+                }
+            })
+            .collect()
+    }
+
+    /// Drain the collected URLs (hash-sorted). Empty when URL collection was off.
+    ///
+    /// Takes the collector rather than `self`, because the caller drains the images afterwards and
+    /// that call consumes the context. A second call therefore returns nothing, which is why this
+    /// is not named `into_`.
+    /// Counts by reason for the URLs the collector refused. Read before [`Self::take_collected_urls`],
+    /// which takes the collector.
+    pub fn take_url_declines(&self) -> Vec<(String, u32)> {
+        match self.url_collector.as_ref() {
+            Some(collector) => collector.borrow().into_declines(),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn take_collected_urls(&mut self) -> Vec<CollectedUrl> {
+        match self.url_collector.take() {
+            Some(collector) => collector.into_inner().into_urls(),
+            None => Vec::new(),
         }
     }
 

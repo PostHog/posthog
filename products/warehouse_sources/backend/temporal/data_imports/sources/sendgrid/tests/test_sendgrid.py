@@ -1,16 +1,20 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
-from requests import Response
+from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import (
     SendGridResumeConfig,
     _offset_from_url,
+    _to_date_string,
     _to_epoch_seconds,
+    get_endpoint_permissions,
     get_status_code,
     sendgrid_source,
 )
@@ -80,6 +84,74 @@ class TestToEpochSeconds:
 
     def test_naive_datetime_treated_as_utc(self) -> None:
         assert _to_epoch_seconds(datetime(2023, 11, 14, 22, 13, 20)) == 1700000000
+
+
+class TestToDateString:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("2024-01-15", "2024-01-15"),
+            ("2024-01-15T00:00:00", "2024-01-15"),
+            (date(2024, 1, 15), "2024-01-15"),
+            (datetime(2024, 1, 15, 22, 13, 20, tzinfo=UTC), "2024-01-15"),
+            # Epoch seconds — the cursor may round-trip through storage as a number.
+            (1705270400, "2024-01-14"),
+        ],
+    )
+    def test_to_date_string(self, value: Any, expected: str) -> None:
+        assert _to_date_string(value) == expected
+
+    def test_naive_datetime_treated_as_utc(self) -> None:
+        assert _to_date_string(datetime(2024, 1, 15, 22, 13, 20)) == "2024-01-15"
+
+
+class TestStats:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_nested_daily_metrics_into_one_row_per_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        body = [
+            {"date": "2024-01-01", "stats": [{"metrics": {"requests": 10, "delivered": 8, "bounces": 1}}]},
+            {"date": "2024-01-02", "stats": [{"metrics": {"requests": 5, "delivered": 5, "bounces": 0}}]},
+        ]
+        params, _urls = _wire(session, [_response(body)])
+
+        rows = _rows(_source("stats", _make_manager()))
+
+        # The nested {date, stats:[{metrics}]} shape flattens to flat daily rows the denominator lives on.
+        assert rows == [
+            {"date": "2024-01-01", "requests": 10, "delivered": 8, "bounces": 1},
+            {"date": "2024-01-02", "requests": 5, "delivered": 5, "bounces": 0},
+        ]
+        assert params[0]["aggregated_by"] == "day"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_first_sync_backfills_a_required_start_date(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response([])])
+
+        # /stats rejects a request with no start_date, so a cursorless sync must still send one.
+        _rows(_source("stats", _make_manager()))
+
+        assert "start_date" in params[0]
+        # A YYYY-MM-DD string, not epoch seconds — the format /stats requires.
+        datetime.strptime(params[0]["start_date"], "%Y-%m-%d")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_cursor_becomes_a_date_formatted_start_date(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                "stats",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-10",
+                incremental_field="date",
+            )
+        )
+
+        assert params[0]["start_date"] == "2024-03-10"
 
 
 class TestOffsetFromUrl:
@@ -270,6 +342,143 @@ class TestSinglePagination:
         manager.save_state.assert_not_called()
 
 
+def _messages_page(count: int, last_event_time: str) -> list[dict[str, Any]]:
+    return [{"msg_id": f"m{last_event_time}-{i}", "last_event_time": last_event_time} for i in range(count)]
+
+
+class TestActivityPagination:
+    @freeze_time("2026-08-07T12:00:00Z")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_query_window_backwards_until_short_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Sub-second precision on the oldest row exercises the flooring of window bounds.
+        page1 = [
+            *_messages_page(999, "2026-08-01T05:00:00Z"),
+            {"msg_id": "old", "last_event_time": "2026-07-20T09:00:00.500Z"},
+        ]
+        page2 = [{"msg_id": "oldest", "last_event_time": "2026-07-10T00:00:00Z"}]
+        params, _urls = _wire(session, [_response({"messages": page1}), _response({"messages": page2})])
+
+        manager = _make_manager()
+        rows = _rows(_source("message_activity", manager))
+
+        assert rows == [*page1, *page2]
+        assert params[0]["limit"] == 1000
+        assert (
+            params[0]["query"]
+            == 'last_event_time BETWEEN TIMESTAMP "2026-07-08T12:00:00Z" AND TIMESTAMP "2026-08-07T12:00:00Z"'
+        )
+        # The second request narrows the window end to the oldest timestamp of the full page.
+        assert (
+            params[1]["query"]
+            == 'last_event_time BETWEEN TIMESTAMP "2026-07-08T12:00:00Z" AND TIMESTAMP "2026-07-20T09:00:00Z"'
+        )
+        assert session.send.call_count == 2
+        # Checkpoint saved once (after the full first page); the terminal short page saves nothing.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == SendGridResumeConfig(
+            activity_window_start="2026-07-08T12:00:00Z", activity_window_end="2026-07-20T09:00:00Z"
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_window(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response({"messages": [{"msg_id": "m1"}]})])
+
+        manager = _make_manager(
+            SendGridResumeConfig(
+                activity_window_start="2026-07-08T12:00:00Z", activity_window_end="2026-07-20T09:00:00Z"
+            )
+        )
+        _rows(_source("message_activity", manager))
+
+        # Both bounds come from the saved state, so a resumed first backfill keeps its
+        # original window instead of recomputing it from "now".
+        assert (
+            params[0]["query"]
+            == 'last_event_time BETWEEN TIMESTAMP "2026-07-08T12:00:00Z" AND TIMESTAMP "2026-07-20T09:00:00Z"'
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tampered_resume_window_raises(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [])
+
+        manager = _make_manager(
+            SendGridResumeConfig(
+                activity_window_start='" OR to_email LIKE "%', activity_window_end="2026-07-20T09:00:00Z"
+            )
+        )
+        with pytest.raises(ValueError, match="unexpected timestamp"):
+            _rows(_source("message_activity", manager))
+
+    @pytest.mark.parametrize(
+        "cursor",
+        [
+            datetime(2026, 8, 1, 3, 4, 5, tzinfo=UTC),
+            "2026-08-01T03:04:05Z",
+            "2026-08-01T03:04:05.123456+00:00",
+            int(datetime(2026, 8, 1, 3, 4, 5, tzinfo=UTC).timestamp()),
+        ],
+    )
+    @freeze_time("2026-08-07T12:00:00Z")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_window_starts_at_watermark(self, MockSession, cursor: Any) -> None:
+        # The cursor round-trips through storage in several shapes; all must produce the same
+        # server-side window, otherwise every incremental sync silently refetches 30 days.
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response({"messages": [{"msg_id": "m1"}]})])
+
+        _rows(
+            _source(
+                "message_activity",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="last_event_time",
+            )
+        )
+
+        assert (
+            params[0]["query"]
+            == 'last_event_time BETWEEN TIMESTAMP "2026-08-01T03:04:05Z" AND TIMESTAMP "2026-08-07T12:00:00Z"'
+        )
+
+    @freeze_time("2026-08-07T12:00:00Z")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_page_that_cannot_narrow_the_window_stops(self, MockSession) -> None:
+        # More than `limit` messages sharing the window-end second would otherwise refetch the
+        # same page until the activity times out.
+        session = MockSession.return_value
+        page = _messages_page(1000, "2026-08-07T12:00:00Z")
+        _wire(session, [_response({"messages": page})])
+
+        manager = _make_manager()
+        rows = _rows(_source("message_activity", manager))
+
+        assert rows == page
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_403_error_text_matches_the_non_retryable_key(self, MockSession) -> None:
+        # The add-on gate surfaces per table through `get_non_retryable_errors`, whose /v3/messages
+        # key is a substring match on this exact error text — if the phrasing drifts, the 403
+        # retries forever instead of failing with the add-on message.
+        session = MockSession.return_value
+        response = Response()
+        response.status_code = 403
+        response.reason = "Forbidden"
+        response.url = "https://api.sendgrid.com/v3/messages?limit=1000&query=..."
+        response._content = json.dumps({"errors": [{"message": "access forbidden"}]}).encode()
+        _wire(session, [response])
+
+        with pytest.raises(HTTPError) as excinfo:
+            _rows(_source("message_activity", _make_manager()))
+
+        assert "403 Client Error: Forbidden for url: https://api.sendgrid.com/v3/messages" in str(excinfo.value)
+
+
 class TestSourceResponse:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_suppression_endpoint_partitioning_and_keys(self, MockSession) -> None:
@@ -287,6 +496,17 @@ class TestSourceResponse:
         assert response.partition_mode is None
         assert response.partition_keys is None
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_message_activity_is_desc_keyed_on_msg_id_and_unpartitioned(self, MockSession) -> None:
+        response = _source("message_activity", _make_manager())
+        assert response.primary_keys == ["msg_id"]
+        # Newest-first walk: declaring "asc" would checkpoint the watermark at ≈now after the
+        # first batch and skip everything older on the next incremental sync.
+        assert response.sort_mode == "desc"
+        # last_event_time advances whenever a new event lands, so it can't be a partition key.
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
 
 class TestGetStatusCode:
     @pytest.mark.parametrize("status", [200, 401, 403, 404])
@@ -301,3 +521,79 @@ class TestGetStatusCode:
         session.get.side_effect = Exception("boom")
         with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
             assert get_status_code("k", "/scopes") is None
+
+
+class TestGetEndpointPermissions:
+    @staticmethod
+    def _probe(status: int | None, endpoints: list[str]) -> dict[str, str | None]:
+        session = mock.MagicMock()
+        if status is None:
+            session.get.side_effect = Exception("boom")
+        else:
+            session.get.return_value = mock.MagicMock(status_code=status)
+        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
+            return get_endpoint_permissions("k", endpoints)
+
+    @pytest.mark.parametrize(
+        ("status", "expect_blocked"),
+        [
+            (200, False),
+            (403, True),
+            (401, True),
+            # A throttle, a 5xx, or a dead connection is not a scope problem. Blocking the table here
+            # would tell users to change permissions that are already correct.
+            (429, False),
+            (500, False),
+            (None, False),
+        ],
+    )
+    def test_only_a_definitive_denial_blocks_a_table(self, status: int | None, expect_blocked: bool) -> None:
+        permissions = self._probe(status, ["marketing_lists"])
+        assert (permissions["marketing_lists"] is not None) is expect_blocked
+
+    @pytest.mark.parametrize(
+        ("endpoint", "fragments"),
+        [
+            ("marketing_lists", ["marketing.read", "Marketing Campaigns"]),
+            ("message_activity", ["email_activity.read", "additional email activity history"]),
+        ],
+    )
+    def test_403_names_the_scope_and_its_account_caveat(self, endpoint: str, fragments: list[str]) -> None:
+        reason = self._probe(403, [endpoint])[endpoint]
+        assert reason is not None
+        for fragment in fragments:
+            assert fragment in reason
+
+    def test_unknown_endpoint_is_treated_as_reachable(self) -> None:
+        assert self._probe(403, ["not_an_endpoint"]) == {"not_an_endpoint": None}
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_params"),
+        [
+            ("bounces", {"limit": "1"}),
+            # A blanket `limit=1` is not a param the marketing endpoints take, so probing with it
+            # risks a 400 that reads as "reachable" and hides the real denial.
+            ("marketing_lists", {"page_size": "1"}),
+            ("templates", {"page_size": "1", "generations": "legacy,dynamic"}),
+            ("unsubscribe_groups", {}),
+            # /messages requires `query`, so a probe without one risks the same masking 400.
+            (
+                "message_activity",
+                {
+                    "limit": "1",
+                    "query": 'last_event_time BETWEEN TIMESTAMP "2026-08-06T12:00:00Z" AND TIMESTAMP "2026-08-07T12:00:00Z"',
+                },
+            ),
+        ],
+    )
+    @freeze_time("2026-08-07T12:00:00Z")
+    def test_probe_uses_the_endpoints_own_pagination_params(
+        self, endpoint: str, expected_params: dict[str, str]
+    ) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch(SENDGRID_SESSION_PATCH, return_value=session):
+            get_endpoint_permissions("k", [endpoint])
+
+        url = session.get.call_args[0][0]
+        assert parse_qs(urlparse(url).query) == {key: [value] for key, value in expected_params.items()}

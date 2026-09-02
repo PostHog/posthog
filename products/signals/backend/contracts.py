@@ -11,6 +11,30 @@ from pydantic.fields import FieldInfo
 
 from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
 
+# ── Source-config steering keys ─────────────────────────────────────────────────
+# Public keys of `SignalSourceConfig.config` shared by every emission source. Defined here
+# (not in `emission/`) so the serializer can validate them without importing the emission
+# package, whose __init__ eagerly registers every emitter and must stay off the web path.
+
+STEERING_KEY = "steering"
+DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
+# Server-side cap on steering text. The serializer rejects longer input; reads truncate
+# defensively so a row written by another path cannot bloat every gate prompt.
+STEERING_MAX_LENGTH = 2000
+
+# The sources that emit straight through `emit_signal` and still honor steering, via the gate in
+# `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
+# row would store text nothing reads. The roster's `steerable` flags in `agentRosterMeta.ts` mirror
+# this set, and only these pairs may be offered the steering form.
+DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_CREATED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
+        (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
+        (SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+    }
+)
+
 
 class ContractModel(BaseModel):
     # Emitted payloads are validated against these models at the emit boundary; unknown fields are
@@ -71,6 +95,9 @@ class SessionProblemSignalInput(SignalInputBase):
 # ── LLM analytics ───────────────────────────────────────────────────────────────
 
 
+# Read-only: no emitter writes `llm_analytics/evaluation` signals any more (only whole eval reports
+# do), but signals ingested while that path existed keep this payload shape, and the inbox card that
+# renders them is generated from this model.
 class LlmEvalSignalExtra(SignalExtraBase):
     evaluation_id: str
     target_event_id: str | None = None
@@ -78,12 +105,6 @@ class LlmEvalSignalExtra(SignalExtraBase):
     trace_id: str
     model: str | None = None
     provider: str | None = None
-
-
-class LlmEvaluationSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.EVALUATION]
-    source_product: Literal[SignalSourceProduct.LLM_ANALYTICS]
-    extra: LlmEvalSignalExtra
 
 
 class LlmEvalReportSignalExtra(SignalExtraBase):
@@ -131,6 +152,13 @@ class GithubIssueSignalExtra(SignalExtraBase):
     updated_at: str
     locked: bool
     state: str
+    # Defaulted, unlike the fields above: payloads emitted before these columns existed carry
+    # neither key, and an author is context for triage rather than something a signal needs.
+    author_login: str | None = None
+    # GitHub's own enum — OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+    # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
+    # taxonomy instead of failing validation and dropping the signal.
+    author_association: str | None = None
 
 
 class GithubIssueSignalInput(SignalInputBase):
@@ -185,6 +213,11 @@ class JiraIssueSignalInput(SignalInputBase):
 # ── Conversations ───────────────────────────────────────────────────────────────
 
 
+class ConversationsTicketImage(ContractModel):
+    url: str
+    author: str
+
+
 class ConversationsTicketSignalExtra(SignalExtraBase):
     ticket_number: int
     channel_source: str
@@ -193,6 +226,9 @@ class ConversationsTicketSignalExtra(SignalExtraBase):
     priority: str | None
     created_at: str
     email_subject: str | None
+    # Publicly fetchable media URLs pasted into the thread, so the research agent can inspect
+    # screenshots directly. Absent (rather than empty) when the thread has no attachments.
+    images: list[ConversationsTicketImage] | None = None
 
 
 class ConversationsTicketSignalInput(SignalInputBase):
@@ -938,6 +974,25 @@ class HubspotTicketSignalInput(SignalInputBase):
     extra: HubspotTicketSignalExtra
 
 
+# ── Search analytics ──────────────────────────────────────────────────────────────
+
+
+class GoogleSearchConsoleSearchOpportunitySignalExtra(SignalExtraBase):
+    page: str
+    query: str
+    date: str
+    clicks: int
+    impressions: int
+    ctr: float
+    position: float
+
+
+class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.GOOGLE_SEARCH_CONSOLE]
+    extra: GoogleSearchConsoleSearchOpportunitySignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -946,7 +1001,6 @@ class HubspotTicketSignalInput(SignalInputBase):
 
 SignalInput = Annotated[
     SessionProblemSignalInput
-    | LlmEvaluationSignalInput
     | LlmEvaluationReportSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
@@ -996,13 +1050,13 @@ SignalInput = Annotated[
     | HubspotTicketSignalInput
     | EngineeringAnalyticsCIFlakyCheckSignalInput
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
-    | EngineeringAnalyticsCIDurationRegressionSignalInput,
+    | EngineeringAnalyticsCIDurationRegressionSignalInput
+    | GoogleSearchConsoleSearchOpportunitySignalInput,
     Field(union_mode="left_to_right"),
 ]
 
 SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SessionProblemSignalInput,
-    LlmEvaluationSignalInput,
     LlmEvaluationReportSignalInput,
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,
@@ -1053,6 +1107,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     EngineeringAnalyticsCIFlakyCheckSignalInput,
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
+    GoogleSearchConsoleSearchOpportunitySignalInput,
 )
 
 

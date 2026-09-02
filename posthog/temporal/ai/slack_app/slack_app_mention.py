@@ -10,6 +10,7 @@ from posthog.temporal.ai.slack_app import (
     derive_mention_workflow_id,
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
+    post_posthog_code_internal_error_activity,
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
@@ -19,11 +20,34 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.slack_app.backend.helpers import slack_app_mention_queue_workflow_id
+
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
 # minutes of the original event.
 SLACK_APP_MENTION_MAX_PROCESSED_KEYS = 200
+# Temporal runs buffered signal handlers before run() starts, so dedup state seeded in
+# run() arrived too late: a redelivered Slack event signalled into the first workflow task
+# missed the dedup keys and started a duplicate child workflow. Seeding happens in
+# __init__, which runs first. Pre-patch histories drained long ago — these workflows
+# complete after a 30 second idle timeout — so only `deprecate_patch` remains, keeping the
+# recorded marker compatible for executions in flight across the deploy that removes the
+# gate. Standard two-step Temporal patch lifecycle: the call comes out once the histories
+# that recorded a plain marker have drained in turn.
+SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
+
+# The queue awaits each child serially, so a child that never completes stalls every
+# later message in the conversation and the user sees nothing but an :eyes: reaction
+# that never resolves. The ceiling sits above any healthy run: the child's own wait
+# (15 minutes for the repo picker) plus its 10-minute activity timeouts stay well
+# inside an hour.
+SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
+# Bounding the child and telling the user when it dies both add workflow commands. The
+# executions that replayed the unbounded, silent path are long gone; `deprecate_patch`
+# only keeps their marker compatible across the deploy that removes the gate, and comes
+# out on the same lifecycle as the seeding patch above.
+SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH = "slack-app-mention-child-timeout"
 
 
 def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str | None:
@@ -39,7 +63,7 @@ def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflow
     anchor = event.get("thread_ts") or event.get("ts")
     if not channel or not anchor:
         return None
-    return f"slack-app-mention-{inputs.slack_team_id}:{channel}:{anchor}"
+    return slack_app_mention_queue_workflow_id(inputs.slack_team_id, channel, anchor)
 
 
 @workflow.defn(name="slack-app-mention")
@@ -52,8 +76,8 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
     up as ``new_message`` signals, and the loop runs each one as a child
     ``PostHogCodeSlackMentionWorkflow`` — under the same per-message workflow
     ID the flag-off dispatch would use — awaiting its completion before
-    starting the next. Interactive signals (repo picker, authorship
-    confirmation) never touch this workflow: the child bakes its own ID into
+    starting the next. Interactive signals (the repo picker) never touch this
+    workflow: the child bakes its own ID into
     the prompts it posts, so the interactivity webhook signals the child
     directly, exactly as in the standalone shape. After the idle timeout with
     an empty queue the workflow completes; the next message simply starts a
@@ -68,13 +92,23 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
     deduped and gets processed again.
     """
 
-    def __init__(self) -> None:
-        self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+    @workflow.init
+    def __init__(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         self._processing = False
         # Dedup for Slack event redeliveries: signals have no server-side
         # dedup the way per-message workflow IDs did. A dict, not a set, so
         # iteration order stays deterministic for the continue_as_new carry-over.
         self._seen_keys: dict[str, None] = {}
+        self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+        workflow.deprecate_patch(SLACK_APP_MENTION_SEED_IN_INIT_PATCH)
+        self._seed(inputs)
+
+    def _seed(self, inputs: SlackAppMentionWorkflowInputs) -> None:
+        for key in inputs.processed_event_keys:
+            self._seen_keys[key] = None
+        for message in inputs.pending_messages:
+            self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
+            self._queue.append(message)
 
     @workflow.signal
     async def new_message(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
@@ -124,6 +158,29 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
             # timeout. Cosmetic either way — never stall the queue for it.
             workflow.logger.warning("slack_app_reaction_activity_failed")
 
+    async def _notify_child_failed(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
+        """Tell the thread the message won't be answered.
+
+        The child normally posts its own internal-error reply, but it cannot when it
+        is killed from the outside (execution timeout, termination), which is exactly
+        the case where the user has been staring at an unanswered mention. Untagged
+        followups stay silent for the same reason they get no reactions: they were
+        never addressed to the bot.
+        """
+        channel = message.event.get("channel")
+        thread_ts = message.event.get("thread_ts") or message.event.get("ts")
+        if message.untagged_followup or not channel or not thread_ts:
+            return
+        try:
+            await workflow.execute_activity(
+                post_posthog_code_internal_error_activity,
+                args=[message, channel, thread_ts],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except exceptions.ActivityError:
+            workflow.logger.warning("slack_app_mention_child_failure_notice_failed")
+
     async def _process(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
         """Run one message to completion as a child workflow.
 
@@ -133,6 +190,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
+        workflow.deprecate_patch(SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH)
         try:
             # The default parent close policy (terminate) is deliberate: an
             # operator killing this queue means "stop this conversation", so
@@ -144,6 +202,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
                 message,
                 id=derive_mention_workflow_id(message),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT,
             )
         except exceptions.WorkflowAlreadyStartedError:
             # A standalone execution for this exact message is already
@@ -155,15 +214,11 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
             # expected to fail; this backstop keeps one poisoned message from
             # wedging the conversation's queue.
             workflow.logger.exception("slack_app_mention_child_failed")
+            await self._notify_child_failed(message)
 
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
-        for key in inputs.processed_event_keys:
-            self._seen_keys[key] = None
-        for message in inputs.pending_messages:
-            self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
-            self._queue.append(message)
-
+        # Seeding happens in __init__ — see _seed's call site for why.
         while True:
             try:
                 await workflow.wait_condition(

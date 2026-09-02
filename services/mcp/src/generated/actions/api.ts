@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const ActionsListParams = /* @__PURE__ */ zod.object({
+export const ActionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const ActionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ActionsListQueryParams = /* @__PURE__ */ zod.object({
+export const ActionsListQueryParams = () => zod.object({
     created_by: zod
         .string()
         .optional()
@@ -37,7 +37,7 @@ export const ActionsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ActionsCreateParams = /* @__PURE__ */ zod.object({
+export const ActionsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -45,7 +45,7 @@ export const ActionsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ActionsCreateQueryParams = /* @__PURE__ */ zod.object({
+export const ActionsCreateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
@@ -63,7 +63,7 @@ export const actionsCreateBodyStepsItemPropertiesItemFourTypeDefault = `event`
 export const actionsCreateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
 export const actionsCreateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
 
-export const ActionsCreateBody = /* @__PURE__ */ zod
+export const ActionsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -145,15 +145,19 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
+                                                'starts_with',
+                                                'not_starts_with',
+                                                'ends_with',
+                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                             ])
                                             .describe(
-                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex'
                                             )
                                             .default(actionsCreateBodyStepsItemPropertiesItemOneOperatorDefault)
                                             .describe(
-                                                'String comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                                                'String comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex'
                                             ),
                                     })
                                     .describe('Matches string values with text-oriented operators.'),
@@ -466,7 +470,7 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const ActionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ActionsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod
         .string()
@@ -475,11 +479,11 @@ export const ActionsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ActionsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const ActionsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
-export const ActionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const ActionsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod
         .string()
@@ -488,7 +492,7 @@ export const ActionsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ActionsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const ActionsPartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
@@ -506,7 +510,7 @@ export const actionsPartialUpdateBodyStepsItemPropertiesItemFourTypeDefault = `e
 export const actionsPartialUpdateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
 export const actionsPartialUpdateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
 
-export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
+export const ActionsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -588,15 +592,19 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
+                                                'starts_with',
+                                                'not_starts_with',
+                                                'ends_with',
+                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                             ])
                                             .describe(
-                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex'
                                             )
                                             .default(actionsPartialUpdateBodyStepsItemPropertiesItemOneOperatorDefault)
                                             .describe(
-                                                'String comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex'
+                                                'String comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex'
                                             ),
                                     })
                                     .describe('Matches string values with text-oriented operators.'),
@@ -914,7 +922,7 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const ActionsDestroyParams = /* @__PURE__ */ zod.object({
+export const ActionsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod
         .string()
@@ -923,6 +931,6 @@ export const ActionsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ActionsDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const ActionsDestroyQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })

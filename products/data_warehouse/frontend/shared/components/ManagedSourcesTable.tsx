@@ -69,6 +69,7 @@ export function ManagedSourcesTable(): JSX.Element {
                 loading={dataWarehouseSourcesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
+                scrollToTopOnPageChange={false}
                 emptyState={
                     <div className="flex flex-col items-center gap-2 py-2">
                         <span>{managedSearchTerm ? 'No sources matching your search' : 'No managed sources'}</span>

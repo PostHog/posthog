@@ -90,7 +90,13 @@ Braintrust's `EvalAsync` always dispatches through `eval_async`, and the base `S
 Bootstrap registers teardown on an `ExitStack` as each resource comes up, so a failure halfway through still unwinds what already started.
 `atexit` hooks plus the subprocess manager's signal handlers cover Ctrl-C, where neither stack unwinds.
 
-After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 14040 / 15051 / 15052, no `task-sandbox-*` containers, and no Temporal dev server.
+After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 15051 / 15052, no `task-sandbox-*` containers, no Temporal dev server, and no Tailscale Funnel mappings left enabled on 443 / 8443 / 10000.
+
+A case can also own a sandbox the harness never created: a notebook python or duckdb cell provisions the notebook kernel through the notebook Temporal workflow.
+Nothing upstream reclaims it — the docker backend ignores `SandboxConfig.ttl_seconds`, and the sweeps below match agent containers by task id, which a kernel container's name never carries.
+`kernel_sandboxes.release_kernels` is what reclaims them, from three places: once at startup (a prior interrupted run's rows survive in the reused test database), per case inside the sandbox slot so the memory is free before the next case takes it, and once at the end of the run.
+It is scoped by team per case and unscoped for the sweeps, which is safe only because the eval test database holds nothing but this harness's own teams.
+Keep those calls on the stack that still holds the provider settings overrides, or the sandbox class resolves differently than it did at create time.
 
 Three layers tear a case's sandbox down, outermost last:
 
@@ -109,11 +115,11 @@ Add a `SandboxProviderStrategy` method rather than a conditional.
 Per-case teardown is one such method (`cleanup_case`): the runner calls it after every case, so a docker-only concern like reclaiming a leftover container never leaks into `runner.py` or fires on a Modal run.
 
 `preflight()` must catch a missing prerequisite before any infrastructure boots, and its message must say how to fix it.
-A missing ngrok authtoken, for instance, otherwise surfaces only as a 60-second tunnel timeout.
+A stopped or unauthenticated Tailscale daemon, for instance, must be caught here rather than surfacing only when the first sandbox can't reach the host.
 
 The chosen provider must reach `settings.SANDBOX_PROVIDER` **before `django.setup()`**, which is why `__main__` sets it in the environment (from `SANDBOX_PROVIDER_SETTING`) rather than relying only on the async-phase `override_settings`.
 `products.tasks` resolves the sandbox class from that setting exactly once and caches it in module globals, so the first `Sandbox` access wins for the whole process.
-`.env` ships `SANDBOX_PROVIDER=docker`, so setting it late let a `--provider modal` run cache `DockerSandbox` and execute the agent in a local container while still pointing it at the ngrok URLs.
+`.env` ships `SANDBOX_PROVIDER=docker`, so setting it late let a `--provider modal` run cache `DockerSandbox` and execute the agent in a local container while still pointing it at the Tailscale Funnel URLs.
 Docker mode hid this because the cached value already matched.
 Modal evals use the `MODAL_EVALS` backend, whose sandbox class is pinned to the `posthog-sandbox-evals` Modal app.
 

@@ -49,9 +49,14 @@ class ConversationCompactionManager(ABC):
     Manages conversation window boundaries, message filtering, and summarization decisions.
     """
 
-    CONVERSATION_WINDOW_SIZE = 100_000
+    CONVERSATION_WINDOW_SIZE = 400_000
     """
     Determines the maximum number of tokens allowed in the conversation window.
+
+    Compaction blocks the user's turn for the length of a full summarization call, so this is set
+    well below the 1M context both the root model and the summarizer support: the cost of carrying
+    a larger window on every turn is mostly cache reads, while the cost of compacting is dead time
+    the user watches. Raising this trades per-turn input tokens for far fewer compactions.
     """
     APPROXIMATE_TOKEN_LENGTH = 4
     """

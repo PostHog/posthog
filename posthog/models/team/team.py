@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import HashIndex
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
+from django.db.models.fields.json import KeyTransform
 from django.db.models.signals import post_delete, post_save
 
 import pytz
@@ -18,12 +20,11 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.signals import mutable_receiver
+from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_project,
@@ -50,6 +51,8 @@ from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
     from posthog.schema import PathCleaningFilter
+
+    from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
 
@@ -274,6 +277,13 @@ class Team(UUIDTClassicModel):
         # falls back to a bare `Manager()` for related access and re-loads the fat deprecated
         # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
         base_manager_name = "objects"
+        indexes = [
+            HashIndex(
+                KeyTransform("widget_public_token", "conversations_settings"),
+                condition=models.Q(conversations_enabled=True),
+                name="posthog_team_widget_token_idx",
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -557,7 +567,7 @@ class Team(UUIDTClassicModel):
             Supported entry types and the exact shape each accepts:
 
             # Person property — match (or exclude) by a person property
-            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "ends_with"}
 
             # Event property — match by an event property
             {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
@@ -569,8 +579,9 @@ class Team(UUIDTClassicModel):
             # property-filter schema.
             {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
 
-            Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
-            "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
+            Common operators: "exact", "is_not", "icontains", "not_icontains", "starts_with",
+            "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex", "gt", "lt",
+            "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
         ),
         "project",
         "admin",
@@ -601,6 +612,8 @@ class Team(UUIDTClassicModel):
     human_friendly_comparison_periods = field_access_control(
         models.BooleanField(default=False, null=True, blank=True), "project", "admin"
     )
+    # Enable/disable toggle for cookieless ingestion. STATELESS (1) is sunset: any non-disabled
+    # value is processed as stateful.
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
@@ -869,37 +882,50 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-        from posthog.clickhouse.client import sync_execute
-        from posthog.queries.person_query import PersonQuery
+        return self.count_persons_seen_so_far()
 
-        filter = Filter(data={"full": "true"})
-        person_query, person_query_params = PersonQuery(filter, self.id).get_query()
+    def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
+        from posthog.schema import HogQLQueryModifiers
+
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.query import execute_hogql_query
+
+        from posthog.schema_enums import PersonsArgMaxVersion
 
         with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
-            return sync_execute(
-                f"""
-                SELECT count(1) FROM (
-                    {person_query}
-                )
-            """,
-                {**person_query_params, **filter.hogql_context.values},
-            )[0][0]
+            return execute_hogql_query(
+                "SELECT count() FROM persons",
+                team=self,
+                query_type="persons_seen_so_far",
+                # Pin v1 because the v2 persons path pushes the executor's default LIMIT into its
+                # dedup subquery, which caps a bare count() at ~101 for teams pinned to v2 (see #87323).
+                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1),
+                # A caller that runs several queries can pass a prebuilt database to skip a rebuild.
+                # The v1 pin survives a shared database: the persons table reads the dedup mode from
+                # each query's modifiers at print time, not from the database.
+                context=HogQLContext(team_id=self.pk, database=database),
+            ).results[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        from posthog.clickhouse.client import sync_execute
+        return self.count_groups_seen_so_far(group_type_index)
+
+    def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
+        from posthog.hogql import ast  # noqa: PLC0415 — breaks team import cycle
+        from posthog.hogql.context import HogQLContext  # noqa: PLC0415 — breaks team import cycle
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — breaks team import cycle
 
         with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
-            # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
-            return sync_execute(
-                f"""
-                SELECT
-                    count(DISTINCT group_key)
-                FROM groups
-                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-            """,
-                {"team_id": self.pk, "group_type_index": group_type_index},
-            )[0][0]
+            return execute_hogql_query(
+                # `raw_groups` holds one row per group update, so DISTINCT does the dedup. The `groups`
+                # lazy table would first collapse every row of the team through its argMax subquery.
+                "SELECT count(DISTINCT key) FROM raw_groups WHERE index = {group_type_index}",
+                placeholders={"group_type_index": ast.Constant(value=group_type_index)},
+                team=self,
+                query_type="groups_seen_so_far",
+                # A caller that runs several queries can pass a prebuilt database to skip a rebuild.
+                context=HogQLContext(team_id=self.pk, database=database),
+            ).results[0][0]
 
     @property
     def timezone_info(self) -> ZoneInfo:
@@ -994,6 +1020,8 @@ class Team(UUIDTClassicModel):
         if expired_token:
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
+
+        secret_api_token_rotated.send(sender=self.__class__, team=self)
 
         # Build up the changes.
 
@@ -1118,8 +1146,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import RoleMembership
+        from products.access_control.backend.models.access_control import AccessControl
+        from products.access_control.backend.models.role import RoleMembership
 
         # Without ACCESS_CONTROL there is no notion of private teams — all org members have access.
         # Mirrors User.teams and UserTeamPermissions.effective_membership_level_for_parent_membership.

@@ -47,6 +47,18 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     global_rate_limit_token_distinctid_threshold: 10_000,
     global_rate_limit_token_distinctid_overrides_csv: None,
     global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+    // Integration tests assert on exact limiter behavior at a threshold of
+    // 10_000, so every key syncs and every tick drains fully.
+    global_rate_limit_min_sync_floor: 0,
+    global_rate_limit_max_sync_keys_per_tick: 20_000,
+    global_rate_limit_max_keys_per_command: 2_000,
+    global_rate_limit_max_concurrent_commands: 4,
+    global_rate_limit_max_write_batch_entries: 200_000,
+    global_rate_limit_max_pending_sync_entries: 200_000,
+    global_rate_limit_local_cache_ttl_secs: 600,
+    global_rate_limit_local_cache_idle_timeout_secs: 300,
+    global_rate_limit_read_timeout_ms: 250,
+    global_rate_limit_write_timeout_ms: 250,
     global_rate_limit_token_threshold: 300_000,
     global_rate_limit_token_overrides_csv: None,
     global_rate_limit_token_local_cache_max_entries: 300_000,
@@ -87,7 +99,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
         kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-        capture_analytics_ai_events_topic: None,
+        outputs_completeness_check_enabled: true,
+        capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
         capture_analytics_ai_events_overflow_topic: None,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
@@ -147,30 +160,12 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
-    ai_s3_bucket: None,
-    ai_s3_prefix: "llma/".to_string(),
-    ai_s3_endpoint: None,
-    ai_s3_region: "us-east-1".to_string(),
-    ai_s3_access_key_id: None,
-    ai_s3_secret_access_key: None,
+    ai_max_event_bytes: 8_388_608,         // 8MiB default
     ai_gateway_signing_secret: None,
-    ai_sink_mode: capture::config::AiSinkMode::Primary,
-    ai_secondary_allowlist_tokens: None,
-    ai_secondary_kafka_hosts: None,
-    ai_secondary_kafka_topic: None,
-    ai_secondary_kafka_tls: false,
-    ai_secondary_kafka_client_id: String::new(),
-    capture_analytics_ai_events_mode: capture::config::AiSinkMode::Primary,
-    capture_analytics_ai_events_allowlist_tokens: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
-    continuous_profiling: ContinuousProfilingConfig {
-        continuous_profiling_enabled: false,
-        pyroscope_server_address: String::new(),
-        pyroscope_application_name: String::new(),
-        pyroscope_sample_rate: 100,
-    },
+    continuous_profiling: ContinuousProfilingConfig::default(),
     capture_v1_sinks: String::new(),
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
@@ -178,6 +173,14 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_ingestion_warnings_enabled: false,
     capture_ingestion_warnings_kafka_queue_mib: 16,
     capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
+    capture_ingestion_warnings_kafka_topic: String::new(),
+    capture_ingestion_warnings_kafka_hosts: String::new(),
+    capture_ingestion_warnings_kafka_tls: false,
+    ai_byte_limit_per_second: 0,
+    ai_byte_limit_overrides_csv: None,
+    ai_byte_limit_dry_run: false,
+    ai_byte_limit_window_interval_secs: None,
+    ai_byte_limit_local_cache_max_entries: 300_000,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every
@@ -215,6 +218,7 @@ pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
+    event_restriction_service: Option<capture::event_restrictions::EventRestrictionService>,
 }
 
 impl ServerHandle {
@@ -224,10 +228,47 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+    /// Like `for_topics`, with the synthetic ingestion warnings emitter enabled
+    /// and pointed at its own topic via the emitter's dedicated config, so
+    /// legacy-path warning envelopes are readable independently of the events
+    /// that triggered them.
+    pub async fn for_topics_with_warnings(
+        main: &EphemeralTopic,
+        historical: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.kafka.kafka_historical_topic = historical.topic_name().to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
     pub async fn for_recordings(main: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.kafka.kafka_topic = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
+        Self::for_config(config).await
+    }
+
+    /// Like `for_recordings`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so replay warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_recordings_with_warnings(
+        main: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         Self::for_config(config).await
     }
 
@@ -243,12 +284,35 @@ impl ServerHandle {
         Self::for_config_with_sink_env(config, sink_env).await
     }
 
+    /// Like `for_v1_topic`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_v1_topic_with_warnings(
+        topic: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.capture_v1_sinks = "msk".to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        // The emitter reads only its own dedicated config now (no v0 KAFKA_*
+        // fallback), so point it at the same ephemeral broker as the main sink.
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
+        Self::for_config_with_sink_env(config, sink_env).await
+    }
+
     /// Like `for_v1_topic`, with the AI-gateway signing secret configured so the
     /// provenance check runs.
     pub async fn for_v1_topic_with_signing_secret(topic: &EphemeralTopic, secret: &str) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.ai_gateway_signing_secret = Some(secret.to_string());
+        // The gateway tests send AI events, which route to the AI topic;
+        // point it at the same ephemeral topic so the consumer sees them.
+        config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }
@@ -275,6 +339,7 @@ impl ServerHandle {
         let handles = setup::register_components(&mut manager, &config);
         let _monitor = manager.monitor_background();
         let components = setup::build_components(config, sink_env, handles).await;
+        let event_restriction_service = components.event_restriction_service.clone();
 
         tokio::spawn(async move { serve(listener, components).await });
 
@@ -287,6 +352,26 @@ impl ServerHandle {
             addr,
             shutdown: shutdown_token,
             client,
+            event_restriction_service,
+        }
+    }
+
+    /// Wait for the event restriction service's first successful load. Entries
+    /// written to Redis before boot are guaranteed visible after this returns,
+    /// because a refresh fetches every restriction type and swaps the manager
+    /// atomically.
+    pub async fn wait_for_restrictions_loaded(&self) {
+        let service = self
+            .event_restriction_service
+            .as_ref()
+            .expect("server booted without event restrictions enabled");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !service.has_loaded() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "event restrictions not loaded within 10s"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -537,6 +622,19 @@ impl EphemeralTopic {
     pub fn next_message_with_headers(
         &self,
     ) -> anyhow::Result<(serde_json::Value, std::collections::HashMap<String, String>)> {
+        let (_key, event, headers) = self.next_message_full()?;
+        Ok((event, headers))
+    }
+
+    /// Like `next_message_with_headers`, also returning the partition key, so
+    /// one consumed message can assert key, payload, and headers together.
+    pub fn next_message_full(
+        &self,
+    ) -> anyhow::Result<(
+        Option<String>,
+        serde_json::Value,
+        std::collections::HashMap<String, String>,
+    )> {
         use std::collections::HashMap;
 
         // Retry on transient Kafka errors like NotCoordinator
@@ -546,11 +644,14 @@ impl EphemeralTopic {
         loop {
             match self.consumer.poll(self.read_timeout) {
                 Some(Ok(message)) => {
-                    // Parse the payload
+                    let key = match message.key() {
+                        Some(key) => Some(String::from_str(std::str::from_utf8(key)?)?),
+                        None => None,
+                    };
+
                     let body = message.payload().expect("empty kafka message");
                     let event = serde_json::from_slice(body)?;
 
-                    // Parse the headers
                     let mut headers = HashMap::new();
                     if let Some(message_headers) = message.headers() {
                         for header in message_headers.iter() {
@@ -562,7 +663,7 @@ impl EphemeralTopic {
                         }
                     }
 
-                    return Ok((event, headers));
+                    return Ok((key, event, headers));
                 }
                 Some(Err(err)) => {
                     // Check if it's a transient error that should be retried

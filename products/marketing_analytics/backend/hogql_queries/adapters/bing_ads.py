@@ -137,6 +137,11 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
         stats_table = self._level_tables().stats_table
         stats_table_name = stats_table.name
 
+        # `revenue` is optional in Bing performance reports — tables synced without it
+        # would otherwise fail the whole query with "Field not found: revenue".
+        if not self._table_has_column(stats_table, "revenue"):
+            return ast.Call(name="toFloat", args=[ast.Constant(value=0)])
+
         field_as_float = ast.Call(
             name="ifNull",
             args=[

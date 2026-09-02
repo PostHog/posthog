@@ -45,6 +45,8 @@ Of completed runs, what fraction wrote or edited a report vs. closed out empty?
 Read it straight off each run's `emitted_report_ids` / `edited_report_ids`, or split the window with `runs-list?emitted=true` / `?emitted=false` and compare counts (remembering an edit-only run reads as `emitted=false`).
 Judge it against the surface, not in the abstract — **most healthy scouts write rarely**, and on a quiet, mature project nearly every run legitimately closes out empty.
 
+**Skip this dimension entirely for a measurement scout** (one whose config carries a `structured_output_schema`). Its output is the record stream, and filing no report on a normal run is the design, so a near-zero report rate says nothing about its health. Assess it on records instead: whether runs carry `metadata.derived.has_structured_output`, and whether the `$scout_structured_output` events arrive at the expected volume and cadence.
+
 - **Near-zero over a long window:** either the watched surface is genuinely quiet (confirm with `scout-project-profile-get` — is the surface even in use?), or the scout's signal-vs-noise discriminator is too strict.
   Read a few run summaries: if the scout keeps saying "saw X but below threshold", the bar may be too high.
 - **Near-100%:** the scout is too noisy — its discriminator isn't separating baseline from anomaly.
@@ -72,6 +74,8 @@ Search the scratchpad and look at `created_by_run_id` and timestamps.
 A **healthy** scout looks like: runs landing on cadence, almost all completing cleanly, the large majority closing out empty, the rare report mostly surviving as actionable, and a scratchpad that grows `pattern:`/`noise:`/`dedupe:` entries over time.
 
 An **unhealthy** scout shows one of: frequent errors (broken — read the transcript), a flood of reports most of which get suppressed (too noisy — retune), dead silence on a surface the profile shows is active (too strict — retune), or no memory growth despite many runs (not learning).
+On a measurement scout, read "dead silence" off the records rather than the reports: report-side silence is healthy, and the shape worth investigating is the event stream thinning while the schedule holds.
+One run with `has_structured_output` false is not that — an empty eligible window is the scout's designed early close, so check whether the population was actually there before calling it dead, and act on a repeated unexplained zero rather than a single one.
 
 When the diagnosis points at the scout's instructions — discriminator, thresholds, disqualifiers, save-memory, schedule, or posture — that's where exploration ends and authoring begins.
 Hand off to the `authoring-scouts` skill, which covers the test loop and `scout-config-update`.

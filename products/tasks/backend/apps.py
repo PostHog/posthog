@@ -7,7 +7,7 @@ class TasksConfig(AppConfig):
     label = "tasks"
 
     def ready(self):
-        # Activity-log receivers live in their own import-light module so every
+        # Signal receivers live in their own import-light modules so every
         # process type (celery, temporal, migrate) wires them without pulling
         # the viewset import graph into django.setup().
-        from products.tasks.backend import activity_logging  # noqa: F401, PLC0415
+        from products.tasks.backend import activity_logging, search_index, team_deletion  # noqa: F401, PLC0415

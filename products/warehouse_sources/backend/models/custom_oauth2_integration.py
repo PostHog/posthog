@@ -2,6 +2,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
 
@@ -212,6 +213,11 @@ def get_custom_oauth2_integration(integration_id: str, team_id: int) -> CustomOA
     """Load a custom OAuth2 integration for a team, outside request context (Temporal activities).
 
     Uses `for_team()` — the prescribed fail-closed escape hatch — so a caller can never read another
-    team's credentials by id. Raises `CustomOAuth2Integration.DoesNotExist` when the id isn't this team's.
+    team's credentials by id. Raises `CustomOAuth2Integration.DoesNotExist` when the id isn't this
+    team's, or isn't even a well-formed UUID (a malformed id can never match a row, so every caller
+    already treats this the same as a genuinely missing row).
     """
-    return CustomOAuth2Integration.objects.for_team(team_id).get(id=integration_id)
+    try:
+        return CustomOAuth2Integration.objects.for_team(team_id).get(id=integration_id)
+    except ValidationError as exc:
+        raise CustomOAuth2Integration.DoesNotExist(f"Invalid integration id: {integration_id!r}") from exc

@@ -8,6 +8,7 @@ from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably import (
+    ABLY_VERSION_2,
     AblyResumeConfig,
     _add_interval_start,
     _parse_interval_start,
@@ -15,8 +16,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably 
     get_resource,
     split_api_key,
     validate_credentials,
+    version_header,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+
+class TestVersionHeader:
+    @pytest.mark.parametrize(
+        ("api_version", "expected"),
+        [
+            # "2" pins the source to protocol 2 explicitly. The legacy unversioned label sends no
+            # header — Ably protocol 1 is sunset, so `X-Ably-Version: 1` would only fail; the empty
+            # header keeps those rows on Ably's current default until the repin migration moves them.
+            (ABLY_VERSION_2, {"X-Ably-Version": "2"}),
+            (UNVERSIONED_API_VERSION, {}),
+        ],
+    )
+    def test_maps_version_to_header(self, api_version: str, expected: dict[str, str]) -> None:
+        assert version_header(api_version) == expected
 
 
 class TestSplitApiKey:
@@ -138,6 +156,7 @@ class TestAblySourceResumeBehavior:
                 job_id="test_job",
                 resumable_source_manager=manager,
                 db_incremental_field_last_value=None,
+                api_version=ABLY_VERSION_2,
                 should_use_incremental_field=should_use_incremental_field,
             )
             pages = list(resource)
@@ -230,6 +249,7 @@ class TestAblyHostPinningAndRedirects:
                 job_id="test_job",
                 resumable_source_manager=manager,
                 db_incremental_field_last_value=None,
+                api_version=ABLY_VERSION_2,
             )
             list(resource)
 
@@ -262,7 +282,7 @@ class TestValidateCredentials:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably.make_tracked_session"
         ) as mock_make_session:
-            ok, error = validate_credentials("no-colon-here")
+            ok, error = validate_credentials("no-colon-here", ABLY_VERSION_2)
 
             assert ok is False
             assert error is not None and "malformed" in error.lower()
@@ -282,8 +302,10 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably.make_tracked_session"
         ) as mock_make_session:
             mock_make_session.return_value.get.return_value = MagicMock(status_code=status_code)
-            ok, error = validate_credentials("app.key:secret")
+            ok, error = validate_credentials("app.key:secret", ABLY_VERSION_2)
 
+            # The probe validates under the pinned version's header, not Ably's default.
+            assert mock_make_session.call_args.kwargs["headers"] == {"X-Ably-Version": "2"}
             assert ok is expect_ok
             if not expect_ok:
                 assert error is not None
@@ -293,7 +315,7 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably.make_tracked_session"
         ) as mock_make_session:
             mock_make_session.return_value.get.side_effect = RequestsConnectionError("boom")
-            ok, error = validate_credentials("app.key:secret")
+            ok, error = validate_credentials("app.key:secret", ABLY_VERSION_2)
 
             assert ok is False
             assert error == "boom"

@@ -1,0 +1,15 @@
+name: Build desktop agent release
+description: Build and test the agent package with all workspace dependencies
+
+runs:
+    using: composite
+    steps:
+        - name: Build agent and workspace dependencies
+          shell: bash
+          working-directory: products/desktop
+          run: pnpm --filter @posthog/agent... run build
+
+        - name: Run agent tests
+          shell: bash
+          working-directory: products/desktop
+          run: pnpm --filter @posthog/agent run test

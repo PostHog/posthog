@@ -8,6 +8,7 @@ import {
     isPermanentPollError,
     resolvePollingIntervalMs,
     resolveWizardSyncMode,
+    sseReconnectDelayMs,
     type WizardSyncMode,
 } from 'lib/wizard-sync/pollLoop'
 import { logSyncDebug } from 'lib/wizard-sync/wizardSyncDebugLogic'
@@ -139,6 +140,15 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
     }),
     listeners(({ values, actions, props, cache }) => ({
         connect: () => {
+            // A connect (manual or scheduled) supersedes any pending reconnect timer, so the two can
+            // never race a second transport open.
+            cache.disposables.dispose('session-reconnect')
+            // A scheduled retry continues the connect cycle that failed rather than starting a new
+            // one, so it must leave the telemetry guards below alone. Resetting them here would emit
+            // one transport-error capture per backoff step for as long as the stream stays closed,
+            // which is once every 30s per tab and enough to swamp the SSE-vs-polling comparison.
+            const resumingCycle = cache.reconnectScheduled === true
+            cache.reconnectScheduled = false
             const projectId = values.currentProjectId
             if (projectId === null) {
                 actions.connectionErrored('No current project — cannot open wizard session stream.')
@@ -148,9 +158,11 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
             // Per-connect-cycle transport telemetry: one "ready" (first session delivered) and at
             // most one "error" per cycle, so SSE and polling performance stay comparable without
             // an event per delivery or per EventSource retry.
-            cache.connectStartedAt = Date.now()
-            cache.transportReadyReported = false
-            cache.transportErrorReported = false
+            if (!resumingCycle) {
+                cache.connectStartedAt = Date.now()
+                cache.transportReadyReported = false
+                cache.transportErrorReported = false
+            }
 
             const debugSource = `session ${props.workflowId}::${props.skillId ?? '*'}`
 
@@ -228,6 +240,7 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                     // Mode rides along here too: the connect event can predate the debug panel's
                     // mount (and get dropped), but open/events always land after it.
                     logSyncDebug(debugSource, 'open', 'SSE connection open', { mode: 'sse' })
+                    cache.sseReconnectAttempt = 0
                     actions.connectionOpened()
                 }
                 eventSource.onmessage = (event: MessageEvent<string>): void => {
@@ -244,16 +257,36 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                 }
                 eventSource.onerror = (): void => {
                     // EventSource readyState distinguishes terminal close vs transient retry:
-                    //   CLOSED (2)     → browser gave up; will NOT auto-reconnect.
-                    //                    Consumers must call connect() again.
+                    //   CLOSED (2)     → browser gave up (any non-200 on a (re)connect lands here)
+                    //                    and will NOT auto-reconnect, so schedule our own reconnect
+                    //                    with backoff.
                     //   CONNECTING (0) → browser is already retrying; ride it out, surface
                     //                    the state so the UI can show "reconnecting".
                     if (eventSource.readyState === EventSource.CLOSED) {
-                        logSyncDebug(debugSource, 'error', 'SSE closed by server')
-                        actions.connectionErrored('EventSource connection closed by server — call connect() to retry')
+                        const attempt = ((cache.sseReconnectAttempt as number | undefined) ?? 0) + 1
+                        cache.sseReconnectAttempt = attempt
+                        const delayMs = sseReconnectDelayMs(attempt)
+                        logSyncDebug(
+                            debugSource,
+                            'error',
+                            `SSE closed, reconnecting in ~${Math.round(delayMs / 1000)}s`
+                        )
+                        actions.connectionErrored(
+                            `EventSource connection closed, reconnecting in ~${Math.round(delayMs / 1000)}s`
+                        )
+                        // The timer rides disposables so an unmount tears it down, and a hidden tab
+                        // pauses it instead of reconnecting in the background. connect() re-samples
+                        // the sync-mode flag, so a mid-outage flip to polling takes effect here too.
+                        cache.disposables.add(() => {
+                            const timer = window.setTimeout(() => {
+                                cache.reconnectScheduled = true
+                                actions.connect()
+                            }, delayMs)
+                            return () => window.clearTimeout(timer)
+                        }, 'session-reconnect')
                     } else {
-                        logSyncDebug(debugSource, 'error', 'SSE transport error — reconnecting')
-                        actions.connectionErrored('EventSource transport error — reconnecting')
+                        logSyncDebug(debugSource, 'error', 'SSE transport error, reconnecting')
+                        actions.connectionErrored('EventSource transport error, reconnecting')
                     }
                 }
 
@@ -263,6 +296,9 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
         disconnect: () => {
             logSyncDebug(`session ${props.workflowId}::${props.skillId ?? '*'}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('session-sync')
+            cache.disposables.dispose('session-reconnect')
+            // The next connect is a new cycle, not a continuation of the one that was torn down.
+            cache.reconnectScheduled = false
         },
         sessionUpdated: () => {
             if (cache.transportReadyReported || cache.connectStartedAt === undefined) {

@@ -16,12 +16,26 @@ from temporalio.worker import (
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 logger = get_write_only_logger()
+
+# ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
+# probes, retryable transient-infra re-raises), not defects — same reasoning as the
+# EgressBudgetExhausted exemption below.
+# "EmbeddingServiceUnavailable" is the literal string kept intentionally, not the product
+# constant EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE — this shared Temporal module must not
+# depend on a product. The error-tracking issue-created workflow fails open on it, so it is
+# expected control flow, not a defect.
+# "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
+# posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
+    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
+)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -72,15 +86,32 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative
             # worker shutdown (raised mid-activity during a deploy, always retried on a fresh
             # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
-            # signal that our rate limiter already records via record_outbound_decision), and errors
+            # signal that our rate limiter already records via record_outbound_decision), errors
             # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
-            # API serving a login page instead of JSON) are expected control flow, not defects —
-            # re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(
-                e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError
+            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
+            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
+            # error tracking.
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
+                or (
+                    isinstance(e, temporalio.exceptions.ApplicationError)
+                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+                )
             ):
                 raise
             activity_info = activity.info()
+            # A saturated connection pool clears on its own and Temporal retries the activity, so
+            # a burst of them would otherwise mint a fresh error tracking issue per module for a
+            # condition nobody can action per-activity. Log it instead, and leave the retry to
+            # Temporal — a pool problem that outlives the retries surfaces as a workflow failure.
+            if is_transient_db_error(e):
+                await logger.awarning(
+                    "Transient database error in activity %s, leaving retry to Temporal",
+                    activity_info.activity_type,
+                    exc_info=e,
+                )
+                raise
             capture_kwargs = {
                 "properties": {
                     # Ambient properties (e.g. warehouse-sources JobContext) first so the explicit

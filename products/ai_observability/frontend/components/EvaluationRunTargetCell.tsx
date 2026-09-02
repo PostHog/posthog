@@ -10,11 +10,21 @@ import { sanitizeTraceUrlSearchParams } from '../utils'
 
 // Generation-target runs link to the specific event in the trace; trace-target
 // runs (no generation id) link to the whole trace. Both land on the Evaluations tab.
+// Session-target runs have no trace id at all and link to the session instead.
 export function EvaluationRunTargetCell({ run }: { run: EvaluationRun }): JSX.Element {
     const { searchParams } = useValues(router)
 
     if (!run.trace_id) {
-        return <span className="font-mono text-sm text-muted">—</span>
+        if (!run.session_id) {
+            return <span className="font-mono text-sm text-muted">—</span>
+        }
+        return (
+            <div className="font-mono text-sm">
+                <Link to={urls.aiObservabilitySession(run.session_id)} className="text-primary">
+                    session {run.session_id.slice(0, 12)}...
+                </Link>
+            </div>
+        )
     }
 
     // No timestamp param on purpose: the run's timestamp can be long after the trace

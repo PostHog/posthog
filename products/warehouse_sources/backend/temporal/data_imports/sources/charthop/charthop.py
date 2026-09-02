@@ -5,10 +5,10 @@ from urllib.parse import quote, urlencode
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import (
     CHARTHOP_ENDPOINTS,
-    ChartHopEndpointConfig,
+    DEFAULT_VERSION,
+    resolve_endpoint_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CHARTHOP_BASE_URL = "https://api.charthop.com"
 # No documented max page size; ChartHop's own sync tooling pages with limit=1000. 500 keeps
@@ -70,10 +71,10 @@ def _to_charthop_date(value: Any) -> Optional[str]:
     return min(value, today).isoformat()
 
 
-def _endpoint_path(config: ChartHopEndpointConfig, org_id: str) -> str:
+def _endpoint_path(path_template: str, org_id: str) -> str:
     # Encode the org id as a single path segment so a crafted value (slashes, query
     # delimiters) can't redirect the request to a different endpoint with the stored token.
-    return config.path.format(org_id=quote(org_id, safe=""))
+    return path_template.format(org_id=quote(org_id, safe=""))
 
 
 def resolve_org_id(api_key: str, configured_org_id: Optional[str]) -> str:
@@ -103,13 +104,19 @@ def resolve_org_id(api_key: str, configured_org_id: Optional[str]) -> str:
     return orgs[0]["id"]
 
 
-def check_access(api_key: str, org_id: Optional[str], schema_name: Optional[str]) -> tuple[int, Optional[str]]:
+def check_access(
+    api_key: str,
+    org_id: Optional[str],
+    schema_name: Optional[str],
+    api_version: str = DEFAULT_VERSION,
+) -> tuple[int, Optional[str]]:
     """Probe the API to validate credentials.
 
     Returns a normalized ``(status, message)``: 200 = reachable, 401 = bad token,
     403 = valid token without access, 404 = org not found, 0 = network/unexpected error.
-    Validating a specific schema probes that endpoint with ``limit=1`` so tokens scoped
-    to a subset of the data fail fast on the schemas they can't read.
+    Validating a specific schema probes that endpoint with ``limit=1`` — under the source's
+    resolved ``api_version`` so the probe hits the same path a sync would — letting tokens
+    scoped to a subset of the data fail fast on the schemas they can't read.
     """
     try:
         resolved_org_id = resolve_org_id(api_key, org_id)
@@ -130,7 +137,8 @@ def check_access(api_key: str, org_id: Optional[str], schema_name: Optional[str]
         return 200, None
 
     config = CHARTHOP_ENDPOINTS[schema_name]
-    path = _endpoint_path(config, resolved_org_id)
+    path_template, _ = resolve_endpoint_version(config, api_version)
+    path = _endpoint_path(path_template, resolved_org_id)
     query = urlencode({"limit": 1, **config.extra_params})
     _ok, probe_status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
@@ -152,9 +160,11 @@ def charthop_source(
     resumable_source_manager: ResumableSourceManager[ChartHopResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    api_version: str = DEFAULT_VERSION,
 ) -> SourceResponse:
     config = CHARTHOP_ENDPOINTS[endpoint]
-    path = _endpoint_path(config, org_id)
+    path_template, incremental_param = resolve_endpoint_version(config, api_version)
+    path = _endpoint_path(path_template, org_id)
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -172,8 +182,8 @@ def charthop_source(
     params: dict[str, Any] = {"limit": PAGE_SIZE, **config.extra_params}
     # The ``next`` token is a bare entity id, not a full query, so filters are re-sent on
     # every page — the date window stays applied across the whole pagination walk.
-    if config.incremental_param is not None and start_date is not None:
-        params[config.incremental_param] = start_date
+    if incremental_param is not None and start_date is not None:
+        params[incremental_param] = start_date
 
     rest_config: RESTAPIConfig = {
         "client": {

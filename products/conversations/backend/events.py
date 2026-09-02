@@ -26,11 +26,10 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, OrganizationIdSource
-
-from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
@@ -523,16 +522,17 @@ def capture_ticket_assigned(
     )
 
 
-def capture_message_sent(
+def _capture_team_message(
     ticket: Ticket,
     message_id: str,
-    message_content: str,
-    author: User | None = None,
+    message_content: str | None,
+    author: User | None,
+    event_name: str,
 ) -> None:
-    """Team member sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
-    properties["message_content"] = (message_content or "")[:1000]
+    if message_content is not None:
+        properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
@@ -541,12 +541,39 @@ def capture_message_sent(
 
     capture_internal(
         token=ticket.team.api_token,
-        event_name="$conversation_message_sent",
+        event_name=event_name,
         event_source=EVENT_SOURCE,
         distinct_id=_get_actor_distinct_id(ticket, author, "user"),
         timestamp=None,
         properties=properties,
     )
+
+
+def capture_message_sent(
+    ticket: Ticket,
+    message_id: str,
+    message_content: str,
+    author: User | None = None,
+) -> None:
+    """Team member sent a public reply on a ticket."""
+    _capture_team_message(ticket, message_id, message_content, author, "$conversation_message_sent")
+
+
+def capture_private_message_sent(
+    ticket: Ticket,
+    message_id: str,
+    author: User | None = None,
+) -> None:
+    """Team member sent a private internal note on a ticket.
+
+    Deliberately a separate event from `$conversation_message_sent`: existing
+    workflows trigger on that event to notify customers, and private notes must
+    never flow through those.
+
+    The note body is deliberately omitted. Analytics events are queryable by any
+    project member, so including it would bypass ticket-level access controls.
+    """
+    _capture_team_message(ticket, message_id, None, author, "$conversation_private_message_sent")
 
 
 def capture_message_received(ticket: Ticket, message_id: str, message_content: str) -> None:

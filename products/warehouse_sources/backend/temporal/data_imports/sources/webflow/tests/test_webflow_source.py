@@ -1,16 +1,15 @@
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.webflow import (
     WebflowSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import STATIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source import WebflowSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow import WebflowResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source"
 
@@ -37,29 +36,6 @@ def _inputs(schema_name: str = "pages") -> SourceInputs:
 
 
 class TestWebflowSource:
-    def test_source_type(self) -> None:
-        assert WebflowSource().source_type == ExternalDataSourceType.WEBFLOW
-
-    def test_source_config_fields_and_release_status(self) -> None:
-        config = WebflowSource().get_source_config
-        assert config.name == "Webflow"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is not True
-
-        assert all(isinstance(field, SourceFieldInputConfig) for field in config.fields)
-        fields = {field.name: field for field in config.fields if isinstance(field, SourceFieldInputConfig)}
-        assert set(fields) == {"api_token", "site_id"}
-        assert fields["api_token"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_token"].secret is True
-        assert fields["site_id"].type == SourceFieldInputConfigType.TEXT
-        assert fields["site_id"].secret is False
-
-    def test_get_non_retryable_errors(self) -> None:
-        errors = WebflowSource().get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "409 Client Error: Conflict" in errors
-
     def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
         # Webflow returns 409 on /products when the site has no ecommerce; the raised
         # HTTPError message embeds a volatile site id and URL, so we must match on a
@@ -71,6 +47,27 @@ class TestWebflowSource:
         )
         matches = [pattern for pattern in errors if pattern in raised_message]
         assert matches == ["409 Client Error: Conflict"]
+
+    def test_406_not_acceptable_message_is_recognised_as_non_retryable(self) -> None:
+        # Webflow returns 406 deterministically for a given site/token when listing CMS
+        # collections; the raised HTTPError message embeds a volatile site id and URL, so we
+        # must match on a stable substring that excludes them.
+        errors = WebflowSource().get_non_retryable_errors()
+        raised_message = (
+            "406 Client Error: Not Acceptable for url: "
+            "https://api.webflow.com/v2/sites/64cd40ea6c8cca864c510895/collections"
+        )
+        matches = [pattern for pattern in errors if pattern in raised_message]
+        assert matches == ["406 Client Error"]
+
+    def test_deleted_collection_message_is_recognised_as_non_retryable(self) -> None:
+        # _resolve_collection_id raises this when a collection's slug no longer resolves at sync
+        # time; the message embeds a volatile schema name and site id, so we must match on a stable
+        # substring that excludes them.
+        errors = WebflowSource().get_non_retryable_errors()
+        raised_message = "Webflow collection for schema 'collection_blog' was not found on site 'abc123'"
+        matches = [pattern for pattern in errors if pattern in raised_message]
+        assert matches == ["Webflow collection for schema"]
 
     def test_get_schemas_includes_static_and_dynamic_collections(self) -> None:
         with patch(
@@ -101,30 +98,76 @@ class TestWebflowSource:
 
         assert {s.name for s in schemas} == {"sites", "collection_blog"}
 
-    def test_validate_credentials_plumbs_through(self) -> None:
-        with patch(f"{SOURCE_MODULE}.validate_webflow_credentials", return_value=(True, None)) as mock_validate:
-            ok, error = WebflowSource().validate_credentials(_config(), team_id=1, schema_name="products")
-
-        assert ok is True
-        assert error is None
-        mock_validate.assert_called_once_with("token", "site-1", "products")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = WebflowSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WebflowResumeConfig
-
     def test_source_for_pipeline_plumbs_through(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         inputs = _inputs(schema_name="collection_blog")
         with patch(f"{SOURCE_MODULE}.webflow_source") as mock_source:
             WebflowSource().source_for_pipeline(_config(), manager, inputs)
 
-        mock_source.assert_called_once_with(
-            api_token="token",
-            site_id="site-1",
-            schema_name="collection_blog",
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            resumable_source_manager=manager,
-        )
+        kwargs = mock_source.call_args.kwargs
+        assert kwargs["api_token"] == "token"
+        assert kwargs["site_id"] == "site-1"
+        assert kwargs["schema_name"] == "collection_blog"
+        assert kwargs["team_id"] == inputs.team_id
+        assert kwargs["job_id"] == inputs.job_id
+        assert kwargs["resumable_source_manager"] is manager
+        # Backfill and pushed rows have to reach the same sync, so the webhook manager is
+        # always handed over; the transport decides whether the schema can use it.
+        assert isinstance(kwargs["webhook_source_manager"], WebhookSourceManager)
+
+
+class TestWebflowWebhookSupport:
+    def test_only_orders_is_offered_as_a_webhook_table(self) -> None:
+        # Every other Webflow trigger either describes a resource we don't sync (form_submission
+        # carries a submission, our forms table carries form definitions) or renames the object's
+        # fields (page_created sends pageId/pageTitle where the Pages API sends id/title), so
+        # marking one webhook-capable would merge mismatched rows into the polled table.
+        with patch(f"{SOURCE_MODULE}.list_collections", return_value=[{"id": "c1", "slug": "blog"}]):
+            schemas = WebflowSource().get_schemas(_config(), team_id=1)
+
+        assert {s.name for s in schemas if s.supports_webhooks} == {"orders"}
+
+    def test_webhook_resource_map_keys_are_real_schema_names(self) -> None:
+        # The resource map is what builds schema_mapping; a key that isn't a schema name means
+        # deliveries route to nothing and are dropped with a 200.
+        source = WebflowSource()
+        with patch(f"{SOURCE_MODULE}.list_collections", return_value=[]):
+            schema_names = {s.name for s in source.get_schemas(_config(), team_id=1)}
+
+        assert set(source.webhook_resource_map) <= schema_names
+        # The Hog template collapses trigger types down to the schema name before the lookup.
+        assert source.webhook_resource_map == {"orders": "orders"}
+        assert source.webhook_mapping_key("orders") == "orders"
+
+    def test_webhook_template_is_wired_for_this_source(self) -> None:
+        template = WebflowSource().webhook_template
+        assert template is not None
+        assert template.id == "template-warehouse-source-webflow"
+        assert template.type == "warehouse_source_webhook"
+
+    @parameterized.expand(
+        [
+            ("eligible", ["orders"], ["ecomm_new_order", "ecomm_order_changed"]),
+            ("not_eligible", ["pages", "forms"], []),
+            ("mixed", ["orders", "pages"], ["ecomm_new_order", "ecomm_order_changed"]),
+        ]
+    )
+    def test_desired_events_follow_the_enabled_tables(
+        self, _name: str, enabled: list[str], expected: list[str]
+    ) -> None:
+        assert WebflowSource().get_desired_webhook_events(_config(), enabled) == expected
+
+    @parameterized.expand(
+        [
+            ("create", "create_webflow_webhook", "create_webhook"),
+            ("delete", "delete_webflow_webhook", "delete_webhook"),
+            ("info", "get_webflow_webhook_info", "get_external_webhook_info"),
+        ]
+    )
+    def test_webhook_management_uses_the_configured_site_and_token(self, _name: str, patched: str, method: str) -> None:
+        # Webflow webhooks are site-scoped; calling with the wrong site would register or delete
+        # a webhook on a different site the token can reach.
+        with patch(f"{SOURCE_MODULE}.{patched}") as mock_call:
+            getattr(WebflowSource(), method)(_config(), "https://webhooks.example/dwh/1", team_id=1)
+
+        mock_call.assert_called_once_with("token", "site-1", "https://webhooks.example/dwh/1")

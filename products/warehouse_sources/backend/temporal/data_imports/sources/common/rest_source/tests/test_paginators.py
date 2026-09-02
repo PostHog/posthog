@@ -2,9 +2,11 @@ import json
 from typing import Any
 
 import pytest
+from unittest import mock
 
 from requests import PreparedRequest, Request, Response, Session
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import paginators
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
     JSONLinkPaginator,
@@ -51,6 +53,20 @@ class TestHeaderLinkPaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
+    def test_resolves_relative_next_link_against_response_url(self) -> None:
+        # Ably returns its next link as a relative path (e.g. `./stats?...`). Without
+        # resolving it against the response URL, `requests` gets a schemeless URL and
+        # raises MissingSchema, so the sync dies after page one.
+        p = HeaderLinkPaginator()
+        resp = _make_response()
+        resp.url = "https://rest.ably.io/stats?unit=hour"
+        resp.headers["Link"] = '<./stats?start=1&unit=hour&direction=forwards>; rel="next"'
+        p.update_state(resp)
+        assert p.has_next_page is True
+        req = Request(method="GET", url="https://rest.ably.io/stats")
+        p.update_request(req)
+        assert req.url == "https://rest.ably.io/stats?start=1&unit=hour&direction=forwards"
+
 
 class TestJSONResponsePaginator:
     def test_follows_next_url(self) -> None:
@@ -62,9 +78,44 @@ class TestJSONResponsePaginator:
         p.update_request(req)
         assert req.url == "https://api.example.com/page2"
 
+    def test_resolves_relative_next_url_against_response_url(self) -> None:
+        p = JSONResponsePaginator(next_url_path="next")
+        resp = _make_response({"next": "/v2/items?page=2", "data": []})
+        resp.url = "https://api.example.com/v2/items?page=1"
+        p.update_state(resp)
+        assert p.has_next_page is True
+        req = Request(method="GET", url="https://api.example.com/v2/items")
+        p.update_request(req)
+        assert req.url == "https://api.example.com/v2/items?page=2"
+
     def test_stops_when_next_is_null(self) -> None:
         p = JSONResponsePaginator(next_url_path="next")
         resp = _make_response({"next": None, "data": []})
+        p.update_state(resp)
+        assert p.has_next_page is False
+
+    def test_stops_when_next_url_repeats(self) -> None:
+        # Some APIs (e.g. Paddle) populate `next` even on the last page, pointing at
+        # the page just fetched. Following it verbatim loops forever.
+        p = JSONResponsePaginator(next_url_path="next")
+        url = "https://api.example.com/page2?api_key=secret-token"
+        p.update_state(_make_response({"next": url, "data": []}))
+        assert p.has_next_page is True
+        # Patch the logger rather than use caplog: the suite's logging config can
+        # disable this module's logger, which would drop the record before capture.
+        with mock.patch.object(paginators.logger, "warning") as warning:
+            p.update_state(_make_response({"next": url, "data": []}))
+        # The logged URL must not carry the query string, which can hold credentials.
+        assert warning.call_args.kwargs["extra"]["next_url"] == "https://api.example.com/page2"
+        assert "secret-token" not in str(warning.call_args)
+        assert p.has_next_page is False
+
+    def test_header_link_paginator_stops_when_next_url_repeats(self) -> None:
+        p = HeaderLinkPaginator()
+        resp = _make_response()
+        resp.headers["Link"] = '<https://api.example.com/page2>; rel="next"'
+        p.update_state(resp)
+        assert p.has_next_page is True
         p.update_state(resp)
         assert p.has_next_page is False
 
@@ -246,6 +297,15 @@ class TestPaginatorResume:
         req = Request(method="GET", url="https://api.example.com/page1")
         resumed.init_request(req)
         assert req.url == "https://api.example.com/page2"
+
+    def test_next_url_paginator_stops_when_resumed_page_echoes_saved_url(self) -> None:
+        # A checkpoint saved on an API's final page points at that same page; when the
+        # resumed fetch echoes the saved URL back as `next`, the sync must complete
+        # rather than loop on the checkpoint.
+        resumed = JSONResponsePaginator(next_url_path="next")
+        resumed.set_resume_state({"next_url": "https://api.example.com/page9"})
+        resumed.update_state(_make_response({"next": "https://api.example.com/page9", "data": []}))
+        assert resumed.has_next_page is False
 
 
 class TestOffsetPaginatorTotalHeader:

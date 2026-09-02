@@ -7,7 +7,7 @@ import structlog
 from openai.types.chat import ChatCompletionMessageParam
 from rest_framework import exceptions
 
-from posthog.llm.gateway_client import build_openai_client
+from posthog.llm.gateway_client import build_openai_client, team_distinct_id
 
 from ..constants import SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel, SummarizationMode
@@ -28,7 +28,13 @@ def summarize_with_openai(
     system_prompt = load_summarization_template(f"prompts/system_{mode}.djt", {})
     user_prompt = load_summarization_template("prompts/user.djt", {"text_repr": text_repr})
 
-    client = build_openai_client("llma_summarization", ai_product="aio_summarization")
+    resolved_distinct_id = user_id or team_distinct_id(team_id)
+    client = build_openai_client(
+        "llma_summarization",
+        ai_product="aio_summarization",
+        properties={"team_id": str(team_id)},
+        distinct_id=resolved_distinct_id,
+    )
 
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},
@@ -39,7 +45,7 @@ def summarize_with_openai(
         response = client.chat.completions.create(
             model=str(model),
             messages=messages,
-            user=user_id or f"team-{team_id}",
+            user=resolved_distinct_id,
             timeout=SUMMARIZATION_TIMEOUT,
             response_format=cast(
                 Any,

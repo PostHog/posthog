@@ -8,7 +8,9 @@ publish = false
 assignment-coordination = { path = "../common/assignment-coordination" }
 async-trait = { workspace = true }
 etcd-client = "0.18"
+futures = { workspace = true }
 k8s-awareness = { path = "../common/k8s-awareness" }
+metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -17,7 +19,18 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
 
+[features]
+# States and operations tests need but that no production caller may
+# reach: an authority clock whose renewals stopped long enough ago to
+# have lapsed (otherwise a real wait to reproduce), and the store
+# operations that bypass the protocol — writing an assignment owner
+# directly, putting or deleting a handoff record — which adversarial
+# tests use to construct states production must never enter. Consumed
+# by this crate's own dev-dependency and by personhog-leader's.
+test-support = []
+
 [dev-dependencies]
+personhog-coordination = { path = ".", features = ["test-support"] }
 k8s-openapi = { version = "0.24", features = ["latest"] }
 kube = { version = "0.98", features = ["client"] }
 serial_test = "3"

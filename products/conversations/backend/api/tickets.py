@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
-from typing import Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
-from django.db.models.functions import Cast
+from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
-from django.utils import timezone
 
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import (
     pagination,
     serializers,
@@ -23,13 +29,14 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, set_tags_on_object
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -41,9 +48,20 @@ from posthog.models.person.util import get_person_by_distinct_id, get_persons_by
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
-from posthog.utils import relative_date_parse
 
+from products.access_control.backend.models.role import Role
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
+from products.conversations.backend.api.ticket_filters import (
+    AI_TRIAGE_FILTER_VALUES,
+    apply_ticket_filters,
+    is_ticket_number_search,
+    parse_stored_view_filters,
+    query_params_to_view_filters,
+)
 from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_unread_count_cache,
@@ -54,13 +72,30 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
-from ee.models.rbac.role import Role
+from .. import reply_dedupe
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
+
+
+class UserTicketAssignee(TypedDict):
+    id: int
+    type: Literal["user"]
+
+
+class RoleTicketAssignee(TypedDict):
+    id: str
+    type: Literal["role"]
+
+
+TicketAssignee = UserTicketAssignee | RoleTicketAssignee
 
 
 class TicketErrorSerializer(serializers.Serializer):
@@ -79,7 +114,41 @@ class TicketMessageSerializer(serializers.Serializer):
     is_private = serializers.BooleanField(
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
+    version = serializers.IntegerField(read_only=True, help_text="Edit count. 0 means never edited.")
     created_at = serializers.DateTimeField(read_only=True)
+
+
+class TicketNoteUpdateRequestSerializer(serializers.Serializer):
+    """Payload for updating a private note on a ticket."""
+
+    message = serializers.CharField(
+        max_length=5000,
+        help_text="Updated note content in markdown.",
+    )
+    rich_content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content "
+            "so the thread falls back to the markdown message."
+        ),
+    )
+
+    def validate_message(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Message content is required.")
+        return value.strip()
+
+    def validate_rich_content(self, value: object) -> object:
+        if value is None:
+            return value
+        try:
+            serialized = json.dumps(value)
+        except (TypeError, ValueError) as e:
+            raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
+        if len(serialized) > 100_000:
+            raise serializers.ValidationError("Rich content too large (max 100KB).")
+        return value
 
 
 class TicketReplyRequestSerializer(serializers.Serializer):
@@ -155,6 +224,13 @@ class ComposeTicketSerializer(serializers.Serializer):
         allow_null=True,
         help_text="TipTap rich content JSON for formatted messages.",
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        max_length=100,
+        help_text="Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.",
+    )
 
     def validate_message(self, value: str) -> str:
         if not value or not value.strip():
@@ -212,9 +288,6 @@ class TicketMessagePagination(pagination.LimitOffsetPagination):
     max_limit = 200
 
 
-MAX_TAG_FILTER_VALUES = 50
-
-
 class TicketPersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
 
@@ -232,7 +305,7 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
-class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
@@ -278,6 +351,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "organization_id_source",
             "person",
             "tags",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -343,6 +417,80 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         return None
 
 
+class UserTicketAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Assign the ticket to a user.")
+    id = serializers.IntegerField(help_text="User ID.")
+
+
+class RoleTicketAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Assign the ticket to a role.")
+    id = serializers.UUIDField(help_text="Role ID.")
+
+
+_TICKET_ASSIGNEE_REQUEST_SCHEMA = PolymorphicProxySerializer(
+    component_name="TicketAssigneeRequest",
+    serializers={
+        "user": UserTicketAssigneeRequestSerializer,
+        "role": RoleTicketAssigneeRequestSerializer,
+    },
+    resource_type_field_name="type",
+)
+
+
+@extend_schema_field(_TICKET_ASSIGNEE_REQUEST_SCHEMA)
+class TicketAssigneeRequestField(serializers.Field):
+    def to_internal_value(self, data: object) -> TicketAssignee | None:
+        try:
+            return validate_assignee(data)
+        except serializers.ValidationError as error:
+            if isinstance(error.detail, dict) and "assignee" in error.detail:
+                raise serializers.ValidationError(error.detail["assignee"]) from error
+            raise
+
+
+class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    """Fields accepted when updating a ticket."""
+
+    assignee = TicketAssigneeRequestField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="User or role to assign. Pass null to remove the current assignee.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names to set on the ticket.",
+    )
+
+    class Meta:
+        model = Ticket
+        fields = [
+            "status",
+            "priority",
+            "assignee",
+            "anonymous_traits",
+            "ai_resolved",
+            "escalation_reason",
+            "sla_due_at",
+            "snoozed_until",
+            "tags",
+        ]
+        extra_kwargs = {
+            "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
+            "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Pass null to clear it."},
+            "anonymous_traits": {"help_text": "Customer details such as name and email."},
+            "ai_resolved": {"help_text": "Whether AI resolved the ticket."},
+            "escalation_reason": {"help_text": "Reason the ticket was escalated. Pass null to clear it."},
+            "sla_due_at": {"help_text": "SLA deadline. Pass null to clear it."},
+            "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
+        }
+
+    def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
+        validated_data.pop("assignee", None)
+        return super().update(instance, validated_data)
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -350,100 +498,158 @@ TICKET_ID_PARAM = OpenApiParameter(
     description="The ticket's UUID or its numeric ticket number.",
 )
 
+NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
+    name="message_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description="The UUID of the private note (comment) to edit or delete.",
+)
+
+
+def _status_implied_by_snooze(before: datetime | None, after: datetime | None) -> str | None:
+    """Return the status a snooze change implies, or None when it implies no status change.
+
+    Snoozing a ticket puts it on hold, and unsnoozing reopens it. Moving a snooze to a
+    different time leaves the status alone.
+    """
+    if before is None and after is not None:
+        return Status.ON_HOLD
+    if before is not None and after is None:
+        return Status.OPEN
+    return None
+
+
+def _activity_value(value: Any) -> Any:
+    """Render a field value for the activity log. Datetimes go in as ISO strings."""
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+def _ticket_action_properties(ticket: Ticket) -> dict[str, Any]:
+    return {
+        "channel_source": ticket.channel_source,
+        "ticket_status": ticket.status,
+        "is_assigned": getattr(ticket, "assignment", None) is not None,
+    }
+
+
+@frozen
+class _TicketFields:
+    """The ticket fields a single-ticket update compares before and after saving."""
+
+    status: str
+    priority: str | None
+    sla_due_at: datetime | None
+    snoozed_until: datetime | None
+
+    @classmethod
+    def read_from(cls, ticket: Ticket) -> _TicketFields:
+        return cls(
+            status=ticket.status,
+            priority=ticket.priority,
+            sla_due_at=ticket.sla_due_at,
+            snoozed_until=ticket.snoozed_until,
+        )
+
+
+@frozen
+class _TicketUpdateDiff:
+    """What a single-ticket update changed, and therefore which side effects run."""
+
+    before: _TicketFields
+    after: _TicketFields
+    # True when the request carried an assignee, which is not the same as the assignment
+    # having changed. assign_ticket() decides that, and stays silent when it did not.
+    assignee_submitted: bool
+
+    @property
+    def status_changed(self) -> bool:
+        return self.before.status != self.after.status
+
+    @property
+    def priority_changed(self) -> bool:
+        return self.before.priority != self.after.priority
+
+    @property
+    def crosses_resolved(self) -> bool:
+        return self.status_changed and Status.RESOLVED in (self.before.status, self.after.status)
+
+    @property
+    def has_changes(self) -> bool:
+        return self.assignee_submitted or self.before != self.after
+
+    def activity_changes(self) -> list[Change]:
+        """Build the activity-log entries for every field this update touched."""
+        fields: list[tuple[str, Any, Any]] = [
+            ("status", self.before.status, self.after.status),
+            ("priority", self.before.priority, self.after.priority),
+            ("sla_due_at", self.before.sla_due_at, self.after.sla_due_at),
+            ("snoozed_until", self.before.snoozed_until, self.after.snoozed_until),
+        ]
+        # Compare the raw values, so two datetimes for the same instant in different
+        # timezones do not register as a change, then render for the log.
+        return [
+            Change(
+                type="Ticket",
+                field=field,
+                before=_activity_value(before),
+                after=_activity_value(after),
+                action="changed",
+            )
+            for field, before, after in fields
+            if before != after
+        ]
+
 
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
-    update=extend_schema(parameters=[TICKET_ID_PARAM]),
-    partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
+    update=extend_schema(
+        parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
+    ),
+    partial_update=extend_schema(
+        parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
+    ),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
 )
-class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "compose",
+        "reply",
+        "ai_feedback",
+        "note",
+        "delete_note",
+    ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
+
+    # Which search branch safely_get_queryset applied, for the latency histogram.
+    _search_path: str | None = None
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
         queryset = queryset.select_related("assignment", "assignment__user", "assignment__role", "email_config")
 
-        status_param = self.request.query_params.get("status")
-        if status_param:
-            valid_statuses = [s.value for s in Status]
-            statuses = [s.strip() for s in status_param.split(",") if s.strip() in valid_statuses]
-            if len(statuses) == 1:
-                queryset = queryset.filter(status=statuses[0])
-            elif len(statuses) > 1:
-                queryset = queryset.filter(status__in=statuses)
-
-        priority_param = self.request.query_params.get("priority")
-        if priority_param:
-            valid_priorities = [p.value for p in Priority]
-            priorities = [p.strip() for p in priority_param.split(",") if p.strip() in valid_priorities]
-            if len(priorities) == 1:
-                queryset = queryset.filter(priority=priorities[0])
-            elif len(priorities) > 1:
-                queryset = queryset.filter(priority__in=priorities)
-
-        channel_source = self.request.query_params.get("channel_source")
-        if channel_source and channel_source in [c.value for c in Channel]:
-            queryset = queryset.filter(channel_source=channel_source)
+        filters: dict[str, Any] = {}
+        view_short_id = self.request.query_params.get("view")
+        if view_short_id:
+            filters = self._get_view_filters(view_short_id)
+        # Explicit query params override the saved view's values, so a caller can apply
+        # a view and still narrow it further.
+        filters.update(query_params_to_view_filters(self.request.query_params))
 
         channel_detail = self.request.query_params.get("channel_detail")
         if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
             queryset = queryset.filter(channel_detail=channel_detail)
-
-        assignee_param = self.request.query_params.get("assignee")
-        if assignee_param:
-            user_ids: list[int] = []
-            role_ids: list[uuid.UUID] = []
-            include_unassigned = False
-            for raw_entry in assignee_param.split(",")[:100]:
-                entry = raw_entry.strip()
-                if entry.lower() == "unassigned":
-                    include_unassigned = True
-                elif entry.lower() == "me":
-                    # Dynamic per-viewer token: resolve to the requesting user so a
-                    # shared saved view scoped to "me" means each viewer's own tickets.
-                    if self.request.user and self.request.user.is_authenticated:
-                        user_ids.append(self.request.user.id)
-                elif entry.startswith("user:"):
-                    try:
-                        user_ids.append(int(entry[5:]))
-                    except ValueError:
-                        pass
-                elif entry.startswith("role:"):
-                    try:
-                        role_ids.append(uuid.UUID(entry[5:]))
-                    except (ValueError, AttributeError):
-                        pass
-            assignee_q = Q()
-            if user_ids:
-                assignee_q |= Q(assignment__user_id__in=user_ids)
-            if role_ids:
-                assignee_q |= Q(assignment__role_id__in=role_ids)
-            if include_unassigned:
-                assignee_q |= Q(assignment__isnull=True)
-            if assignee_q:
-                queryset = queryset.filter(assignee_q)
-
-        date_from = self.request.query_params.get("date_from")
-        if date_from and date_from != "all":
-            parsed = relative_date_parse(date_from, self.team.timezone_info)
-            if parsed:
-                queryset = queryset.filter(updated_at__gte=parsed)
-
-        date_to = self.request.query_params.get("date_to")
-        if date_to:
-            parsed = relative_date_parse(date_to, self.team.timezone_info)
-            if parsed:
-                queryset = queryset.filter(updated_at__lte=parsed)
 
         # Related-ticket matching: a ticket belongs to the same customer if it shares one of the
         # person's merged distinct_ids OR the same email address. Email widens the match to tickets
@@ -469,47 +675,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if match_q:
             queryset = queryset.filter(match_q)
 
-        search = self.request.query_params.get("search")
-        if search and len(search) <= 200:
-            # A leading "#" is how ticket numbers are shown in the UI (e.g. "#1234"), so
-            # treat "#1234" the same as "1234" and match the ticket number exactly.
-            # Restrict to ASCII digits: str.isdigit() also accepts characters like "²"
-            # that int() then rejects, which would 500 the request.
-            ticket_number_search = search[1:] if search.startswith("#") else search
-            if ticket_number_search.isascii() and ticket_number_search.isdigit():
-                queryset = queryset.filter(ticket_number=int(ticket_number_search))
-            else:
-                # EXISTS subquery: matches any comment in the ticket's conversation.
-                # Uses the (team_id, scope, item_id) composite index on Comment to
-                # narrow to per-ticket comments; EXISTS short-circuits on first match.
-                # If this becomes slow at scale (10k+ candidate tickets with broad
-                # filters), consider adding a GIN trigram index on Comment.content:
-                #   GinIndex(name="comment_content_trigram", fields=["content"],
-                #            opclasses=["gin_trgm_ops"])
-                comment_match = Comment.objects.filter(
-                    team_id=OuterRef("team_id"),
-                    scope="conversations_ticket",
-                    item_id=Cast(OuterRef("id"), output_field=CharField()),
-                    content__icontains=search,
-                    deleted=False,
-                )
-                queryset = queryset.filter(
-                    Q(anonymous_traits__name__icontains=search)
-                    | Q(anonymous_traits__email__icontains=search)
-                    | Q(email_subject__icontains=search)
-                    | Exists(comment_match)
-                )
-
-        sla_param = self.request.query_params.get("sla")
-        if sla_param:
-            now = timezone.now()
-            if sla_param == "breached":
-                queryset = queryset.filter(sla_due_at__lt=now)
-            elif sla_param == "at-risk":
-                queryset = queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
-            elif sla_param == "on-track":
-                queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
-
         snoozed_param = self.request.query_params.get("snoozed")
         if snoozed_param is not None:
             if snoozed_param.lower() == "true":
@@ -517,74 +682,23 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             elif snoozed_param.lower() == "false":
                 queryset = queryset.filter(snoozed_until__isnull=True)
 
-        tags_param = self.request.query_params.get("tags")
-        if tags_param:
-            try:
-                tags_list = json.loads(tags_param)
-                if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list[:MAX_TAG_FILTER_VALUES]).distinct()
-            except json.JSONDecodeError:
-                pass
+        search = filters.get("search")
+        if search:
+            self._search_path = "ticket_number" if is_ticket_number_search(search) else "text"
 
-        tags_all_param = self.request.query_params.get("tags_all")
-        if tags_all_param:
-            try:
-                tags_all_list = json.loads(tags_all_param)
-                if isinstance(tags_all_list, list) and tags_all_list:
-                    # One filter per tag (not __in) so this is AND: the ticket must carry every tag.
-                    for tag_name in tags_all_list[:MAX_TAG_FILTER_VALUES]:
-                        queryset = queryset.filter(tagged_items__tag__name=tag_name)
-                    queryset = queryset.distinct()
-            except json.JSONDecodeError:
-                pass
+        # Hide tickets the user has been explicitly denied object-level access to (list action only).
+        queryset = self._filter_queryset_by_access_level(queryset)
 
-        tags_exclude_param = self.request.query_params.get("tags_exclude")
-        if tags_exclude_param:
-            try:
-                tags_exclude_list = json.loads(tags_exclude_param)
-                if isinstance(tags_exclude_list, list) and tags_exclude_list:
-                    queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
-            except json.JSONDecodeError:
-                pass
+        user = cast("User", self.request.user) if self.request.user and self.request.user.is_authenticated else None
+        return apply_ticket_filters(queryset, filters, team=self.team, user=user)
 
-        ai_triage_result_param = self.request.query_params.get("ai_triage_result")
-        if ai_triage_result_param:
-            valid_results = {
-                "persisted",
-                "escalated_with_best",
-                "escalated_no_reply",
-                "skipped_unactionable",
-                "blocked_unsafe",
-                "blocked_unsafe_reply",
-                "in_progress",
-            }
-            results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}
-            if results:
-                q = Q()
-                normal_results = results - {"in_progress"}
-                if normal_results:
-                    q |= Q(ai_triage__result__in=normal_results)
-                if "in_progress" in results:
-                    q |= Q(ai_triage__status="in_progress")
-                queryset = queryset.filter(q)
-
-        allowed_orderings = {
-            "updated_at",
-            "-updated_at",
-            "sla_due_at",
-            "-sla_due_at",
-            "snoozed_until",
-            "-snoozed_until",
-            "created_at",
-            "-created_at",
-            "ticket_number",
-            "-ticket_number",
-        }
-        order_by = self.request.query_params.get("order_by", "-updated_at")
-        if order_by not in allowed_orderings:
-            order_by = "-updated_at"
-
-        return queryset.order_by(order_by)
+    def _get_view_filters(self, short_id: str) -> dict[str, Any]:
+        """Resolve a saved ticket view into the canonical filter shape for apply_ticket_filters."""
+        try:
+            view = TicketView.objects.get(team_id=self.team_id, short_id=short_id)
+        except TicketView.DoesNotExist:
+            raise ValidationError({"view": "No saved ticket view matches this short_id."})
+        return parse_stored_view_filters(view.filters)
 
     def safely_get_object(self, queryset):
         """
@@ -675,6 +789,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     @extend_schema(
         parameters=[
             OpenApiParameter(
+                "view",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Apply a saved ticket view's filters by its `short_id` (list views via the "
+                    "`conversations/views` endpoint). Any filter param passed explicitly overrides "
+                    "the view's saved value for that dimension. Returns 400 if no view matches."
+                ),
+            ),
+            OpenApiParameter(
                 "status",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -753,8 +877,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Free-text search. A numeric value matches a ticket number exactly; otherwise matches "
-                    "against the customer's name or email (case-insensitive, partial match)."
+                    "Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number "
+                    "exactly; otherwise matches against the customer's name or email, the email subject, or "
+                    "message content (case-insensitive, partial match)."
                 ),
             ),
             OpenApiParameter(
@@ -786,6 +911,21 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 description='JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.',
             ),
             OpenApiParameter(
+                "ai_triage_result",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Filter by AI triage outcome. Accepts a single value or a comma-separated list. "
+                    f"Valid values: {', '.join(f'`{v}`' for v in AI_TRIAGE_FILTER_VALUES)}."
+                ),
+            ),
+            OpenApiParameter(
+                "snoozed",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.",
+            ),
+            OpenApiParameter(
                 "order_by",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -805,23 +945,35 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     )
     def list(self, request, *args, **kwargs):
         """List tickets with person data attached."""
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
+        # _search_path starts as the class default (None) on each request's fresh
+        # viewset instance; filter_queryset sets it when a search filter is applied.
+        start = time.perf_counter()
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
 
-        if page is not None:
-            self._attach_persons_to_tickets(page)
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            if page is not None:
+                self._attach_persons_to_tickets(page)
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
 
-        tickets = list(queryset)
-        self._attach_persons_to_tickets(tickets)
-        serializer = self.get_serializer(tickets, many=True)
-        return Response(serializer.data)
+            tickets = list(queryset)
+            self._attach_persons_to_tickets(tickets)
+            serializer = self.get_serializer(tickets, many=True)
+            return Response(serializer.data)
+        finally:
+            if self._search_path is not None:
+                TICKET_SEARCH_DURATION_SECONDS.labels(search_path=self._search_path).observe(
+                    time.perf_counter() - start
+                )
 
     def retrieve(self, request, *args, **kwargs):
         """Get single ticket and mark as read by team."""
         instance = self.get_object()
-        if instance.unread_team_count > 0:
+        # Marking as read is a write to shared team state - gate it by editor access so a
+        # viewer can't clear the team's unread indicator just by opening a ticket.
+        can_edit = self.user_access_control.check_access_level_for_object(instance, required_level="editor")
+        if can_edit and instance.unread_team_count > 0:
             instance.unread_team_count = 0
             instance.save(update_fields=["unread_team_count"])
             # Invalidate cache since unread count changed
@@ -835,11 +987,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             report_user_action(
                 request.user,
                 "support ticket viewed",
-                {
-                    "channel_source": instance.channel_source,
-                    "ticket_status": instance.status,
-                    "is_assigned": getattr(instance, "assignment", None) is not None,
-                },
+                _ticket_action_properties(instance),
                 team=self.team,
                 request=request,
             )
@@ -853,158 +1001,135 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         """Handle ticket updates including assignee changes."""
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
-        old_status = instance.status
-        old_priority = instance.priority
-        old_sla_due_at = instance.sla_due_at
-        old_snoozed_until = instance.snoozed_until
+        before = _TicketFields.read_from(instance)
 
-        # Extract assignee without mutating request.data
-        assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
-        data = {k: v for k, v in request.data.items() if k != "assignee"}
-
-        # Update other fields normally
-        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer = TicketUpdateRequestSerializer(
+            instance,
+            data=request.data,
+            partial=partial,
+            context=self.get_serializer_context(),
+        )
         serializer.is_valid(raise_exception=True)
 
-        explicit_status = "status" in data
-        with transaction.atomic():
-            self.perform_update(serializer)
+        assignee_submitted = "assignee" in serializer.validated_data
+        validated_assignee = serializer.validated_data.get("assignee")
+        if assignee_submitted:
+            validate_assignee_membership(validated_assignee, self.organization)
 
-            # Auto-status on snooze transitions (only when user didn't explicitly set status)
-            new_snoozed_until = instance.snoozed_until
-            snooze_changed = old_snoozed_until != new_snoozed_until
-            if snooze_changed and not explicit_status:
-                if old_snoozed_until is None and new_snoozed_until is not None:
-                    instance.status = Status.ON_HOLD
-                    instance.save(update_fields=["status"])
-                elif old_snoozed_until is not None and new_snoozed_until is None:
-                    instance.status = Status.OPEN
-                    instance.save(update_fields=["status"])
+        self._save_ticket_fields(
+            serializer,
+            instance,
+            before,
+            explicit_status="status" in serializer.validated_data,
+        )
 
-        # Handle assignee update if provided (not ... sentinel)
-        if assignee is not ...:
-            assign_ticket(
+        if assignee_submitted:
+            _assign_ticket(
                 instance,
-                assignee,
+                validated_assignee,
                 self.organization,
                 request.user,
                 self.team_id,
                 is_impersonated(request),
             )
-            # Refresh instance to get updated assignment
             instance.refresh_from_db()
 
-        # Invalidate unread count cache if status changed to/from resolved
-        new_status = instance.status
-        if old_status != new_status and (old_status == "resolved" or new_status == "resolved"):
+        diff = _TicketUpdateDiff(
+            before=before,
+            after=_TicketFields.read_from(instance),
+            assignee_submitted=assignee_submitted,
+        )
+        self._emit_update_side_effects(request, instance, diff)
+
+        # Re-serialize to include updated assignee
+        response_serializer = self.get_serializer(instance)
+        return Response(response_serializer.data)
+
+    def _save_ticket_fields(
+        self,
+        serializer: serializers.BaseSerializer,
+        instance: Ticket,
+        before: _TicketFields,
+        *,
+        explicit_status: bool,
+    ) -> None:
+        """Persist the submitted fields, then apply the status a snooze change implies.
+
+        A status in the same request wins over the implied one, so a caller can snooze a
+        ticket and keep it pending.
+        """
+        with transaction.atomic():
+            self.perform_update(serializer)
+
+            implied_status = _status_implied_by_snooze(before.snoozed_until, instance.snoozed_until)
+            if implied_status is not None and not explicit_status:
+                instance.status = implied_status
+                instance.save(update_fields=["status"])
+
+    def _emit_update_side_effects(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
+        if diff.crosses_resolved:
             invalidate_unread_count_cache(self.team_id)
 
-        # Emit analytics events for workflow triggers
-        new_priority = instance.priority
-        new_sla_due_at = instance.sla_due_at
-        status_changed = old_status != new_status
-        priority_changed = old_priority != new_priority
-        sla_changed = old_sla_due_at != new_sla_due_at
-        assignee_changed = assignee is not ...
+        self._capture_update_events(request, instance, diff)
+        self._log_update_activity(request, instance, diff)
 
+        if diff.has_changes:
+            self._report_ticket_updated(request, instance)
+
+    def _capture_update_events(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
+        """Emit the analytics events that workflow triggers listen for."""
         try:
-            if status_changed:
-                capture_ticket_status_changed(instance, old_status, new_status, actor=request.user, actor_type="user")
+            if diff.status_changed:
+                capture_ticket_status_changed(
+                    instance, diff.before.status, diff.after.status, actor=request.user, actor_type="user"
+                )
 
-            if priority_changed:
+            if diff.priority_changed:
                 capture_ticket_priority_changed(
-                    instance, old_priority, new_priority, actor=request.user, actor_type="user"
+                    instance, diff.before.priority, diff.after.priority, actor=request.user, actor_type="user"
                 )
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
-        # Log all field changes to activity log
-        changes: list[Change] = []
-        if status_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="status",
-                    before=old_status,
-                    after=new_status,
-                    action="changed",
-                )
-            )
-        if priority_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="priority",
-                    before=old_priority,
-                    after=new_priority,
-                    action="changed",
-                )
-            )
-        if sla_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="sla_due_at",
-                    before=old_sla_due_at.isoformat() if old_sla_due_at else None,
-                    after=new_sla_due_at.isoformat() if new_sla_due_at else None,
-                    action="changed",
-                )
-            )
-        if snooze_changed:
-            changes.append(
-                Change(
-                    type="Ticket",
-                    field="snoozed_until",
-                    before=old_snoozed_until.isoformat() if old_snoozed_until else None,
-                    after=new_snoozed_until.isoformat() if new_snoozed_until else None,
-                    action="changed",
-                )
-            )
+    def _log_update_activity(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
+        changes = diff.activity_changes()
+        if not changes:
+            return
 
-        if changes:
-            try:
-                log_activity(
-                    organization_id=self.organization.id,
-                    team_id=self.team_id,
-                    user=request.user,
-                    was_impersonated=is_impersonated(request),
-                    item_id=str(instance.id),
-                    scope="Ticket",
-                    activity="updated",
-                    detail=Detail(
-                        name=f"Ticket #{instance.ticket_number}",
-                        changes=changes,
-                    ),
-                )
-            except Exception as e:
-                capture_exception(e, {"ticket_id": str(instance.id)})
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(instance.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{instance.ticket_number}",
+                    changes=changes,
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
 
-        # Track internal analytics
-        if status_changed or priority_changed or assignee_changed or sla_changed or snooze_changed:
-            try:
-                report_user_action(
-                    request.user,
-                    "support ticket updated",
-                    {
-                        "channel_source": instance.channel_source,
-                        "ticket_status": instance.status,
-                        "is_assigned": getattr(instance, "assignment", None) is not None,
-                    },
-                    team=self.team,
-                    request=request,
-                )
-            except Exception as e:
-                capture_exception(e, {"ticket_id": str(instance.id)})
-
-        # Re-serialize to include updated assignee
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+    def _report_ticket_updated(self, request, instance: Ticket) -> None:
+        try:
+            report_user_action(
+                request.user,
+                "support ticket updated",
+                _ticket_action_properties(instance),
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
 
     def _emit_status_change_side_effects(self, request, ticket: Ticket, old_status: str, new_status: str) -> None:
         """Emit analytics + activity log for a single ticket status change.
 
-        Called from both ``update()`` and ``bulk_update_status()`` to keep
-        event-tracking logic in one place.
+        Used by ``bulk_update_status()``. Single-ticket updates log every changed
+        field in one entry, so they build their own activity log entry instead.
         """
         try:
             capture_ticket_status_changed(ticket, old_status, new_status, actor=request.user, actor_type="user")
@@ -1045,7 +1170,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         """Update the status of multiple tickets in a single request.
 
         Only tickets belonging to the current team are affected; other-team UUIDs
-        are silently ignored.  Tickets already in the requested status are skipped.
+        are silently ignored. Tickets the caller lacks editor-level access to (denied
+        or view-only via object-level access control) are silently skipped too, the
+        same way single-ticket updates enforce object-level access via get_object().
+        Tickets already in the requested status are skipped.
         """
         serializer = BulkUpdateStatusRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1055,6 +1183,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         changed: list[tuple[Ticket, str]] = []
         with transaction.atomic():
             tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            self.user_access_control.preload_object_access_controls(tickets)
+            tickets = [
+                ticket
+                for ticket in tickets
+                if self.user_access_control.check_access_level_for_object(ticket, required_level="editor")
+            ]
             for ticket in tickets:
                 old_status = ticket.status
                 if old_status == new_status:
@@ -1091,8 +1225,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         """
         Get total unread ticket count for the team.
 
-        Returns the sum of unread_team_count for all non-resolved tickets.
-        Cached in Redis for 30 seconds, invalidated on changes.
+        Returns the sum of unread_team_count for all non-resolved tickets visible to the
+        caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
+        callers without object-level ticket restrictions, since it holds one unscoped total
+        per team - serving it to a restricted member would leak counts for tickets they can't
+        see.
         """
         team_id = self.team_id
 
@@ -1100,22 +1237,23 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if not self.team.conversations_enabled:
             return Response({"count": 0})
 
-        # Try cache first
-        cached_count = get_cached_unread_count(team_id)
-        if cached_count is not None:
-            return Response({"count": cached_count})
+        uac = self.user_access_control
+        is_restricted = bool(uac.blocked_resource_ids_by_scope.get("ticket")) or not uac.has_resource_access("ticket")
+
+        if not is_restricted:
+            cached_count = get_cached_unread_count(team_id)
+            if cached_count is not None:
+                return Response({"count": cached_count})
 
         # Query database - only non-resolved tickets with unread messages
-        result = (
-            Ticket.objects.filter(team_id=team_id)
-            .exclude(status="resolved")
-            .filter(unread_team_count__gt=0)
-            .aggregate(total=Sum("unread_team_count"))
-        )
-        count = result["total"] or 0
+        queryset = Ticket.objects.filter(team_id=team_id).exclude(status="resolved").filter(unread_team_count__gt=0)
+        if is_restricted:
+            queryset = uac.filter_queryset_by_access_level(queryset)
 
-        # Cache the result
-        set_cached_unread_count(team_id, count)
+        count = queryset.aggregate(total=Sum("unread_team_count"))["total"] or 0
+
+        if not is_restricted:
+            set_cached_unread_count(team_id, count)
 
         return Response({"count": count})
 
@@ -1184,14 +1322,76 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             "author_type": author_type,
             "author_name": author_name,
             "is_private": item_context.get("is_private") is True,
+            "version": comment.version,
             "created_at": comment.created_at,
         }
+
+    def _get_editable_private_note(
+        self, ticket: Ticket, message_id: str, *, action: str
+    ) -> tuple[Comment | None, Response | None]:
+        """Look up a private note the caller may edit/delete, or return an error response.
+
+        `action` is the present-tense verb ("edit" / "delete") used in author-facing errors.
+        """
+        action_participle = {"edit": "edited", "delete": "deleted"}[action]
+
+        try:
+            uuid.UUID(str(message_id))
+        except (ValueError, TypeError, AttributeError):
+            return None, Response(
+                {"detail": "Note not found.", "error_type": "note_not_found"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            comment = Comment.objects.get(
+                id=message_id,
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                deleted=False,
+            )
+        except Comment.DoesNotExist:
+            return None, Response(
+                {"detail": "Note not found.", "error_type": "note_not_found"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        item_context = comment.item_context or {}
+        if item_context.get("is_private") is not True:
+            return None, Response(
+                {"detail": f"Only private notes can be {action_participle}.", "error_type": "not_private_note"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        if comment.created_by_id != self.request.user.id:
+            return None, Response(
+                {
+                    "detail": f"You can only {action} your own private notes.",
+                    "error_type": "not_note_author",
+                },
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
+        return comment, None
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],
         request=TicketReplyRequestSerializer,
         responses={
+            200: OpenApiResponse(
+                response=TicketMessageSerializer,
+                description=(
+                    "An identical message was already posted by a recent request. The original "
+                    "message is returned and nothing new is written."
+                ),
+            ),
             201: OpenApiResponse(response=TicketMessageSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(
+                response=TicketErrorSerializer,
+                description="An identical message is still being created by another request.",
+            ),
         },
     )
     @action(
@@ -1206,6 +1406,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         With is_private=false, the reply is delivered to the customer via the
         ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
         the message is stored as an internal note only visible to team members.
+
+        Retrying an identical message from the same author within a short window returns the
+        original message with a 200 rather than posting it twice, and a 409 while a concurrent
+        request is still creating it.
         """
         ticket = self.get_object()
 
@@ -1219,22 +1423,147 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        is_private = data["is_private"]
+        item_context = {"author_type": "support", "is_private": data["is_private"]}
 
-        comment = Comment.objects.create(
-            team=self.team,
-            created_by=request.user,
+        def create_comment() -> Comment:
+            return Comment.objects.create(
+                team=self.team,
+                created_by=request.user,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=data["message"],
+                rich_content=data.get("rich_content"),
+                item_context=item_context,
+            )
+
+        fingerprint = reply_dedupe.ReplyFingerprint.build(
+            team_id=self.team_id,
+            created_by_id=request.user.id,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=data["message"],
             rich_content=data.get("rich_content"),
-            item_context={"author_type": "support", "is_private": is_private},
+            item_context=item_context,
+        )
+        if fingerprint is None:
+            return self._reply_response(create_comment(), ticket, created=True)
+
+        guarded = reply_dedupe.create_deduplicated(fingerprint, create_comment)
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.REPLY_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.REPLY_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
+        return self._reply_response(
+            cast(Comment, guarded.comment), ticket, created=guarded.outcome is reply_dedupe.CreateOutcome.CREATED
         )
 
+    def _reply_response(self, comment: Comment, ticket: Ticket, *, created: bool) -> Response:
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
-            status=drf_status.HTTP_201_CREATED,
+            status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
         )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM, NOTE_MESSAGE_ID_PARAM],
+        request=TicketNoteUpdateRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TicketMessageSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            403: OpenApiResponse(response=TicketErrorSerializer),
+            404: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path=r"notes/(?P<message_id>[^/.]+)",
+        pagination_class=None,
+    )
+    def note(self, request, message_id: str | None = None, *args, **kwargs):
+        """Update a private note on a ticket.
+
+        Only the note's author can edit it. Customer-facing replies cannot be
+        edited (outbound delivery only runs on create).
+        """
+        ticket = self.get_object()
+        comment, error = self._get_editable_private_note(ticket, message_id or "", action="edit")
+        if error is not None:
+            return error
+        assert comment is not None
+
+        serializer = TicketNoteUpdateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        with transaction.atomic():
+            locked = Comment.objects.select_for_update().get(pk=comment.pk)
+            if locked.deleted:
+                return Response(
+                    {"detail": "Note not found.", "error_type": "note_not_found"},
+                    status=drf_status.HTTP_404_NOT_FOUND,
+                )
+            if locked.created_by_id != request.user.id:
+                return Response(
+                    {
+                        "detail": "You can only edit your own private notes.",
+                        "error_type": "not_note_author",
+                    },
+                    status=drf_status.HTTP_403_FORBIDDEN,
+                )
+            locked.content = data["message"]
+            # Always write rich_content: omitting it clears stale TipTap JSON so markdown-only
+            # MCP/API edits don't keep rendering the previous note body.
+            locked.rich_content = data.get("rich_content")
+            locked.version = locked.version + 1
+            locked.save(update_fields=["content", "rich_content", "version"])
+
+        return Response(TicketMessageSerializer(self._serialize_message(locked, ticket)).data)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM, NOTE_MESSAGE_ID_PARAM],
+        responses={
+            204: OpenApiResponse(description="Note soft-deleted."),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            403: OpenApiResponse(response=TicketErrorSerializer),
+            404: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @note.mapping.delete
+    def delete_note(self, request, message_id: str | None = None, *args, **kwargs):
+        """Soft-delete a private note on a ticket.
+
+        Only the note's author can delete it. Customer-facing replies cannot be
+        deleted via this endpoint.
+        """
+        ticket = self.get_object()
+        comment, error = self._get_editable_private_note(ticket, message_id or "", action="delete")
+        if error is not None:
+            return error
+        assert comment is not None
+
+        with transaction.atomic():
+            locked = Comment.objects.select_for_update().get(pk=comment.pk)
+            if locked.deleted:
+                return Response(
+                    {"detail": "Note not found.", "error_type": "note_not_found"},
+                    status=drf_status.HTTP_404_NOT_FOUND,
+                )
+            if locked.created_by_id != request.user.id:
+                return Response(
+                    {
+                        "detail": "You can only delete your own private notes.",
+                        "error_type": "not_note_author",
+                    },
+                    status=drf_status.HTTP_403_FORBIDDEN,
+                )
+            locked.deleted = True
+            locked.save(update_fields=["deleted"])
+
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],
@@ -1320,6 +1649,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         email_config = EmailChannel.objects.filter(
             id=data["email_config_id"],
             team=team,
+            kind=EmailChannelKind.SUPPORT,
             domain_verified=True,
         ).first()
         if not email_config:
@@ -1358,8 +1688,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 status=Status.OPEN,
                 widget_session_id=str(uuid.uuid4()),
                 email_config=email_config,
-                email_from=data["recipient_email"],
+                email_from=recipient_email,
                 email_subject=data.get("email_subject", ""),
+                # Ticket search, the person display and restore-by-email all read the
+                # customer's address from traits, so outbound tickets must carry it too.
+                anonymous_traits={"email": recipient_email},
                 # The recipient hasn't proven control of this address — a team member just typed it —
                 # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
                 identity_verified=None,
@@ -1374,6 +1707,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 rich_content=data.get("rich_content"),
                 item_context={"author_type": "human", "is_private": False},
             )
+
+            if data.get("tags"):
+                set_tags_on_object(data["tags"], ticket)
 
         try:
             report_user_action(
@@ -1392,10 +1728,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         )
 
 
-def validate_assignee(assignee) -> None:
+def validate_assignee(assignee: object) -> TicketAssignee | None:
     """Validate assignee payload structure."""
     if assignee is None:
-        return
+        return None
     if not isinstance(assignee, dict):
         raise serializers.ValidationError({"assignee": "must be an object"})
     if "type" not in assignee or "id" not in assignee:
@@ -1412,8 +1748,10 @@ def validate_assignee(assignee) -> None:
         except (ValueError, AttributeError):
             raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
 
+    return cast(TicketAssignee, assignee)
 
-def validate_assignee_membership(assignee, organization) -> None:
+
+def validate_assignee_membership(assignee: TicketAssignee | None, organization: Organization) -> None:
     """Validate that the assignee belongs to the organization."""
     if assignee is None:
         return
@@ -1427,8 +1765,14 @@ def validate_assignee_membership(assignee, organization) -> None:
 
 
 def assign_ticket(
-    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
-):
+    ticket: Ticket,
+    assignee: object,
+    organization: Organization,
+    user: User | None,
+    team_id: int,
+    was_impersonated: bool,
+    trigger: Trigger | None = None,
+) -> None:
     """
     Assign a ticket to a user or role.
 
@@ -1441,9 +1785,20 @@ def assign_ticket(
         was_impersonated: Whether the session is impersonated
         trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
-    validate_assignee(assignee)
-    validate_assignee_membership(assignee, organization)
+    validated_assignee = validate_assignee(assignee)
+    validate_assignee_membership(validated_assignee, organization)
+    _assign_ticket(ticket, validated_assignee, organization, user, team_id, was_impersonated, trigger)
 
+
+def _assign_ticket(
+    ticket: Ticket,
+    assignee: TicketAssignee | None,
+    organization: Organization,
+    user: User | None,
+    team_id: int,
+    was_impersonated: bool,
+    trigger: Trigger | None = None,
+) -> None:
     with transaction.atomic():
         # Lock the ticket to prevent concurrent modifications
         Ticket.objects.select_for_update().get(id=ticket.id, team_id=team_id)

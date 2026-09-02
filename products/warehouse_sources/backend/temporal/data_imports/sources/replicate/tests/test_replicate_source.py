@@ -2,11 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.replicate import ReplicateResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.source import ReplicateSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "r8_test") -> MagicMock:
@@ -16,16 +12,6 @@ def _config(api_key: str = "r8_test") -> MagicMock:
 
 
 class TestReplicateSource:
-    def test_source_type(self) -> None:
-        assert ReplicateSource().source_type == ExternalDataSourceType.REPLICATE
-
-    def test_source_config_has_password_api_key_field(self) -> None:
-        config = ReplicateSource().get_source_config
-        api_key_field = next(f for f in config.fields if getattr(f, "name", None) == "api_key")
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type.value == "password"
-        assert api_key_field.required is True
-
     @parameterized.expand(
         [
             # (endpoint, supports_incremental, should_sync_default, primary_keys)
@@ -85,11 +71,6 @@ class TestReplicateSource:
     def test_non_retryable_errors(self, _name: str, observed: str, is_non_retryable: bool) -> None:
         keys = ReplicateSource().get_non_retryable_errors()
         assert any(k in observed for k in keys) is is_non_retryable
-
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = ReplicateSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is ReplicateResumeConfig
 
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         # When should_use_incremental_field is False the last-value must not leak into the request,

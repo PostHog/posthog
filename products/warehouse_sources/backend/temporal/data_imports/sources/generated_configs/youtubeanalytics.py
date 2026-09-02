@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class YouTubeAnalyticsSourceConfig(config.Config):
-    pass
+    channel_id: str
+    youtube_analytics_integration_id: int = config.value(converter=config.str_to_int)
+    start_date: str | None = None

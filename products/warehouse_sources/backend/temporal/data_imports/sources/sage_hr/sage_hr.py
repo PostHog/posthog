@@ -9,9 +9,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.settings import (
     SAGE_HR_ENDPOINTS,
     SageHREndpointConfig,
@@ -120,10 +121,10 @@ def _fetch_page(
     return payload["data"], _extract_next_page(payload)
 
 
-def _leave_window_range() -> tuple[date, date]:
+def _leave_window_range() -> SyncWindow[date]:
     """Full date range the leave_requests sync covers: account prehistory through future bookings."""
     today = datetime.now(UTC).date()
-    return date.fromisoformat(LEAVE_WINDOW_START), today + timedelta(days=LEAVE_FUTURE_DAYS)
+    return SyncWindow(start=date.fromisoformat(LEAVE_WINDOW_START), end=today + timedelta(days=LEAVE_FUTURE_DAYS))
 
 
 def _iter_windows(start: date, end: date) -> Iterator[tuple[date, date]]:
@@ -142,7 +143,7 @@ def _get_windowed_rows(
     resumable_source_manager: ResumableSourceManager[SageHRResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    start, end = _leave_window_range()
+    window = _leave_window_range()
     resume_from = date.fromisoformat(resume.window_from) if resume and resume.window_from else None
     # The docs don't state whether `from`/`to` match on overlap or containment, so a request spanning
     # a window boundary may come back from both windows. Full-refresh batches append without merging,
@@ -150,7 +151,7 @@ def _get_windowed_rows(
     # boundary duplicate then persists until the next successful full sync replaces the table.)
     seen_ids: set[Any] = set()
 
-    for window_start, window_end in _iter_windows(start, end):
+    for window_start, window_end in _iter_windows(window.start, window.end):
         if resume_from is not None and window_start < resume_from:
             continue
 
@@ -189,7 +190,7 @@ def _get_windowed_rows(
         # Window exhausted — everything up to it has been yielded, so a resume can skip straight to
         # the next window.
         next_window_start = window_end + timedelta(days=1)
-        if next_window_start <= end:
+        if next_window_start <= window.end:
             resumable_source_manager.save_state(
                 SageHRResumeConfig(next_page=1, window_from=next_window_start.isoformat())
             )

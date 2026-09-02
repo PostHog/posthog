@@ -13,6 +13,7 @@ import {
 import type { BreakPointFunction } from 'kea'
 import { urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -76,18 +77,11 @@ import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
-
-function normalizeItemId(itemId: string | undefined): string | number | null {
-    if (itemId === undefined) {
+function normalizeItemId(itemId: string | undefined): number | null {
+    if (!itemId) {
         return null
     }
-    if (itemId === 'new' || itemId.startsWith('new-')) {
-        return 'new'
-    }
-    if (Number.isInteger(+itemId)) {
-        return parseInt(itemId, 10)
-    }
-    return itemId
+    return Number(itemId) || null
 }
 
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
@@ -154,7 +148,8 @@ export interface insightSceneLogicValues {
               props?: InsightLogicProps<QuerySchema> | undefined
           ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>>)
         | undefined
-    itemId: number | string | null
+    isNewSubscription: boolean
+    itemId: number | null
     maxContext: MaxContextInput[]
     projectTreeRef: ProjectTreeRef
     sceneSource: InsightSceneSource | null
@@ -381,9 +376,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         itemId: [
-            null as null | string | number,
+            null as number | null,
             {
                 setSceneState: (_, { itemId }) => normalizeItemId(itemId),
+            },
+        ],
+        isNewSubscription: [
+            false,
+            {
+                setSceneState: (_, { insightMode, itemId }) =>
+                    insightMode === ItemMode.Subscriptions && itemId === 'new',
             },
         ],
         alertId: [
@@ -698,7 +700,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: [
             sharedListeners.reloadInsightLogic,
-            ({ sceneSource }) => {
+            ({ insightId, insightMode, alertId, sceneSource }) => {
+                if (insightMode === ItemMode.Alerts && !alertId) {
+                    posthog.capture('insight alert modal opened', { insight_short_id: insightId })
+                }
                 // Only open here when the scene panel already exists; otherwise Info isn't in
                 // `enabledTabs` yet and SidePanel's fallback reroutes to Max. The fresh-navigation
                 // case is handled by the `setScenePanelIsPresent` listener below.
@@ -713,6 +718,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
         upgradeQuery: async ({ query }) => {
+            // Capture the target insight before the await — a navigation while the upgrade request
+            // is in flight remounts insightLogicRef/insightDataLogicRef for the new insight, and
+            // applying the old URL's query to them would leak it onto the wrong insight.
+            const insightIdAtStart = values.insightId
+            const insightLogicRefAtStart = values.insightLogicRef
+            const insightDataLogicRefAtStart = values.insightDataLogicRef
+
             let upgradedQuery: Node | null = null
 
             if (!checkLatestVersionsOnQuery(query)) {
@@ -723,6 +735,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
+
+            if (
+                values.insightId !== insightIdAtStart ||
+                values.insightLogicRef !== insightLogicRefAtStart ||
+                values.insightDataLogicRef !== insightDataLogicRefAtStart
+            ) {
+                return
+            }
 
             if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
                 values.insightLogicRef?.logic.actions.setInsight(
@@ -737,7 +757,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     }
                 )
             } else {
-                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
+                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery, true)
             }
         },
     })),
@@ -816,7 +836,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 method === 'PUSH' ||
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                (itemId ?? null) !== values.itemId ||
+                normalizeItemId(itemId) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
                 !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
@@ -883,6 +903,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     }
 
                     eventUsageLogic.actions.reportInsightStarted(query)
+                } else {
+                    // queryFromUrl can also come from the insightType hash param (above), so only
+                    // treat it as a shared link's query when q itself is present.
+                    const sharedQueryFromUrl = q ? queryFromUrl : null
+                    if (sharedQueryFromUrl) {
+                        // In-app navigation to a shared link — the saved insight loads fresh, so the
+                        // query the link carries has to be applied on top of it.
+                        actions.upgradeQuery(sharedQueryFromUrl)
+                    }
                 }
             }
         },

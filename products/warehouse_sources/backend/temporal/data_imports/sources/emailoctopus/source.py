@@ -9,17 +9,18 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.emailoctopus import (
     EmailOctopusResumeConfig,
     emailoctopus_source,
@@ -44,6 +45,10 @@ class EmailOctopusSource(ResumableSource[EmailOctopusSourceConfig, EmailOctopusR
     supported_versions = ("v1", "v2")
     default_version = "v2"
     api_docs_url = "https://emailoctopus.com/api-documentation"
+    # The vendor has retired v1 without announcing a sunset date, so `sunset_at` is None. This
+    # drives the generic in-product deprecation banner. Existing v1 pins are left in place: they
+    # already reach the live API, so nothing stops working and the user repins when convenient.
+    deprecated_versions = (VersionDeprecation(version="v1"),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

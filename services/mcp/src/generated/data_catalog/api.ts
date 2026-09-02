@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
  */
-export const DataCatalogCertificationsCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogCertificationsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,20 +19,29 @@ export const DataCatalogCertificationsCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
+export const dataCatalogCertificationsCreateBodyProposedStatusDefault = `certified`
+
+export const DataCatalogCertificationsCreateBody = () => zod
     .object({
         table_id: zod.string().optional().describe('Warehouse table id to certify (XOR the other targets).'),
         saved_query_id: zod.string().optional().describe('Warehouse view (saved query) id to certify.'),
-        table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
-        view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
+        table_name: zod.string().optional().describe('Queryable HogQL table name; 409 with candidates if ambiguous.'),
+        view_name: zod.string().optional().describe('Queryable HogQL view name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
+        proposed_status: zod
+            .enum(['certified', 'deprecated'])
+            .describe('\* `certified` - certified\n\* `deprecated` - deprecated')
+            .default(dataCatalogCertificationsCreateBodyProposedStatusDefault)
+            .describe(
+                "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n\* `certified` - certified\n\* `deprecated` - deprecated"
+            ),
     })
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
 
 /**
  * Mark the target as certified (prefer this source).
  */
-export const DataCatalogCertificationsCertifyCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogCertificationsCertifyCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this table certification.'),
     project_id: zod
         .string()
@@ -44,7 +53,7 @@ export const DataCatalogCertificationsCertifyCreateParams = /* @__PURE__ */ zod.
 /**
  * Mark the target as deprecated (avoid this source).
  */
-export const DataCatalogCertificationsDeprecateCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogCertificationsDeprecateCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this table certification.'),
     project_id: zod
         .string()
@@ -56,7 +65,7 @@ export const DataCatalogCertificationsDeprecateCreateParams = /* @__PURE__ */ zo
 /**
  * Create a metric, or refine the one already holding this name for the team.
  */
-export const DataCatalogMetricsCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -69,6 +78,8 @@ export const dataCatalogMetricsCreateBodyNameMax = 128
 export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsCreateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsCreateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsCreateBodyUnitMax = 64
 
 export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
@@ -78,18 +89,25 @@ export const dataCatalogMetricsCreateBodyAiModelMax = 128
 export const dataCatalogMetricsCreateBodyConfidenceMin = 0
 export const dataCatalogMetricsCreateBodyConfidenceMax = 1
 
-export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsCreateBody = () => zod.object({
     name: zod
         .string()
         .max(dataCatalogMetricsCreateBodyNameMax)
         .regex(dataCatalogMetricsCreateBodyNameRegExp)
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsCreateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsCreateBodyDescriptionMax)
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsCreateBodyUnitMax)
@@ -121,9 +139,9 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
-export const DataCatalogMetricsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsPartialUpdateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -137,6 +155,8 @@ export const dataCatalogMetricsPartialUpdateBodyNameMax = 128
 export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsPartialUpdateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsPartialUpdateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
@@ -146,19 +166,27 @@ export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
 export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
 export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
 
-export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyNameMax)
         .regex(dataCatalogMetricsPartialUpdateBodyNameRegExp)
         .optional()
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().optional().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
@@ -192,7 +220,7 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Bless a metric as canonical. Returns 409 while the metric is drifted from its insight.
  */
-export const DataCatalogMetricsApproveCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsApproveCreateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -204,7 +232,7 @@ export const DataCatalogMetricsApproveCreateParams = /* @__PURE__ */ zod.object(
 /**
  * Re-snapshot the linked insight's current query into the definition.
  */
-export const DataCatalogMetricsRefreshFromInsightCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsRefreshFromInsightCreateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -216,7 +244,7 @@ export const DataCatalogMetricsRefreshFromInsightCreateParams = /* @__PURE__ */ 
 /**
  * Execute the metric's definition and return the normalized result envelope.
  */
-export const DataCatalogMetricsRunCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsRunCreateParams = () => zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -225,7 +253,7 @@ export const DataCatalogMetricsRunCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DataCatalogMetricsRunCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DataCatalogMetricsRunCreateQueryParams = () => zod.object({
     refresh: zod
         .enum(['blocking', 'async', 'lazy_async', 'force_blocking', 'force_async', 'force_cache'])
         .optional()
@@ -234,7 +262,7 @@ export const DataCatalogMetricsRunCreateQueryParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
+export const DataCatalogMetricsRunCreateBody = () => zod
     .object({
         date_from: zod
             .string()
@@ -259,7 +287,7 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
 /**
  * Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist.
  */
-export const DataCatalogRelationshipProposalsCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogRelationshipProposalsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -280,7 +308,7 @@ export const dataCatalogRelationshipProposalsCreateBodyFieldNameMax = 400
 export const dataCatalogRelationshipProposalsCreateBodyConfidenceMin = 0
 export const dataCatalogRelationshipProposalsCreateBodyConfidenceMax = 1
 
-export const DataCatalogRelationshipProposalsCreateBody = /* @__PURE__ */ zod.object({
+export const DataCatalogRelationshipProposalsCreateBody = () => zod.object({
     source_table_name: zod
         .string()
         .max(dataCatalogRelationshipProposalsCreateBodySourceTableNameMax)
@@ -315,7 +343,7 @@ export const DataCatalogRelationshipProposalsCreateBody = /* @__PURE__ */ zod.ob
 /**
  * Promote the proposal to a real warehouse join after re-validating and probing it.
  */
-export const DataCatalogRelationshipProposalsAcceptCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogRelationshipProposalsAcceptCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this relationship proposal.'),
     project_id: zod
         .string()
@@ -327,7 +355,7 @@ export const DataCatalogRelationshipProposalsAcceptCreateParams = /* @__PURE__ *
 /**
  * Reject the proposal. Persists forever so the pair is never re-proposed.
  */
-export const DataCatalogRelationshipProposalsRejectCreateParams = /* @__PURE__ */ zod.object({
+export const DataCatalogRelationshipProposalsRejectCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this relationship proposal.'),
     project_id: zod
         .string()
@@ -336,7 +364,7 @@ export const DataCatalogRelationshipProposalsRejectCreateParams = /* @__PURE__ *
         ),
 })
 
-export const DataCatalogRelationshipProposalsRejectCreateBody = /* @__PURE__ */ zod.object({
+export const DataCatalogRelationshipProposalsRejectCreateBody = () => zod.object({
     rejection_reason: zod
         .string()
         .optional()

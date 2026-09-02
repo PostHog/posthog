@@ -2,6 +2,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 
@@ -13,10 +14,27 @@ class TestInstanceStatus(APIBaseTest):
             self.client.get("/api/instance_status/navigation").status_code,
             status.HTTP_200_OK,
         )
+
+        self.user.is_staff = True
+        self.user.save()
         self.assertEqual(
             self.client.get("/api/instance_status/queries").status_code,
             status.HTTP_200_OK,
         )
+
+    @parameterized.expand([("non_staff", False, status.HTTP_403_FORBIDDEN), ("staff", True, status.HTTP_200_OK)])
+    @patch("posthog.clickhouse.system_status.get_clickhouse_slow_log", return_value=[])
+    @patch("posthog.clickhouse.system_status.get_clickhouse_running_queries", return_value=[])
+    def test_queries_requires_staff_off_cloud(self, _name, is_staff, expected_status, *_mocks):
+        # Running queries expose other teams' filter literals, so being logged in on a
+        # self-hosted instance is not enough to read them.
+        self.user.is_staff = is_staff
+        self.user.save()
+
+        with self.is_cloud(False):
+            response = self.client.get("/api/instance_status/queries")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_object_storage_when_disabled(self):
         with self.settings(OBJECT_STORAGE_ENABLED=False):

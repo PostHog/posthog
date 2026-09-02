@@ -17,6 +17,32 @@ export type APIScope = {
     unprivilegedExcluded?: boolean
 }
 
+/** Fields a scope search matches against. `label` covers rows that show a name outside `objectName`. */
+export type ScopeSearchFields = {
+    key?: string
+    objectName?: string
+    objectPlural?: string
+    label?: string
+    info?: string | JSX.Element
+}
+
+/**
+ * Shared scope-search matcher for every scope picker. It splits the term into tokens and requires
+ * each token to appear in the scope's key, names, or info text, so a multi-word or plural search
+ * still matches the label the row shows. Keep all pickers on this one matcher so they can't drift.
+ */
+export function scopeMatchesSearch(scope: ScopeSearchFields, searchTerm: string): boolean {
+    const tokens = searchTerm.toLowerCase().trim().split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) {
+        return true
+    }
+    const haystack = [scope.key, scope.objectName, scope.objectPlural, scope.label, scope.info]
+        .filter((field): field is string => typeof field === 'string')
+        .join(' ')
+        .toLowerCase()
+    return tokens.every((token) => haystack.includes(token))
+}
+
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
 // early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
@@ -32,19 +58,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
     { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
-    { key: 'agents', objectName: 'Agent', objectPlural: 'agents' },
-    {
-        key: 'agent_approvals',
-        objectName: 'Agent approval',
-        objectPlural: 'agent approvals',
-        info: 'Grants the ability to approve or reject queued agent tool-approval requests on behalf of the consenting user, including requests whose spec sets `allow_agent_approver: false` (human-only). Only grant this to OAuth clients that put a human in the loop at decide time, like the PostHog Desktop app.',
-        disabledActions: ['read'],
-    },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
+    { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -123,6 +143,7 @@ export const API_SCOPES: APIScope[] = [
         disabledActions: ['write'],
         unprivilegedExcluded: true,
     },
+    { key: 'llm_playground', objectName: 'LLM playground', objectPlural: 'LLM playground' },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
@@ -213,11 +234,13 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    { key: 'review_hog', objectName: 'PostHog Review', objectPlural: 'PostHog Review reviews' },
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
+    { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
@@ -240,8 +263,10 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
     clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
     internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
+    mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
     signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
     signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
+    signal_scratchpad_internal: 'Internal: sandbox-only writes for the Signals scratchpad.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',

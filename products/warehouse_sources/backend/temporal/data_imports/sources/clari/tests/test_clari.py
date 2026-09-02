@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.clari.clari import (
     ClariResumeConfig,
     ClariRetryableError,
@@ -215,7 +216,11 @@ class TestClariSourceResponse:
         assert response.name == "audit_events"
         assert response.primary_keys == ["eventTimestamp", "actorId", "sessionId", "event"]
         assert response.sort_mode == "desc"
-        assert response.has_duplicate_primary_keys is True
+        # The composite key can collide, but that's expected for this data and must not block
+        # incremental syncing - regression test for the schema-wide incremental sync outage this
+        # caused when has_duplicate_primary_keys was set unconditionally.
+        assert not response.has_duplicate_primary_keys
+        validate_incremental_sync(True, response)
 
     def test_forecast_metadata(self):
         response = clari_source("key", "fc-1", "forecast", mock.MagicMock(), _make_manager())

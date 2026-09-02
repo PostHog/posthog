@@ -7,7 +7,13 @@ from functools import partial
 
 from django.db import transaction
 
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO, WizardTaskDTO
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardSessionInput,
+    WizardSessionDTO,
+    WizardSessionOwnershipError,
+    WizardSessionUserDTO,
+    WizardTaskDTO,
+)
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
@@ -35,29 +41,53 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             .first()
         )
         previous_run_phase = previous_session.run_phase if previous_session else None
+
+        # A session belongs to the user who created it. A later push from a
+        # different user would overwrite the run data while `created_by` stays
+        # the original owner, so reject it. Legacy rows with a null
+        # `created_by_id` predate attribution and stay updatable by anyone.
+        if (
+            previous_session is not None
+            and previous_session.created_by_id is not None
+            and previous_session.created_by_id != params.created_by_id
+        ):
+            raise WizardSessionOwnershipError("This wizard session belongs to a different user and can't be updated.")
+
         event_plan = params.event_plan
         if event_plan is None and params.run_phase == RunPhase.COMPLETED and previous_session:
             event_plan = previous_session.event_plan
 
+        # Monotonic within a session: the doc arrives late in the run, so a push without it
+        # (an ordering race between debounced snapshots, or an older CLI) must not wipe it.
+        # A new run is a new session_id, so nothing ever needs to clear the field.
+        handoff_text = params.handoff_text
+        if not handoff_text and previous_session:
+            handoff_text = previous_session.handoff_text
+
+        defaults = {
+            "workflow_id": params.workflow_id,
+            "skill_id": params.skill_id,
+            "started_at": params.started_at,
+            "run_phase": params.run_phase.value,
+            "tasks": [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "status": task.status.value,
+                }
+                for task in params.tasks
+            ],
+            "event_plan": event_plan,
+            "error": params.error,
+            "pending_input": params.pending_input,
+            "handoff_text": handoff_text,
+        }
+        # created_by only in create_defaults so a later push for the same run can't reattribute it.
         instance, created = WizardSession.objects.update_or_create(
             team_id=params.team_id,
             session_id=params.session_id,
-            defaults={
-                "workflow_id": params.workflow_id,
-                "skill_id": params.skill_id,
-                "started_at": params.started_at,
-                "run_phase": params.run_phase.value,
-                "tasks": [
-                    {
-                        "id": task.id,
-                        "title": task.title,
-                        "status": task.status.value,
-                    }
-                    for task in params.tasks
-                ],
-                "event_plan": event_plan,
-                "error": params.error,
-            },
+            defaults=defaults,
+            create_defaults={**defaults, "created_by_id": params.created_by_id},
         )
         if previous_run_phase != RunPhase.COMPLETED.value and params.run_phase == RunPhase.COMPLETED:
             transaction.on_commit(
@@ -79,12 +109,12 @@ def _enqueue_event_definition_sync(team_id: int, session_id: str) -> None:
 
 
 def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
-    instance = WizardSession.objects.filter(team_id=team_id, session_id=session_id).first()
+    instance = WizardSession.objects.select_related("created_by").filter(team_id=team_id, session_id=session_id).first()
     return _to_dto(instance) if instance else None
 
 
 def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = None) -> WizardSessionDTO | None:
-    qs = WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id)
+    qs = WizardSession.objects.select_related("created_by").filter(team_id=team_id, workflow_id=workflow_id)
     if skill_id:
         qs = qs.filter(skill_id=skill_id)
     # created_at breaks ties on equal (client-supplied, second-granularity) started_at
@@ -106,7 +136,7 @@ def list_sessions(
     cost stays bounded regardless of how many sessions the team has. The view
     layer should always pass a `limit`.
     """
-    qs = WizardSession.objects.filter(team_id=team_id)
+    qs = WizardSession.objects.select_related("created_by").filter(team_id=team_id)
     if workflow_id:
         qs = qs.filter(workflow_id=workflow_id)
     if skill_id:
@@ -122,6 +152,7 @@ def list_sessions(
 
 def _to_dto(instance: WizardSession) -> WizardSessionDTO:
     run_phase = RunPhase(instance.run_phase)
+    created_by = instance.created_by
     return WizardSessionDTO(
         session_id=instance.session_id,
         team_id=instance.team_id,
@@ -140,6 +171,13 @@ def _to_dto(instance: WizardSession) -> WizardSessionDTO:
         ),
         event_plan=instance.event_plan,
         error=instance.error,
+        pending_input=instance.pending_input,
+        handoff_text=instance.handoff_text,
+        created_by=(
+            WizardSessionUserDTO(id=created_by.id, first_name=created_by.first_name, email=created_by.email)
+            if created_by is not None
+            else None
+        ),
         created_at=instance.created_at,
         updated_at=instance.updated_at,
     )

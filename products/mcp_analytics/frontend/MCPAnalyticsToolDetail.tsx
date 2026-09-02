@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
@@ -27,9 +27,10 @@ import {
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -39,7 +40,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
@@ -111,7 +113,7 @@ interface ResultColumn {
 
 const neighborColumns: ResultColumn[] = [
     { header: 'Tool', expand: true, render: (r) => <span className="font-mono">{String(r[0] ?? '')}</span> },
-    { header: 'In same conversation', align: 'right', render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)) },
+    { header: 'In same conversation', align: 'right', render: (r) => formatNumber(Number(r[1] ?? 0)) },
 ]
 
 // Card-wrapped quill table matching the dashboard table cards.
@@ -228,6 +230,7 @@ function StatTiles({
     theme,
     dateRangeLabel,
     interval,
+    incompleteTail,
 }: {
     summary: ToolSummary | null
     loading: boolean
@@ -235,6 +238,10 @@ function StatTiles({
     theme: ChartTheme
     dateRangeLabel: string
     interval: TimeInterval
+    // When true, the final bucket is the current in-progress interval — dash the sparkline from
+    // there so a partial period doesn't read as a decline. Required rather than optional: an
+    // omitted prop silently renders the partial bucket as settled data.
+    incompleteTail: boolean
 }): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
@@ -253,7 +260,7 @@ function StatTiles({
         {
             label: 'Calls',
             value: calls,
-            formatValue: humanFriendlyNumber,
+            formatValue: formatNumber,
             data: spark(daily.calls),
             color: theme.colors[0],
             goodDirection: 'up',
@@ -285,7 +292,7 @@ function StatTiles({
         {
             label: 'Users',
             value: summary?.users ?? 0,
-            formatValue: humanFriendlyNumber,
+            formatValue: formatNumber,
             data: spark(daily.users),
             color: theme.colors[0],
             goodDirection: 'up',
@@ -293,7 +300,7 @@ function StatTiles({
         {
             label: 'Sessions',
             value: summary?.conversations ?? 0,
-            formatValue: humanFriendlyNumber,
+            formatValue: formatNumber,
             data: spark(daily.sessions),
             color: theme.colors[6],
             goodDirection: 'up',
@@ -311,6 +318,7 @@ function StatTiles({
                     theme={theme}
                     restingSubtitle={dateRangeLabel}
                     sparklineHeight={40}
+                    sparklineDashedFromIndex={incompleteTail ? sparkLabels.length - 1 : undefined}
                 />
             ))}
         </div>
@@ -334,8 +342,7 @@ function IntentCoverageTag({
     return (
         <Tooltip title="Share of calls where $mcp_intent was captured. Inferred intents are server fallbacks; context_parameter intents come from the client.">
             <span className="text-[11px] text-secondary">
-                {humanFriendlyNumber(coverage.with_intent)} of {humanFriendlyNumber(coverage.total)} calls captured
-                intent ({pct}%)
+                {formatNumber(coverage.with_intent)} of {formatNumber(coverage.total)} calls captured intent ({pct}%)
             </span>
         </Tooltip>
     )
@@ -410,12 +417,16 @@ const SERIES_META: Record<TrendSeriesKey, { label: string; colorIndex: number }>
     p95: { label: 'p95', colorIndex: 0 },
 }
 
-function seriesFor(data: DailyChartData, theme: ChartTheme, keys: TrendSeriesKey[]): Series[] {
+// `incompleteTail` is only true when the window has ≥2 buckets (lastBucketIsInProgress owns that
+// rule), and every series is filled to the bucket count, so the final segment exists.
+function seriesFor(data: DailyChartData, theme: ChartTheme, keys: TrendSeriesKey[], incompleteTail: boolean): Series[] {
+    const stroke = incompleteTail ? { partial: { fromIndex: data.labels.length - 1 } } : undefined
     return keys.map((key) => ({
         key,
         label: SERIES_META[key].label,
         color: theme.colors[SERIES_META[key].colorIndex],
         data: data[key],
+        stroke,
     }))
 }
 
@@ -493,18 +504,22 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         dateRangeLabel,
         dateFilter,
         interval,
+        pinnedInterval,
+        incompleteTail,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
 
     const theme = useChartTheme()
     const callsSeries = useMemo<Series[]>(
-        () => seriesFor(dailyChartData, theme, ['calls', 'errors']),
-        [dailyChartData, theme]
+        () => seriesFor(dailyChartData, theme, ['calls', 'errors'], incompleteTail),
+        [dailyChartData, theme, incompleteTail]
     )
     const latencySeries = useMemo<Series[]>(
-        () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
-        [dailyChartData, theme]
+        () => seriesFor(dailyChartData, theme, ['p50', 'p95'], incompleteTail),
+        [dailyChartData, theme, incompleteTail]
     )
     const countsConfig = useChartConfig(() => trendChartConfig(timezone, interval), [timezone, interval])
     const latencyConfig = useChartConfig(
@@ -520,7 +535,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
-                    path: mcpToolQualityUrlWithDates(dateFilter),
+                    path: mcpToolQualityUrlWithDates(dateFilter, pinnedInterval),
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
@@ -534,6 +549,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     theme={theme}
                     dateRangeLabel={dateRangeLabel}
                     interval={interval}
+                    incompleteTail={incompleteTail}
                 />
             </div>
 
@@ -610,6 +626,17 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                 </div>
             </div>
 
+            {intentRoutingEnabled && (
+                <>
+                    <LemonDivider />
+
+                    <div className="flex flex-col gap-3 px-4 pb-4">
+                        <SectionHeader title="Intents served" subtitle="From the latest intent cluster snapshot" />
+                        <ToolDetailIntentsSection toolName={toolName} />
+                    </div>
+                </>
+            )}
+
             <LemonDivider />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
@@ -635,18 +662,18 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Calls',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                                render: (r) => formatNumber(Number(r[1] ?? 0)),
                             },
                             {
                                 header: 'Errors',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                                render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Sessions',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
+                                render: (r) => formatNumber(Number(r[4] ?? 0)),
                             },
                         ]}
                     />
@@ -659,12 +686,12 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Calls',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                                render: (r) => formatNumber(Number(r[1] ?? 0)),
                             },
                             {
                                 header: 'Errors',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                                render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
@@ -696,7 +723,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                         {
                             header: 'Occurrences',
                             align: 'right',
-                            render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                            render: (r) => formatNumber(Number(r[1] ?? 0)),
                         },
                         { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
                         {
@@ -759,9 +786,11 @@ function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Elemen
                                     {String(r[2])}
                                 </span>
                             ) : (
-                                <span className="text-muted text-xs">
-                                    Not captured (event predates error message capture)
-                                </span>
+                                <Tooltip title="No $mcp_error_message on this event. Check that your MCP server sends it on failed tool calls.">
+                                    <span className="text-muted text-xs whitespace-nowrap">
+                                        Not captured <IconInfo />
+                                    </span>
+                                </Tooltip>
                             ),
                     },
                     {

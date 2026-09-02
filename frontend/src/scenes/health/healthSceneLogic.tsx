@@ -71,6 +71,13 @@ export interface healthSceneLogicActions {
     setShowDismissed: (show: boolean) => {
         show: boolean
     }
+    snoozeIssue: (
+        id: string,
+        duration: string
+    ) => {
+        duration: string
+        id: string
+    }
     undismissIssue: (id: string) => {
         id: string
     }
@@ -99,6 +106,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
     }),
     actions({
         setShowDismissed: (show: boolean) => ({ show }),
+        snoozeIssue: (id: string, duration: string) => ({ id, duration }),
         dismissIssue: (id: string) => ({ id }),
         undismissIssue: (id: string) => ({ id }),
         refreshHealthData: (isManual: boolean = true) => ({ isManual }),
@@ -275,6 +283,17 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         setShowDismissed: () => {
             actions.loadHealthIssues()
         },
+        snoozeIssue: async ({ id, duration }) => {
+            try {
+                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                    snoozed_until: duration,
+                })
+                actions.loadHealthIssues()
+                healthSummaryLogic.actions.loadHealthSummary()
+            } catch {
+                lemonToast.error("Couldn't snooze this issue. Try again.")
+            }
+        },
         dismissIssue: async ({ id }) => {
             try {
                 await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
@@ -299,13 +318,13 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
+        // Only load the latest results here. Health checks are re-evaluated on their own daily
+        // schedule, and the refresh endpoint is throttled to one call per team every 5 minutes —
+        // auto-firing it on every mount just produced 429 storms across a team's users without
+        // giving them fresher data. Users can still trigger a re-run via the manual refresh button.
         actions.loadHealthIssues()
 
-        const { nextRefreshAvailableAt } = values
-        if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
-            actions.refreshHealthData(false)
-        }
-
+        // Restore the cooldown countdown for the manual refresh button if one is still active.
         if (values.nextRefreshAvailableAt !== null) {
             actions.setNextRefreshAvailableAt(values.nextRefreshAvailableAt)
         }

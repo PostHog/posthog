@@ -5,19 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    ExternalWebhookInfo,
-    WebhookCreationResult,
-    WebhookDeletionResult,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_API_SCHEMA_NAMES,
     CIO_WEBHOOK_SCHEMA_NAMES,
-    RESOURCE_TO_CIO_OBJECT_TYPE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source import (
     CustomerIOSource,
@@ -30,26 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 def _config(app_api_key: str = "test-key", region: Literal["us", "eu"] = "us") -> CustomerIOSourceConfig:
     return CustomerIOSourceConfig(app_api_key=app_api_key, region=region)
-
-
-class TestCustomerIOSourceConfigFields:
-    def test_get_source_config_exposes_required_app_api_key_and_region(self):
-        source = CustomerIOSource()
-        cfg = source.get_source_config
-
-        names = {f.name for f in cfg.fields}
-        assert names == {"app_api_key", "region"}
-
-        api_key_field = next(f for f in cfg.fields if f.name == "app_api_key")
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        region_field = next(f for f in cfg.fields if f.name == "region")
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.required is True
-        assert region_field.defaultValue == "us"
-        assert {opt.value for opt in region_field.options} == {"us", "eu"}
 
 
 class TestCustomerIOSourceWebhookResourceMap:
@@ -95,27 +67,6 @@ class TestCustomerIOSourceGetSchemas:
         # this is what keeps one-shot setup from enabling them as broken full-refresh syncs.
         webhook_only = {s.name for s in schemas if s.webhook_only}
         assert webhook_only == set(CIO_WEBHOOK_SCHEMA_NAMES)
-
-
-class TestCustomerIOSourceCreateWebhook:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.create_webhook"
-    )
-    def test_delegates_to_api_client(self, mock_create):
-        mock_create.return_value = WebhookCreationResult(success=True, pending_inputs=["signing_secret"])
-        source = CustomerIOSource()
-
-        result = source.create_webhook(_config(app_api_key="key", region="eu"), "https://example.com/h", team_id=1)
-
-        assert result.success is True
-        assert result.pending_inputs == ["signing_secret"]
-        mock_create.assert_called_once()
-        kwargs = mock_create.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["region"] == "eu"
-        assert kwargs["webhook_url"] == "https://example.com/h"
-        # All Customer.io webhook schema names should be passed through.
-        assert set(kwargs["resource_names"]) == set(RESOURCE_TO_CIO_OBJECT_TYPE.keys())
 
 
 class TestCustomerIOSourceWebhookInputsUpdated:
@@ -192,52 +143,6 @@ class TestCustomerIOSourceWebhookInputsUpdated:
         assert success is False
         assert error == "Customer.io rejected the App API Key (401)."
         mock_enable.assert_called_once_with("key", "us", "https://example.com/h")
-
-
-class TestCustomerIOSourceDeleteWebhook:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.delete_webhook"
-    )
-    def test_delegates_to_api_client(self, mock_delete):
-        mock_delete.return_value = WebhookDeletionResult(success=True)
-        source = CustomerIOSource()
-
-        result = source.delete_webhook(_config(app_api_key="key", region="us"), "https://example.com/h", team_id=1)
-
-        assert result.success is True
-        mock_delete.assert_called_once_with("key", "us", "https://example.com/h")
-
-
-class TestCustomerIOSourceExternalWebhookInfo:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.get_external_webhook_info"
-    )
-    def test_delegates_to_api_client(self, mock_info):
-        mock_info.return_value = ExternalWebhookInfo(exists=True, status="enabled")
-        source = CustomerIOSource()
-
-        info = source.get_external_webhook_info(
-            _config(app_api_key="key", region="eu"), "https://example.com/h", team_id=1
-        )
-
-        assert info is not None
-        assert info.exists is True
-        mock_info.assert_called_once_with("key", "eu", "https://example.com/h")
-
-
-class TestCustomerIOSourceValidateCredentials:
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.validate_credentials"
-    )
-    def test_delegates_to_api_client(self, mock_validate):
-        mock_validate.return_value = (True, None)
-        source = CustomerIOSource()
-
-        success, error = source.validate_credentials(_config(app_api_key="key", region="us"), team_id=1)
-
-        assert success is True
-        assert error is None
-        mock_validate.assert_called_once_with("key", "us")
 
 
 class TestCustomerIOSourcePipelineDispatch:

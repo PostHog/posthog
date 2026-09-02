@@ -3,8 +3,14 @@ from typing import Any
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+from pydantic import (
+    TypeAdapter,
+    ValidationError as PydanticValidationError,
+)
 
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
+
+from posthog.api.team import MarketingAnalyticsConversionGoalList
 
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
 
@@ -83,6 +89,29 @@ class TestConvertTeamConversionGoalsToObjects(BaseTest):
         assert isinstance(goal, ConversionGoalFilter3)
         self.assertEqual(goal.id_field, DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD["distinct_id_field"])
         self.assertEqual(goal.distinct_id_field, DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD["distinct_id_field"])
+
+    def test_write_schema_requires_the_id_this_rebuild_needs(self):
+        # A goal stored without conversion_goal_id can't be rebuilt here, and the failure is
+        # swallowed, so it disappears from every report. The write-facing schema has to keep
+        # demanding the field rather than advertising it as optional.
+        goal_without_id: dict[str, Any] = {
+            "kind": "ActionsNode",
+            "conversion_goal_name": "Did action",
+            "name": "Did action",
+            "id": 42,
+            "schema_map": {},
+        }
+
+        self.assertEqual(convert_team_conversion_goals_to_objects([goal_without_id], self.team.pk), [])
+
+        with self.assertRaises(PydanticValidationError) as caught:
+            TypeAdapter(MarketingAnalyticsConversionGoalList).validate_python([goal_without_id])
+        # Assert the specific error: any payload trips some union member, so a bare assertRaises
+        # would still pass with conversion_goal_id back to optional.
+        self.assertIn(
+            ("missing", "conversion_goal_id"),
+            [(error["type"], error["loc"][-1]) for error in caught.exception.errors()],
+        )
 
     def test_events_node_drops_data_warehouse_fields(self):
         result = convert_team_conversion_goals_to_objects([EVENTS_NODE_GOAL_WITH_DW_FIELDS], self.team.pk)

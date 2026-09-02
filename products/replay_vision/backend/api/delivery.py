@@ -1,9 +1,13 @@
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 from typing import Any
 
 from django.db.models import QuerySet
 
 import structlog
-from rest_framework.request import Request
 
 from posthog.models import Team
 
@@ -20,6 +24,11 @@ logger = structlog.get_logger(__name__)
 EVENT_NAME = "$replay_vision_action_ready"
 _INTERNAL_DESTINATION = "internal_destination"
 _SLACK_TEMPLATE = "template-slack"
+_WEBHOOK_TEMPLATE = "template-webhook"
+
+# Marks our webhook payloads so a consumer can pin the schema and we can evolve it without breaking them.
+# Mirrors the alerts/logs destination convention (products/alerts/backend/destination_configs.py).
+_WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
 
 
 def _managed_destinations(action: VisionAction, team: Team) -> QuerySet[HogFunction]:
@@ -42,11 +51,13 @@ def _channel_id(value: str) -> str:
     return value.split("|", 1)[0].strip()
 
 
-def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> dict[str, Any]:
+def _base_destination_payload(action: VisionAction, template_id: str) -> dict[str, Any]:
+    """The internal_destination scaffold every delivery type shares: the trigger filter that binds the
+    destination to this action, plus its enabled state. Callers fill in `inputs` per template."""
     return {
         "type": _INTERNAL_DESTINATION,
         "enabled": action.enabled,
-        "template_id": _SLACK_TEMPLATE,
+        "template_id": template_id,
         "name": f"Replay Vision · {action.name}",
         "filters": {
             "events": [{"id": EVENT_NAME, "type": "events"}],
@@ -54,6 +65,12 @@ def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> 
                 {"key": "vision_action_id", "value": str(action.id), "operator": "exact", "type": "event"},
             ],
         },
+    }
+
+
+def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_base_destination_payload(action, _SLACK_TEMPLATE),
         "inputs": {
             "slack_workspace": {"value": target["integration_id"]},
             "channel": {"value": _channel_id(target["channel"])},
@@ -67,7 +84,43 @@ def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> 
     }
 
 
-def provision_delivery(action: VisionAction, *, request: Request, team: Team) -> None:
+def _webhook_destination_payload(action: VisionAction, target: dict[str, Any]) -> dict[str, Any]:
+    # A structured JSON envelope (not the Slack-formatted text) so machine consumers get clean fields.
+    # `type` routes on the event kind (digest / alert_fired / alert_recovered); `data` carries the report
+    # plus the run link. Template strings resolve against the emitted event's properties at delivery time.
+    body = {
+        "id": "{event.uuid}",
+        "type": "replay_vision.{event.properties.event_kind}",
+        "timestamp": "{event.properties.emitted_at}",
+        "data": {
+            "vision_action_id": "{event.properties.vision_action_id}",
+            "run_id": "{event.properties.vision_action_run_id}",
+            "scanner_id": "{event.properties.scanner_id}",
+            "action_name": "{event.properties.action_name}",
+            "scanner_name": "{event.properties.scanner_name}",
+            "observation_count": "{event.properties.observation_count}",
+            "report": "{event.properties.report_markdown}",
+            "run_url": "{event.properties.run_url}",
+        },
+    }
+    return {
+        **_base_destination_payload(action, _WEBHOOK_TEMPLATE),
+        "inputs": {
+            "url": {"value": target["url"]},
+            "method": {"value": "POST"},
+            "headers": {"value": _WEBHOOK_HEADERS},
+            "body": {"value": body},
+        },
+    }
+
+
+def _destination_payload(action: VisionAction, target: dict[str, Any]) -> dict[str, Any]:
+    if target.get("type") == "webhook":
+        return _webhook_destination_payload(action, target)
+    return _slack_destination_payload(action, target)
+
+
+def provision_delivery(action: VisionAction, *, user: "User", team: Team) -> None:
     """Reconcile this action's `internal_destination` HogFunctions to its `delivery_config`.
 
     Archive-and-recreate: drop the action's managed destinations, then create one per delivery target
@@ -78,10 +131,11 @@ def provision_delivery(action: VisionAction, *, request: Request, team: Team) ->
     if not action.enabled or not action.delivery_config:
         return
 
-    # HogFunctionSerializer.create() reads context["request"].user, so provisioning stays in the viewset.
-    context = {"request": request, "team_id": team.id, "get_team": lambda: team, "is_create": True}
+    # `HogFunctionSerializer.create()` reads only `context["request"].user`, so a user is all this needs.
+    # Taking one rather than a Request lets callers outside a viewset (the Max tools) provision too.
+    context = {"request": SimpleNamespace(user=user), "team_id": team.id, "get_team": lambda: team, "is_create": True}
     for target in action.delivery_config:
-        serializer = HogFunctionSerializer(data=_slack_destination_payload(action, target), context=context)
+        serializer = HogFunctionSerializer(data=_destination_payload(action, target), context=context)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 

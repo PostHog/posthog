@@ -5,7 +5,6 @@ from uuid import UUID, uuid4
 import pytest
 from unittest.mock import patch
 
-from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import (
     ApproveRunInput,
@@ -15,6 +14,7 @@ from products.visual_review.backend.facade.contracts import (
     UpdateRepoInput,
 )
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
+from products.visual_review.backend.logic import artifact_store, errors, quarantine, runs
 from products.visual_review.backend.models import Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -219,7 +219,7 @@ class TestRunAPI:
             ),
             team_id=repo.team_id,
         )
-        logic.quarantine_identifier(
+        quarantine.quarantine_identifier(
             repo_id=repo.id,
             identifier="Button",
             run_type=RunType.STORYBOOK,
@@ -303,8 +303,8 @@ class TestRunAPI:
 
     @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
     @patch(
-        "products.visual_review.backend.logic.verify_uploads_and_create_artifacts",
-        side_effect=logic.HashIntegrityError("hash mismatch"),
+        "products.visual_review.backend.logic.uploads.verify_uploads_and_create_artifacts",
+        side_effect=errors.HashIntegrityError("hash mismatch"),
     )
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_hash_integrity_failure_emits_terminal_metrics(
@@ -359,7 +359,7 @@ class TestApproveRunAPI:
 
     def test_approve_run(self, repo, user):
         # Create artifact first (directly via logic since API no longer exposes this)
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=repo.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
@@ -381,13 +381,13 @@ class TestApproveRunAPI:
         # Classification happens at complete_run time
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
                 return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
-            logic.complete_run(create_result.run_id)
-        logic.finish_processing(create_result.run_id)
+            runs.complete_run(create_result.run_id)
+        runs.finish_processing(create_result.run_id)
 
         # Per-snapshot approval is DB only — no run-level finalization
         result = api.approve_snapshots(

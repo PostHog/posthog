@@ -1,4 +1,5 @@
 import re
+import datetime
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -10,11 +11,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -24,12 +25,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksunshine import (
     ZendeskSunshineSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    ENDPOINTS_BY_VERSION,
+    INCREMENTAL_FIELDS_BY_VERSION,
+    MERGE_ONLY_BY_VERSION,
+    ZENDESK_SUNSHINE_V1,
+    ZENDESK_SUNSHINE_V2,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
     ZendeskSunshineResumeConfig,
@@ -43,9 +48,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, ZendeskSunshineResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    # The Sunshine API path (`/api/sunshine/`) carries no version token, so the unversioned
-    # `supported_versions`/`default_version` defaults apply.
-    api_docs_url = "https://developer.zendesk.com/api-reference/custom-data/custom-objects-api/custom-objects-api/"
+
+    # v1 is the legacy Sunshine API (`/api/sunshine/`); v2 is the current custom objects API
+    # (`/api/v2/custom_objects`). Zendesk is retiring the legacy API, so new sources default to v2
+    # while existing v1-pinned sources keep working until a human migrates them.
+    supported_versions = (ZENDESK_SUNSHINE_V1, ZENDESK_SUNSHINE_V2)
+    default_version = ZENDESK_SUNSHINE_V2
+    deprecated_versions = (VersionDeprecation(version=ZENDESK_SUNSHINE_V1, sunset_at=datetime.date(2026, 6, 30)),)
+    api_docs_url = "https://developer.zendesk.com/api-reference/custom-data/custom-objects/custom_objects/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -65,12 +75,18 @@ class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, Zendesk
                 "and that token access is enabled for your account."
             ),
             "403 Client Error: Forbidden for url": (
-                "Zendesk denied access to the Sunshine API. Check that legacy custom objects are activated for "
+                "Zendesk denied access to the custom objects API. Check that custom objects are activated for "
                 "your account and that the API token has access."
             ),
             "404 Client Error: Not Found for url": (
-                "The Zendesk Sunshine (legacy custom objects) API was not found. Check the subdomain is correct "
-                "and that legacy custom objects are activated in Admin Center."
+                "The Zendesk custom objects API was not found. Check the subdomain is correct and that custom "
+                "objects are activated in Admin Center. Sources still pinned to the legacy Sunshine API (v1) will "
+                "start returning this once Zendesk removes it; switch the source to v2 to keep syncing."
+            ),
+            # A pin outside the supported set stops the source from resolving a request path. Retrying
+            # the ~6h discovery cadence can never fix a bad pin, so surface it instead of looping.
+            "Unsupported Zendesk Sunshine API version": (
+                "This source is pinned to a Zendesk Sunshine API version PostHog no longer supports. Switch it to v2."
             ),
         }
 
@@ -83,9 +99,18 @@ class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, Zendesk
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The query endpoint's `_updated_at.start` filter is inclusive, so boundary rows are
-        # re-fetched on every sync; only merge mode dedupes them, hence no append support.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("object_records",))
+        # The v1 and v2 table sets differ, so a pinned source must discover under its own version —
+        # discovery diffs run under the source pin and would orphan tables that don't exist in the
+        # other version's catalog.
+        version = self.resolve_api_version(api_version)
+        if version not in ENDPOINTS_BY_VERSION:
+            raise ValueError(f"Unsupported Zendesk Sunshine API version: {version!r}")
+        return build_endpoint_schemas(
+            ENDPOINTS_BY_VERSION[version],
+            INCREMENTAL_FIELDS_BY_VERSION[version],
+            names,
+            merge_only=MERGE_ONLY_BY_VERSION[version],
+        )
 
     def validate_credentials(
         self,
@@ -98,7 +123,11 @@ class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, Zendesk
         if not re.match(r"^[a-zA-Z0-9-]+$", subdomain):
             return False, "Zendesk subdomain is incorrect"
 
-        return validate_zendesk_sunshine_credentials(config.subdomain, config.api_key, config.email_address)
+        # Pre-creation calls pass no pin and resolve to default_version (what new rows are stamped
+        # with); a pinned source revalidates against its own version's probe endpoint.
+        return validate_zendesk_sunshine_credentials(
+            config.subdomain, config.api_key, config.email_address, self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZendeskSunshineResumeConfig]:
         return ResumableSourceManager[ZendeskSunshineResumeConfig](inputs, ZendeskSunshineResumeConfig)
@@ -121,6 +150,7 @@ class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, Zendesk
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
 
     @property
@@ -129,9 +159,9 @@ class ZendeskSunshineSource(ResumableSource[ZendeskSunshineSourceConfig, Zendesk
             name=SchemaExternalDataSourceType.ZENDESK_SUNSHINE,
             category=DataWarehouseSourceCategory.CRM,
             label="Zendesk Sunshine",
-            caption="""Import your legacy Zendesk custom objects (the Sunshine custom data API) into the PostHog Data warehouse: object types, object records, relationships, and limits.
+            caption="""Import your Zendesk custom objects into the PostHog Data warehouse: object definitions, their records, and field schemas.
 
-Requires a Zendesk plan with legacy custom objects activated in Admin Center. Note that Zendesk is retiring legacy custom objects in 2026, so this source is mainly useful for keeping a copy of that data. Authenticate with your Zendesk email address and an API token (token access must be enabled for your account).""",
+New sources use Zendesk's current custom objects API. The legacy Sunshine API (v1) is still supported for existing sources, but Zendesk is removing it on June 30, 2026. Authenticate with your Zendesk email address and an API token (token access must be enabled for your account).""",
             keywords=["zendesk", "sunshine", "custom objects", "custom data"],
             iconPath="/static/services/zendesk_sunshine.png",
             iconClassName="rounded dark:bg-white p-[2px]",

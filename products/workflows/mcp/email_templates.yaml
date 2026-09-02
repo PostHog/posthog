@@ -30,6 +30,8 @@ tools:
             works throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design
             inline exactly as authored. Then call workflows-show-email-template and share the _posthogUrl link with the
             user.
+        exclude_params:
+            - content.email.html
         response:
             exclude:
                 - content
@@ -139,6 +141,8 @@ tools:
             back the complete content.email with your edited design. The server re-renders the sent email from the
             design on save. After updating, call workflows-show-email-template so the user sees the result, and share
             the returned _posthogUrl edit link.
+        exclude_params:
+            - content.email.html
         response:
             exclude:
                 - content

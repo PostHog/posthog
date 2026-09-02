@@ -12,10 +12,32 @@ from google.protobuf import (
     descriptor as _descriptor,
     message as _message,
 )
-from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import (
+    containers as _containers,
+    enum_type_wrapper as _enum_type_wrapper,
+)
 from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class LifecycleOpType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    LIFECYCLE_OP_TYPE_UNSPECIFIED: _ClassVar[LifecycleOpType]
+    LIFECYCLE_OP_TYPE_DELETE: _ClassVar[LifecycleOpType]
+    LIFECYCLE_OP_TYPE_MERGE: _ClassVar[LifecycleOpType]
+
+class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RELEASE_OUTCOME_UNSPECIFIED: _ClassVar[ReleaseOutcome]
+    RELEASE_OUTCOME_COMMITTED: _ClassVar[ReleaseOutcome]
+    RELEASE_OUTCOME_ABORTED: _ClassVar[ReleaseOutcome]
+
+LIFECYCLE_OP_TYPE_UNSPECIFIED: LifecycleOpType
+LIFECYCLE_OP_TYPE_DELETE: LifecycleOpType
+LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType
+RELEASE_OUTCOME_UNSPECIFIED: ReleaseOutcome
+RELEASE_OUTCOME_COMMITTED: ReleaseOutcome
+RELEASE_OUTCOME_ABORTED: ReleaseOutcome
 
 class Person(_message.Message):
     __slots__ = (
@@ -30,6 +52,7 @@ class Person(_message.Message):
         "is_identified",
         "is_user_id",
         "last_seen_at",
+        "is_deleted",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     UUID_FIELD_NUMBER: _ClassVar[int]
@@ -42,6 +65,7 @@ class Person(_message.Message):
     IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
     IS_USER_ID_FIELD_NUMBER: _ClassVar[int]
     LAST_SEEN_AT_FIELD_NUMBER: _ClassVar[int]
+    IS_DELETED_FIELD_NUMBER: _ClassVar[int]
     id: int
     uuid: str
     team_id: int
@@ -53,6 +77,7 @@ class Person(_message.Message):
     is_identified: bool
     is_user_id: bool
     last_seen_at: int
+    is_deleted: bool
 
     def __init__(
         self,
@@ -67,6 +92,7 @@ class Person(_message.Message):
         is_identified: bool = ...,
         is_user_id: bool = ...,
         last_seen_at: _Optional[int] = ...,
+        is_deleted: bool = ...,
     ) -> None: ...
 
 class DistinctIdWithVersion(_message.Message):
@@ -313,19 +339,32 @@ class GetDistinctIdsForPersonsResponse(_message.Message):
     ) -> None: ...
 
 class UpdatePersonPropertiesRequest(_message.Message):
-    __slots__ = ("team_id", "person_id", "event_name", "set_properties", "set_once_properties", "unset_properties")
+    __slots__ = (
+        "team_id",
+        "person_id",
+        "event_name",
+        "set_properties",
+        "set_once_properties",
+        "unset_properties",
+        "is_identified",
+        "last_seen_at",
+    )
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     EVENT_NAME_FIELD_NUMBER: _ClassVar[int]
     SET_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
     SET_ONCE_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
     UNSET_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
+    LAST_SEEN_AT_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     event_name: str
     set_properties: bytes
     set_once_properties: bytes
     unset_properties: _containers.RepeatedScalarFieldContainer[str]
+    is_identified: bool
+    last_seen_at: int
 
     def __init__(
         self,
@@ -335,6 +374,8 @@ class UpdatePersonPropertiesRequest(_message.Message):
         set_properties: _Optional[bytes] = ...,
         set_once_properties: _Optional[bytes] = ...,
         unset_properties: _Optional[_Iterable[str]] = ...,
+        is_identified: bool = ...,
+        last_seen_at: _Optional[int] = ...,
     ) -> None: ...
 
 class UpdatePersonPropertiesResponse(_message.Message):
@@ -372,22 +413,6 @@ class DeletePersonsBatchForTeamRequest(_message.Message):
     def __init__(self, team_id: _Optional[int] = ..., batch_size: _Optional[int] = ...) -> None: ...
 
 class DeletePersonsBatchForTeamResponse(_message.Message):
-    __slots__ = ("deleted_count",)
-    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
-    deleted_count: int
-
-    def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
-
-class DeletePersonlessDistinctIdsBatchForTeamRequest(_message.Message):
-    __slots__ = ("team_id", "batch_size")
-    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
-    BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
-    team_id: int
-    batch_size: int
-
-    def __init__(self, team_id: _Optional[int] = ..., batch_size: _Optional[int] = ...) -> None: ...
-
-class DeletePersonlessDistinctIdsBatchForTeamResponse(_message.Message):
     __slots__ = ("deleted_count",)
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
@@ -478,3 +503,103 @@ class SetPersonVersionFloorResponse(_message.Message):
     updated: bool
 
     def __init__(self, updated: bool = ...) -> None: ...
+
+class FencePersonRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "op_id", "op_type")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    OP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    op_id: str
+    op_type: LifecycleOpType
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        op_id: _Optional[str] = ...,
+        op_type: _Optional[_Union[LifecycleOpType, str]] = ...,
+    ) -> None: ...
+
+class FencePersonResponse(_message.Message):
+    __slots__ = ("sealed",)
+    SEALED_FIELD_NUMBER: _ClassVar[int]
+    sealed: Person
+
+    def __init__(self, sealed: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
+
+class ReleaseFenceRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "person_uuid", "op_id", "outcome", "sealed_version", "created_at")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    SEALED_VERSION_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    person_uuid: str
+    op_id: str
+    outcome: ReleaseOutcome
+    sealed_version: int
+    created_at: int
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        person_uuid: _Optional[str] = ...,
+        op_id: _Optional[str] = ...,
+        outcome: _Optional[_Union[ReleaseOutcome, str]] = ...,
+        sealed_version: _Optional[int] = ...,
+        created_at: _Optional[int] = ...,
+    ) -> None: ...
+
+class ReleaseFenceResponse(_message.Message):
+    __slots__ = ()
+
+    def __init__(self) -> None: ...
+
+class SealedSourceSnapshot(_message.Message):
+    __slots__ = ("person", "ordinal")
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    ORDINAL_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+    ordinal: int
+
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ..., ordinal: _Optional[int] = ...) -> None: ...
+
+class FoldPersonDocumentRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "sealed_snapshots", "event_set", "event_set_once", "op_id")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    SEALED_SNAPSHOTS_FIELD_NUMBER: _ClassVar[int]
+    EVENT_SET_FIELD_NUMBER: _ClassVar[int]
+    EVENT_SET_ONCE_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    sealed_snapshots: _containers.RepeatedCompositeFieldContainer[SealedSourceSnapshot]
+    event_set: bytes
+    event_set_once: bytes
+    op_id: str
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_id: _Optional[int] = ...,
+        sealed_snapshots: _Optional[_Iterable[_Union[SealedSourceSnapshot, _Mapping]]] = ...,
+        event_set: _Optional[bytes] = ...,
+        event_set_once: _Optional[bytes] = ...,
+        op_id: _Optional[str] = ...,
+    ) -> None: ...
+
+class FoldPersonDocumentResponse(_message.Message):
+    __slots__ = ("person",)
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...

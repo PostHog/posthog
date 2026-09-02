@@ -97,7 +97,7 @@ It is useful for future corpus checks and for reviewers who want to inspect a sp
 ### Opt-In Type-Aware Simplification
 
 `posthog/hogql/transforms/type_aware_simplification.py` adds an internal simplifier for conservative rewrites.
-It is disabled by default and only runs when `HogQLContext.enable_type_aware_cast_simplification` is true.
+It is disabled by default and only runs when the `typeAwareCastSimplification` query modifier is enabled, or when the `HogQLContext.enable_type_aware_cast_simplification` flag is true.
 
 It can remove redundant casts and nullability wrappers, fold safe constant conversions, fold finite numeric literal arithmetic, simplify literal `NULL` fallbacks in `ifNull(...)`/`coalesce(...)`, fold exact-present literal JSON path reads, and fold day/week interval arithmetic for literal dates.
 
@@ -283,8 +283,10 @@ ClickHouse-only printer behavior should not leak into Postgres or DuckDB printin
 
 ### Opt-In Simplification
 
-The simplifier is intentionally behind `HogQLContext.enable_type_aware_cast_simplification`.
+The simplifier is intentionally behind the `typeAwareCastSimplification` modifier and the `HogQLContext.enable_type_aware_cast_simplification` flag, both off by default.
 Reviewers should reject changes that make those rewrites run globally without a separate rollout decision and stronger corpus coverage.
+`typeAwareCastSimplification` also has no explicit default in `set_default_modifier_values`.
+Query cache payloads serialize modifiers with `exclude_none=True, exclude_defaults=True`, so an explicit `False` would enter every cache key and invalidate the cache on deploy for no behavior change.
 
 ### Revenue Snapshot Coverage
 

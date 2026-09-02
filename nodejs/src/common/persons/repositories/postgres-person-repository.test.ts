@@ -10,10 +10,15 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '~/common/utils/utils'
-import { createTeam, insertRow, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, insertRow } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '~/types'
 
-import { PersonPropertiesSizeViolationError } from './person-repository'
+import {
+    DistinctIdConflictError,
+    PersonClaimedByLifecycleOpError,
+    PersonPropertiesSizeViolationError,
+    PersonTombstoneBlockedError,
+} from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 import { createPersonUpdateFields, fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
@@ -23,24 +28,29 @@ describe('PostgresPersonRepository', () => {
     let hub: Hub
     let postgres: PostgresRouter
     let repository: PostgresPersonRepository
+    let team: Team
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         postgres = hub.postgres
         repository = new PostgresPersonRepository(postgres, {
             calculatePropertiesSize: 0,
             personPropertiesDbConstraintLimitBytes: 1024 * 1024, // 1MB for tests
             personPropertiesTrimTargetBytes: 512 * 1024,
         })
-
-        const redis = await hub.redisPool.acquire()
-        await redis.flushdb()
-        await hub.redisPool.release(redis)
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub(hub)
+    })
+
+    beforeEach(async () => {
+        team = (await createTestTeamFixture(postgres)).team
+    })
+
+    afterEach(() => {
+        // The hub outlives each test now, so spies on it must not.
+        jest.restoreAllMocks()
         jest.clearAllMocks()
     })
 
@@ -72,14 +82,12 @@ describe('PostgresPersonRepository', () => {
 
     describe('fetchPerson()', () => {
         it('returns undefined if person does not exist', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await repository.fetchPerson(team.id, 'some_id')
 
             expect(person).toEqual(undefined)
         })
 
         it('returns person object if person exists', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
             const person = await repository.fetchPerson(team.id, 'some_id')
 
@@ -97,15 +105,12 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('throws error when both forUpdate and useReadReplica are true', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             await expect(
                 repository.fetchPerson(team.id, 'some_id', { forUpdate: true, useReadReplica: true })
             ).rejects.toThrow("can't enable both forUpdate and useReadReplica in db::fetchPerson")
         })
 
         it('uses read replica when useReadReplica is true', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
 
             // Mock the postgres query to verify it's called with the right parameters
@@ -142,7 +147,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('uses write connection when useReadReplica is false', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const createdPerson = await createTestPerson(team.id, 'some_id', { foo: 'bar' })
 
             // Mock the postgres query to verify it's called with the right parameters
@@ -179,8 +183,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('adds FOR UPDATE clause when forUpdate is true', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             // Mock the postgres query to verify the SQL contains FOR UPDATE
             const mockQuery = jest.spyOn(postgres, 'query').mockResolvedValue({
                 rows: [],
@@ -201,9 +203,530 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('tombstoned rows', () => {
+        // Revival on create/addDistinctId runs only for allowlisted teams; the
+        // default repository exercises the legacy (master) path.
+        let revivalRepository: PostgresPersonRepository
+
+        beforeEach(() => {
+            revivalRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
+                personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                personPropertiesTrimTargetBytes: 512 * 1024,
+                personMergeTombstoneTeamAllowlist: '*',
+            })
+        })
+
+        async function tombstonePerson(person: InternalPerson): Promise<void> {
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_person SET is_deleted = true, version = version + 1 WHERE team_id = $1 AND id = $2',
+                [person.team_id, person.id],
+                'tombstonePerson'
+            )
+        }
+
+        async function tombstoneDistinctId(teamId: number, distinctId: string): Promise<void> {
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_persondistinctid SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND distinct_id = $2',
+                [teamId, distinctId],
+                'tombstoneDistinctId'
+            )
+        }
+
+        function buildPersonUpdate(person: InternalPerson, distinctId: string, version: number) {
+            return {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: distinctId,
+                properties: { name: 'Jane' },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
+                needs_write: true,
+                properties_to_set: { name: 'Jane' },
+                properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
+            }
+        }
+
+        it('excludes tombstoned persons from person reads', async () => {
+            const person = await createTestPerson(team.id, 'tombstoned-person-did')
+            await tombstonePerson(person)
+
+            await expect(repository.fetchPerson(team.id, 'tombstoned-person-did')).resolves.toBeUndefined()
+            await expect(
+                repository.fetchPersonsByDistinctIds([{ teamId: team.id, distinctId: 'tombstoned-person-did' }])
+            ).resolves.toEqual([])
+            await expect(
+                repository.fetchPersonsForUpdateByDistinctIds(team.id, ['tombstoned-person-did'])
+            ).resolves.toEqual([])
+            await expect(
+                repository.fetchPersonsByPersonIds([{ teamId: team.id, personId: person.uuid }])
+            ).resolves.toEqual([])
+        })
+
+        it('excludes tombstoned distinct id mappings from reads while live mappings still resolve', async () => {
+            const person = await createTestPerson(team.id, 'live-did')
+            await repository.addDistinctId(person, 'dead-did', 0)
+            await tombstoneDistinctId(team.id, 'dead-did')
+
+            await expect(repository.fetchPerson(team.id, 'dead-did')).resolves.toBeUndefined()
+            await expect(repository.fetchPerson(team.id, 'live-did')).resolves.toMatchObject({ uuid: person.uuid })
+            await expect(repository.fetchPersonDistinctIds(person)).resolves.toEqual(['live-did'])
+            await expect(repository.fetchDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual({
+                [person.id]: ['live-did'],
+            })
+            await expect(repository.countDistinctIdsForPersons(team.id, [person.id])).resolves.toEqual(
+                new Map([[person.id, 1]])
+            )
+        })
+
+        it('updatePerson does not touch a tombstoned person', async () => {
+            const person = await createTestPerson(team.id, 'guard-update-did')
+            await tombstonePerson(person)
+
+            await expect(
+                repository.updatePerson(
+                    person,
+                    createPersonUpdateFields(person, { properties: { a: 1 } }),
+                    'guard-test'
+                )
+            ).rejects.toThrow(NoRowsUpdatedError)
+        })
+
+        it('updatePersonAssertVersion does not touch a tombstoned person even at the matching version', async () => {
+            const person = await createTestPerson(team.id, 'guard-assert-did')
+            await tombstonePerson(person)
+
+            // The tombstone bumped the row to person.version + 1; assert against that exact
+            // version so only the is_deleted guard can reject the write.
+            const [version, messages] = await repository.updatePersonAssertVersion(
+                buildPersonUpdate(person, 'guard-assert-did', person.version + 1)
+            )
+
+            expect(version).toBeUndefined()
+            expect(messages).toEqual([])
+        })
+
+        it('updatePersonsBatch skips tombstoned persons and leaves the death version intact', async () => {
+            const livePerson = await createTestPerson(team.id, 'guard-batch-live-did')
+            const deadPerson = await createTestPerson(team.id, 'guard-batch-dead-did')
+            await tombstonePerson(deadPerson)
+            const deathVersion = deadPerson.version + 1
+
+            const results = await repository.updatePersonsBatch([
+                buildPersonUpdate(livePerson, 'guard-batch-live-did', livePerson.version),
+                buildPersonUpdate(deadPerson, 'guard-batch-dead-did', deathVersion),
+            ])
+
+            expect(results.get(livePerson.uuid)).toMatchObject({ success: true })
+            expect(results.get(deadPerson.uuid)?.success).toBe(false)
+            expect(results.get(deadPerson.uuid)?.error).toBeInstanceOf(NoRowsUpdatedError)
+
+            const rows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT version FROM posthog_person WHERE team_id = $1 AND id = $2',
+                [team.id, deadPerson.id],
+                'fetchDeadPersonVersion'
+            )
+            expect(Number(rows.rows[0].version)).toBe(deathVersion)
+        })
+
+        it.each([
+            [
+                'moveDistinctIds',
+                (source: InternalPerson, target: InternalPerson) => repository.moveDistinctIds(source, target),
+            ],
+            [
+                'moveDistinctIds with limit',
+                (source: InternalPerson, target: InternalPerson) => repository.moveDistinctIds(source, target, 10),
+            ],
+            [
+                'moveDistinctIdsFromPersons',
+                (source: InternalPerson, target: InternalPerson) =>
+                    repository.moveDistinctIdsFromPersons([source], target),
+            ],
+        ])('%s moves only live distinct id mappings', async (_name, move) => {
+            const source = await createTestPerson(team.id, 'guard-move-live-did')
+            const target = await createTestPerson(team.id, 'guard-move-target-did')
+            await repository.addDistinctId(source, 'guard-move-dead-did', 0)
+            await tombstoneDistinctId(team.id, 'guard-move-dead-did')
+
+            const result = await move(source, target)
+
+            expect(result).toMatchObject({ success: true, distinctIdsMoved: ['guard-move-live-did'] })
+            const sourceRows = await fetchDistinctIds(postgres, source)
+            expect(sourceRows).toHaveLength(1)
+            expect(sourceRows[0].distinct_id).toBe('guard-move-dead-did')
+        })
+
+        it('createPerson revives a tombstoned person and its distinct id at death_version + 1', async () => {
+            const uuid = new UUIDT().toString()
+            const first = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { a: 1 },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                {
+                    distinctId: 'revive-did',
+                }
+            )
+            if (!first.success) {
+                throw new Error('Failed to create person')
+            }
+            await tombstonePerson(first.person)
+            await tombstoneDistinctId(team.id, 'revive-did')
+
+            const revived = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { b: 2 },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                {
+                    distinctId: 'revive-did',
+                }
+            )
+
+            if (!revived.success) {
+                throw new Error('Expected revival to succeed')
+            }
+            expect(revived.created).toBe(true)
+            expect(revived.person.version).toBe(2)
+            expect(revived.person.properties).toEqual({ b: 2 })
+            await expect(repository.fetchPerson(team.id, 'revive-did')).resolves.toMatchObject({ uuid, version: 2 })
+
+            const personMessage = parseJSON(revived.messages[0].value!.toString())
+            expect(personMessage.version).toBe(2)
+            expect(personMessage.is_deleted).toBe(0)
+            const distinctIdMessage = parseJSON(revived.messages[1].value!.toString())
+            expect(distinctIdMessage.version).toBe(2)
+        })
+
+        it('createPerson returns CreationConflict against a live person with the same uuid', async () => {
+            const uuid = new UUIDT().toString()
+            const first = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { a: 1 },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                {
+                    distinctId: 'live-uuid-did',
+                }
+            )
+            if (!first.success) {
+                throw new Error('Failed to create person')
+            }
+
+            const second = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { b: 2 },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                {
+                    distinctId: 'live-uuid-did-2',
+                }
+            )
+
+            // The holder owns a different distinct ID, so recovering by distinct ID cannot find
+            // it. Returning it here is what lets the caller resolve instead of raising an error
+            // the pipeline retries until the consumer dies with uncommitted offsets.
+            expect(second).toEqual({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['live-uuid-did-2'],
+                conflictingPerson: expect.objectContaining({ id: first.person.id, uuid }),
+            })
+            await expect(repository.fetchPerson(team.id, 'live-uuid-did')).resolves.toMatchObject({
+                version: 0,
+                properties: { a: 1 },
+            })
+        })
+
+        it('returns the uuid holder when the create runs inside a transaction', async () => {
+            // The legacy path recovers from a caught unique violation, which leaves the
+            // transaction aborted. Reading the holder on that transaction raises 25P02 and the
+            // throw escapes the conflict branch entirely, failing the merge saga that reaches
+            // createPerson through inTransaction. `repository` has no allowlist, so it takes
+            // that path rather than the ON CONFLICT one.
+            const uuid = new UUIDT().toString()
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'tx-uuid-did',
+            })
+            if (!first.success) {
+                throw new Error('Failed to create person')
+            }
+
+            const second = await repository.inTransaction('conflict-inside-transaction', (tx) =>
+                tx.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, false, uuid, {
+                    distinctId: 'tx-uuid-did-2',
+                })
+            )
+
+            expect(second).toEqual({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['tx-uuid-did-2'],
+                conflictingPerson: expect.objectContaining({ id: first.person.id, uuid }),
+            })
+        })
+
+        it('createPerson dedupes repeated distinct ids instead of failing the multi-insert', async () => {
+            const uuid = new UUIDT().toString()
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                { distinctId: 'dup-did' },
+                [{ distinctId: 'dup-did' }]
+            )
+
+            if (!result.success) {
+                throw new Error('Expected creation to succeed')
+            }
+            // One person message and one mapping message: the duplicate collapsed.
+            expect(result.messages).toHaveLength(2)
+            await expect(repository.fetchPerson(team.id, 'dup-did')).resolves.toMatchObject({ uuid })
+        })
+
+        it('createPerson undoes its insert when a distinct id is owned by a live mapping', async () => {
+            await createTestPerson(team.id, 'contested-did')
+            const uuid = new UUIDT().toString()
+
+            const result = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { secret: 'value' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                { distinctId: 'undo-primary-did' },
+                [{ distinctId: 'contested-did' }]
+            )
+
+            expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+            // The person row and the primary mapping it did attach are tombstoned, not
+            // left live: a live person unreachable by its contested distinct id would
+            // block the key forever. Like every tombstone, the properties are scrubbed.
+            const personRows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT is_deleted, properties FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                [team.id, uuid],
+                'fetchUndonePerson'
+            )
+            expect(personRows.rows).toEqual([{ is_deleted: true, properties: {} }])
+            await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
+        })
+
+        it('addDistinctId revives a tombstoned mapping, repointing it at the new person', async () => {
+            const newOwner = await createTestPerson(team.id, 'adder-did')
+            const oldOwner = await createTestPerson(team.id, 'old-owner-did')
+            await revivalRepository.addDistinctId(oldOwner, 'recycled-did', 0)
+            await tombstoneDistinctId(team.id, 'recycled-did')
+
+            const messages = await revivalRepository.addDistinctId(newOwner, 'recycled-did', 0)
+
+            await expect(repository.fetchPerson(team.id, 'recycled-did')).resolves.toMatchObject({
+                uuid: newOwner.uuid,
+            })
+            const message = parseJSON(messages[0].value!.toString())
+            expect(message).toEqual({
+                person_id: newOwner.uuid,
+                team_id: team.id,
+                distinct_id: 'recycled-did',
+                version: 2,
+                is_deleted: 0,
+            })
+        })
+
+        it('addDistinctId throws DistinctIdConflictError for a live mapping', async () => {
+            const person = await createTestPerson(team.id, 'conflict-adder-did')
+            await createTestPerson(team.id, 'already-owned-did')
+
+            await expect(revivalRepository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
+                DistinctIdConflictError
+            )
+        })
+
+        it('isPersonLive is true for a live person and false for a tombstoned one', async () => {
+            const person = await createTestPerson(team.id, 'live-check-did')
+
+            await expect(repository.isPersonLive(person)).resolves.toBe(true)
+            await tombstonePerson(person)
+            await expect(repository.isPersonLive(person)).resolves.toBe(false)
+        })
+
+        describe('lifecycle marks', () => {
+            async function countLifecycleRows(opId: string): Promise<{ ops: number; persons: number }> {
+                const ops = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT count(*) AS count FROM lifecycle_op WHERE op_id = $1',
+                    [opId],
+                    'countLifecycleOps'
+                )
+                const persons = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT count(*) AS count FROM lifecycle_op_person WHERE op_id = $1',
+                    [opId],
+                    'countLifecycleOpPersons'
+                )
+                return { ops: Number(ops.rows[0].count), persons: Number(persons.rows[0].count) }
+            }
+
+            it('claim and release leave no rows behind', async () => {
+                const person = await createTestPerson(team.id, 'mark-roundtrip-did')
+                const opId = new UUIDT().toString()
+
+                await repository.claimLifecycleMarks(opId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 1, persons: 1 })
+
+                await repository.releaseLifecycleMarks(opId, team.id)
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 0, persons: 0 })
+            })
+
+            it('claiming a person held by a live operation throws PersonClaimedByLifecycleOpError', async () => {
+                const person = await createTestPerson(team.id, 'mark-conflict-did')
+                const sagaOpId = new UUIDT().toString()
+                // A delete saga's live claim: committed in its own transaction and held
+                // across ours, exactly what the mark index arbitrates against.
+                await repository.claimLifecycleMarks(sagaOpId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'source' },
+                ])
+
+                const mergeOpId = new UUIDT().toString()
+                await expect(
+                    repository.claimLifecycleMarks(mergeOpId, team.id, [
+                        { personId: person.id, personUuid: person.uuid, role: 'target' },
+                    ])
+                ).rejects.toThrow(PersonClaimedByLifecycleOpError)
+
+                await repository.releaseLifecycleMarks(sagaOpId, team.id)
+            })
+
+            it('release scoped to another team leaves the marks in place', async () => {
+                const person = await createTestPerson(team.id, 'mark-scoped-did')
+                const opId = new UUIDT().toString()
+                await repository.claimLifecycleMarks(opId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+
+                await repository.releaseLifecycleMarks(opId, team.id + 1)
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 1, persons: 1 })
+
+                await repository.releaseLifecycleMarks(opId, team.id)
+                await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 0, persons: 0 })
+            })
+
+            it('a released mark no longer blocks a new claim', async () => {
+                const person = await createTestPerson(team.id, 'mark-released-did')
+                const firstOpId = new UUIDT().toString()
+                await repository.claimLifecycleMarks(firstOpId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+                await repository.releaseLifecycleMarks(firstOpId, team.id)
+
+                const secondOpId = new UUIDT().toString()
+                await repository.claimLifecycleMarks(secondOpId, team.id, [
+                    { personId: person.id, personUuid: person.uuid, role: 'target' },
+                ])
+                await repository.releaseLifecycleMarks(secondOpId, team.id)
+            })
+        })
+
+        describe('tombstone-mode deletes', () => {
+            let tombstoneRepository: PostgresPersonRepository
+
+            beforeEach(() => {
+                tombstoneRepository = new PostgresPersonRepository(postgres, {
+                    calculatePropertiesSize: 0,
+                    personPropertiesDbConstraintLimitBytes: 1024 * 1024,
+                    personPropertiesTrimTargetBytes: 512 * 1024,
+                    personMergeTombstoneTeamAllowlist: '*',
+                })
+            })
+
+            it('deletePerson tombstones the row at the exact death version with scrubbed properties', async () => {
+                const person = await createTestPerson(team.id, 'ts-delete-did', { secret: 'x' })
+                await tombstoneDistinctId(team.id, 'ts-delete-did')
+
+                const messages = await tombstoneRepository.deletePerson(person)
+
+                expect(messages).toHaveLength(1)
+                const message = parseJSON(messages[0].value!.toString())
+                expect(message).toMatchObject({ id: person.uuid, is_deleted: 1, version: 1, properties: '{}' })
+
+                const { rows } = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT is_deleted, version, properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                    [team.id, person.id],
+                    'fetchTombstonedPerson'
+                )
+                expect(rows[0].is_deleted).toBe(true)
+                expect(Number(rows[0].version)).toBe(1)
+                expect(rows[0].properties).toEqual({})
+            })
+
+            it('deletePerson refuses while live distinct ids still point at the person', async () => {
+                const person = await createTestPerson(team.id, 'ts-blocked-did')
+
+                await expect(tombstoneRepository.deletePerson(person)).rejects.toThrow(PersonTombstoneBlockedError)
+                await expect(repository.fetchPerson(team.id, 'ts-blocked-did')).resolves.toMatchObject({
+                    uuid: person.uuid,
+                })
+            })
+
+            it('deletePersons tombstones fresh persons and skips already-tombstoned ones', async () => {
+                const alreadyDead = await createTestPerson(team.id, 'ts-batch-dead-did')
+                const fresh = await createTestPerson(team.id, 'ts-batch-fresh-did')
+                await tombstoneDistinctId(team.id, 'ts-batch-dead-did')
+                await tombstoneDistinctId(team.id, 'ts-batch-fresh-did')
+                await tombstonePerson(alreadyDead)
+
+                const messages = await tombstoneRepository.deletePersons([alreadyDead, fresh])
+
+                expect(messages).toHaveLength(1)
+                const message = parseJSON(messages[0].value!.toString())
+                expect(message).toMatchObject({ id: fresh.uuid, is_deleted: 1, version: 1 })
+            })
+        })
+    })
+
     describe('createPerson()', () => {
         it('creates a person with basic properties', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const properties = { name: 'John Doe', email: 'john@example.com' }
 
@@ -235,7 +758,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('creates a person with multiple distinct IDs', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const properties = { name: 'Jane Doe' }
 
@@ -284,7 +806,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('throws error when trying to create a person with the same distinct ID twice', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const distinctId = 'duplicate-distinct-id'
             const uuid1 = new UUIDT().toString()
             const uuid2 = new UUIDT().toString()
@@ -337,7 +858,6 @@ describe('PostgresPersonRepository', () => {
 
     describe('addDistinctId()', () => {
         it('should add distinct ID to person', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
             const newDistinctId = 'new-distinct-id'
             const version = 1
@@ -359,7 +879,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle adding distinct ID with different version', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
             const newDistinctId = 'another-distinct-id'
             const version = 5
@@ -383,7 +902,6 @@ describe('PostgresPersonRepository', () => {
 
     describe('deletePerson()', () => {
         it('should delete person from postgres', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
             const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, {
                 distinctId: 'delete-test-distinct',
@@ -440,7 +958,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle deleting person that does not exist', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const nonExistentPerson = {
                 id: '999999',
                 uuid: new UUIDT().toString(),
@@ -464,7 +981,6 @@ describe('PostgresPersonRepository', () => {
 
     describe('moveDistinctIds()', () => {
         it('should move distinct IDs from source to target person', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
 
@@ -495,7 +1011,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it.skip('should handle target person not found', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
             const nonExistentTargetPerson = {
                 id: '999999',
@@ -520,7 +1035,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle source person not found', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
             const nonExistentSourcePerson = {
                 id: '888888',
@@ -545,7 +1059,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should respect per-call move limit when provided', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
@@ -591,7 +1104,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move all distinct IDs when no limit is configured', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const unlimitedRepository = new PostgresPersonRepository(postgres, {}) // No limit
 
             const sourcePerson = await createTestPerson(team.id, 'source-unlimited', { name: 'Source Person' })
@@ -622,7 +1134,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move distinct IDs in deterministic order when per-call limit is set', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-deterministic', { name: 'Source Person' })
@@ -677,7 +1188,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should move all distinct IDs when person has fewer than the per-call limit', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const limitedRepository = new PostgresPersonRepository(postgres, {})
 
             const sourcePerson = await createTestPerson(team.id, 'source-below-limit', { name: 'Source Person' })
@@ -724,7 +1234,6 @@ describe('PostgresPersonRepository', () => {
 
     describe('fetchPersonDistinctIds()', () => {
         it('should fetch all distinct IDs when no limit is specified', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct-id', { name: 'Test Person' })
 
             // Add more distinct IDs
@@ -742,7 +1251,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should fetch limited distinct IDs when limit is specified', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-limit-distinct', { name: 'Test Person' })
 
             // Add more distinct IDs
@@ -758,7 +1266,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return distinct IDs in deterministic order', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'order-test-distinct', { name: 'Test Person' })
 
             // Add distinct IDs in non-alphabetical order
@@ -775,7 +1282,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle limit larger than available distinct IDs', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'large-limit-distinct', { name: 'Test Person' })
 
             // Add only 2 more distinct IDs (total of 3)
@@ -791,7 +1297,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should work with transactions', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'tx-distinct', { name: 'Test Person' })
 
             await repository.addDistinctId(person, 'tx-distinct-2', 1)
@@ -812,7 +1317,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should fetch persons by distinct IDs from multiple teams', async () => {
-            const team1 = await getFirstTeam(hub.postgres)
+            const team1 = team
             const team2Id = await createTeam(postgres, team1.organization_id)
 
             // Create persons in different teams
@@ -851,7 +1356,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle non-existent distinct IDs gracefully', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-distinct', { name: 'Existing Person' })
 
             const teamPersons = [
@@ -868,7 +1372,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle single team person lookup', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'single-distinct', { name: 'Single Person' })
 
             const teamPersons = [{ teamId: team.id as any, distinctId: 'single-distinct' }]
@@ -883,7 +1386,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle duplicate team/distinctId pairs', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'duplicate-distinct', { name: 'Duplicate Person' })
 
             const teamPersons = [
@@ -900,7 +1402,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should include all required fields in InternalPersonWithDistinctId', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'fields-test', { name: 'Fields Test', age: 25 })
 
             const teamPersons = [{ teamId: team.id as any, distinctId: 'fields-test' }]
@@ -935,7 +1436,7 @@ describe('PostgresPersonRepository', () => {
             ['single team', 1],
             ['multiple teams', 2],
         ])('should fetch persons by person IDs (%s)', async (_label, teamCount) => {
-            const team1 = await getFirstTeam(hub.postgres)
+            const team1 = team
             const team2Id = teamCount > 1 ? await createTeam(postgres, team1.organization_id) : team1.id
 
             const person1 = await createTestPerson(team1.id, 'pid-test-1', { name: 'Person 1' })
@@ -955,7 +1456,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should not return persons from a different team even if their IDs were referenced', async () => {
-            const team1 = await getFirstTeam(hub.postgres)
+            const team1 = team
             const team2Id = await createTeam(postgres, team1.organization_id)
 
             const team1Person = await createTestPerson(team1.id, 'cross-team-1', { name: 'Team 1 Person' })
@@ -972,7 +1473,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle non-existent person IDs gracefully', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'existing-person', { name: 'Existing' })
             const nonExistentId = new UUIDT().toString()
 
@@ -986,7 +1486,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should deduplicate repeated (teamId, personId) pairs', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'dedup-person', { name: 'Dedup' })
 
             const result = await repository.fetchPersonsByPersonIds([
@@ -1001,13 +1500,11 @@ describe('PostgresPersonRepository', () => {
 
     describe('fetchDistinctIdsForPersons', () => {
         it('returns empty object when no person ids provided', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const result = await repository.fetchDistinctIdsForPersons(team.id, [])
             expect(result).toEqual({})
         })
 
         it('returns distinct_ids keyed by int person_id, capped per person', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person1 = await createTestPerson(team.id, 'distinct-1-a', { name: 'Person 1' })
             await repository.addDistinctId(person1, 'distinct-1-b', 0)
             await repository.addDistinctId(person1, 'distinct-1-c', 0)
@@ -1026,7 +1523,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('omits persons that have no distinct_ids in the target team', async () => {
-            const team1 = await getFirstTeam(hub.postgres)
+            const team1 = team
             const team2Id = await createTeam(postgres, team1.organization_id)
             const personInTeam2 = await createTestPerson(team2Id, 'team2-only', { name: 'Team 2' })
 
@@ -1035,257 +1532,8 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
-    describe('addPersonlessDistinctId', () => {
-        it('should insert personless distinct ID successfully', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const distinctId = 'test-distinct-new'
-
-            const result = await repository.addPersonlessDistinctId(team.id, distinctId)
-
-            expect(result).toBe(false) // is_merged should be false for new insert
-
-            // Verify the record was actually inserted
-            const selectResult = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team.id, distinctId],
-                'verifyInsert'
-            )
-
-            expect(selectResult.rows).toHaveLength(1)
-            expect(selectResult.rows[0].is_merged).toBe(false)
-        })
-
-        it('should return existing is_merged value when distinct ID already exists', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const distinctId = 'test-distinct-existing'
-
-            // First insert
-            const firstResult = await repository.addPersonlessDistinctId(team.id, distinctId)
-            expect(firstResult).toBe(false) // is_merged should be false for new insert
-
-            // Second insert with same distinct ID - should return existing value
-            const secondResult = await repository.addPersonlessDistinctId(team.id, distinctId)
-            expect(secondResult).toBe(false) // should still be false since we didn't merge it
-
-            // Verify only one record exists
-            const selectResult = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT COUNT(*) as count FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team.id, distinctId],
-                'verifyCount'
-            )
-
-            expect(selectResult.rows[0].count).toBe('1')
-        })
-
-        it('should handle different team IDs correctly', async () => {
-            const team1 = await getFirstTeam(hub.postgres)
-            const team2Id = await createTeam(hub.postgres, team1.organization_id)
-            const distinctId = 'shared-distinct-id'
-
-            // Insert for team 1
-            const result1 = await repository.addPersonlessDistinctId(team1.id, distinctId)
-            expect(result1).toBe(false)
-
-            // Insert for team 2 (should work since it's a different team)
-            const result2 = await repository.addPersonlessDistinctId(team2Id, distinctId)
-            expect(result2).toBe(false)
-
-            // Verify both records exist
-            const selectResult1 = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team1.id, distinctId],
-                'verifyTeam1'
-            )
-
-            const selectResult2 = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team2Id, distinctId],
-                'verifyTeam2'
-            )
-
-            expect(selectResult1.rows).toHaveLength(1)
-            expect(selectResult2.rows).toHaveLength(1)
-            expect(selectResult1.rows[0].is_merged).toBe(false)
-            expect(selectResult2.rows[0].is_merged).toBe(false)
-        })
-    })
-
-    describe('addPersonlessDistinctIdForMerge', () => {
-        it('should insert personless distinct ID for merge successfully', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const distinctId = 'test-distinct-merge-new'
-
-            const result = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId)
-
-            expect(result).toBe(true) // inserted should be true for new insert
-
-            // Verify the record was actually inserted with is_merged = true
-            const selectResult = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team.id, distinctId],
-                'verifyMergeInsert'
-            )
-
-            expect(selectResult.rows).toHaveLength(1)
-            expect(selectResult.rows[0].is_merged).toBe(true)
-        })
-
-        it('should update existing record to merged when distinct ID already exists', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const distinctId = 'test-distinct-merge-existing'
-
-            // First insert as regular personless distinct ID
-            const firstResult = await repository.addPersonlessDistinctId(team.id, distinctId)
-            expect(firstResult).toBe(false) // is_merged should be false initially
-
-            // Verify initial state
-            let selectResult = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team.id, distinctId],
-                'verifyInitialState'
-            )
-            expect(selectResult.rows[0].is_merged).toBe(false)
-
-            // Now mark it for merge
-            const mergeResult = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId)
-            expect(mergeResult).toBe(false) // inserted should be false since record already existed
-
-            // Verify it was updated to merged
-            selectResult = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team.id, distinctId],
-                'verifyMergeUpdate'
-            )
-            expect(selectResult.rows[0].is_merged).toBe(true)
-        })
-
-        it('should handle transaction parameter correctly', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const distinctId = 'test-distinct-merge-transaction'
-
-            // Use a transaction
-            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
-                const result = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId, tx)
-                expect(result).toBe(true)
-
-                // Verify within transaction
-                const selectResult = await postgres.query(
-                    tx,
-                    `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                    [team.id, distinctId],
-                    'verifyInTransaction'
-                )
-                expect(selectResult.rows).toHaveLength(1)
-                expect(selectResult.rows[0].is_merged).toBe(true)
-            })
-
-            // Verify after transaction
-            const selectResult = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team.id, distinctId],
-                'verifyAfterTransaction'
-            )
-            expect(selectResult.rows).toHaveLength(1)
-            expect(selectResult.rows[0].is_merged).toBe(true)
-        })
-    })
-
-    describe('addPersonlessDistinctIdsBatch', () => {
-        it('should insert multiple personless distinct IDs in batch', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const entries = [
-                { teamId: team.id, distinctId: 'batch-distinct-1' },
-                { teamId: team.id, distinctId: 'batch-distinct-2' },
-                { teamId: team.id, distinctId: 'batch-distinct-3' },
-            ]
-
-            const results = await repository.addPersonlessDistinctIdsBatch(entries)
-
-            // All should be not merged (new inserts)
-            expect(results.size).toBe(3)
-            expect(results.get(`${team.id}|batch-distinct-1`)).toBe(false)
-            expect(results.get(`${team.id}|batch-distinct-2`)).toBe(false)
-            expect(results.get(`${team.id}|batch-distinct-3`)).toBe(false)
-
-            // Verify records were inserted
-            const selectResult = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                `SELECT distinct_id, is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 ORDER BY distinct_id`,
-                [team.id],
-                'verifyBatchInsert'
-            )
-            expect(selectResult.rows).toHaveLength(3)
-        })
-
-        it('should handle duplicate distinct IDs in batch (deduplicates)', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const entries = [
-                { teamId: team.id, distinctId: 'dup-distinct' },
-                { teamId: team.id, distinctId: 'dup-distinct' },
-                { teamId: team.id, distinctId: 'other-distinct' },
-            ]
-
-            const results = await repository.addPersonlessDistinctIdsBatch(entries)
-
-            // Should have 2 unique entries
-            expect(results.size).toBe(2)
-            expect(results.get(`${team.id}|dup-distinct`)).toBe(false)
-            expect(results.get(`${team.id}|other-distinct`)).toBe(false)
-        })
-
-        it('should return is_merged=true for already merged distinct IDs', async () => {
-            const team = await getFirstTeam(hub.postgres)
-            const mergedDistinctId = 'already-merged-distinct'
-
-            // First, insert and mark as merged
-            await repository.addPersonlessDistinctIdForMerge(team.id, mergedDistinctId)
-
-            // Now try to batch insert including the merged one
-            const entries = [
-                { teamId: team.id, distinctId: mergedDistinctId },
-                { teamId: team.id, distinctId: 'new-distinct' },
-            ]
-
-            const results = await repository.addPersonlessDistinctIdsBatch(entries)
-
-            expect(results.size).toBe(2)
-            expect(results.get(`${team.id}|${mergedDistinctId}`)).toBe(true) // Already merged
-            expect(results.get(`${team.id}|new-distinct`)).toBe(false) // New insert
-        })
-
-        it('should handle empty batch', async () => {
-            const results = await repository.addPersonlessDistinctIdsBatch([])
-            expect(results.size).toBe(0)
-        })
-
-        it('should handle multiple teams in same batch', async () => {
-            const team1 = await getFirstTeam(hub.postgres)
-            const team2Id = await createTeam(hub.postgres, team1.organization_id)
-
-            const entries = [
-                { teamId: team1.id, distinctId: 'shared-distinct' },
-                { teamId: team2Id, distinctId: 'shared-distinct' },
-            ]
-
-            const results = await repository.addPersonlessDistinctIdsBatch(entries)
-
-            expect(results.size).toBe(2)
-            expect(results.get(`${team1.id}|shared-distinct`)).toBe(false)
-            expect(results.get(`${team2Id}|shared-distinct`)).toBe(false)
-        })
-    })
-
     describe('personPropertiesSize', () => {
         it('should return properties size for existing person', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', {
                 name: 'John Doe',
                 email: 'john@example.com',
@@ -1303,7 +1551,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return 0 for non-existent person', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const fakePersonId = '999999' // Use a numeric ID instead of UUID
             const size = await repository.personPropertiesSize(fakePersonId, team.id)
 
@@ -1311,7 +1558,7 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle different persons correctly', async () => {
-            const team1 = await getFirstTeam(hub.postgres)
+            const team1 = team
             const team2Id = await createTeam(hub.postgres, team1.organization_id)
 
             // Create person in team 1
@@ -1330,8 +1577,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should return larger size for person with more properties', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             // Create person with minimal properties
             const minimalPerson = await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
             const minimalSize = await repository.personPropertiesSize(minimalPerson.id, team.id)
@@ -1371,7 +1616,6 @@ describe('PostgresPersonRepository', () => {
 
     describe('updatePerson', () => {
         it('should update person properties successfully', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John', age: 25 })
 
             const update = { properties: { name: 'Jane', age: 30, city: 'New York' } }
@@ -1392,7 +1636,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should update is_identified field', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { is_identified: true }
@@ -1407,7 +1650,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle version conflicts correctly', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // First update
@@ -1431,7 +1673,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle transaction parameter correctly', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
@@ -1453,7 +1694,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle tag parameter correctly', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { properties: { name: 'Jane' } }
@@ -1468,7 +1708,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should throw NoRowsUpdatedError when person does not exist', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const nonExistentPerson: InternalPerson = {
                 id: '1234567890',
                 team_id: team.id,
@@ -1490,7 +1729,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with optimistic concurrency control', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // Create a PersonUpdate object
@@ -1528,7 +1766,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with version mismatch', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             // Create a PersonUpdate with an outdated version
@@ -1566,8 +1803,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle updatePersonAssertVersion with non-existent person', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             // Create a PersonUpdate for a non-existent person
             const personUpdate = {
                 id: '999999',
@@ -1598,7 +1833,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should merge properties_to_set into properties when updating', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-merge-set', { existing: 'value', to_update: 'old' })
 
             const personUpdate = {
@@ -1636,7 +1870,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should apply properties_to_unset when updating', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-unset', {
                 keep: 'value',
                 remove_me: 'will be removed',
@@ -1674,7 +1907,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle combined properties_to_set and properties_to_unset', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-combined', {
                 keep: 'value',
                 remove: 'will go',
@@ -1718,22 +1950,20 @@ describe('PostgresPersonRepository', () => {
     })
 
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
-        let team: Team
         let sourcePersonID: InternalPerson['id']
         let targetPersonID: InternalPerson['id']
 
         async function getAllHashKeyOverrides(): Promise<any> {
             const result = await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
-                [],
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride WHERE team_id = $1',
+                [team.id],
                 ''
             )
             return result.rows
         }
 
         beforeEach(async () => {
-            team = await getFirstTeam(hub.postgres)
             const result = await repository.createPerson(
                 TIMESTAMP,
                 {},
@@ -2019,7 +2249,6 @@ describe('PostgresPersonRepository', () => {
 
         describe('createPerson with oversized properties', () => {
             it('should throw PersonPropertiesSizeViolationError when properties exceed size limit', async () => {
-                const team = await getFirstTeam(hub.postgres)
                 const uuid = new UUIDT().toString()
                 const oversizedProperties = {
                     description: 'x'.repeat(200),
@@ -2070,8 +2299,6 @@ describe('PostgresPersonRepository', () => {
 
         describe('updatePerson with oversized properties', () => {
             it('should trim existing oversized person properties and update successfully', async () => {
-                const team = await getFirstTeam(hub.postgres)
-
                 const normalPerson = await createTestPerson(team.id, 'test-oversized-update', {
                     name: 'John',
                     description: 'x'.repeat(120),
@@ -2103,7 +2330,6 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should reject update when current person is under limit but update would exceed it', async () => {
-                const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-normal-person', { name: 'John' })
 
                 const mockPersonPropertiesSize = jest
@@ -2145,7 +2371,6 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should fail gracefully when trimming fails', async () => {
-                const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-trim-failure', {
                     name: 'John',
                     description: 'x'.repeat(120),
@@ -2200,8 +2425,6 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should fail when protected properties alone exceed size limit and cannot be trimmed', async () => {
-                const team = await getFirstTeam(hub.postgres)
-
                 const largeProtectedProperties = {
                     name: 'John Doe with a very long name that takes up significant space',
                     email: 'john.doe.with.an.extremely.long.email.address.that.should.be.protected@example.com',
@@ -2302,7 +2525,6 @@ describe('PostgresPersonRepository', () => {
 
         describe('updatePersonAssertVersion with oversized properties', () => {
             it('should throw PersonPropertiesSizeViolationError when properties exceed size limit', async () => {
-                const team = await getFirstTeam(hub.postgres)
                 const person = await createTestPerson(team.id, 'test-assert-oversized', { name: 'John' })
 
                 const originalQuery = postgres.query.bind(postgres)
@@ -2353,7 +2575,6 @@ describe('PostgresPersonRepository', () => {
 
         describe('new metrics and error handling', () => {
             it('should increment personPropertiesSizeViolationCounter with correct labels', async () => {
-                const team = await getFirstTeam(hub.postgres)
                 const uuid = new UUIDT().toString()
                 const oversizedProperties = {
                     description: 'x'.repeat(200),
@@ -2398,7 +2619,6 @@ describe('PostgresPersonRepository', () => {
             })
 
             it('should increment oversizedPersonPropertiesTrimmedCounter when trimming succeeds', async () => {
-                const team = await getFirstTeam(hub.postgres)
                 const person = await createTestPerson(team.id, 'test-trimming-metrics', {
                     name: 'John',
                     description: 'x'.repeat(120),
@@ -2499,8 +2719,6 @@ describe('PostgresPersonRepository', () => {
 
     describe('calculate properties size feature flag', () => {
         it('should have identical output whether properties size calculation is enabled or disabled', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             const person1 = await createTestPerson(team.id, 'test-distinct-1', {
                 name: 'John',
                 age: 25,
@@ -2559,8 +2777,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should have identical behavior for updatePersonAssertVersion regardless of logging configuration', async () => {
-            const team = await getFirstTeam(hub.postgres)
-
             const person1 = await createTestPerson(team.id, 'test-assert-1', { name: 'John', data: 'x'.repeat(2000) })
             const person2 = await createTestPerson(team.id, 'test-assert-2', { name: 'John', data: 'x'.repeat(2000) })
 
@@ -2617,7 +2833,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should work with default options (no logging)', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const defaultRepository = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
                 personPropertiesDbConstraintLimitBytes: 1024 * 1024,
@@ -2673,7 +2888,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should track JSON field sizes on createPerson', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const properties = { name: 'Alice', email: 'alice@example.com', age: 25 }
             const propertiesLastUpdatedAt = { name: '2024-01-15T10:30:00.000Z', email: '2024-01-15T10:30:00.000Z' }
             const propertiesLastOperation = { name: PropertyUpdateOperation.Set, email: PropertyUpdateOperation.Set }
@@ -2719,7 +2933,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should track JSON field sizes on updatePerson with properties', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-update', { name: 'Bob' })
 
             // Clear observe calls from createTestPerson
@@ -2762,7 +2975,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should only track metrics for fields being updated', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-partial', { name: 'Charlie' })
 
             // Clear observe calls from createTestPerson
@@ -2787,7 +2999,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should handle large properties correctly', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const largeProperties = {
                 name: 'David',
                 large_field: 'z'.repeat(100000), // 100KB of data
@@ -2833,7 +3044,6 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('should not record metrics when update is empty', async () => {
-            const team = await getFirstTeam(hub.postgres)
             const person = await createTestPerson(team.id, 'test-metrics-empty', { name: 'Eve' })
 
             // Clear observe calls from createTestPerson
@@ -2849,18 +3059,162 @@ describe('PostgresPersonRepository', () => {
             expect(observeCalls).toHaveLength(3)
         })
     })
-})
 
-// Helper function from the original test file
-async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
-    const teams = await postgres.query(
-        PostgresUse.COMMON_WRITE,
-        'SELECT * FROM posthog_team LIMIT 1',
-        [],
-        'getFirstTeam'
-    )
-    return teams.rows[0]
-}
+    describe('fetchPersonsForUpdateByDistinctIds()', () => {
+        it('returns empty array for empty input', async () => {
+            expect(await repository.fetchPersonsForUpdateByDistinctIds(team.id, [])).toEqual([])
+        })
+
+        it('resolves and locks multiple distinct ids in one query', async () => {
+            const person1 = await createTestPerson(team.id, 'fold-anon-1', { name: 'One' })
+            const person2 = await createTestPerson(team.id, 'fold-anon-2', { name: 'Two' })
+            await repository.addDistinctId(person1, 'fold-anon-1b', 0)
+
+            const rows = await repository.fetchPersonsForUpdateByDistinctIds(team.id, [
+                'fold-anon-1',
+                'fold-anon-1b',
+                'fold-anon-2',
+                'fold-missing',
+            ])
+
+            expect(rows).toHaveLength(3)
+            const byDistinctId = Object.fromEntries(rows.map((row) => [row.distinct_id, row.uuid]))
+            expect(byDistinctId).toEqual({
+                'fold-anon-1': person1.uuid,
+                'fold-anon-1b': person1.uuid,
+                'fold-anon-2': person2.uuid,
+            })
+        })
+    })
+
+    describe('moveDistinctIdsFromPersons()', () => {
+        it('moves all distinct ids from multiple sources to the target', async () => {
+            const source1 = await createTestPerson(team.id, 'fold-source-1', {})
+            const source2 = await createTestPerson(team.id, 'fold-source-2', {})
+            const target = await createTestPerson(team.id, 'fold-target', {})
+            await repository.addDistinctId(source1, 'fold-source-1b', 0)
+
+            const result = await repository.moveDistinctIdsFromPersons([source1, source2], target)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                expect(result.distinctIdsMoved.sort()).toEqual(['fold-source-1', 'fold-source-1b', 'fold-source-2'])
+                for (const message of result.messages) {
+                    const messageValue = parseJSON(message.value!.toString())
+                    expect(messageValue).toMatchObject({ person_id: target.uuid, team_id: team.id, is_deleted: 0 })
+                }
+            }
+
+            const targetDistinctIds = await fetchDistinctIdValues(hub.postgres, target)
+            expect(targetDistinctIds.sort()).toEqual([
+                'fold-source-1',
+                'fold-source-1b',
+                'fold-source-2',
+                'fold-target',
+            ])
+        })
+
+        it('treats sources without distinct ids as satisfied rather than failing', async () => {
+            const source = await createTestPerson(team.id, 'fold-source-gone', {})
+            const target = await createTestPerson(team.id, 'fold-target-2', {})
+
+            // Simulate a concurrently completed merge: source's ids were already moved
+            await repository.moveDistinctIds(source, target, undefined)
+            const result = await repository.moveDistinctIdsFromPersons([source], target)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                expect(result.distinctIdsMoved).toEqual([])
+                expect(result.messages).toEqual([])
+            }
+        })
+
+        it('returns success with no work for empty sources', async () => {
+            const target = await createTestPerson(team.id, 'fold-target-3', {})
+
+            const result = await repository.moveDistinctIdsFromPersons([], target)
+
+            expect(result).toEqual({ success: true, messages: [], distinctIdsMoved: [] })
+        })
+    })
+
+    describe('deletePersons()', () => {
+        it('deletes multiple persons and returns one deletion message each', async () => {
+            const person1 = await createTestPerson(team.id, 'fold-delete-1', {})
+            const person2 = await createTestPerson(team.id, 'fold-delete-2', {})
+            // Distinct ids reference persons via FK; clear them before deletion
+            const target = await createTestPerson(team.id, 'fold-delete-target', {})
+            await repository.moveDistinctIdsFromPersons([person1, person2], target)
+
+            const messages = await repository.deletePersons([person1, person2])
+
+            expect(messages).toHaveLength(2)
+            const deletedUuids = messages.map((message) => parseJSON(message.value!.toString()).id).sort()
+            expect(deletedUuids).toEqual([person1.uuid, person2.uuid].sort())
+            expect(await fetchPersonByPersonId(hub, team.id, person1.id)).toBeUndefined()
+            expect(await fetchPersonByPersonId(hub, team.id, person2.id)).toBeUndefined()
+        })
+
+        it('returns no messages for already-deleted persons and empty input', async () => {
+            const person = await createTestPerson(team.id, 'fold-delete-3', {})
+            const target = await createTestPerson(team.id, 'fold-delete-target-2', {})
+            await repository.moveDistinctIdsFromPersons([person], target)
+            await repository.deletePerson(person)
+
+            expect(await repository.deletePersons([person])).toEqual([])
+            expect(await repository.deletePersons([])).toEqual([])
+        })
+    })
+
+    describe('updateCohortsAndFeatureFlagsForMergeBatch()', () => {
+        it('moves overrides from multiple sources, keeping target values on conflict', async () => {
+            const source1 = await createTestPerson(team.id, 'fold-ff-source-1', {})
+            const source2 = await createTestPerson(team.id, 'fold-ff-source-2', {})
+            const target = await createTestPerson(team.id, 'fold-ff-target', {})
+
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: source1.id,
+                feature_flag_key: 'aloha',
+                hash_key: 'source1_aloha',
+            })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: source2.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'source2_beta',
+            })
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: target.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'target_beta',
+            })
+
+            await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [source1.id, source2.id], target.id)
+
+            const result = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride WHERE team_id = $1',
+                [team.id],
+                ''
+            )
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    { feature_flag_key: 'aloha', hash_key: 'source1_aloha', person_id: target.id },
+                    { feature_flag_key: 'beta-feature', hash_key: 'target_beta', person_id: target.id },
+                ])
+            )
+            expect(result.rows).toHaveLength(2)
+        })
+
+        it('is a no-op for empty sources', async () => {
+            const target = await createTestPerson(team.id, 'fold-ff-target-2', {})
+
+            await repository.updateCohortsAndFeatureFlagsForMergeBatch(team.id, [], target.id)
+        })
+    })
+})
 
 async function fetchPersonByPersonId(hub: Hub, teamId: number, personId: string): Promise<any | undefined> {
     const selectResult = await hub.postgres.query(

@@ -69,6 +69,7 @@ export interface editActivityEventsWidgetModalLogicValues {
                             label?: string | null | undefined
                             operator:
                                 | 'between'
+                                | 'ends_with'
                                 | 'exact'
                                 | 'flag_evaluates_to'
                                 | 'gt'
@@ -88,10 +89,12 @@ export interface editActivityEventsWidgetModalLogicValues {
                                 | 'max'
                                 | 'min'
                                 | 'not_between'
+                                | 'not_ends_with'
                                 | 'not_icontains'
                                 | 'not_icontains_multi'
                                 | 'not_in'
                                 | 'not_regex'
+                                | 'not_starts_with'
                                 | 'regex'
                                 | 'semver_caret'
                                 | 'semver_eq'
@@ -102,6 +105,7 @@ export interface editActivityEventsWidgetModalLogicValues {
                                 | 'semver_neq'
                                 | 'semver_tilde'
                                 | 'semver_wildcard'
+                                | 'starts_with'
                             type: 'event' | 'person'
                             value?: boolean | number | string | (boolean | number | string)[] | null | undefined
                         }[]
@@ -114,6 +118,7 @@ export interface editActivityEventsWidgetModalLogicValues {
                                 filterId: string
                                 operator:
                                     | 'between'
+                                    | 'ends_with'
                                     | 'exact'
                                     | 'flag_evaluates_to'
                                     | 'gt'
@@ -133,10 +138,12 @@ export interface editActivityEventsWidgetModalLogicValues {
                                     | 'max'
                                     | 'min'
                                     | 'not_between'
+                                    | 'not_ends_with'
                                     | 'not_icontains'
                                     | 'not_icontains_multi'
                                     | 'not_in'
                                     | 'not_regex'
+                                    | 'not_starts_with'
                                     | 'regex'
                                     | 'semver_caret'
                                     | 'semver_eq'
@@ -147,6 +154,7 @@ export interface editActivityEventsWidgetModalLogicValues {
                                     | 'semver_neq'
                                     | 'semver_tilde'
                                     | 'semver_wildcard'
+                                    | 'starts_with'
                                 optionId: string
                                 propertyName: string
                                 value?: string | string[] | null | undefined
@@ -227,6 +235,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                           label?: string | null | undefined
                           operator:
                               | 'between'
+                              | 'ends_with'
                               | 'exact'
                               | 'flag_evaluates_to'
                               | 'gt'
@@ -246,10 +255,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                               | 'max'
                               | 'min'
                               | 'not_between'
+                              | 'not_ends_with'
                               | 'not_icontains'
                               | 'not_icontains_multi'
                               | 'not_in'
                               | 'not_regex'
+                              | 'not_starts_with'
                               | 'regex'
                               | 'semver_caret'
                               | 'semver_eq'
@@ -260,6 +271,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                               | 'semver_neq'
                               | 'semver_tilde'
                               | 'semver_wildcard'
+                              | 'starts_with'
                           type: 'event' | 'person'
                           value?: boolean | number | string | (boolean | number | string)[] | null | undefined
                       }[]
@@ -272,6 +284,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                               filterId: string
                               operator:
                                   | 'between'
+                                  | 'ends_with'
                                   | 'exact'
                                   | 'flag_evaluates_to'
                                   | 'gt'
@@ -291,10 +304,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                   | 'max'
                                   | 'min'
                                   | 'not_between'
+                                  | 'not_ends_with'
                                   | 'not_icontains'
                                   | 'not_icontains_multi'
                                   | 'not_in'
                                   | 'not_regex'
+                                  | 'not_starts_with'
                                   | 'regex'
                                   | 'semver_caret'
                                   | 'semver_eq'
@@ -305,6 +320,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                   | 'semver_neq'
                                   | 'semver_tilde'
                                   | 'semver_wildcard'
+                                  | 'starts_with'
                               optionId: string
                               propertyName: string
                               value?: string | string[] | null | undefined
@@ -346,6 +362,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                 label?: string | null | undefined
                                 operator:
                                     | 'between'
+                                    | 'ends_with'
                                     | 'exact'
                                     | 'flag_evaluates_to'
                                     | 'gt'
@@ -365,10 +382,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                     | 'max'
                                     | 'min'
                                     | 'not_between'
+                                    | 'not_ends_with'
                                     | 'not_icontains'
                                     | 'not_icontains_multi'
                                     | 'not_in'
                                     | 'not_regex'
+                                    | 'not_starts_with'
                                     | 'regex'
                                     | 'semver_caret'
                                     | 'semver_eq'
@@ -379,6 +398,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                     | 'semver_neq'
                                     | 'semver_tilde'
                                     | 'semver_wildcard'
+                                    | 'starts_with'
                                 type: 'event' | 'person'
                                 value?: boolean | number | string | (boolean | number | string)[] | null | undefined
                             }[]
@@ -391,6 +411,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                     filterId: string
                                     operator:
                                         | 'between'
+                                        | 'ends_with'
                                         | 'exact'
                                         | 'flag_evaluates_to'
                                         | 'gt'
@@ -410,10 +431,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         | 'max'
                                         | 'min'
                                         | 'not_between'
+                                        | 'not_ends_with'
                                         | 'not_icontains'
                                         | 'not_icontains_multi'
                                         | 'not_in'
                                         | 'not_regex'
+                                        | 'not_starts_with'
                                         | 'regex'
                                         | 'semver_caret'
                                         | 'semver_eq'
@@ -424,6 +447,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         | 'semver_neq'
                                         | 'semver_tilde'
                                         | 'semver_wildcard'
+                                        | 'starts_with'
                                     optionId: string
                                     propertyName: string
                                     value?: string | string[] | null | undefined
@@ -464,6 +488,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                     label?: string | null | undefined
                                     operator:
                                         | 'between'
+                                        | 'ends_with'
                                         | 'exact'
                                         | 'flag_evaluates_to'
                                         | 'gt'
@@ -483,10 +508,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         | 'max'
                                         | 'min'
                                         | 'not_between'
+                                        | 'not_ends_with'
                                         | 'not_icontains'
                                         | 'not_icontains_multi'
                                         | 'not_in'
                                         | 'not_regex'
+                                        | 'not_starts_with'
                                         | 'regex'
                                         | 'semver_caret'
                                         | 'semver_eq'
@@ -497,6 +524,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         | 'semver_neq'
                                         | 'semver_tilde'
                                         | 'semver_wildcard'
+                                        | 'starts_with'
                                     type: 'event' | 'person'
                                     value?: boolean | number | string | (boolean | number | string)[] | null | undefined
                                 }[]
@@ -509,6 +537,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         filterId: string
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -528,10 +557,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -542,6 +573,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         optionId: string
                                         propertyName: string
                                         value?: string | string[] | null | undefined
@@ -589,6 +621,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                     label?: string | null | undefined
                                     operator:
                                         | 'between'
+                                        | 'ends_with'
                                         | 'exact'
                                         | 'flag_evaluates_to'
                                         | 'gt'
@@ -608,10 +641,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         | 'max'
                                         | 'min'
                                         | 'not_between'
+                                        | 'not_ends_with'
                                         | 'not_icontains'
                                         | 'not_icontains_multi'
                                         | 'not_in'
                                         | 'not_regex'
+                                        | 'not_starts_with'
                                         | 'regex'
                                         | 'semver_caret'
                                         | 'semver_eq'
@@ -622,6 +657,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         | 'semver_neq'
                                         | 'semver_tilde'
                                         | 'semver_wildcard'
+                                        | 'starts_with'
                                     type: 'event' | 'person'
                                     value?: boolean | number | string | (boolean | number | string)[] | null | undefined
                                 }[]
@@ -634,6 +670,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                         filterId: string
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -653,10 +690,12 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -667,6 +706,7 @@ export interface editActivityEventsWidgetModalLogicMeta {
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         optionId: string
                                         propertyName: string
                                         value?: string | string[] | null | undefined
@@ -823,6 +863,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                         label?: string | null | undefined
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -842,10 +883,12 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -856,6 +899,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         type: 'event' | 'person'
                                         value?:
                                             | boolean
@@ -874,6 +918,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                             filterId: string
                                             operator:
                                                 | 'between'
+                                                | 'ends_with'
                                                 | 'exact'
                                                 | 'flag_evaluates_to'
                                                 | 'gt'
@@ -893,10 +938,12 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                                 | 'max'
                                                 | 'min'
                                                 | 'not_between'
+                                                | 'not_ends_with'
                                                 | 'not_icontains'
                                                 | 'not_icontains_multi'
                                                 | 'not_in'
                                                 | 'not_regex'
+                                                | 'not_starts_with'
                                                 | 'regex'
                                                 | 'semver_caret'
                                                 | 'semver_eq'
@@ -907,6 +954,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                                 | 'semver_neq'
                                                 | 'semver_tilde'
                                                 | 'semver_wildcard'
+                                                | 'starts_with'
                                             optionId: string
                                             propertyName: string
                                             value?: string | string[] | null | undefined
@@ -962,6 +1010,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                         label?: string | null | undefined
                                         operator:
                                             | 'between'
+                                            | 'ends_with'
                                             | 'exact'
                                             | 'flag_evaluates_to'
                                             | 'gt'
@@ -981,10 +1030,12 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                             | 'max'
                                             | 'min'
                                             | 'not_between'
+                                            | 'not_ends_with'
                                             | 'not_icontains'
                                             | 'not_icontains_multi'
                                             | 'not_in'
                                             | 'not_regex'
+                                            | 'not_starts_with'
                                             | 'regex'
                                             | 'semver_caret'
                                             | 'semver_eq'
@@ -995,6 +1046,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                             | 'semver_neq'
                                             | 'semver_tilde'
                                             | 'semver_wildcard'
+                                            | 'starts_with'
                                         type: 'event' | 'person'
                                         value?:
                                             | boolean
@@ -1013,6 +1065,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                             filterId: string
                                             operator:
                                                 | 'between'
+                                                | 'ends_with'
                                                 | 'exact'
                                                 | 'flag_evaluates_to'
                                                 | 'gt'
@@ -1032,10 +1085,12 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                                 | 'max'
                                                 | 'min'
                                                 | 'not_between'
+                                                | 'not_ends_with'
                                                 | 'not_icontains'
                                                 | 'not_icontains_multi'
                                                 | 'not_in'
                                                 | 'not_regex'
+                                                | 'not_starts_with'
                                                 | 'regex'
                                                 | 'semver_caret'
                                                 | 'semver_eq'
@@ -1046,6 +1101,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
                                                 | 'semver_neq'
                                                 | 'semver_tilde'
                                                 | 'semver_wildcard'
+                                                | 'starts_with'
                                             optionId: string
                                             propertyName: string
                                             value?: string | string[] | null | undefined

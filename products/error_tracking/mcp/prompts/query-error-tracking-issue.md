@@ -1,6 +1,6 @@
 Get compact details for one Error tracking issue.
 
-Use this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.
+Use this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.
 
 Defaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.
 

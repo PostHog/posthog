@@ -11,10 +11,10 @@ from rest_framework import status
 
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
-from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.logic import artifact_store, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
@@ -60,6 +60,37 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/{uuid.uuid4()}/")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_expire_quarantine_takes_only_an_identifier(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
+            {"identifier": "Button"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+
+    def test_opening_a_quarantine_still_needs_a_reason(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}",
+            {"identifier": "Button"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
@@ -164,7 +195,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             ),
             team_id=self.team.id,
         )
-        logic.quarantine_identifier(
+        quarantine.quarantine_identifier(
             repo_id=self.vr_project.id,
             identifier="Button",
             run_type=RunType.STORYBOOK,
@@ -204,7 +235,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     def test_approve_run(self):
         # Create artifact directly via logic (API no longer exposes register_artifact)
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=self.vr_project.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
@@ -236,7 +267,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertFalse(response.json()["approved"])
 
     def test_finalize_run(self):
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=self.vr_project.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
@@ -254,13 +285,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
                 return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
-            logic.complete_run(create_result.run_id)
-        logic.finish_processing(create_result.run_id)
+            runs.complete_run(create_result.run_id)
+        runs.finish_processing(create_result.run_id)
 
         # No PR on this run, so nothing is pushed, but approve_all + finalize marks it approved.
         response = self.client.post(
@@ -282,7 +313,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     def test_finalize_run_always_comments_and_forwards_add_images(
         self, _name: str, body: dict, expect_add_images: bool
     ):
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=self.vr_project.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
@@ -300,17 +331,17 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
                 return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
-            logic.complete_run(create_result.run_id)
-        logic.finish_processing(create_result.run_id)
+            runs.complete_run(create_result.run_id)
+        runs.finish_processing(create_result.run_id)
 
         with (
-            patch("products.visual_review.backend.logic._post_commit_status"),
-            patch("products.visual_review.backend.logic.transaction.on_commit", side_effect=lambda fn, *a, **k: fn()),
+            patch("products.visual_review.backend.logic.ci_status._post_commit_status"),
+            patch("django.db.transaction.on_commit", side_effect=lambda fn, *a, **k: fn()),
             patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay") as delay,
         ):
             response = self.client.post(
@@ -325,7 +356,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(delay.call_args.args[2], expect_add_images)
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=self.vr_project.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
@@ -383,7 +414,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         result: str = SnapshotResult.UNCHANGED,
     ) -> RunSnapshot:
         """Create one Run + one RunSnapshot directly, with full control over result and status."""
-        artifact, _ = logic.get_or_create_artifact(
+        artifact, _ = artifact_store.get_or_create_artifact(
             repo_id=self.vr_project.id,
             content_hash=content_hash,
             storage_path=f"visual_review/{content_hash}",
@@ -392,7 +423,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # Default to the same artifact as `current_` for trivial cases.
         baseline_artifact = artifact
         if baseline_content_hash is not None and baseline_content_hash != content_hash:
-            baseline_artifact, _ = logic.get_or_create_artifact(
+            baseline_artifact, _ = artifact_store.get_or_create_artifact(
                 repo_id=self.vr_project.id,
                 content_hash=baseline_content_hash,
                 storage_path=f"visual_review/{baseline_content_hash}",
@@ -622,6 +653,28 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestMalformedUuidReturns400(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    # 13 hex chars in the final group — the shape that reached us from an MCP client.
+    BAD_UUID = "4c4e61e7-192b-44cd-a0bf-c9ee996998625"
+
+    @parameterized.expand(
+        [
+            ("run_retrieve", "runs/{bad}/"),
+            ("run_snapshots", "runs/{bad}/snapshots/"),
+            ("repo_retrieve", "repos/{bad}/"),
+            # Parent path segment (parents_query_dict) rather than pk.
+            ("repo_nested_runs", "repos/{bad}/runs/"),
+        ]
+    )
+    def test_malformed_uuid_returns_400_not_500(self, _name: str, path: str) -> None:
+        suffix = path.format(bad=self.BAD_UUID)
+        response = self.client.get(f"/api/projects/{self.team.id}/visual_review/{suffix}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
 
 class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):

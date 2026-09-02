@@ -35,7 +35,7 @@ keeps working if Iterable paginates large result sets in the future.
   `startDateTime`/`endDateTime` params) and `users` on `profileUpdatedAt`, but those filters
   could not be curl-verified without live credentials. Revisit once a key is available.
 - **No partition key.** Iterable timestamps (`createdAt`, `updatedAt`) are epoch **milliseconds**.
-  The datetime partitioner (`pipelines/pipeline/utils.py`) treats integer partition values as
+  The datetime partitioner (`pipelines/core/partitioning.py`) treats integer partition values as
   epoch **seconds** (`datetime.fromtimestamp`), so partitioning on these fields would map every
   row into far-future buckets (and overflow). Skipped rather than ship an unstable/broken config.
 

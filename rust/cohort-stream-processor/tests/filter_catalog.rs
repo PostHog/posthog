@@ -20,6 +20,7 @@ fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
         team_id,
         filters,
         behavioral_filters_shape_hash: None,
+        person_filters_shape_hash: None,
         timezone: "UTC".to_string(),
     }
 }

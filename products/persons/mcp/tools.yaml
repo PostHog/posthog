@@ -133,6 +133,9 @@ tools:
             Returns 202 Accepted.
         exclude_params:
             - format
+    persons-push-notifications-list:
+        operation: persons_push_notifications_list
+        enabled: false
     persons-reset-person-distinct-id-create:
         operation: persons_reset_person_distinct_id_create
         enabled: false

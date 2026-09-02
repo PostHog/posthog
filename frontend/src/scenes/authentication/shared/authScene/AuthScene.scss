@@ -1,0 +1,144 @@
+// Unauthenticated auth scenes are forced light.
+// Only rules that cannot be expressed in Tailwind utilities live here:
+// pseudo-elements, interactive pseudo-class combinators, child selectors, keyframes.
+
+.AuthScene {
+    --primary-3000-button-bg: var(--warning);
+    --primary-3000-frame-bg: var(--primary-3000-button-border-light);
+    --primary-3000-button-border: var(--primary-3000-button-border-light);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+    --color-text-warning: var(--color-text-primary);
+
+    background-color: #b5cd8f;
+    background-image:
+        radial-gradient(80% 70% at 50% 30%, rgb(255 253 240 / 45%), transparent 70%),
+        linear-gradient(180deg, #cfe0ae 0%, #b5cd8f 55%, #9dbb78 100%);
+    background-repeat: no-repeat;
+    background-size: auto;
+
+    // The cream OS-window card the new website (and the self-driving onboarding) uses.
+    .AuthScene__card {
+        background: #f6f5f0;
+        border-color: #e3e0d4;
+        border-radius: 1rem;
+        box-shadow: 0 16px 40px rgb(30 50 10 / 25%);
+    }
+
+    // Corner notes read as dark-green ink on the garden rather than gray on parchment.
+    .AuthScene__notes div {
+        color: rgb(45 74 22 / 65%);
+    }
+}
+
+// Paper sheet resting on the desk — the login card and the dev login panel share it.
+.AuthScene__card {
+    background: #fff;
+    border: 1px solid #e0e1d9;
+    border-radius: var(--radius-lg);
+    box-shadow:
+        0 20px 44px -26px rgb(40 38 30 / 35%),
+        0 3px 0 #e0e1d9;
+}
+
+// Child SVG sizing — child selector, no Tailwind equivalent
+.AuthScene__logo {
+    svg {
+        display: block;
+        width: auto;
+        height: 28px;
+
+        @media (min-width: 576px) {
+            height: 40px;
+        }
+    }
+}
+
+// Invite header mark SVG sizing
+.AuthScene__inviteHeader-mark {
+    svg {
+        width: auto;
+        height: 30px;
+    }
+}
+
+// Sub paragraph — code and mono spans inside it share styles
+.AuthScene__sub {
+    code,
+    .AuthScene__mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: #111;
+    }
+}
+
+// Terms text — nested link style
+.AuthScene__terms {
+    a {
+        font-weight: 600;
+        color: rgb(17 17 17 / 58%);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+}
+
+// Note callout — bold inside it is darker
+.AuthScene__note {
+    b {
+        color: #111;
+    }
+}
+
+// Blink animation for typewriter caret
+.AuthScene__caret {
+    animation: AuthScene__blink 1.05s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .AuthScene__column {
+        animation: AuthScene__rise 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .AuthScene__progress-fill {
+        animation: AuthScene__progress 2.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AuthScene__caret {
+        animation: none;
+    }
+}
+
+@keyframes AuthScene__blink {
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    50.01%,
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes AuthScene__rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes AuthScene__progress {
+    from {
+        width: 0%;
+    }
+
+    to {
+        width: 100%;
+    }
+}

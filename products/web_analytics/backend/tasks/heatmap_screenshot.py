@@ -77,6 +77,10 @@ class BrowserlessPermanentError(BrowserlessError):
     """A failure that will not be fixed by retrying (4xx, misconfiguration, oversized output)."""
 
 
+class PageHttpStatusError(BrowserlessPermanentError):
+    """The customer's page answered the render with a non-2xx, so the capture is a picture of that."""
+
+
 def _width_bucket(width: int) -> str:
     if width < 500:
         return "mobile"
@@ -90,6 +94,8 @@ def _width_bucket(width: int) -> str:
 def _classify_failure(e: BaseException) -> str:
     if isinstance(e, SoftTimeLimitExceeded):
         return "soft_time_limit"
+    if isinstance(e, PageHttpStatusError):
+        return "page_http_status"
     if isinstance(e, BrowserlessError):
         if e.cause == "not_configured":
             return "not_configured"
@@ -363,7 +369,20 @@ def _validate_screenshot_response(response: requests.Response, endpoint_url: str
     return content
 
 
-def _browserless_screenshot(endpoint_url: str, page_url: str, width: int, block_consent_modals: bool) -> bytes:
+def _page_status_from(response: requests.Response) -> int | None:
+    # Browserless answers 200 with a valid JPEG even when the page it rendered returned 429 or 403,
+    # so this header is the only thing separating a heatmap from a picture of the customer's error
+    # page. It is documented under Browserless' Request Configuration rather than on the Screenshot
+    # API page. Absent or unparseable means we don't know, which must not fail an otherwise fine render.
+    try:
+        return int(response.headers["x-response-code"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _browserless_screenshot(
+    endpoint_url: str, page_url: str, width: int, block_consent_modals: bool
+) -> tuple[bytes, int | None]:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
     body: dict[str, object] = {
@@ -450,16 +469,18 @@ def _browserless_screenshot(endpoint_url: str, page_url: str, width: int, block_
         )
         raise
 
+    page_status = _page_status_from(response)
     HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="ok", width_bucket=width_bucket).observe(elapsed)
     logger.info(
         "heatmap_screenshot.browserless_request",
         width=width,
         browserless_status=status_code,
+        page_status=page_status,
         latency_ms=round(elapsed * 1000),
         bytes=len(content),
         outcome="ok",
     )
-    return content
+    return content, page_status
 
 
 def _resolve_widths(screenshot: SavedHeatmap) -> list[int]:
@@ -536,10 +557,22 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     )
     count = 0
     for w in pending:
-        image_data = _browserless_screenshot(endpoint_url, screenshot.url, w, screenshot.block_consent_modals)
+        image_data, page_status = _browserless_screenshot(
+            endpoint_url, screenshot.url, w, screenshot.block_consent_modals
+        )
+        if page_status is not None and not 200 <= page_status < 300:
+            raise PageHttpStatusError(
+                f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
+                f"is a picture of that response. This comes from the site's host or CDN, not from PostHog.",
+                cause="page_http_status",
+            )
         _persist_snapshot(screenshot, w, image_data)
         count += 1
     return count
+
+
+def _host_of(url: str) -> str:
+    return urlsplit(url).hostname or "The page"
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.EXPORTS.value)

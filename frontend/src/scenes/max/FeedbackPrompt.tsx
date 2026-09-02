@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconDocument } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { feedbackPromptLogic } from './feedbackPromptLogic'
+import { appendTicketMetadata } from './ticketUtils'
 import { captureFeedback } from './utils'
 
 interface FeedbackPromptProps {
@@ -17,6 +19,7 @@ interface FeedbackPromptProps {
     traceId: string | null
 }
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/components/FeedbackPromptDetails.tsx; this copy is deleted with the LangGraph runtime.
 /**
  * Detailed feedback form shown after user clicks "Bad" rating.
  * Allows text feedback submission or escalation to support ticket.
@@ -27,10 +30,14 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
     const [feedbackText, setFeedbackText] = useState('')
     const [status, setStatus] = useState<'feedback' | 'ticket_preview' | 'done'>('feedback')
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [hasSubmittedTicket, setHasSubmittedTicket] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
 
+    const submitInFlightRef = useRef(false)
+
     const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
-    const { resetSendSupportRequest, setSendSupportRequestValue } = useActions(supportLogic)
+    const { resetSendSupportRequest } = useActions(supportLogic)
+    const { user } = useValues(userLogic)
 
     // Track when we're waiting for ticket submission to complete
     const [pendingTicketSubmission, setPendingTicketSubmission] = useState(false)
@@ -47,6 +54,8 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
 
             // The posthog_ai_support_ticket_created event (with $ai_feedback_rating) is captured in
             // supportLogic once the ticket id resolves, so it fires on every submit path.
+            submitInFlightRef.current = false
+            setHasSubmittedTicket(true)
             setIsSupportModalOpen(false)
             setPendingTicketSubmission(false)
             completeDetailedFeedback()
@@ -87,12 +96,13 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
     }
 
     function openSupportModalWithPrefill(): void {
+        if (hasSubmittedTicket) {
+            return
+        }
         resetSendSupportRequest({
             name: '',
             email: '',
             kind: 'feedback',
-            target_area: 'posthog-ai',
-            severity_level: 'low',
             message: feedbackText,
             ai_conversation_id: conversationId,
             ai_trace_id: traceId,
@@ -102,24 +112,30 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         setIsSupportModalOpen(true)
     }
 
-    function appendMetadataToMessage(message: string): string {
-        const metadataLines = [`Conversation ID: ${conversationId}`, traceId ? `Trace ID: ${traceId}` : null].filter(
-            Boolean
-        )
-        return message ? `${message}\n\n----\n${metadataLines.join('\n')}` : metadataLines.join('\n')
-    }
-
     async function handleSupportFormSubmit(): Promise<void> {
-        setTicketMessageText(sendSupportRequest.message)
-        const finalMessage = appendMetadataToMessage(sendSupportRequest.message)
+        if (submitInFlightRef.current || hasSubmittedTicket) {
+            return
+        }
 
-        setSendSupportRequestValue('message', finalMessage)
+        const finalMessage = appendTicketMetadata(sendSupportRequest.message, { conversationId, traceId })
+        if (!finalMessage) {
+            lemonToast.error('Please add a description before creating a ticket.')
+            return
+        }
+
+        submitInFlightRef.current = true
+        setTicketMessageText(sendSupportRequest.message)
         const ticketIdBefore = supportLogic.values.lastSubmittedTicketId
         setTicketIdBeforeSubmission(ticketIdBefore)
         setPendingTicketSubmission(true)
         recordFeedbackShown()
         try {
-            await supportLogic.asyncActions.submitSendSupportRequest()
+            await supportLogic.asyncActions.submitSupportTicket({
+                ...sendSupportRequest,
+                name: user?.first_name ?? sendSupportRequest.name ?? 'name not set',
+                email: user?.email ?? sendSupportRequest.email ?? '',
+                message: finalMessage,
+            })
         } catch {
             // Failure is detected below via the unchanged ticket id
         }
@@ -127,11 +143,17 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         // created, the submit failed — clear the pending state so the modal doesn't hang (the error
         // toast already showed and the text stays for a retry).
         if (supportLogic.values.lastSubmittedTicketId === ticketIdBefore) {
+            submitInFlightRef.current = false
             setPendingTicketSubmission(false)
         }
     }
 
     function handleSupportModalCancel(): void {
+        // The in-flight request cannot be aborted, so closing now would re-arm the submit
+        // controls and allow a duplicate ticket
+        if (submitInFlightRef.current) {
+            return
+        }
         setIsSupportModalOpen(false)
         setPendingTicketSubmission(false)
     }
@@ -143,10 +165,20 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             title="Give feedback"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={handleSupportModalCancel}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={handleSupportModalCancel}
+                        disabledReason={pendingTicketSubmission ? 'Submitting your ticket…' : undefined}
+                    >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" data-attr="submit" onClick={() => void handleSupportFormSubmit()}>
+                    <LemonButton
+                        type="primary"
+                        data-attr="submit"
+                        onClick={() => void handleSupportFormSubmit()}
+                        loading={pendingTicketSubmission}
+                        disabledReason={hasSubmittedTicket ? 'Ticket already created' : undefined}
+                    >
                         Submit
                     </LemonButton>
                 </div>
@@ -182,7 +214,12 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
                             <LemonButton type="primary" size="small" onClick={submitFeedback} loading={isSubmitting}>
                                 Submit
                             </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={showTicketPreviewOrOpenModal}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={showTicketPreviewOrOpenModal}
+                                disabledReason={hasSubmittedTicket ? 'Ticket already created' : undefined}
+                            >
                                 Open support ticket
                             </LemonButton>
                         </div>
@@ -210,7 +247,12 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
                         <p className="m-0 text-sm whitespace-pre-wrap">{feedbackText}</p>
                     </div>
                     <div>
-                        <LemonButton type="primary" size="small" onClick={openSupportModalWithPrefill}>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={openSupportModalWithPrefill}
+                            disabledReason={hasSubmittedTicket ? 'Ticket already created' : undefined}
+                        >
                             Review support ticket
                         </LemonButton>
                     </div>

@@ -1,0 +1,12 @@
+{
+    "id": "LA7",
+    "file": "products/review_hog/frontend/CodeReviewScene.tsx",
+    "lines": "1053-1068",
+    "priority": "should_fix",
+    "title": "Expose Stamphog repository coverage in the switch",
+    "problem": "The switch implies complete coverage, but stamphog_connected is true when only one project repository is connected. The worker silently skips Inbox PRs from every other repository. When no repository is connected, the disabled tooltip gives no link. Stamphog has no navigation item, so users cannot find the setup page from this state.",
+    "suggestion": "Say that reviews run only for connected repositories. Show a visible Link or LemonButton to urls.stamphog() when setup is missing. Keep the switch available for opt-out while disconnected.",
+    "cluster": 8,
+    "cluster_issue": "stamphog_connected is a project-wide any-repo check, so the toggle can appear active for inbox PRs whose specific repo has no Stamphog config",
+    "cluster_verified": "0/0"
+}

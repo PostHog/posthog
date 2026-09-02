@@ -12,7 +12,7 @@ from products.engineering_analytics.backend.facade.contracts import RepoRef, Wor
 # The run columns every run-detail query selects, in order — kept in lockstep with the unpacking below.
 RUN_DETAIL_COLUMNS = """
         id, workflow_name, head_sha, head_branch, status, conclusion,
-        run_started_at, updated_at, duration_seconds, run_attempt, pr_number,
+        run_started_at, updated_at, duration_seconds, run_attempt, pr_number, commit_pr_number,
         repo_owner, repo_name
 """
 
@@ -30,6 +30,7 @@ def to_run_detail(row: tuple[Any, ...]) -> WorkflowRunDetail:
         duration_seconds,
         run_attempt,
         pr_number,
+        commit_pr_number,
         repo_owner,
         repo_name,
     ) = row
@@ -48,4 +49,5 @@ def to_run_detail(row: tuple[Any, ...]) -> WorkflowRunDetail:
         duration_seconds=int(duration_seconds) if duration_seconds is not None else None,
         run_attempt=int(run_attempt) if run_attempt is not None else 1,
         pr_number=int(pr_number) if pr_number is not None else 0,
+        commit_pr_number=int(commit_pr_number) if commit_pr_number is not None else None,
     )

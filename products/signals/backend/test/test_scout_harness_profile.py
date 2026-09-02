@@ -13,11 +13,15 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
@@ -31,12 +35,19 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
-from products.signals.backend.models import SignalProjectProfile, SignalReport, SignalSourceConfig
+from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.models import (
+    SignalProjectProfile,
+    SignalReport,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalSourceConfig,
+)
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
     REVIEWER_CORRECTIONS_WINDOW_DAYS,
+    SCOUT_FLEET_EMITTED_LOOKBACK_DAYS,
     TOP_EVENTS_LOOKBACK_DAYS,
     _business_knowledge,
     _emit_eligibility,
@@ -58,14 +69,17 @@ from products.signals.backend.scout_harness.profile.builders import (
     _recent_notebooks,
     _recent_reviewer_corrections,
     _recent_surveys,
+    _scout_fleet,
     _signal_source_configs,
     _top_events,
 )
+from products.signals.backend.scout_harness.profile.schema import ScoutFleetEntry
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
     compute_project_profile,
     get_project_profile,
 )
+from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -254,6 +268,133 @@ class TestEmitEligibility(BaseTest):
         assert result["source_enabled"] is False
         assert result["can_emit"] is False
         assert result["remediation"] and "source" in result["remediation"]
+
+
+class TestScoutFleet(BaseTest):
+    def _config(self, skill_name: str, *, with_skill: bool = True, **kwargs: object) -> SignalScoutConfig:
+        # A config only dispatches when a live skill backs it, so seed one unless the test is
+        # exercising the orphaned-config case.
+        if with_skill:
+            LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="b")
+        return SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, **kwargs)
+
+    def _run(self, team: Team, skill_name: str, **kwargs: object) -> SignalScoutRun:
+        Task, TaskRun = apps.get_model("tasks", "Task"), apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(team=team, title="scout", description="d")
+        task_run = TaskRun.objects.create(team=team, task=task)
+        return SignalScoutRun.objects.create(
+            team=team, task_run=task_run, skill_name=skill_name, skill_version=1, **kwargs
+        )
+
+    def test_splits_enabled_and_disabled_carrying_schedule_and_emit_posture(self) -> None:
+        last_run = timezone.now() - timedelta(hours=3)
+        self._config("signals-scout-logs", enabled=True, run_interval_minutes=720, last_run_at=last_run)
+        self._config("signals-scout-apm", enabled=False, emit=False, run_cron_schedule="0 9 * * *")
+
+        result = _scout_fleet(self.team)
+
+        assert [entry["skill_name"] for entry in result["enabled"]] == ["signals-scout-logs"]
+        assert result["enabled"][0]["run_interval_minutes"] == 720
+        assert result["enabled"][0]["emit"] is True
+        assert result["enabled"][0]["last_run_at"] == last_run.isoformat()
+        assert [entry["skill_name"] for entry in result["disabled"]] == ["signals-scout-apm"]
+        assert result["disabled"][0]["emit"] is False
+        assert result["disabled"][0]["run_cron_schedule"] == "0 9 * * *"
+        assert result["disabled"][0]["not_running_reason"] == "turned_off"
+
+    def test_enabled_config_whose_skill_cannot_dispatch_is_not_reported_as_running(self) -> None:
+        # The coordinator dispatches only configs whose skill is live, so an enabled config
+        # backed by a deleted skill never runs. Reporting it as enabled would tell a reading
+        # scout the surface is covered when nothing is watching it.
+        self._config("signals-scout-logs", with_skill=False, enabled=True)
+        self._config("signals-scout-apm", enabled=True)
+
+        result = _scout_fleet(self.team)
+
+        assert [entry["skill_name"] for entry in result["enabled"]] == ["signals-scout-apm"]
+        assert result["enabled"][0]["not_running_reason"] is None
+        assert [entry["skill_name"] for entry in result["disabled"]] == ["signals-scout-logs"]
+        assert result["disabled"][0]["not_running_reason"] == "skill_unavailable"
+
+    def test_withheld_scout_is_absent_from_both_buckets(self) -> None:
+        # The profile is readable with `signal_scout:read`, so listing a withheld scout even as
+        # not-running would disclose an unreleased scout's name to the team it's held back from.
+        self._config("signals-scout-unreleased")
+        self._config("signals-scout-apm")
+
+        with patch(
+            "products.signals.backend.scout_harness.profile.builders.withheld_skills_for_team",
+            return_value={"signals-scout-unreleased"},
+        ):
+            result = _scout_fleet(self.team)
+
+        assert [entry["skill_name"] for entry in result["enabled"]] == ["signals-scout-apm"]
+        assert result["disabled"] == []
+
+    def test_operator_disabled_scout_is_distinguishable_from_an_undispatchable_one(self) -> None:
+        self._config("signals-scout-logs", enabled=False)
+
+        entry = _scout_fleet(self.team)["disabled"][0]
+
+        assert entry["not_running_reason"] == "turned_off"
+
+    def test_system_paused_scout_is_not_reported_as_operator_intent(self) -> None:
+        config = self._config("signals-scout-logs", enabled=False)
+        config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        config.pause_reason = SignalScoutConfig.PauseReason.NO_OUTPUT
+        config.save(update_fields=["status", "pause_reason"])
+
+        entry = _scout_fleet(self.team)["disabled"][0]
+
+        assert entry["not_running_reason"] == "auto_paused"
+        assert entry["pause_reason"] == "no_output"
+        # The entry must survive the forbid-extra inventory schema, or `build_inventory()`
+        # raises and no profile on the team can refresh.
+        ScoutFleetEntry.model_validate(entry)
+
+    @parameterized.expand(
+        [
+            ("signal_channel_finding", {"emitted_count": 2}, True),
+            ("authored_report", {"emitted_report_ids": [str(uuid4())]}, True),
+            ("edited_report", {"edited_report_ids": [str(uuid4())]}, True),
+            ("produced_nothing", {"emitted_count": 0}, False),
+        ]
+    )
+    def test_last_emitted_at_counts_output_on_either_channel(
+        self, _name: str, run_kwargs: dict[str, object], expect_emitted: bool
+    ) -> None:
+        # The whole canonical fleet is report-channel, so resolving this off `emitted_count`
+        # alone would report every specialist as never having emitted.
+        self._config("signals-scout-logs")
+        self._run(self.team, "signals-scout-logs", **run_kwargs)
+
+        entry = _scout_fleet(self.team)["enabled"][0]
+
+        assert (entry["last_emitted_at"] is not None) is expect_emitted
+
+    def test_last_emitted_at_ignores_runs_older_than_the_lookback(self) -> None:
+        self._config("signals-scout-logs")
+        stale = self._run(self.team, "signals-scout-logs", emitted_count=1)
+        SignalScoutRun.all_teams.filter(pk=stale.pk).update(
+            created_at=timezone.now() - timedelta(days=SCOUT_FLEET_EMITTED_LOOKBACK_DAYS + 1)
+        )
+
+        entry = _scout_fleet(self.team)["enabled"][0]
+
+        assert entry["last_emitted_at"] is None
+
+    def test_team_isolated(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        LLMSkill.objects.create(team=other, name="signals-scout-logs", description="d", body="b")
+        SignalScoutConfig.objects.create(team=other, skill_name="signals-scout-logs")
+        self._config("signals-scout-apm")
+        self._run(other, "signals-scout-apm", emitted_count=3)
+
+        result = _scout_fleet(self.team)
+
+        assert [entry["skill_name"] for entry in result["enabled"]] == ["signals-scout-apm"]
+        # The other team's emitting run must not resolve onto this team's identically-named scout.
+        assert result["enabled"][0]["last_emitted_at"] is None
 
 
 class TestExistingInboxReports(BaseTest):
@@ -796,6 +937,7 @@ class TestBuildInventory(BaseTest):
             "external_data_sources",
             "signal_source_configs",
             "emit_eligibility",
+            "scout_fleet",
             "existing_inbox_reports",
             "recent_activity",
             "recent_reviewer_corrections",

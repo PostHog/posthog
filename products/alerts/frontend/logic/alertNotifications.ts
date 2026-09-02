@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
 import {
     HOG_FUNCTION_SUB_TEMPLATES,
@@ -15,6 +17,47 @@ export type AlertNotificationType =
     | typeof ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
+
+const webhookUrlSchema = z.string().url()
+
+export function getAlertNotificationAddDisabledReason(
+    selectedType: AlertNotificationType,
+    hasSlackIntegration: boolean,
+    slackChannelValue: string | null,
+    webhookUrl: string
+): string | undefined {
+    if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
+        if (!hasSlackIntegration) {
+            return 'Connect Slack first'
+        }
+        if (!slackChannelValue) {
+            return 'Select a Slack channel'
+        }
+        return undefined
+    }
+
+    if (!webhookUrl) {
+        if (selectedType === ALERT_NOTIFICATION_TYPE_DISCORD) {
+            return 'Enter a Discord webhook URL'
+        }
+        if (selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
+            return 'Enter a Microsoft Teams workflow URL'
+        }
+        return 'Enter a webhook URL'
+    }
+
+    if (!webhookUrlSchema.safeParse(webhookUrl).success) {
+        if (selectedType === ALERT_NOTIFICATION_TYPE_DISCORD) {
+            return 'Enter a valid Discord webhook URL'
+        }
+        if (selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
+            return 'Enter a valid Microsoft Teams workflow URL'
+        }
+        return 'Enter a valid webhook URL'
+    }
+
+    return undefined
+}
 
 // Single source of truth for which destination HogFunction template each notification type uses.
 // buildAlertDestination reads it when creating a destination; notificationTypeFromTemplateId inverts

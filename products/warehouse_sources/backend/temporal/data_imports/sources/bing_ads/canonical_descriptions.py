@@ -95,4 +95,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ad_type": "Type of the ad (e.g. TextAd, ResponsiveSearchAd, ProductAd).",
         },
     },
+    "keyword_performance_report": {
+        "description": "Daily performance metrics broken down by keyword, including quality score components.",
+        "docs_url": "https://learn.microsoft.com/en-us/advertising/reporting-service/keywordperformancereportrequest",
+        "columns": {
+            **_REPORT_METRICS,
+            "ad_group_id": "Identifier of the ad group the keyword belongs to.",
+            "ad_group_name": "Name of the ad group the keyword belongs to.",
+            "keyword": "The keyword text that triggered the ad.",
+            "keyword_id": "Identifier of the keyword the row belongs to.",
+            "keyword_status": "Keyword status (e.g. Active, Paused).",
+            "bid_match_type": "Match type set on the keyword (e.g. Broad, Phrase, Exact).",
+            "quality_score": "Microsoft's measure of how competitive the keyword is.",
+            "expected_ctr": "Expected click-through rate component of quality score.",
+            "ad_relevance": "Ad relevance component of quality score.",
+            "landing_page_experience": "Landing page experience component of quality score.",
+        },
+    },
 }

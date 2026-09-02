@@ -268,10 +268,7 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
                                             } · ${pushRoundVerdictLabel(node.round)}`}
                                         >
                                             <span
-                                                className={cn(
-                                                    'w-2.5 rounded-t-sm',
-                                                    node.round.pending && 'animate-pulse'
-                                                )}
+                                                className="w-2.5 rounded-t-sm"
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 style={{
                                                     height: barPx(node.round),
@@ -606,6 +603,8 @@ function PrWorkflowsTable({
     ]
     return (
         <LemonTable
+            // Namespaces the page search param so paging can't move other tables sharing this URL.
+            id="pr-workflows"
             dataSource={orderedRows}
             columns={columns}
             size="small"
@@ -630,6 +629,7 @@ function PrWorkflowsTable({
                     />
                 ),
             }}
+            pagination={{ pageSize: 10 }}
             emptyState="No CI runs match."
             nouns={['workflow', 'workflows']}
         />
@@ -681,7 +681,7 @@ export function PullRequestDetailScene(): JSX.Element {
 
     if (loadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Pull request" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
@@ -696,7 +696,7 @@ export function PullRequestDetailScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             <SceneTitleSection
                 name="Pull request"
                 resourceType={{ type: 'health' }}

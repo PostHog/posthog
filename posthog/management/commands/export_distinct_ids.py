@@ -66,9 +66,9 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Exporting distinct IDs for team: {team.name}"))
 
-        # Build the distinct-id query, joining to the person table only when filtering on
-        # person attributes (identified / demo).
-        conditions = ["pdi.team_id = %s"]
+        # Build the distinct-id query. The person join is unconditional: a mapping can
+        # outlive its person's tombstone, so pdi.is_deleted alone is not enough.
+        conditions = ["pdi.team_id = %s", "pdi.is_deleted = false"]
         if identified_only:
             conditions.append("p.is_identified = true")
             self.stdout.write("Filtering for identified persons only")
@@ -76,11 +76,7 @@ class Command(BaseCommand):
             conditions.append("p.properties @> '{\"is_demo\": true}'::jsonb")
             self.stdout.write("Filtering for demo persons only")
 
-        person_join = (
-            f"JOIN {settings.PERSON_TABLE_NAME} p ON p.team_id = pdi.team_id AND p.id = pdi.person_id"
-            if (identified_only or demo_only)
-            else ""
-        )
+        person_join = f"JOIN {settings.PERSON_TABLE_NAME} p ON p.team_id = pdi.team_id AND p.id = pdi.person_id AND p.is_deleted = false"
         query = (
             f"SELECT pdi.distinct_id FROM posthog_persondistinctid pdi {person_join} WHERE {' AND '.join(conditions)}"
         )

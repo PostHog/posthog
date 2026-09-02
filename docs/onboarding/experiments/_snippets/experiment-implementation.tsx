@@ -132,6 +132,14 @@ export const ExperimentImplementationSnippet = memo(
                 // so if something goes wrong with flag evaluation, you don't break your app.
             }
         `,
+            kmp: dedent`
+            if (PostHog.getFeatureFlag("your-experiment-feature-flag") == "test") {
+                // do something
+            } else {
+                // It's a good idea to let control variant always be the default behaviour,
+                // so if something goes wrong with flag evaluation, you don't break your app.
+            }
+        `,
         }
 
         const langMap: Record<string, string> = {
@@ -146,6 +154,7 @@ export const ExperimentImplementationSnippet = memo(
             android: 'kotlin',
             ios: 'swift',
             flutter: 'dart',
+            kmp: 'kotlin',
         }
 
         return (

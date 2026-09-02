@@ -73,6 +73,45 @@ MAILERLITE_ENDPOINTS: dict[str, MailerLiteEndpointConfig] = {
 ENDPOINTS = tuple(MAILERLITE_ENDPOINTS.keys())
 
 
+# MailerLite names its events `<resource>.<action>`, so the hog template routes on the part
+# before the dot and one entry covers every subscriber event.
+WEBHOOK_RESOURCE_MAP: dict[str, str] = {"subscribers": "subscriber"}
+
+# Only the events whose delivery carries the whole subscriber object are subscribed, so a
+# webhook row is a drop-in replacement for a polled one:
+#   - flat events put the subscriber's fields at the payload root next to `event`/`account_id`
+#   - the two group events nest the same object under `subscriber`
+# Deliberately left out:
+#   - `subscriber.deleted` needs `batchable: true`, which changes the delivery envelope, and a
+#     deletion can't be expressed as a merge row anyway
+#   - `subscriber.automation_triggered` / `subscriber.automation_completed` report automation
+#     progress rather than a change to the subscriber's own fields
+#   - every `campaign.*` event (see WEBHOOK_SCHEMA_NAMES)
+SUBSCRIBER_WEBHOOK_EVENTS: tuple[str, ...] = (
+    "subscriber.active",
+    "subscriber.added_to_group",
+    "subscriber.bounced",
+    "subscriber.created",
+    "subscriber.removed_from_group",
+    "subscriber.spam_reported",
+    "subscriber.unsubscribed",
+    "subscriber.updated",
+)
+
+SCHEMA_TO_WEBHOOK_EVENTS: dict[str, tuple[str, ...]] = {"subscribers": SUBSCRIBER_WEBHOOK_EVENTS}
+
+# `subscribers` is the only webhook-eligible table. `campaigns` is deliberately excluded:
+# `campaign.sent` delivers just {id, name, total_recipients, preview_url, date}, a fraction of
+# the polled campaign object (status, type, settings, filter, emails, stats), and once a schema
+# has webhooks enabled the poll is skipped — so wiring it would drop the columns polling
+# collects today. `campaign.open` / `campaign.click` are per-recipient engagement with no event
+# id and no event timestamp in the payload, so they can't form a stable primary key or a
+# partition/ordering column for a webhook-only table.
+WEBHOOK_SCHEMA_NAMES: frozenset[str] = frozenset(SCHEMA_TO_WEBHOOK_EVENTS)
+
+ALL_WEBHOOK_EVENTS: list[str] = sorted({event for events in SCHEMA_TO_WEBHOOK_EVENTS.values() for event in events})
+
+
 # The new MailerLite API (connect.mailerlite.com) is date-versioned through the `X-Version`
 # header and serves the latest version when it's absent. Framework version labels map to that
 # header here: `v1` predates version pinning and sends no header (the exact behaviour existing

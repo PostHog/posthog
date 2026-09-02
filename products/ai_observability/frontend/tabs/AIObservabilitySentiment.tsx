@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -173,28 +173,41 @@ function SentimentCardRow({
 }
 
 const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: string }[] = [
-    { value: 'positive', label: 'Positive', activeClass: 'bg-success/20 border-success' },
     { value: 'negative', label: 'Negative', activeClass: 'bg-danger/20 border-danger' },
-    { value: 'neutral', label: 'Neutral', activeClass: 'bg-border/20 border-border' },
+    { value: 'positive', label: 'Positive', activeClass: 'bg-success/20 border-success' },
 ]
 
 function SentimentControls(): JSX.Element {
-    const { activeFilters, intensityThreshold, sentimentSummary, generationsLoading } =
+    const { activeFilters, intensityThreshold, sentimentSummary, generationsLoading, evaluationId, evaluationOptions } =
         useValues(aiObservabilitySentimentLogic)
-    const { toggleSentimentCategory, setIntensityThreshold, loadGenerations } =
+    const { toggleSentimentCategory, setIntensityThreshold, setEvaluationId, loadGenerations } =
         useActions(aiObservabilitySentimentLogic)
-    const total = sentimentSummary.positive + sentimentSummary.negative + sentimentSummary.neutral
+    const total = sentimentSummary.negative + sentimentSummary.positive
 
     return (
         <div className="flex items-center gap-4 flex-wrap mb-3" data-attr="llma-sentiment-controls">
             <div className="flex items-center gap-2">
-                <Tooltip title="Filter by sentiment polarity. Each user message is classified as positive, negative, or neutral.">
+                <Tooltip title="Narrow results to a single sentiment evaluation. Each evaluation has its own trigger conditions, so this filters at the evaluation layer.">
+                    <span className="text-sm font-medium">Evaluation:</span>
+                </Tooltip>
+                <LemonSelect
+                    size="small"
+                    value={evaluationId}
+                    options={evaluationOptions}
+                    onChange={setEvaluationId}
+                    className="max-w-52"
+                    data-attr="llma-sentiment-evaluation-filter"
+                />
+            </div>
+            <div className="flex items-center gap-2">
+                <Tooltip title="Only fetch results for the sentiments you select. Each user message is classified as positive, negative, or neutral, and neutral messages are never shown here.">
                     <span className="text-sm font-medium">Show:</span>
                 </Tooltip>
                 <div className="flex items-center gap-1" data-attr="llma-sentiment-filter">
                     {CATEGORY_CONFIG.map(({ value, label, activeClass }) => {
                         const isActive = activeFilters.has(value)
-                        const count = sentimentSummary[value]
+                        // Deselected categories aren't fetched, so their count would be misleading
+                        const count = isActive ? sentimentSummary[value] : 0
                         return (
                             <LemonButton
                                 key={value}
@@ -212,14 +225,14 @@ function SentimentControls(): JSX.Element {
                 </div>
                 {total > 0 && !generationsLoading && (
                     <Tooltip
-                        title={`${sentimentSummary.positive} positive, ${sentimentSummary.negative} negative, ${sentimentSummary.neutral} neutral messages across all sentiment evaluation results`}
+                        title={`${sentimentSummary.negative} negative, ${sentimentSummary.positive} positive messages across the loaded sentiment evaluation results`}
                     >
                         <span className="text-xs text-muted tabular-nums ml-1">{total} total</span>
                     </Tooltip>
                 )}
             </div>
             <div className="flex items-center gap-2">
-                <Tooltip title="Only show messages with a sentiment confidence score at or above this threshold. Higher values surface stronger signals. Does not apply to neutral messages.">
+                <Tooltip title="Only show messages with a sentiment confidence score at or above this threshold. Higher values surface stronger signals.">
                     <span className="text-sm font-medium whitespace-nowrap">Min intensity:</span>
                 </Tooltip>
                 <LemonSlider
@@ -237,8 +250,9 @@ function SentimentControls(): JSX.Element {
                 icon={<IconRefresh />}
                 size="small"
                 type="secondary"
-                onClick={loadGenerations}
+                onClick={() => loadGenerations({ forceRefresh: true })}
                 loading={generationsLoading}
+                disabledReason={generationsLoading ? 'Loading results' : undefined}
                 data-attr="llma-sentiment-reload"
             >
                 Reload
@@ -306,6 +320,7 @@ export function AIObservabilitySentiment(): JSX.Element {
     return (
         <div data-attr="llma-sentiment-tab">
             <SentimentControls />
+            <p className="text-sm text-muted mb-3">Results are ranked by their strongest positive or negative score.</p>
 
             {generationsLoading && generations.length === 0 ? (
                 <div className="flex items-center justify-center py-20">
@@ -320,6 +335,17 @@ export function AIObservabilitySentiment(): JSX.Element {
                 <div className="text-center py-20 text-muted">
                     <p className="text-lg font-medium mb-1">No sentiment evaluation results found</p>
                     <p className="text-sm">Try changing the date range or filters, or wait for matching generations.</p>
+                    {hasMore && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={loadMoreGenerations}
+                            className="mt-4"
+                            data-attr="llma-sentiment-load-more"
+                        >
+                            Load more
+                        </LemonButton>
+                    )}
                 </div>
             ) : (
                 <>

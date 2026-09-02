@@ -19,6 +19,12 @@ CONSTANCE_CONFIG = {
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
+    "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED": (
+        get_from_env("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", True, type_cast=str_to_bool),
+        "Whether insight query runners share one HogQL database across execution, response printing, "
+        "and series threads. Disable to fall back to building a database per call.",
+        bool,
+    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",
@@ -251,6 +257,16 @@ CONSTANCE_CONFIG = {
         "Whether rate limiting is enabled",
         bool,
     ),
+    "GROWTH_SIGNUP_ENRICHMENT_ENABLED": (
+        get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool),
+        "Kill switch for signup enrichment (products/growth/backend/enrichment): dispatch at signup, the daily re-enrichment sweep, and the recovery backfill. Every pod reads this row, so it is the one per-region toggle.",
+        bool,
+    ),
+    "GROWTH_ICP_REENRICH_DAILY_CAP": (
+        get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int),
+        "Max organizations the daily ICP re-enrichment sweep re-fetches from Harmonic per run. The provider spend bound.",
+        int,
+    ),
     "CLICKHOUSE_KILL_SWITCH": (
         get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
@@ -319,9 +335,29 @@ CONSTANCE_CONFIG = {
         "of more background compute.",
         int,
     ),
+    # Renamed from WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY when its meaning changed
+    # from total workers to per-shard workers, so stale overrides sized for the old
+    # semantics (e.g. 24 total) can't silently become 24 threads in every shard.
+    "WEB_ANALYTICS_WARMING_SHARD_THREADS": (
+        get_from_env("WEB_ANALYTICS_WARMING_SHARD_THREADS", default=6, type_cast=int),
+        "Worker threads inside each warm shard (total ClickHouse-side concurrency is shards x this). "
+        "Threads overlap the IO-bound parts; CPU-bound HogQL compilation parallelizes across shards, "
+        "not threads. Clamped to 1-64; applies when the next warming run starts.",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_SHARDS": (
+        get_from_env("WEB_ANALYTICS_WARMING_SHARDS", default=8, type_cast=int),
+        "Number of team-disjoint shards the warm pass fans out into, one subprocess each. Each shard "
+        "compiles HogQL on its own core, so this bounds real CPU parallelism; the run pod requests "
+        "CPU to match (dagster-k8s/config on the job). Clamped to 1-16; applies at the next run.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
+    "GROWTH_ICP_REENRICH_DAILY_CAP",
+    "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
@@ -376,6 +412,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
     "WEB_ANALYTICS_WARMING_MAX_SHAPES",
+    "WEB_ANALYTICS_WARMING_SHARD_THREADS",
+    "WEB_ANALYTICS_WARMING_SHARDS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

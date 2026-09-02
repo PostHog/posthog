@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import structlog
 import posthoganalytics
 from temporalio import activity, workflow
@@ -5,12 +9,26 @@ from temporalio.common import MetricCounter, MetricMeter
 
 from products.exports.backend.models.subscription import Subscription
 
+if TYPE_CHECKING:
+    from products.exports.backend.temporal.subscriptions.types import NoExportableInsightsContext
+
 logger = structlog.get_logger(__name__)
 
 # Slack errors that won't self-heal without user action — skip Temporal retries
-# and auto-disable the subscription so it stops re-firing every cycle.
+# and auto-disable the subscription so it stops re-firing every cycle. Includes scope
+# revocation (`missing_scope`, `not_allowed_token_type`), e.g. when `files:write` is revoked
+# between save and delivery: auto-disable and notify the creator rather than silently degrade.
 SLACK_USER_CONFIG_ERRORS = frozenset(
-    {"not_in_channel", "account_inactive", "is_archived", "channel_not_found", "invalid_auth", "token_revoked"}
+    {
+        "not_in_channel",
+        "account_inactive",
+        "is_archived",
+        "channel_not_found",
+        "invalid_auth",
+        "token_revoked",
+        "missing_scope",
+        "not_allowed_token_type",
+    }
 )
 
 
@@ -62,10 +80,12 @@ def get_subscription_failure_metric(
     )
 
 
-SUPPORTED_TARGET_TYPES = frozenset(["email", "slack"])
+SUPPORTED_TARGET_TYPES = frozenset(Subscription.SubscriptionTarget.values)
 
 
-def _capture_delivery_failed_event(subscription: Subscription, e: Exception) -> None:
+def _capture_delivery_failed_event(
+    subscription: Subscription, e: Exception, properties: NoExportableInsightsContext | None = None
+) -> None:
     distinct_id = (subscription.created_by.distinct_id if subscription.created_by else None) or subscription.team_id
     posthoganalytics.capture(
         distinct_id=str(distinct_id),
@@ -76,5 +96,6 @@ def _capture_delivery_failed_event(subscription: Subscription, e: Exception) -> 
             "target_type": subscription.target_type,
             "exception": str(e),
             "exception_type": type(e).__name__,
+            **(properties or {}),
         },
     )

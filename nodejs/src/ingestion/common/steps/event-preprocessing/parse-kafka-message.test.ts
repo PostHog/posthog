@@ -1,9 +1,12 @@
 import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
+import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
+import { createRecordingTopHog } from '~/tests/helpers/tophog'
+import { EventHeaders } from '~/types'
 
-import { createParseKafkaMessageStep } from './parse-kafka-message'
+import { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'
 
 // Mock dependencies
 jest.mock('~/common/utils/logger')
@@ -459,6 +462,84 @@ describe('createParseKafkaMessageStep', () => {
                 const result = await step({ message: msg })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
+        })
+    })
+
+    describe('parseMessageTopHogMetrics', () => {
+        function createWrappedStep(registry: TopHogRegistry) {
+            return createTopHogWrapper(registry)(
+                createParseKafkaMessageStep<{ message: Message; headers: EventHeaders }>(),
+                parseMessageTopHogMetrics()
+            )
+        }
+
+        const baseHeaders = {
+            force_disable_person_processing: false,
+            historical_migration: false,
+            skip_heatmap_processing: false,
+        }
+
+        it('records sizes and timing keyed by token, including for messages that fail to parse', async () => {
+            const { registry, records } = createRecordingTopHog()
+            const wrapped = createWrappedStep(registry)
+
+            const malformed = Buffer.from('not json')
+            const result = await wrapped({
+                message: { value: malformed, partition: 7 } as Message,
+                headers: { ...baseHeaders, token: 'token-a' },
+            })
+
+            // The parse itself DLQ'd — the metrics below were still recorded
+            // from the raw message.
+            expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
+            expect(records.get('messages_by_token')).toEqual([{ key: { token: 'token-a' }, value: 1 }])
+            expect(records.get('message_size_by_token')).toEqual([
+                { key: { token: 'token-a' }, value: malformed.length },
+            ])
+            expect(records.get('max_message_size_by_token')).toEqual([
+                { key: { token: 'token-a' }, value: malformed.length },
+            ])
+            expect(records.get('message_size_by_token_per_partition')).toEqual([
+                { key: { token: 'token-a', partition: '7' }, value: malformed.length },
+            ])
+            const timings = records.get('parse_time_ms_by_token')!
+            expect(timings).toHaveLength(1)
+            expect(timings[0].key).toEqual({ token: 'token-a' })
+            expect(timings[0].value).toBeGreaterThanOrEqual(0)
+            expect([...records.keys()].sort()).toEqual([
+                'max_message_size_by_token',
+                'message_size_by_token',
+                'message_size_by_token_per_partition',
+                'messages_by_token',
+                'parse_time_ms_by_token',
+            ])
+        })
+
+        it('records a successful parse the same way, falling back to an unknown token key', async () => {
+            const { registry, records } = createRecordingTopHog()
+            const wrapped = createWrappedStep(registry)
+
+            const value = Buffer.from(
+                JSON.stringify({
+                    data: JSON.stringify({ event: 'test_event', distinct_id: 'user' }),
+                    uuid: VALID_UUID,
+                })
+            )
+            const result = await wrapped({
+                message: { value, partition: 0 } as Message,
+                headers: baseHeaders,
+            })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(records.get('messages_by_token')).toEqual([{ key: { token: 'unknown' }, value: 1 }])
+            expect(records.get('message_size_by_token')).toEqual([{ key: { token: 'unknown' }, value: value.length }])
+            expect(records.get('max_message_size_by_token')).toEqual([
+                { key: { token: 'unknown' }, value: value.length },
+            ])
+            expect(records.get('message_size_by_token_per_partition')).toEqual([
+                { key: { token: 'unknown', partition: '0' }, value: value.length },
+            ])
+            expect(records.get('parse_time_ms_by_token')![0].key).toEqual({ token: 'unknown' })
         })
     })
 

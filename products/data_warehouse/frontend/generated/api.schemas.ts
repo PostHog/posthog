@@ -12,6 +12,7 @@
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
@@ -21,6 +22,19 @@ export const DataModelingJobStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
+} as const
+
+/**
+ * * `full_refresh` - Full refresh
+ * * `incremental` - Incremental
+ */
+export type DataModelingJobRunModeEnumApi =
+    (typeof DataModelingJobRunModeEnumApi)[keyof typeof DataModelingJobRunModeEnumApi]
+
+export const DataModelingJobRunModeEnumApi = {
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
 } as const
 
 export interface DataModelingJobApi {
@@ -28,11 +42,18 @@ export interface DataModelingJobApi {
     /** @nullable */
     readonly saved_query_id: string | null
     readonly status: DataModelingJobStatusEnumApi
+    /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
+     *
+     * * `full_refresh` - Full refresh
+     * * `incremental` - Incremental */
+    readonly run_mode: DataModelingJobRunModeEnumApi | null
     readonly rows_materialized: number
     /** @nullable */
     readonly error: string | null
     readonly created_at: string
     readonly last_run_at: string
+    /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+    readonly updated_at: string
     /** @nullable */
     readonly workflow_id: string | null
     /** @nullable */
@@ -63,6 +84,22 @@ export interface CheckSchemaNameResponseApi {
     name: string
     /** Whether the schema name is free within the organization's warehouse */
     available: boolean
+}
+
+/**
+ * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+ */
+export interface DataQualityGateConfigApi {
+    /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+    gate_materialization_on_checks: boolean
+}
+
+/**
+ * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+ */
+export interface PatchedDataQualityGateConfigApi {
+    /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+    gate_materialization_on_checks?: boolean
 }
 
 export interface DeleteWarehouseOrgResponseApi {
@@ -166,10 +203,10 @@ export interface ManagedWarehouseSourceSummaryApi {
     detail: string
     /** Number of this source's schemas visible to the warehouse. */
     total_schemas: number
-    /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-    backfilled_schemas: number
+    /** Number of schemas applied by a completed copy or register workflow. */
+    applied_schemas: number
     /**
-     * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
+     * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -192,7 +229,7 @@ export interface ManagedWarehouseSourcesStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of imported source readiness. */
     detail: string
-    /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+    /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
     sources: ManagedWarehouseSourceSummaryApi[]
 }
 
@@ -216,6 +253,250 @@ export interface ManagedWarehouseDataStatusResponseApi {
     generated_at: string
 }
 
+export interface ManagedWarehouseMonitoringWarehouseApi {
+    /** Current managed warehouse lifecycle state, such as ready, provisioning, or resharding. */
+    state: string
+}
+
+export interface ManagedWarehouseMonitoringLimitsApi {
+    /**
+     * Maximum concurrent workers for the organization. Zero means no organization-specific limit.
+     * @minimum 0
+     */
+    max_workers: number
+    /**
+     * Maximum active session vCPUs admitted for the organization. Zero means no organization-specific limit.
+     * @minimum 0
+     */
+    max_vcpus: number
+    /** Default worker CPU as a Kubernetes resource quantity, such as 2 or 500m. */
+    default_worker_cpu: string
+    /** Default worker memory as a Kubernetes resource quantity, such as 8Gi. */
+    default_worker_memory: string
+    /**
+     * Default number of seconds an idle worker remains available for reuse.
+     * @minimum 0
+     */
+    default_worker_ttl_seconds: number
+    /**
+     * Minimum number of idle workers the organization keeps warm.
+     * @minimum 0
+     */
+    default_worker_min_hot_idle: number
+}
+
+export interface ManagedWarehouseMonitoringTotalsApi {
+    /**
+     * Number of current non-terminal workers.
+     * @minimum 0
+     */
+    workers: number
+    /**
+     * Total CPU cores allocated to current workers.
+     * @minimum 0
+     */
+    allocated_cpu_cores: number
+    /**
+     * Total memory bytes allocated to current workers.
+     * @minimum 0
+     */
+    allocated_memory_bytes: number
+    /**
+     * Number of active database sessions across the organization's control planes.
+     * @minimum 0
+     */
+    active_sessions: number
+    /**
+     * Number of sessions currently executing a query.
+     * @minimum 0
+     */
+    running_queries: number
+    /**
+     * Number of connections waiting for worker capacity.
+     * @minimum 0
+     */
+    queued_connections: number
+}
+
+export interface ManagedWarehouseMonitoringWorkerSessionApi {
+    /** Connection protocol, such as pg or flight. */
+    protocol: string
+    /** Current database session state. */
+    state: string
+    /**
+     * Milliseconds elapsed for the current query, or zero when the session is idle.
+     * @minimum 0
+     */
+    elapsed_ms: number
+    /**
+     * Best-effort query progress percentage, or null when DuckDB cannot estimate progress.
+     * @minimum 0
+     * @nullable
+     */
+    percentage: number | null
+    /**
+     * Rows processed by the current query.
+     * @minimum 0
+     */
+    rows: number
+    /**
+     * Estimated total rows for the current query when available.
+     * @minimum 0
+     */
+    total_rows: number
+    /** Whether the current query appears stalled. */
+    stalled: boolean
+}
+
+export interface ManagedWarehouseMonitoringWorkerApi {
+    /** Opaque identifier for the worker. */
+    id: string
+    /** Current worker lifecycle state. */
+    state: string
+    /** Worker CPU as a Kubernetes resource quantity, such as 2 or 500m. Blank when unavailable. */
+    cpu: string
+    /** Worker memory as a Kubernetes resource quantity, such as 8Gi. Blank when unavailable. */
+    memory: string
+    /**
+     * Number of seconds the worker remains available while idle.
+     * @minimum 0
+     */
+    ttl_seconds: number
+    /** UTC timestamp when the worker was created. */
+    created_at: string
+    /** UTC timestamp of the worker's latest heartbeat. */
+    last_heartbeat_at: string
+    /** Sanitized live session assigned to the worker, when one exists. */
+    session?: ManagedWarehouseMonitoringWorkerSessionApi | null
+}
+
+export interface ManagedWarehouseMonitoringCoverageApi {
+    /**
+     * Number of control planes that contributed live data.
+     * @minimum 0
+     */
+    cp_responders: number
+    /**
+     * Number of control planes queried for live data.
+     * @minimum 0
+     */
+    cp_total: number
+    /** Whether one or more control planes failed to contribute live data. */
+    partial: boolean
+}
+
+export interface ManagedWarehouseMonitoringSnapshotResponseApi {
+    /**
+     * Version of the managed warehouse monitoring response schema.
+     * @minimum 1
+     * @maximum 1
+     */
+    schema_version: number
+    /** Organization whose managed warehouse is represented. */
+    org_id: string
+    /** UTC timestamp when this snapshot was assembled. */
+    as_of: string
+    /** Managed warehouse lifecycle details. */
+    warehouse: ManagedWarehouseMonitoringWarehouseApi
+    /** Organization-level worker limits and defaults. */
+    limits: ManagedWarehouseMonitoringLimitsApi
+    /** Current organization-level activity totals. */
+    totals: ManagedWarehouseMonitoringTotalsApi
+    /** Current non-terminal workers with tenant-safe runtime details. */
+    workers: ManagedWarehouseMonitoringWorkerApi[]
+    /** Completeness of the cross-control-plane live data. */
+    coverage: ManagedWarehouseMonitoringCoverageApi
+}
+
+export interface ManagedWarehouseMonitoringErrorResponseApi {
+    /** Human-readable managed warehouse monitoring error. */
+    error?: string
+    /** Machine-readable validation error type. */
+    type?: string
+    /** Machine-readable validation error code. */
+    code?: string
+    /** Human-readable validation error detail. */
+    detail?: string
+    /**
+     * Query parameter associated with an error.
+     * @nullable
+     */
+    attr?: string | null
+}
+
+export interface ManagedWarehouseMonitoringPointApi {
+    /** UTC timestamp of the sample. */
+    timestamp: string
+    /** Metric value at the sample timestamp. */
+    value: number
+}
+
+/**
+ * Allow-listed labels distinguishing this series, such as query outcome or acquisition source.
+ */
+export type ManagedWarehouseMonitoringSeriesApiLabels = { [key: string]: string }
+
+export interface ManagedWarehouseMonitoringSeriesApi {
+    /** Allow-listed labels distinguishing this series, such as query outcome or acquisition source. */
+    labels: ManagedWarehouseMonitoringSeriesApiLabels
+    /** Chronologically ordered metric samples. */
+    points: ManagedWarehouseMonitoringPointApi[]
+}
+
+export interface ManagedWarehouseMonitoringSeriesResponseApi {
+    /**
+     * Version of the managed warehouse monitoring response schema.
+     * @minimum 1
+     * @maximum 1
+     */
+    schema_version: number
+    /** Organization whose managed warehouse is represented. */
+    org_id: string
+    /** Allow-listed metric returned by this response. */
+    metric: string
+    /** Unit for every value in the response. */
+    unit: string
+    /** Inclusive UTC start of the returned time window. */
+    start: string
+    /** Inclusive UTC end of the returned time window. */
+    end: string
+    /**
+     * Number of seconds between requested samples.
+     * @minimum 1
+     */
+    step_seconds: number
+    /** Metric series grouped by their allow-listed labels. */
+    series: ManagedWarehouseMonitoringSeriesApi[]
+}
+
+/**
+ * * `copy` - copy
+ * * `register` - register
+ */
+export type WorkflowTypeEnumApi = (typeof WorkflowTypeEnumApi)[keyof typeof WorkflowTypeEnumApi]
+
+export const WorkflowTypeEnumApi = {
+    Copy: 'copy',
+    Register: 'register',
+} as const
+
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `skipped` - skipped
+ * * `stale` - stale
+ */
+export type WorkflowStatusEnumApi = (typeof WorkflowStatusEnumApi)[keyof typeof WorkflowStatusEnumApi]
+
+export const WorkflowStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Stale: 'stale',
+} as const
+
 export interface ManagedWarehouseSourceTableStatusApi {
     /** Imported source schema identifier. */
     schema_id: string
@@ -238,17 +519,28 @@ export interface ManagedWarehouseSourceTableStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the table's readiness state. */
     detail: string
-    /** Whether the one-time historical copy into the warehouse has completed for this table. */
-    backfilled: boolean
-    /** Backfill chunks already copied into the warehouse. */
-    completed_chunks: number
+    /** Workflow applying the latest source import, or null if no workflow has run.
+     *
+     * * `copy` - copy
+     * * `register` - register */
+    workflow_type: WorkflowTypeEnumApi | null
+    /** State of the latest copy or register workflow, or null if no workflow has run.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale */
+    workflow_status: WorkflowStatusEnumApi | null
     /**
-     * Total backfill chunks, or null before the copy plan is ready.
+     * When the latest copy or register workflow started, or null if no workflow has run.
      * @nullable
      */
-    total_chunks: number | null
+    workflow_started_at: string | null
+    /** Whether a copy or register workflow has applied this table to the warehouse. */
+    applied: boolean
     /**
-     * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
+     * When a copy or register workflow most recently applied this table, or null if no workflow completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -260,7 +552,7 @@ export interface ManagedWarehouseSourceTableStatusApi {
 }
 
 export interface ManagedWarehouseSourceSchemasResponseApi {
-    /** Per-schema backfill and live import application status for the requested source. */
+    /** Per-schema copy or register workflow status for the requested source. */
     schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
@@ -428,6 +720,18 @@ export interface InsightVariableApi {
     readonly code_name: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface PaginatedInsightVariableListApi {
@@ -471,6 +775,18 @@ export interface PatchedInsightVariableApi {
     readonly code_name?: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface QueryTabStateApi {
@@ -509,9 +825,10 @@ export interface PatchedQueryTabStateApi {
  * * `ai_generated` - AI generated
  * * `user_edited` - User edited
  */
-export type DescriptionSourceEnumApi = (typeof DescriptionSourceEnumApi)[keyof typeof DescriptionSourceEnumApi]
+export type WarehouseColumnAnnotationDescriptionSourceEnumApi =
+    (typeof WarehouseColumnAnnotationDescriptionSourceEnumApi)[keyof typeof WarehouseColumnAnnotationDescriptionSourceEnumApi]
 
-export const DescriptionSourceEnumApi = {
+export const WarehouseColumnAnnotationDescriptionSourceEnumApi = {
     Canonical: 'canonical',
     AiGenerated: 'ai_generated',
     UserEdited: 'user_edited',
@@ -538,7 +855,7 @@ export interface DataWarehouseSavedQueryColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source: DescriptionSourceEnumApi
+    readonly description_source: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -578,7 +895,7 @@ export interface PatchedDataWarehouseSavedQueryColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source?: DescriptionSourceEnumApi
+    readonly description_source?: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model?: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -609,7 +926,7 @@ export interface WarehouseColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source: DescriptionSourceEnumApi
+    readonly description_source: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -649,7 +966,7 @@ export interface PatchedWarehouseColumnAnnotationApi {
      * * `canonical` - Canonical
      * * `ai_generated` - AI generated
      * * `user_edited` - User edited */
-    readonly description_source?: DescriptionSourceEnumApi
+    readonly description_source?: WarehouseColumnAnnotationDescriptionSourceEnumApi
     /** Model used when the description was AI-generated, otherwise null. */
     readonly ai_model?: string
     /** True once a user has edited this annotation; such rows are never overwritten. */
@@ -657,46 +974,6 @@ export interface PatchedWarehouseColumnAnnotationApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
-}
-
-export interface WarehouseColumnStatisticsApi {
-    readonly id: string
-    /** ID of the data warehouse table this column belongs to. */
-    readonly table: string
-    /** Name of the column these statistics describe. */
-    readonly column_name: string
-    /** ClickHouse type the statistics were computed against (e.g. Int64, DateTime64). */
-    readonly column_type: string
-    /** Total number of rows in the table when these statistics were computed. */
-    readonly row_count: number
-    /** Number of NULL values in this column, or null if the Delta log carried no count. */
-    readonly null_count: number
-    /** Fraction of values that are NULL (null_count / row_count), between 0 and 1. */
-    readonly null_fraction: number
-    /** Minimum value in the column, as a string. Null when unavailable. For string columns this may be truncated by the underlying Delta statistics, so treat string bounds as approximate. */
-    readonly min_value: string
-    /** Maximum value in the column, as a string. Null when unavailable (see min_value). */
-    readonly max_value: string
-    /** Whether the Delta log carried min/max statistics for this column (false for some nested/binary types). */
-    readonly has_min_max: boolean
-    /** When these statistics were last computed. */
-    readonly computed_at: string
-    /** Delta table version the statistics were computed against. */
-    readonly computed_for_delta_version: number
-    /** How the statistics were produced. Currently always 'delta_log'. */
-    readonly stats_basis: string
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedWarehouseColumnStatisticsListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: WarehouseColumnStatisticsApi[]
 }
 
 /**
@@ -707,6 +984,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -719,6 +997,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -754,6 +1033,79 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface DataWarehouseExpressionApi {
+    readonly id: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
+}
+
+export interface PaginatedDataWarehouseExpressionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseExpressionApi[]
+}
+
+export interface PatchedDataWarehouseExpressionApi {
+    readonly id?: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name?: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name?: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression?: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
+}
+
 export interface DataWarehouseModelPathApi {
     readonly id: string
     readonly path: readonly string[]
@@ -784,9 +1136,10 @@ export interface PaginatedDataWarehouseModelPathListApi {
  * * `Failed` - Failed
  * * `Running` - Running
  */
-export type SavedQueryStatusEnumApi = (typeof SavedQueryStatusEnumApi)[keyof typeof SavedQueryStatusEnumApi]
+export type DataWarehouseSavedQueryStatusEnumApi =
+    (typeof DataWarehouseSavedQueryStatusEnumApi)[keyof typeof DataWarehouseSavedQueryStatusEnumApi]
 
-export const SavedQueryStatusEnumApi = {
+export const DataWarehouseSavedQueryStatusEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
     Completed: 'Completed',
@@ -799,9 +1152,10 @@ export const SavedQueryStatusEnumApi = {
  * * `endpoint` - Endpoint
  * * `managed_viewset` - Managed Viewset
  */
-export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
+export type DataWarehouseSavedQueryOriginEnumApi =
+    (typeof DataWarehouseSavedQueryOriginEnumApi)[keyof typeof DataWarehouseSavedQueryOriginEnumApi]
 
-export const OriginEnumApi = {
+export const DataWarehouseSavedQueryOriginEnumApi = {
     DataWarehouse: 'data_warehouse',
     Endpoint: 'endpoint',
     ManagedViewset: 'managed_viewset',
@@ -823,6 +1177,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly description: string
     /** @nullable */
     readonly sync_frequency: string | null
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+    readonly sync_frequency_managed_by_dag: boolean
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -831,7 +1187,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | null
+    readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -844,12 +1200,14 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly latest_error: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
+    /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
+    readonly is_incremental: boolean
     /** Where this SavedQuery is created.
      *
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | null
+    readonly origin: DataWarehouseSavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     readonly is_test: boolean
     /**
@@ -890,6 +1248,75 @@ export type DataWarehouseSavedQueryApiQuery = {
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
+
+/**
+ * How a view updates its materialized table in place rather than rebuilding it.
+ */
+export interface IncrementalConfigApi {
+    /** Whether runs update the table incrementally instead of rebuilding it. */
+    enabled?: boolean
+    /** Output column whose advancing value marks rows as new. Each run reads only rows at or after the last run's highest value for it. When the query groups, this must be one of the grouped columns, so every group a run touches is recomputed in full. */
+    incremental_key: string
+    /** Output columns that identify a row, used to match recomputed rows against stored ones. Must include every GROUP BY column. These columns can never be null. */
+    unique_key: string[]
+    /**
+     * How far back before the last run's high point to re-read, so late-arriving data is picked up. Only applies when the incremental key is a date or time.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
+}
+
+/**
+ * * `incremental` - incremental
+ * * `full_refresh` - full_refresh
+ */
+export type LastRunModeEnumApi = (typeof LastRunModeEnumApi)[keyof typeof LastRunModeEnumApi]
+
+export const LastRunModeEnumApi = {
+    Incremental: 'incremental',
+    FullRefresh: 'full_refresh',
+} as const
+
+/**
+ * Read-only progress written by the materialization run.
+ */
+export interface IncrementalStateApi {
+    /**
+     * Highest incremental key value written so far. The next run starts here.
+     * @nullable
+     */
+    watermark?: string | null
+    /**
+     * Fingerprint of the query, incremental key, and unique key the stored rows were built from. When it stops matching, the next run rebuilds the whole table. Lookback is not part of it: changing lookback never forces a rebuild.
+     * @nullable
+     */
+    definition_fingerprint?: string | null
+    /**
+     * When the table was last rebuilt from scratch.
+     * @nullable
+     */
+    last_full_refresh_at?: string | null
+    /** Whether the last run updated the table or rebuilt it.
+     *
+     * * `incremental` - incremental
+     * * `full_refresh` - full_refresh */
+    last_run_mode?: LastRunModeEnumApi | null
+}
+
 /**
  * * `never` - never
  * * `15min` - 15min
@@ -917,6 +1344,120 @@ export const SavedQuerySyncFrequencyEnumApi = {
 } as const
 
 /**
+ * * `tiered` - tiered
+ * * `dag_schedule` - dag_schedule
+ * * `managed_viewset` - managed_viewset
+ * * `legacy` - legacy
+ * * `no_node` - no_node
+ */
+export type FrequencyModeEnumApi = (typeof FrequencyModeEnumApi)[keyof typeof FrequencyModeEnumApi]
+
+export const FrequencyModeEnumApi = {
+    Tiered: 'tiered',
+    DagSchedule: 'dag_schedule',
+    ManagedViewset: 'managed_viewset',
+    Legacy: 'legacy',
+    NoNode: 'no_node',
+} as const
+
+/**
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type MaterializeSyncFrequencyEnumApi =
+    (typeof MaterializeSyncFrequencyEnumApi)[keyof typeof MaterializeSyncFrequencyEnumApi]
+
+export const MaterializeSyncFrequencyEnumApi = {
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+/**
+ * * `source` - source
+ * * `consumer` - consumer
+ */
+export type SyncFrequencyBlockedByEnumApi =
+    (typeof SyncFrequencyBlockedByEnumApi)[keyof typeof SyncFrequencyBlockedByEnumApi]
+
+export const SyncFrequencyBlockedByEnumApi = {
+    Source: 'source',
+    Consumer: 'consumer',
+} as const
+
+/**
+ * The node holding a cadence back, named so a refusal points at something a person can open.
+ */
+export interface SyncFrequencyBlockerApi {
+    /** Data modeling node ID of the source or view. */
+    id: string
+    /** Node name, as it appears in the data modeling graph. */
+    name: string
+}
+
+export interface SyncFrequencyOptionApi {
+    /** A `sync_frequency` value.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    cadence: MaterializeSyncFrequencyEnumApi
+    /** False when writing this cadence would be rejected. */
+    allowed: boolean
+    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+     *
+     * * `source` - source
+     * * `consumer` - consumer */
+    blocked_by: SyncFrequencyBlockedByEnumApi | null
+    /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+    blocker: SyncFrequencyBlockerApi | null
+}
+
+export interface SyncFrequencyBoundApi {
+    /** The bounding cadence in plain English, for example '6 hours'. Matches the wording used in the error raised when an out-of-bounds cadence is written. Prose rather than a `sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names. */
+    label: string
+    /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
+    blocker: SyncFrequencyBlockerApi | null
+}
+
+export interface SyncFrequencyBoundsApi {
+    /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+     *
+     * * `tiered` - tiered
+     * * `dag_schedule` - dag_schedule
+     * * `managed_viewset` - managed_viewset
+     * * `legacy` - legacy
+     * * `no_node` - no_node */
+    frequency_mode: FrequencyModeEnumApi
+    /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
+    options: SyncFrequencyOptionApi[]
+    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+    floor: SyncFrequencyBoundApi | null
+    /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
+    ceiling: SyncFrequencyBoundApi | null
+    /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
+    best_effort_sources: SyncFrequencyBlockerApi[]
+    /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
+    best_effort_sources_withheld: boolean
+}
+
+/**
  * Shared methods for DataWarehouseSavedQuery serializers.
  *
  * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -932,6 +1473,10 @@ export interface DataWarehouseSavedQueryApi {
     name: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query: DataWarehouseSavedQueryApiQuery
+    /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+    incremental?: IncrementalConfigApi | null
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state: IncrementalStateApi | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     /**
@@ -939,7 +1484,7 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -951,6 +1496,10 @@ export interface DataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+    readonly sync_frequency_managed_by_dag: boolean
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -959,7 +1508,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | null
+    readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1000,7 +1549,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | null
+    readonly origin: DataWarehouseSavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1013,6 +1562,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryApiSuspended
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -1033,6 +1584,11 @@ export type PatchedDataWarehouseSavedQueryApiQuery = {
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
+
+/**
  * Shared methods for DataWarehouseSavedQuery serializers.
  *
  * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -1048,6 +1604,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
     name?: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query?: PatchedDataWarehouseSavedQueryApiQuery
+    /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+    incremental?: IncrementalConfigApi | null
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state?: IncrementalStateApi | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /**
@@ -1055,7 +1615,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     description?: string | null
-    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. On teams whose DAG schedules are managed per-node, the cadence is stored on the view's DAG node, so this field may read back as null after a successful write.
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.
      *
      * * `never` - never
      * * `15min` - 15min
@@ -1067,6 +1627,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
+    /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
+    readonly sync_frequency_managed_by_dag?: boolean
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -1075,7 +1639,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `Completed` - Completed
      * * `Failed` - Failed
      * * `Running` - Running */
-    readonly status?: SavedQueryStatusEnumApi | null
+    readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1116,7 +1680,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | null
+    readonly origin?: DataWarehouseSavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1129,6 +1693,88 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+}
+
+/**
+ * Body of the `materialize` action: which cadence to enable materialization at.
+ */
+export interface SavedQueryMaterializeApi {
+    /** How often to refresh the materialized table, defaulting to daily. Rejected with a 400 when it falls outside what the query's lineage allows: no more often than its sources deliver new data, and no less often than a downstream view or endpoint needs.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: MaterializeSyncFrequencyEnumApi
+}
+
+export interface SavedQueryResumeApi {
+    /** False when the query's materialization was not suspended. */
+    resumed: boolean
+}
+
+/**
+ * Body of the `run` action.
+ */
+export interface SavedQueryRunApi {
+    /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
+    full_refresh?: boolean
+}
+
+/**
+ * Body of the `check_incremental` action: a query and an optional config to check it against.
+ */
+export interface CheckIncrementalApi {
+    /**
+     * The HogQL query to check.
+     * @maxLength 65536
+     */
+    query: string
+    /**
+     * Output column whose advancing value marks rows as new. Omit to only list candidates.
+     * @nullable
+     */
+    incremental_key?: string | null
+    /**
+     * Output columns that identify a row. Must include every GROUP BY column.
+     * @nullable
+     */
+    unique_key?: string[] | null
+    /**
+     * How far back before the watermark to re-read each run, to pick up late-arriving data.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
+}
+
+/**
+ * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
+ */
+export type IncrementalEligibilityApiKeyCandidateTypes = { [key: string]: string }
+
+/**
+ * Whether a query can be materialized incrementally, and what stands in the way.
+ */
+export interface IncrementalEligibilityApi {
+    /** True when nothing blocks incremental materialization. */
+    eligible: boolean
+    /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot serve as an advancing watermark (strings, booleans, arrays), and for a union only includes columns every branch produces. */
+    key_candidates: string[]
+    /** Output columns the unique key may be built from. A superset of key_candidates: identifying a row only needs equality, so strings qualify here even though they cannot be the incremental key. */
+    unique_key_candidates: string[]
+    /** Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
+    key_candidate_types: IncrementalEligibilityApiKeyCandidateTypes
+    /** Reasons this query cannot be incremental. Each names the construct responsible. */
+    blockers: string[]
+    /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
+    warnings: string[]
 }
 
 export interface DataWarehouseSavedQueryDraftApi {
@@ -1226,9 +1872,10 @@ export interface PatchedDataWarehouseSavedQueryFolderApi {
  * * `Delta` - Delta
  * * `DeltaS3Wrapper` - DeltaS3Wrapper
  */
-export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
+export type DataWarehouseTableFormatEnumApi =
+    (typeof DataWarehouseTableFormatEnumApi)[keyof typeof DataWarehouseTableFormatEnumApi]
 
-export const TableFormatEnumApi = {
+export const DataWarehouseTableFormatEnumApi = {
     Csv: 'CSV',
     CSVWithNames: 'CSVWithNames',
     Parquet: 'Parquet',
@@ -1237,13 +1884,43 @@ export const TableFormatEnumApi = {
     DeltaS3Wrapper: 'DeltaS3Wrapper',
 } as const
 
+/**
+ * * `web` - web
+ * * `api` - api
+ * * `mcp` - mcp
+ * * `wizard` - wizard
+ * * `self_driving` - self_driving
+ * * `source` - source
+ * * `materialized_view` - materialized_view
+ * * `demo` - demo
+ */
+export type DataWarehouseTableCreatedViaEnumApi =
+    (typeof DataWarehouseTableCreatedViaEnumApi)[keyof typeof DataWarehouseTableCreatedViaEnumApi]
+
+export const DataWarehouseTableCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+    Wizard: 'wizard',
+    SelfDriving: 'self_driving',
+    Source: 'source',
+    MaterializedView: 'materialized_view',
+    Demo: 'demo',
+} as const
+
 export interface CredentialApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 500 */
+    /**
+     * Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).
+     * @maxLength 500
+     */
     access_key: string
-    /** @maxLength 500 */
+    /**
+     * Secret for the access key. Stored encrypted and never returned by the API.
+     * @maxLength 500
+     */
     access_secret: string
 }
 
@@ -1423,6 +2100,7 @@ export interface CredentialApi {
  * * `Ebay` - Ebay
  * * `Commercetools` - Commercetools
  * * `LightspeedRetail` - LightspeedRetail
+ * * `Shipmail` - Shipmail
  * * `ShipStation` - ShipStation
  * * `ConstantContact` - ConstantContact
  * * `Mailgun` - Mailgun
@@ -1435,13 +2113,15 @@ export interface CredentialApi {
  * * `Gladly` - Gladly
  * * `Qualtrics` - Qualtrics
  * * `AzureDevOps` - AzureDevOps
+ * * `RoktAds` - RoktAds
  * * `Rollbar` - Rollbar
  * * `Opsgenie` - Opsgenie
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -1536,6 +2216,7 @@ export interface CredentialApi {
  * * `Customerly` - Customerly
  * * `Datascope` - Datascope
  * * `Dbt` - Dbt
+ * * `Demodesk` - Demodesk
  * * `Deputy` - Deputy
  * * `DevinAI` - DevinAI
  * * `Docuseal` - Docuseal
@@ -1569,6 +2250,7 @@ export interface CredentialApi {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -2497,6 +3179,78 @@ export interface CredentialApi {
  * * `Meltwater` - Meltwater
  * * `UserCom` - UserCom
  * * `Latitude` - Latitude
+ * * `Workato` - Workato
+ * * `SideShift` - SideShift
+ * * `DuckLake` - DuckLake
+ * * `Starburst` - Starburst
+ * * `Trino` - Trino
+ * * `Easybill` - Easybill
+ * * `Bexio` - Bexio
+ * * `Umami` - Umami
+ * * `Manychat` - Manychat
+ * * `Kickstarter` - Kickstarter
+ * * `Typesense` - Typesense
+ * * `FirstPromoter` - FirstPromoter
+ * * `Zero` - Zero
+ * * `Inth` - Inth
+ * * `BCMS` - BCMS
+ * * `Convonite` - Convonite
+ * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `RakutenAdvertising` - RakutenAdvertising
+ * * `Zitadel` - Zitadel
+ * * `DeelFlows` - DeelFlows
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
+ * * `Sevalla` - Sevalla
+ * * `Motion` - Motion
+ * * `ImpactPartner` - ImpactPartner
+ * * `Cloudinary` - Cloudinary
+ * * `Uploadcare` - Uploadcare
+ * * `WHMCS` - WHMCS
+ * * `MSG91` - MSG91
+ * * `Depot` - Depot
+ * * `Schematic` - Schematic
+ * * `Dokploy` - Dokploy
+ * * `Hootsuite` - Hootsuite
+ * * `WisprFlow` - WisprFlow
+ * * `SamCart` - SamCart
+ * * `IronSourceAds` - IronSourceAds
+ * * `MicrosoftExcel` - MicrosoftExcel
+ * * `Profound` - Profound
+ * * `Airwallex` - Airwallex
+ * * `Polymarket` - Polymarket
+ * * `Kalshi` - Kalshi
+ * * `Capterra` - Capterra
+ * * `GooglePostmasterTools` - GooglePostmasterTools
+ * * `Growi` - Growi
+ * * `Clarify` - Clarify
+ * * `DatoCMS` - DatoCMS
+ * * `WPSOffice` - WPSOffice
+ * * `TeraBox` - TeraBox
+ * * `SimonData` - SimonData
+ * * `CommissionJunction` - CommissionJunction
+ * * `Liveblocks` - Liveblocks
+ * * `NationBuilder` - NationBuilder
+ * * `Tana` - Tana
+ * * `Zenchef` - Zenchef
+ * * `Lovable` - Lovable
+ * * `Anvil` - Anvil
+ * * `Coolify` - Coolify
+ * * `SocialPilot` - SocialPilot
+ * * `Strato` - Strato
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2677,6 +3431,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ebay: 'Ebay',
     Commercetools: 'Commercetools',
     LightspeedRetail: 'LightspeedRetail',
+    Shipmail: 'Shipmail',
     ShipStation: 'ShipStation',
     ConstantContact: 'ConstantContact',
     Mailgun: 'Mailgun',
@@ -2689,13 +3444,15 @@ export const ExternalDataSourceTypeEnumApi = {
     Gladly: 'Gladly',
     Qualtrics: 'Qualtrics',
     AzureDevOps: 'AzureDevOps',
+    RoktAds: 'RoktAds',
     Rollbar: 'Rollbar',
     Opsgenie: 'Opsgenie',
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -2790,6 +3547,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Customerly: 'Customerly',
     Datascope: 'Datascope',
     Dbt: 'Dbt',
+    Demodesk: 'Demodesk',
     Deputy: 'Deputy',
     DevinAI: 'DevinAI',
     Docuseal: 'Docuseal',
@@ -2823,6 +3581,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
@@ -3751,6 +4510,78 @@ export const ExternalDataSourceTypeEnumApi = {
     Meltwater: 'Meltwater',
     UserCom: 'UserCom',
     Latitude: 'Latitude',
+    Workato: 'Workato',
+    SideShift: 'SideShift',
+    DuckLake: 'DuckLake',
+    Starburst: 'Starburst',
+    Trino: 'Trino',
+    Easybill: 'Easybill',
+    Bexio: 'Bexio',
+    Umami: 'Umami',
+    Manychat: 'Manychat',
+    Kickstarter: 'Kickstarter',
+    Typesense: 'Typesense',
+    FirstPromoter: 'FirstPromoter',
+    Zero: 'Zero',
+    Inth: 'Inth',
+    Bcms: 'BCMS',
+    Convonite: 'Convonite',
+    Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    RakutenAdvertising: 'RakutenAdvertising',
+    Zitadel: 'Zitadel',
+    DeelFlows: 'DeelFlows',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
+    Sevalla: 'Sevalla',
+    Motion: 'Motion',
+    ImpactPartner: 'ImpactPartner',
+    Cloudinary: 'Cloudinary',
+    Uploadcare: 'Uploadcare',
+    Whmcs: 'WHMCS',
+    Msg91: 'MSG91',
+    Depot: 'Depot',
+    Schematic: 'Schematic',
+    Dokploy: 'Dokploy',
+    Hootsuite: 'Hootsuite',
+    WisprFlow: 'WisprFlow',
+    SamCart: 'SamCart',
+    IronSourceAds: 'IronSourceAds',
+    MicrosoftExcel: 'MicrosoftExcel',
+    Profound: 'Profound',
+    Airwallex: 'Airwallex',
+    Polymarket: 'Polymarket',
+    Kalshi: 'Kalshi',
+    Capterra: 'Capterra',
+    GooglePostmasterTools: 'GooglePostmasterTools',
+    Growi: 'Growi',
+    Clarify: 'Clarify',
+    DatoCMS: 'DatoCMS',
+    WPSOffice: 'WPSOffice',
+    TeraBox: 'TeraBox',
+    SimonData: 'SimonData',
+    CommissionJunction: 'CommissionJunction',
+    Liveblocks: 'Liveblocks',
+    NationBuilder: 'NationBuilder',
+    Tana: 'Tana',
+    Zenchef: 'Zenchef',
+    Lovable: 'Lovable',
+    Anvil: 'Anvil',
+    Coolify: 'Coolify',
+    SocialPilot: 'SocialPilot',
+    Strato: 'Strato',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -3769,6 +4600,9 @@ export type TableApiColumnsItem = { [key: string]: unknown }
  */
 export type TableApiExternalSchema = { [key: string]: unknown } | null
 
+/**
+ * Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.
+ */
 export type TableApiOptions = { [key: string]: unknown }
 
 /**
@@ -3776,22 +4610,51 @@ export type TableApiOptions = { [key: string]: unknown }
  */
 export interface TableApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether the table is soft-deleted and hidden from queries.
+     * @nullable
+     */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.
+     * @maxLength 128
+     */
     name: string
     /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
     readonly hogql_name: string
-    format: TableFormatEnumApi
+    /** File format of the objects the pattern matches. Every matched file must share this format.
+     *
+     * * `CSV` - CSV
+     * * `CSVWithNames` - CSVWithNames
+     * * `Parquet` - Parquet
+     * * `JSONEachRow` - JSON
+     * * `Delta` - Delta
+     * * `DeltaS3Wrapper` - DeltaS3Wrapper */
+    format: DataWarehouseTableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 500 */
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
+    readonly created_via: DataWarehouseTableCreatedViaEnumApi | null
+    /**
+     * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
+     * @maxLength 500
+     */
     url_pattern: string
     credential: CredentialApi
     readonly columns: readonly TableApiColumnsItem[]
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
+    /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: TableApiOptions
     /**
      * The effective access level the user has for this object
@@ -3816,6 +4679,9 @@ export type PatchedTableApiColumnsItem = { [key: string]: unknown }
  */
 export type PatchedTableApiExternalSchema = { [key: string]: unknown } | null
 
+/**
+ * Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.
+ */
 export type PatchedTableApiOptions = { [key: string]: unknown }
 
 /**
@@ -3823,22 +4689,51 @@ export type PatchedTableApiOptions = { [key: string]: unknown }
  */
 export interface PatchedTableApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether the table is soft-deleted and hidden from queries.
+     * @nullable
+     */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Name the table is queried by in HogQL. Must be unique within the project, and must start with a letter or underscore and contain only letters, numbers, and underscores.
+     * @maxLength 128
+     */
     name?: string
     /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or `postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier. */
     readonly hogql_name?: string
-    format?: TableFormatEnumApi
+    /** File format of the objects the pattern matches. Every matched file must share this format.
+     *
+     * * `CSV` - CSV
+     * * `CSVWithNames` - CSVWithNames
+     * * `Parquet` - Parquet
+     * * `JSONEachRow` - JSON
+     * * `Delta` - Delta
+     * * `DeltaS3Wrapper` - DeltaS3Wrapper */
+    format?: DataWarehouseTableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @maxLength 500 */
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
+    readonly created_via?: DataWarehouseTableCreatedViaEnumApi | null
+    /**
+     * HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.
+     * @maxLength 500
+     */
     url_pattern?: string
     credential?: CredentialApi
     readonly columns?: readonly PatchedTableApiColumnsItem[]
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema?: PatchedTableApiExternalSchema
+    /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: PatchedTableApiOptions
     /**
      * The effective access level the user has for this object
@@ -3889,20 +4784,39 @@ export interface FileUploadResponseApi {
 
 export interface ViewLinkApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
@@ -3917,32 +4831,116 @@ export interface PaginatedViewLinkListApi {
 
 export interface PatchedViewLinkApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name?: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
 export interface ViewLinkValidationApi {
-    /** @maxLength 255 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 255
+     */
     joining_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 255
+     */
     joining_table_key: string
-    /** @maxLength 255 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 255
+     */
     source_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 255
+     */
     source_table_key: string
+}
+
+export interface ViewLinkValidationResponseApi {
+    /** Whether the join compiled and returned rows when executed against a sample of the source table. */
+    is_valid: boolean
+    /**
+     * Warning about the validation result, for example when the sampled join returned no rows.
+     * @nullable
+     */
+    msg: string | null
+    /**
+     * The HogQL statement used to validate the join.
+     * @nullable
+     */
+    hogql: string | null
+    /** Column names for each row in results. */
+    columns: string[]
+    /** Distinct source and joining key pairs from the joined result, at most 5. */
+    results: unknown[][]
+    /**
+     * Number of sampled source rows checked for a join match, at most 10000. Null when the match-rate query failed.
+     * @nullable
+     */
+    total_rows: number | null
+    /**
+     * Number of sampled source rows with at least one match in the joining table. Null when the match-rate query failed.
+     * @nullable
+     */
+    matched_rows: number | null
+    /**
+     * matched_rows divided by total_rows, between 0 and 1. Null when the match-rate query failed or no rows were sampled.
+     * @nullable
+     */
+    match_rate: number | null
+}
+
+export interface ViewLinkValidationErrorApi {
+    /**
+     * Request field the error relates to, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Machine-readable error code, for example QueryError. */
+    code: string
+    /** Why the join failed to validate. */
+    detail: string
+    /** Error category; always query_error for validation failures. */
+    type: string
+    /**
+     * The HogQL statement that failed to validate.
+     * @nullable
+     */
+    hogql: string | null
 }
 
 export type DataModelingJobsListParams = {
@@ -3972,6 +4970,61 @@ export type DataWarehouseCheckSchemaNameRetrieveParams = {
      */
     name: string
 }
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = {
+    /**
+     * Allow-listed managed warehouse metric to retrieve.
+     *
+     * * `query_rate` - query_rate
+     * * `error_ratio` - error_ratio
+     * * `duration_p50` - duration_p50
+     * * `duration_p95` - duration_p95
+     * * `sessions_active` - sessions_active
+     * * `acquire_p95` - acquire_p95
+     * * `acquire_by_source` - acquire_by_source
+     * * `storage_bytes` - storage_bytes
+     * * `worker_crash_rate` - worker_crash_rate
+     * @minLength 1
+     */
+    metric: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric
+    /**
+     * Trailing time window to retrieve. Defaults to 24h.
+     *
+     * * `1h` - 1h
+     * * `6h` - 6h
+     * * `24h` - 24h
+     * * `7d` - 7d
+     * * `30d` - 30d
+     * @minLength 1
+     */
+    window?: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow
+}
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric =
+    (typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric)[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric]
+
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric = {
+    QueryRate: 'query_rate',
+    ErrorRatio: 'error_ratio',
+    DurationP50: 'duration_p50',
+    DurationP95: 'duration_p95',
+    SessionsActive: 'sessions_active',
+    AcquireP95: 'acquire_p95',
+    AcquireBySource: 'acquire_by_source',
+    StorageBytes: 'storage_bytes',
+    WorkerCrashRate: 'worker_crash_rate',
+} as const
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow =
+    (typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow)[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow]
+
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = {
+    '1h': '1h',
+    '6h': '6h',
+    '24h': '24h',
+    '7d': '7d',
+    '30d': '30d',
+} as const
 
 export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
     /**
@@ -4039,7 +5092,7 @@ export type WarehouseColumnAnnotationsListParams = {
     table_id?: string
 }
 
-export type WarehouseColumnStatisticsListParams = {
+export type WarehouseExpressionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -4049,9 +5102,9 @@ export type WarehouseColumnStatisticsListParams = {
      */
     offset?: number
     /**
-     * Only return statistics for this data warehouse table.
+     * A search term.
      */
-    table_id?: string
+    search?: string
 }
 
 export type WarehouseModelPathsListParams = {

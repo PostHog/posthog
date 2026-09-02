@@ -15,16 +15,6 @@
                 }
             }
         },
-        "AgentResolveResourceSchema": {
-            "type": "object",
-            "properties": {
-                "resource": {
-                    "type": "string",
-                    "description": "Which builder playbook to fetch. Accepts either a bare id (one of: authenticating-as-the-user, authoring-new-agents, choosing-the-model, cost-and-quota-analysis, debugging-sessions, designing-mcp-surfaces, editing-agents-safely, platform-mental-model, querying-ai-observability, reading-an-agent, running-and-evaluating-tests, secrets-and-integrations, setting-up-slack-app) or its URI form (`posthog://agent-platform/playbooks/<id>`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory."
-                }
-            },
-            "required": ["resource"]
-        },
         "BusinessKnowledgeUrlSourceCreateSchema": {
             "type": "object",
             "properties": {
@@ -58,6 +48,12 @@
                 }
             },
             "required": ["name", "url"]
+        },
+        "ChannelInstructionsBaseVersionSchema": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions."
         },
         "DebugMcpUiAppsSchema": {
             "type": "object",
@@ -275,6 +271,44 @@
             },
             "required": ["id", "operations"]
         },
+        "EventDefinitionCreateSchema": {
+            "type": "object",
+            "properties": {
+                "eventName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400,
+                    "description": "The name of the event to create (e.g. \"user_signed_up\")"
+                },
+                "data": {
+                    "description": "Optional metadata for the new event definition",
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "description": "Description explaining when the event is triggered",
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "maxLength": 255
+                            }
+                        },
+                        "verified": {
+                            "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+                            "type": "boolean"
+                        },
+                        "hidden": {
+                            "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+                            "type": "boolean"
+                        }
+                    }
+                }
+            },
+            "required": ["eventName"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
@@ -286,7 +320,8 @@
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 255
                     }
                 },
                 "verified": {
@@ -317,7 +352,8 @@
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                             "type": "array",
                             "items": {
-                                "type": "string"
+                                "type": "string",
+                                "maxLength": 255
                             }
                         },
                         "verified": {
@@ -348,8 +384,12 @@
                     "type": "boolean"
                 },
                 "connectionId": {
-                    "description": "Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "description": "Optional id of a data warehouse connection (e.g. Postgres, MySQL, Snowflake, Redshift). When set, the query runs live against that source instead of the ClickHouse catalog, and may only reference that source's tables. Discover connection ids with external-data-sources-connections-list, then list a connection's tables by running `SELECT table_name FROM system.information_schema.tables` with that connectionId set.",
                     "type": "string"
+                },
+                "sendRawQuery": {
+                    "description": "Send `query` to the connection verbatim instead of compiling it from HogQL first. Use this for SQL only that connection's own engine understands, such as vendor-specific functions. Requires connectionId, and works only on a pure direct connection (access_method 'direct'), not on a synced source with live queries enabled. The connection is read-only and accepts a single statement.",
+                    "type": "boolean"
                 }
             },
             "required": ["query"]
@@ -390,7 +430,7 @@
                 "type": "string"
             },
             "additionalProperties": {},
-            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link."
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link."
         },
         "ExternalDataSourceTypeSchema": {
             "type": "string",
@@ -613,7 +653,7 @@
                                     },
                                     "alias": {
                                         "type": "string",
-                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
+                                        "description": "The replacement for the matched path, e.g. \"/users/<id>/profile\". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a \"?page=N\" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax (\"\\1\" to \"\\9\" for a group, \"\\0\" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one."
                                     },
                                     "regex": {
                                         "type": "string",
@@ -639,7 +679,7 @@
                                     },
                                     "alias": {
                                         "type": "string",
-                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
+                                        "description": "The replacement for the matched path, e.g. \"/users/<id>/profile\". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a \"?page=N\" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax (\"\\1\" to \"\\9\" for a group, \"\\0\" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one."
                                     },
                                     "regex": {
                                         "type": "string",
@@ -974,6 +1014,78 @@
             },
             "required": ["query"]
         },
+        "ReportInboxInputSchema": {
+            "type": "object",
+            "properties": {
+                "view": {
+                    "default": "actionable",
+                    "description": "Inbox section to return. Defaults to actionable reports that are ready to pick up.",
+                    "type": "string",
+                    "enum": [
+                        "actionable",
+                        "needs_input",
+                        "monitoring",
+                        "resolved",
+                        "dismissed",
+                        "not_actionable",
+                        "all"
+                    ]
+                },
+                "scope": {
+                    "default": "entire_project",
+                    "description": "Limit results by suggested reviewer, or search the entire project.",
+                    "type": "string",
+                    "enum": ["for_me", "entire_project", "teammate"]
+                },
+                "teammate_uuid": {
+                    "description": "PostHog user UUID required when scope is teammate.",
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "priorities": {
+                    "description": "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["P0", "P1", "P2", "P3", "P4"]
+                    }
+                },
+                "source_products": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "scouts": {
+                    "description": "Scout skill_name slugs to include.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "search": {
+                    "description": "Case-insensitive substring match against report title and summary.",
+                    "type": "string"
+                },
+                "sort": {
+                    "default": "priority",
+                    "type": "string",
+                    "enum": ["priority", "last_updated", "newest", "oldest"]
+                },
+                "limit": {
+                    "default": 10,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                }
+            }
+        },
         "SavedMetricsAttachSchema": {
             "type": "array",
             "items": {
@@ -1167,6 +1279,229 @@
                 }
             ],
             "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
+        },
+        "WorkflowActionEmailPatchSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The workflow (HogFlow) id."
+                },
+                "action_id": {
+                    "type": "string",
+                    "description": "Id of the function_email step whose email to edit."
+                },
+                "operations": {
+                    "description": "Ordered edits applied atomically to the step's email design - the same operations as workflows-patch-email-template. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. Reference blocks by id (read them via workflows-get).",
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_column"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the column to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial column fields, deep-merged; a null leaf deletes that key."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_row"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the row to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial row fields, deep-merged; a null leaf deletes that key."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_body"
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
+                                    }
+                                },
+                                "required": ["op", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_content"
+                                    },
+                                    "column_id": {
+                                        "type": "string",
+                                        "description": "Id of the column to insert the block into."
+                                    },
+                                    "content": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "A content block {type, values: {...}}; omit id and values._meta — they are assigned server-side. type is one of text, heading, button, image, divider, html, etc."
+                                    },
+                                    "index": {
+                                        "description": "0-based insert position; omit to append to the end.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "column_id", "content"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to remove."
+                                    }
+                                },
+                                "required": ["op", "id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "move_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to move."
+                                    },
+                                    "column_id": {
+                                        "type": "string",
+                                        "description": "Id of the destination column."
+                                    },
+                                    "index": {
+                                        "description": "0-based position in the destination column; omit to append.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "id", "column_id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_row"
+                                    },
+                                    "row": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it."
+                                    },
+                                    "index": {
+                                        "description": "0-based insert position; omit to append to the end.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "row"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_row"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the row to remove."
+                                    }
+                                },
+                                "required": ["op", "id"]
+                            }
+                        ]
+                    }
+                },
+                "email_patch": {
+                    "description": "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it.",
+                    "type": "object",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "additionalProperties": {}
+                },
+                "base_updated_at": {
+                    "description": "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "action_id"]
         },
         "WorkflowGraphPatchSchema": {
             "type": "object",

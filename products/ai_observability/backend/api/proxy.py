@@ -19,7 +19,7 @@ from django.utils import timezone
 import structlog
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -38,6 +38,7 @@ from posthog.rate_limit import (
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.ai_observability.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.ai_observability.backend.llm import (
     PLAYGROUND_MODEL_IDS,
@@ -90,6 +91,46 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
 
 
+class PlaygroundAccessPermission(BasePermission):
+    """Resource-level RBAC for the playground.
+
+    The playground is stateless, so there is no model for `AccessControlViewSetMixin` to bind to and no
+    object-level grants to consider. This viewset also sits on the root router without
+    `TeamAndOrgViewSetMixin`, so it never picks up that mixin's `AccessControlPermission` — the check has
+    to be wired up by hand. Deliberately no `scope_object` on the viewset: nothing in this permission
+    chain reads it, and it would imply personal API key support that `SessionAuthentication` doesn't allow.
+    """
+
+    # Listing models is a read; running a completion spends money, so it's a write.
+    ACTION_REQUIRED_LEVELS: dict[str, AccessControlLevel] = {"models": "viewer", "completion": "editor"}
+
+    def has_permission(self, request: Request, view) -> bool:
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+
+        # Fail closed so a new @action can't ship ungated
+        required_level = self.ACTION_REQUIRED_LEVELS.get(view.action or "")
+        if required_level is None:
+            self.message = "This playground endpoint isn't available."
+            return False
+
+        team = getattr(user, "current_team", None)
+        if team is None:
+            self.message = "Open a project before using the playground."
+            return False
+
+        if UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_playground", required_level):
+            return True
+
+        self.message = (
+            "You need editor access to the playground to run prompts. Ask a project admin to update your access."
+            if required_level == "editor"
+            else "You don't have access to the playground. Ask a project admin to update your access."
+        )
+        return False
+
+
 class LLMProxyViewSet(viewsets.ViewSet):
     """
     ViewSet for AI observability proxy.
@@ -97,7 +138,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PlaygroundAccessPermission]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):

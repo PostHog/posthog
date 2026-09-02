@@ -50,11 +50,67 @@ function cloudSteps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, prMerged: false, isCurrent: true, ...overrides }
+    return {
+        phase: 'running',
+        steps: [],
+        error: null,
+        prUrl: null,
+        prMerged: false,
+        isCurrent: true,
+        pendingInput: null,
+        startedBy: null,
+        handoffText: null,
+        ...overrides,
+    }
 }
 
 export const Connecting: Story = {
     args: { mode: 'cloud', elapsedSeconds: 3, progress: progress({ phase: 'connecting' }) },
+}
+
+// Local, the agent is blocked on a wizard_ask in the terminal: the question leads the card in the
+// warning tone. The call to go back to the terminal leads; the question sits under it.
+export const LocalWaitingForInput: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 74,
+        progress: progress({
+            steps: [
+                { id: '0', label: 'Detect framework', status: 'completed', detail: null },
+                { id: '1', label: 'Install the SDK', status: 'in_progress', detail: null },
+                { id: '2', label: 'Instrument events', status: 'pending', detail: null },
+            ],
+            pendingInput: {
+                id: 'ask-1',
+                askedAt: '2026-01-01T00:01:00Z',
+                questionCount: 1,
+                sensitive: false,
+                prompts: ['Which region is your project in?'],
+            },
+        }),
+    },
+}
+
+// A secret was asked for, so no prompt text is published and the call to action stands alone.
+export const LocalWaitingForSensitiveInput: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 74,
+        progress: progress({
+            steps: [
+                { id: '0', label: 'Detect framework', status: 'completed', detail: null },
+                { id: '1', label: 'Install the SDK', status: 'in_progress', detail: null },
+                { id: '2', label: 'Instrument events', status: 'pending', detail: null },
+            ],
+            pendingInput: {
+                id: 'ask-2',
+                askedAt: '2026-01-01T00:01:00Z',
+                questionCount: 1,
+                sensitive: true,
+                prompts: [],
+            },
+        }),
+    },
 }
 
 // Cloud, wizard phase: the wizard's live sub-task ("Capturing events") leads the card.
@@ -99,6 +155,22 @@ export const LocalRunning: Story = {
     },
 }
 
+// Local run started by a teammate: the chip names them instead of "On your machine".
+export const LocalRunningStartedByTeammate: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 47,
+        startedByLabel: 'Edwin',
+        progress: progress({
+            steps: [
+                { id: 'plan', label: 'Plan event tracking', status: 'completed', detail: null },
+                { id: 'install', label: 'Install PostHog', status: 'in_progress', detail: null },
+                { id: 'capture', label: 'Capture events', status: 'pending', detail: null },
+            ],
+        }),
+    },
+}
+
 export const Completed: Story = {
     args: {
         mode: 'cloud',
@@ -111,7 +183,7 @@ export const Completed: Story = {
     },
 }
 
-// A finished local run: no PR to review, so the dashboard the wizard built is the footer payoff,
+// A finished local run: no PR to review, so the setup report the agent wrote is the footer payoff,
 // and the X reads as a real dismissal.
 export const CompletedLocal: Story = {
     args: {
@@ -124,9 +196,24 @@ export const CompletedLocal: Story = {
                 { id: 'b', label: 'Installed the PostHog SDK', status: 'completed', detail: null },
                 { id: 'c', label: 'Wired up event capture', status: 'completed', detail: null },
             ],
+            handoffText: '# PostHog setup report\n\nInstalled `posthog-js` and wired up event capture.',
         }),
-        dashboard: { id: 1, name: 'My app analytics' },
         dismissTooltip: 'Dismiss',
+    },
+    argTypes: { onViewReport: { action: 'view-report' } },
+}
+
+// A run still nominally in flight that has gone quiet: the clock is replaced by the reason it stopped
+// meaning anything, and the X dismisses rather than minimizes.
+export const Stalled: Story = {
+    args: {
+        mode: 'cloud',
+        elapsedSeconds: 42 * 3600,
+        stale: true,
+        dismissTooltip: 'Dismiss',
+        progress: progress({
+            steps: cloudSteps(['completed', 'completed', 'in_progress', 'pending', 'pending', 'pending']),
+        }),
     },
 }
 
@@ -152,8 +239,10 @@ export const AllStates: Story = {
             { label: 'Cloud, wizard running', args: CloudWizardRunning.args },
             { label: 'Cloud, keeping CI green', args: CloudKeepingCiGreen.args },
             { label: 'Local, running', args: LocalRunning.args },
+            { label: 'Local, started by a teammate', args: LocalRunningStartedByTeammate.args },
             { label: 'Completed', args: Completed.args },
-            { label: 'Completed, local (dashboard payoff)', args: CompletedLocal.args },
+            { label: 'Completed, local (report payoff)', args: CompletedLocal.args },
+            { label: 'Stalled', args: Stalled.args },
             { label: 'Failed', args: Failed.args },
         ]
         return (
@@ -165,7 +254,9 @@ export const AllStates: Story = {
                             progress={args!.progress!}
                             elapsedSeconds={args!.elapsedSeconds!}
                             mode={args!.mode!}
-                            dashboard={args!.dashboard}
+                            stale={args!.stale}
+                            startedByLabel={args!.startedByLabel}
+                            onViewReport={() => {}}
                             onExpand={() => {}}
                             onDismiss={() => {}}
                         />

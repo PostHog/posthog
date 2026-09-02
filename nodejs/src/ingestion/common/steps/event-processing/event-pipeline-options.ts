@@ -6,8 +6,14 @@ export interface EventPipelineRunnerOptions {
     PERSON_MERGE_EVENTS_ENABLED: boolean
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
+    PERSON_MERGE_FOLD_ENABLED: boolean
+    PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
+    /** Teams whose merges run new-world: lifecycle-mark claims plus tombstone deletes: '*' for all, '' to disable, or comma-separated team IDs */
+    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     PERSON_PROPERTIES_UPDATE_ALL: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
+    EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 }

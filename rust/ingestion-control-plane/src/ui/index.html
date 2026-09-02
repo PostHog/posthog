@@ -85,11 +85,11 @@
       .toolbar { border-bottom: 1px solid var(--border); }
       .toolbar .count { margin-left: auto; }
       .pager { border-top: 1px solid var(--border); justify-content: flex-end; }
-      .ns-head {
-        font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
-        margin: 0; padding: 12px 14px 6px; display: flex; align-items: baseline; gap: 8px;
-      }
-      .ns-head .ns { color: var(--text); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
+      .panel > h2.dep-head { cursor: pointer; user-select: none; }
+      .panel > h2.dep-head:hover { background: var(--panel-2); }
+      .dep-head .chev { color: var(--muted); flex: 0 0 auto; }
+      .panel > h2 .ns { color: var(--text); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
+      .dep-head .dep-meta { text-transform: none; letter-spacing: 0; font-weight: 400; }
       button.small { padding: 2px 8px; font-size: 11px; }
       .muted { color: var(--muted); }
       .mono { font-family: var(--mono); }
@@ -124,6 +124,59 @@
       /* Height is driven by the embedded document (same-origin), so the panel
          expands to fit the debug UI instead of squeezing it into a viewport box. */
       iframe.debug { width: 100%; min-height: 480px; border: 0; background: var(--bg); display: block; }
+
+      /* message browser */
+      .overlay {
+        position: fixed; inset: 0; background: rgba(8, 10, 13, 0.6); z-index: 20;
+        display: flex; align-items: center; justify-content: center; padding: 24px;
+      }
+      .browser {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        width: min(1180px, 100%); height: min(780px, 100%);
+        display: flex; flex-direction: column; overflow: hidden;
+      }
+      .browser-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+      .browser-head .title { font-weight: 600; }
+      .browser-body { display: flex; flex: 1 1 auto; min-height: 0; }
+      .facets { flex: 0 0 250px; border-right: 1px solid var(--border); overflow-y: auto; padding: 8px 14px 12px; }
+      .facets h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 10px 0 4px; }
+      .facet-row { cursor: pointer; border-radius: 4px; margin: 0 -4px; padding: 2px 4px; }
+      .facet-row:hover { background: var(--panel-2); }
+      .msgs { flex: 1 1 auto; min-width: 0; overflow-y: auto; }
+      .browser-foot { border-top: 1px solid var(--border); }
+      .browser-foot .status { margin-right: auto; }
+      .chip {
+        display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+        background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 1px 4px 1px 8px;
+      }
+      .chip .val { font-family: var(--mono); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+      .chip .val:hover { color: #a9c0ff; }
+      .chip .x { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 12px; }
+      .chip .x:hover { color: var(--error); }
+      tr.msg-detail td { background: var(--panel-2); }
+      .tree-row {
+        display: flex; align-items: center; gap: 6px; padding: 3px 14px 3px 0;
+        cursor: pointer; font-size: 12px;
+      }
+      .tree-row:hover { background: rgba(79,124,255,0.06); }
+      .tree-row.selected { background: rgba(79,124,255,0.1); }
+      .tree-row .chev { width: 14px; color: var(--muted); flex: 0 0 auto; text-align: center; }
+      .tree-row .meta {
+        margin-left: auto; display: flex; gap: 10px; align-items: center;
+        color: var(--muted); font-family: var(--mono); font-size: 11px; padding-right: 14px;
+      }
+      textarea.kv-value {
+        width: 100%; min-height: 180px; background: var(--bg); color: var(--text);
+        border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+        font-family: var(--mono); font-size: 11px; box-sizing: border-box; resize: vertical;
+      }
+      textarea.kv-value:focus { outline: none; border-color: var(--accent); }
+      pre.payload {
+        margin: 0 0 8px; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+        font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-word;
+        max-height: 340px; overflow: auto;
+      }
     </style>
   </head>
   <body>
@@ -162,6 +215,13 @@
         while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
         return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
       };
+      const fmtAgo = (iso) => {
+        const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+        if (seconds < 90) return `${Math.round(seconds)}s ago`;
+        if (seconds < 90 * 60) return `${Math.round(seconds / 60)}m ago`;
+        if (seconds < 36 * 3600) return `${Math.round(seconds / 3600)}h ago`;
+        return `${Math.round(seconds / 86400)}d ago`;
+      };
       const fetchJSON = async (url, opts) => {
         const resp = await fetch(url, opts);
         const body = await resp.json().catch(() => ({}));
@@ -169,8 +229,10 @@
         return body;
       };
       const copy = (text) => navigator.clipboard && navigator.clipboard.writeText(text);
+      // Copy clicks must not also trigger row-level handlers (e.g. expanding
+      // a message row in the browser).
       const copyable = (text, cls) =>
-        el("span", { class: cls, title: `${text} (click to copy)`, onclick: () => copy(text) }, text);
+        el("span", { class: cls, title: `${text} (click to copy)`, onclick: (e) => { e.stopPropagation(); copy(text); } }, text);
 
       // Client-side search + pagination over an in-memory row list. The search
       // input is kept stable across re-renders so typing survives refreshes.
@@ -425,6 +487,20 @@
 
       function renderAnalysisResult(job) {
         const r = job.result;
+        // Browsing starts where the analysis started, so the messages shown
+        // line up with the aggregates that led here.
+        const browseSpec = {
+          group: job.spec.group,
+          topic: job.spec.topic,
+          partition: job.spec.partition,
+          startOffset: job.spec.start_offset,
+        };
+        const browseKey = (text, filters) =>
+          el("span", {
+            class: "key",
+            title: `${text} (click to browse matching messages)`,
+            onclick: () => messageBrowser.open(browseSpec, filters),
+          }, text);
         const chips = el(
           "div",
           { class: "row" },
@@ -440,7 +516,7 @@
           r.token_overflow ? el("span", { class: "pill warn" }, `token overflow: ${fmtInt(r.token_overflow)}`) : null
         );
 
-        const topList = (title, rows) => {
+        const topList = (title, rows, makeFilter) => {
           const max = Math.max(1, ...rows.map((row) => row.count));
           return el("div", {},
             el("h3", {}, title),
@@ -448,7 +524,7 @@
             rows.map((row) =>
               el("div", { class: "krow" },
                 el("span", { class: "kbar", style: `width:${Math.max(3, (row.count / max) * 80)}px` }),
-                copyable(row.key, "key"),
+                browseKey(row.key, makeFilter(row.key)),
                 el("span", { class: "cnt" }, `${fmtInt(row.count)} · ${row.pct.toFixed(1)}%`))
             )
           );
@@ -458,18 +534,28 @@
         const tokenBlocks = r.top_tokens.map((t) =>
           el("div", { class: "token-block" },
             el("div", { class: "token-head" },
-              el("span", { class: t.team_id === null ? "pill muted" : "pill accent" }, t.team_id === null ? "team ?" : `team ${t.team_id}`),
-              copyable(t.token, "tok"),
+              el("span", {
+                class: t.team_id === null ? "pill muted" : "pill accent",
+                style: "cursor: pointer",
+                title: "Browse this team's messages",
+                onclick: () => messageBrowser.open(browseSpec, { token: t.token }),
+              }, t.team_id === null ? "team ?" : `team ${t.team_id}`),
+              el("span", {
+                class: "tok",
+                title: `${t.token} (click to browse matching messages)`,
+                onclick: () => messageBrowser.open(browseSpec, { token: t.token }),
+              }, t.token),
               el("span", { class: "share" },
                 el("span", { class: "bar", style: `width:${Math.max(3, (t.count / maxTokenCount) * 160)}px` }),
                 el("span", { class: "mono muted" }, `${fmtInt(t.count)} msgs · ${t.pct.toFixed(1)}% · ${fmtBytes(t.total_bytes)}`))),
             el("div", { class: "token-cols" },
-              topList("events", t.top_events),
+              topList("events", t.top_events, (key) => ({ token: t.token, event: key })),
               topList(
                 t.distinct_id_overflow
                   ? `distinct_ids (${fmtInt(t.distinct_ids_tracked)} tracked, ${fmtInt(t.distinct_id_overflow)} overflow)`
                   : "distinct_ids",
-                t.top_distinct_ids
+                t.top_distinct_ids,
+                (key) => ({ token: t.token, distinct_id: key })
               ))
           )
         );
@@ -498,33 +584,303 @@
         return el("div", {}, chips, ...tokenBlocks, sizes);
       }
 
+      // ---------- message browser ----------
+      // Modal opened from analysis results: scans the partition for messages
+      // matching header filters, 100 matches per request, with facets over
+      // the loaded messages to refine further.
+      const FACET_DIMS = [
+        { key: "token", title: "tokens" },
+        { key: "event", title: "events" },
+        { key: "distinct_id", title: "distinct_ids" },
+      ];
+      const PAGE_LIMIT = 100;
+
+      const messageBrowser = {
+        overlay: null,
+        state: null,
+        epoch: 0,
+
+        open(spec, filters) {
+          this.close();
+          this.state = {
+            spec,
+            filters: { ...filters },
+            records: [],
+            tokenTeams: {},
+            scanned: 0,
+            nextOffset: spec.startOffset,
+            reachedEnd: false,
+            loading: false,
+            error: null,
+          };
+
+          this.listView = listView({
+            placeholder: "Filter loaded messages…",
+            pageSize: PAGE_LIMIT,
+            matches: (record, q) =>
+              ["token", "event", "distinct_id", "uuid", "session_id", "payload"].some((key) => (record[key] || "").toLowerCase().includes(q)) ||
+              String(record.offset).includes(q),
+            renderTable: (rows) => this.renderTable(rows),
+            emptyText: "No matching messages loaded yet. Load more to scan further along the partition.",
+          });
+
+          this.ui = {
+            chips: el("div", { class: "row", style: "padding: 0; flex: 1 1 auto" }),
+            facets: el("div", { class: "facets" }),
+            error: el("div", {}),
+            status: el("span", { class: "muted mono status" }),
+            loadBtn: el("button", { class: "small", onclick: () => this.fetchPage() }, "Load more"),
+          };
+
+          this.overlay = el("div", { class: "overlay", onclick: (e) => { if (e.target === this.overlay) this.close(); } },
+            el("div", { class: "browser" },
+              el("div", { class: "browser-head" },
+                el("span", { class: "title" }, `Messages · ${spec.group} · ${spec.topic} p${spec.partition}`),
+                this.ui.chips,
+                el("button", { class: "small", onclick: () => this.close() }, "✕ close")),
+              el("div", { class: "browser-body" },
+                this.ui.facets,
+                el("div", { class: "msgs" }, this.ui.error, this.listView.body)),
+              el("div", { class: "row browser-foot" }, this.ui.status, this.ui.loadBtn)));
+          document.body.append(this.overlay);
+          this.escHandler = (e) => { if (e.key === "Escape") this.close(); };
+          document.addEventListener("keydown", this.escHandler);
+
+          this.render();
+          this.fetchPage();
+        },
+
+        close() {
+          this.epoch++;
+          if (this.escHandler) document.removeEventListener("keydown", this.escHandler);
+          if (this.overlay) this.overlay.remove();
+          this.overlay = null;
+          this.state = null;
+          this.escHandler = null;
+        },
+
+        setFilter(key, value) {
+          this.state.filters[key] = value;
+          this.restart();
+        },
+
+        removeFilter(key) {
+          delete this.state.filters[key];
+          this.restart();
+        },
+
+        // Any filter change rescans from the original start offset so counts
+        // and facets stay consistent with a single contiguous range.
+        restart() {
+          this.epoch++;
+          const s = this.state;
+          s.records = [];
+          s.scanned = 0;
+          s.nextOffset = s.spec.startOffset;
+          s.reachedEnd = false;
+          s.loading = false;
+          s.error = null;
+          this.listView.reset();
+          this.render();
+          this.fetchPage();
+        },
+
+        async fetchPage() {
+          const s = this.state;
+          if (!s || s.loading) return;
+          const epoch = this.epoch;
+          s.loading = true;
+          s.error = null;
+          this.render();
+          const params = new URLSearchParams({
+            group: s.spec.group,
+            topic: s.spec.topic,
+            partition: s.spec.partition,
+            start_offset: s.nextOffset,
+            limit: PAGE_LIMIT,
+          });
+          for (const dim of FACET_DIMS) {
+            if (s.filters[dim.key] !== undefined) params.set(dim.key, s.filters[dim.key]);
+          }
+          try {
+            const data = await fetchJSON(`api/messages?${params}`);
+            if (epoch !== this.epoch) return;
+            s.records = s.records.concat(data.messages);
+            s.scanned += data.scanned;
+            s.nextOffset = data.next_offset;
+            s.reachedEnd = data.reached_end;
+            Object.assign(s.tokenTeams, data.token_teams);
+          } catch (e) {
+            if (epoch !== this.epoch) return;
+            s.error = String(e);
+          }
+          s.loading = false;
+          this.render();
+        },
+
+        render() {
+          const s = this.state;
+          if (!s) return;
+
+          const chips = FACET_DIMS.filter((dim) => s.filters[dim.key] !== undefined).map((dim) =>
+            el("span", { class: "chip" },
+              el("span", { class: "muted" }, `${dim.key}=`),
+              el("span", { class: "val", title: `${s.filters[dim.key]} (click to copy)`, onclick: () => copy(s.filters[dim.key]) }, s.filters[dim.key]),
+              el("button", { class: "x", title: "Remove this filter", onclick: () => this.removeFilter(dim.key) }, "×")));
+          this.ui.chips.replaceChildren(
+            chips.length ? el("span", { class: "muted", style: "font-size: 11px" }, "filters:") : el("span", { class: "muted", style: "font-size: 11px" }, "no filters, showing all messages"),
+            ...chips);
+
+          this.ui.error.replaceChildren(s.error ? el("div", { class: "error-box" }, s.error) : "");
+          this.listView.setRows(s.records);
+          this.renderFacets();
+
+          const bits = [`${fmtInt(s.records.length)} matched`, `${fmtInt(s.scanned)} scanned`];
+          if (s.loading) bits.push("scanning…");
+          else if (s.reachedEnd) bits.push("caught up to the high watermark");
+          else bits.push(`next offset ${fmtInt(s.nextOffset)}`);
+          this.ui.status.textContent = bits.join(" · ");
+          this.ui.loadBtn.disabled = s.loading;
+          this.ui.loadBtn.textContent = s.loading ? "Loading…" : s.reachedEnd ? "Check for new messages" : "Load more";
+        },
+
+        teamLabel(token) {
+          const team = this.state.tokenTeams[token];
+          return team === null || team === undefined ? null : team;
+        },
+
+        renderFacets() {
+          const s = this.state;
+          const blocks = [];
+          for (const dim of FACET_DIMS) {
+            if (s.filters[dim.key] !== undefined) continue;
+            const counts = new Map();
+            for (const record of s.records) {
+              const value = record[dim.key];
+              if (value === undefined || value === null) continue;
+              counts.set(value, (counts.get(value) || 0) + 1);
+            }
+            const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25);
+            const max = Math.max(1, ...entries.map(([, count]) => count));
+            blocks.push(el("div", {},
+              el("h3", {}, dim.title),
+              entries.length === 0 ? el("div", { class: "muted", style: "font-size: 11px" }, "none loaded") : null,
+              entries.map(([value, count]) => {
+                const team = dim.key === "token" ? this.teamLabel(value) : null;
+                return el("div", { class: "krow facet-row", title: `${value} (click to filter)`, onclick: () => this.setFilter(dim.key, value) },
+                  el("span", { class: "kbar", style: `width:${Math.max(3, (count / max) * 50)}px` }),
+                  el("span", { class: "key" }, team === null ? value : `team ${team}`),
+                  el("span", { class: "cnt" }, fmtInt(count)));
+              })));
+          }
+          blocks.push(el("div", { class: "muted", style: "font-size: 11px; padding: 10px 0" },
+            "Facets count the messages loaded so far. Click a value to filter the scan by it."));
+          this.ui.facets.replaceChildren(...blocks);
+        },
+
+        renderTable(rows) {
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "offset"), el("th", {}, "time"), el("th", {}, "event"),
+              el("th", {}, "distinct_id"), el("th", {}, "team"), el("th", {}, "size"), el("th", {}, "flags"))),
+            el("tbody", {}, rows.map((record) => {
+              const flags = [];
+              if (record.missing_headers) flags.push(el("span", { class: "pill bad" }, "no headers"));
+              if (record.historical_migration) flags.push(el("span", { class: "pill warn" }, "historical"));
+              if (record.force_disable_person_processing) flags.push(el("span", { class: "pill muted" }, "no-person"));
+              if (record.dlq_reason) flags.push(el("span", { class: "pill bad", title: record.dlq_reason }, "dlq"));
+              const team = record.token ? this.teamLabel(record.token) : null;
+              const row = el("tr", { class: "clickable", title: "Click to view the payload" },
+                el("td", { class: "mono" }, fmtInt(record.offset)),
+                el("td", { class: "muted mono" }, record.timestamp_ms ? new Date(record.timestamp_ms).toLocaleString() : "–"),
+                el("td", { class: "mono" }, record.event ? copyable(record.event, "key") : el("span", { class: "muted" }, "–")),
+                el("td", { class: "mono" }, record.distinct_id ? copyable(record.distinct_id, "key") : el("span", { class: "muted" }, "–")),
+                el("td", {}, record.token
+                  ? el("span", { class: team === null ? "pill muted" : "pill accent", title: `${record.token} (click to copy)`, style: "cursor: pointer", onclick: (e) => { e.stopPropagation(); copy(record.token); } }, team === null ? "team ?" : `team ${team}`)
+                  : el("span", { class: "muted" }, "–")),
+                el("td", { class: "muted mono" }, fmtBytes(record.payload_bytes)),
+                el("td", {}, flags));
+              row.addEventListener("click", () => this.toggleDetail(row, record));
+              return row;
+            })));
+        },
+
+        toggleDetail(row, record) {
+          const next = row.nextElementSibling;
+          if (next && next.classList.contains("msg-detail")) {
+            next.remove();
+            row.classList.remove("selected");
+            return;
+          }
+          let payload = record.payload;
+          try {
+            payload = JSON.stringify(JSON.parse(record.payload), null, 2);
+          } catch {
+            // Not JSON; show the raw text.
+          }
+          row.classList.add("selected");
+          row.after(el("tr", { class: "msg-detail" },
+            el("td", { colspan: "7" },
+              el("div", { class: "row", style: "padding: 8px 0 6px" },
+                record.uuid ? el("span", { class: "muted mono" }, `uuid ${record.uuid}`) : null,
+                record.session_id ? el("span", { class: "muted mono" }, `session ${record.session_id}`) : null,
+                record.token ? el("span", { class: "muted mono" }, `token ${record.token}`) : null,
+                record.payload_truncated
+                  ? el("span", { class: "pill warn" }, `showing the first 64 KB of ${fmtBytes(record.payload_bytes)}`)
+                  : null,
+                el("button", { class: "small", style: "margin-left: auto", onclick: () => copy(record.payload) }, "copy payload")),
+              el("pre", { class: "payload" }, payload || el("span", { class: "muted" }, "empty payload")))));
+        },
+      };
+
       // ---------- section: consumer debug ----------
       const debugSection = {
         id: "debug",
         title: "Consumer debug",
-        description: "Live ingestion-consumer pods; selecting one opens its full routing debug UI, backed by this service's per-pod proxy.",
-        unmount() {},
+        description: "Ingestion consumer deployments. Expand one to list its pods; selecting a pod opens its full routing debug UI, backed by this service's per-pod proxy.",
+        expanded: null,
+        selectedPod: null,
+        loadEpoch: 0,
+        refreshSeq: 0,
+        timers: [],
+        // debug/load results per pod key, so re-renders show the last known
+        // values instead of flashing back to placeholders while refetching.
+        loads: new Map(),
+        unmount() {
+          this.loadEpoch++;
+          this.timers.forEach(clearInterval);
+          this.timers = [];
+        },
         mount(root) {
-          const podsBody = el("div", {}, el("div", { class: "empty" }, "Loading pods…"));
+          const refreshedAt = el("span", { class: "muted mono" });
+          const listBody = el("div", {}, el("div", { class: "empty" }, "Loading deployments…"));
           const viewer = el("div", {});
-          this.ui = { podsBody, viewer };
+          this.ui = { listBody, viewer, refreshedAt };
           root.append(
-            el("div", { class: "panel" },
-              el("h2", {}, "Pods", el("button", { class: "small", onclick: () => this.refreshPods() }, "Refresh")),
-              podsBody),
+            el("div", { class: "row", style: "padding: 0 0 10px; justify-content: flex-end" },
+              refreshedAt,
+              el("button", { class: "small", onclick: () => this.refreshPods() }, "Refresh")),
+            listBody,
             viewer
           );
           this.refreshPods();
+          // Keep the expanded deployment's live columns current; /debug/load is
+          // built to be polled cheaply. Cells repaint in place, so no flicker.
+          this.timers.push(setInterval(() => {
+            const group = (this.groups || []).find((g) => g.ns === this.expanded);
+            if (group) this.fetchLoads(group);
+          }, 5000));
         },
 
         async refreshPods() {
-          const { podsBody } = this.ui;
+          const { listBody, refreshedAt } = this.ui;
+          // Drop out-of-order responses: an older request resolving after a
+          // newer one must not roll the deployment list back to stale state.
+          const seq = ++this.refreshSeq;
           try {
             const data = await fetchJSON("api/pods");
-            if (!data.pods.length) {
-              podsBody.replaceChildren(el("div", { class: "empty" }, "No matching pods found."));
-              return;
-            }
+            if (seq !== this.refreshSeq) return;
+            refreshedAt.textContent = `as of ${new Date().toLocaleTimeString()}`;
             // One group per namespace: each ingestion lane deploys into its own.
             const byNamespace = new Map();
             for (const pod of data.pods) {
@@ -532,38 +888,144 @@
               if (!byNamespace.has(ns)) byNamespace.set(ns, []);
               byNamespace.get(ns).push(pod);
             }
-            podsBody.replaceChildren(
-              ...[...byNamespace.entries()].map(([ns, pods]) =>
-                el("div", {},
-                  el("h3", { class: "ns-head" },
-                    el("span", { class: "ns" }, ns),
-                    el("span", {}, `${pods.length} pod${pods.length === 1 ? "" : "s"}`)),
-                  el("table", {},
-                    el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
-                    el("tbody", {}, pods.map((pod) =>
-                      el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod) },
-                        el("td", { class: "mono" }, pod.name),
-                        el("td", { class: "mono" }, pod.ip || "–"),
-                        el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
-                        el("td", { class: "mono" }, String(pod.restarts)),
-                        el("td", { class: "muted mono" }, pod.started_at ? new Date(pod.started_at).toLocaleString() : "–"))
-                    ))
-                  )
-                )
-              )
-            );
+            this.groups = [...byNamespace.entries()].map(([ns, pods]) => ({
+              ns,
+              pods,
+              ready: pods.filter((p) => p.ready).length,
+              restarts: pods.reduce((sum, p) => sum + (p.restarts || 0), 0),
+              newestStart: pods.reduce((max, p) => (p.started_at && (!max || p.started_at > max) ? p.started_at : max), null),
+            }));
+            // A single deployment leaves nothing to choose between: open it.
+            if (this.groups.length === 1) this.expanded = this.groups[0].ns;
+            this.render();
           } catch (e) {
-            podsBody.replaceChildren(el("div", { class: "error-box" }, String(e)));
+            if (seq !== this.refreshSeq) return;
+            listBody.replaceChildren(el("div", { class: "error-box" }, String(e)));
           }
         },
 
-        selectPod(pod) {
-          this.selectedPod = pod.name;
-          this.refreshPods();
+        toggle(ns) {
+          this.expanded = this.expanded === ns ? null : ns;
+          this.render();
+        },
+
+        render() {
+          const { listBody } = this.ui;
+          this.loadEpoch++;
+          if (!this.groups.length) {
+            listBody.replaceChildren(el("div", { class: "empty" }, "No matching pods found."));
+            return;
+          }
+          this.liveCells = new Map();
+          listBody.replaceChildren(...this.groups.map((group) => this.renderGroup(group)));
+          const expandedGroup = this.groups.find((group) => group.ns === this.expanded);
+          if (expandedGroup) this.fetchLoads(expandedGroup);
+        },
+
+        renderGroup(group) {
+          const expanded = group.ns === this.expanded;
+          const total = group.pods.length;
+          return el("div", { class: "panel" },
+            el("h2", { class: "dep-head", onclick: () => this.toggle(group.ns) },
+              el("span", { class: "row", style: "padding: 0; flex-wrap: nowrap" },
+                el("span", { class: "chev" }, expanded ? "▾" : "▸"),
+                el("span", { class: "ns" }, group.ns)),
+              el("span", { class: "row", style: "padding: 0" },
+                group.ready === total
+                  ? el("span", { class: "pill good" }, `${fmtInt(total)} pod${total === 1 ? "" : "s"} ready`)
+                  : el("span", { class: "pill warn" }, `${fmtInt(group.ready)}/${fmtInt(total)} pods ready`),
+                group.restarts > 0
+                  ? el("span", { class: "pill warn" }, `${fmtInt(group.restarts)} restart${group.restarts === 1 ? "" : "s"}`)
+                  : el("span", { class: "pill muted" }, "no restarts"),
+                group.newestStart ? el("span", { class: "muted mono dep-meta" }, `newest pod ${fmtAgo(group.newestStart)}`) : null)),
+            expanded ? this.renderPodsTable(group) : null
+          );
+        },
+
+        renderPodsTable(group) {
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "pod"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"),
+              el("th", {}, "peer"), el("th", {}, "workers"), el("th", {}, "in flight"), el("th", {}, "stashed"))),
+            el("tbody", {}, group.pods.map((pod) => {
+              const key = `${pod.namespace}/${pod.name}`;
+              const live = {
+                peer: el("td", { class: "mono muted" }, "…"),
+                workers: el("td", { class: "mono muted" }, "…"),
+                inFlight: el("td", { class: "mono muted" }, "…"),
+                stashed: el("td", { class: "mono muted" }, "…"),
+              };
+              this.liveCells.set(key, live);
+              if (this.loads.has(key)) this.paintLoad(key);
+              const row = el("tr", { class: `clickable ${key === this.selectedPod ? "selected" : ""}` },
+                el("td", { class: "mono" }, pod.name),
+                el("td", { class: "mono" }, pod.ip || "–"),
+                el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
+                el("td", { class: "mono" }, String(pod.restarts)),
+                el("td", { class: "muted mono" }, pod.started_at ? `${new Date(pod.started_at).toLocaleString()} (${fmtAgo(pod.started_at)})` : "–"),
+                live.peer, live.workers, live.inFlight, live.stashed);
+              row.addEventListener("click", () => this.selectPod(pod, row));
+              return row;
+            }))
+          );
+        },
+
+        // The live columns cost one debug/load call per pod, so only the
+        // expanded deployment is polled; collapsed ones cost nothing.
+        fetchLoads(group) {
+          const epoch = this.loadEpoch;
+          for (const pod of group.pods) {
+            const key = `${pod.namespace}/${pod.name}`;
+            fetchJSON(`pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}/debug/load`)
+              .then((load) => {
+                if (epoch !== this.loadEpoch) return;
+                this.loads.set(key, { ok: true, load });
+                this.paintLoad(key);
+              })
+              .catch(() => {
+                if (epoch !== this.loadEpoch) return;
+                this.loads.set(key, { ok: false });
+                this.paintLoad(key);
+              });
+          }
+        },
+
+        paintLoad(key) {
+          const cells = this.liveCells.get(key);
+          const result = this.loads.get(key);
+          if (!cells || !result) return;
+          if (!result.ok) {
+            cells.peer.replaceChildren(el("span", { class: "pill bad" }, "unreachable"));
+            for (const cell of [cells.workers, cells.inFlight, cells.stashed]) cell.replaceChildren("–");
+            return;
+          }
+          const { load } = result;
+          const set = (cell, ...children) => {
+            cell.classList.remove("muted");
+            cell.replaceChildren(...children);
+          };
+          set(cells.peer, load.peer_index != null && load.peer_count ? `${load.peer_index + 1}/${load.peer_count}` : "–");
+          const routable = load.workers.filter((w) => !w.draining && (w.state === "healthy" || w.state === "degraded")).length;
+          set(cells.workers, routable === load.workers.length
+            ? `${routable}/${load.workers.length}`
+            : el("span", { class: "pill warn" }, `${routable}/${load.workers.length}`));
+          set(cells.inFlight, fmtInt(load.dispatcher.total_in_flight));
+          set(cells.stashed, load.dispatcher.stashed_messages > 0
+            ? el("span", { class: "pill warn" }, fmtInt(load.dispatcher.stashed_messages))
+            : "0");
+        },
+
+        selectPod(pod, row) {
+          // Pods are keyed namespace + name: identical names across lanes must
+          // not both highlight. Selection repaints in place; a full re-render
+          // would refetch every debug/load for one row's highlight.
+          this.selectedPod = `${pod.namespace}/${pod.name}`;
+          for (const selected of this.ui.listBody.querySelectorAll("tr.selected")) selected.classList.remove("selected");
+          row.classList.add("selected");
           const url = `pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.name)}/`;
           this.ui.viewer.replaceChildren(
             el("div", { class: "panel" },
-              el("h2", {}, `Debug — ${pod.name}`,
+              el("h2", {}, el("span", {}, "Debug ", el("span", { class: "ns" }, pod.name)),
                 el("a", { href: url, target: "_blank", style: "color: var(--accent); font-size: 11px; text-transform: none; letter-spacing: 0" }, "open in new tab ↗")),
               el("iframe", { class: "debug", src: url, onload: (e) => this.autosize(e.target) }))
           );
@@ -593,8 +1055,423 @@
         },
       };
 
+      // ---------- section: etcd explorer ----------
+      // Generic prefix-bounded key browser with edit/create/delete. Raw
+      // writes to coordination state are protocol-dangerous, so every write
+      // confirms first, with an extra warning for assignment keys.
+      const etcdSection = {
+        id: "etcd",
+        title: "Etcd explorer",
+        description: "Browse keys under a prefix, inspect values and lease state, and edit, create, or delete keys. Writes bypass every coordination protocol: use with care.",
+        prefix: "/personhog/",
+        rows: [],
+        nextFromKey: null,
+        totalCount: null,
+        selectedKey: null,
+        mount(root) {
+          this.rows = [];
+          this.nextFromKey = null;
+          this.selectedKey = null;
+          this.query = "";
+          this.openState = new Map();
+
+          const search = el("input", {
+            type: "search", class: "search", placeholder: "Filter loaded keys…",
+            oninput: () => { this.query = search.value.trim().toLowerCase(); this.renderTree(); },
+          });
+          this.ui = {
+            prefixInput: el("input", {
+              type: "text", class: "search", value: this.prefix, spellcheck: "false",
+              onkeydown: (e) => { if (e.key === "Enter") this.reload(); },
+            }),
+            search,
+            matchCount: el("span", { class: "muted mono count" }),
+            status: el("span", { class: "muted mono" }),
+            loadMoreBtn: el("button", { class: "small", onclick: () => this.fetchPage() }, "Load more"),
+            error: el("div", {}),
+            treeBody: el("div", { style: "padding: 4px 0 8px" }),
+            detail: el("div", {}),
+          };
+
+          root.append(
+            el("div", { class: "panel" },
+              el("h2", {}, "Keys", this.ui.status),
+              el("div", { class: "row toolbar" },
+                el("span", { class: "muted" }, "prefix"),
+                this.ui.prefixInput,
+                el("button", { class: "small", onclick: () => this.reload() }, "Load"),
+                el("button", { class: "small", onclick: () => this.openEditor(null) }, "New key"),
+                this.ui.loadMoreBtn),
+              el("div", { class: "row toolbar" }, this.ui.search, this.ui.matchCount),
+              this.ui.error,
+              this.ui.treeBody),
+            this.ui.detail
+          );
+          this.reload();
+        },
+
+        reload() {
+          this.prefix = this.ui.prefixInput.value.trim();
+          this.rows = [];
+          this.nextFromKey = null;
+          this.totalCount = null;
+          this.openState = new Map();
+          this.renderStatus();
+          this.fetchPage();
+        },
+
+        async fetchPage() {
+          if (!this.prefix) return;
+          const params = new URLSearchParams({ prefix: this.prefix });
+          if (this.nextFromKey) params.set("from_key", this.nextFromKey);
+          this.ui.loadMoreBtn.disabled = true;
+          try {
+            const data = await fetchJSON(`api/etcd/keys?${params}`);
+            this.rows = this.rows.concat(data.keys);
+            this.nextFromKey = data.next_from_key;
+            this.totalCount = data.count;
+            this.ui.error.replaceChildren();
+            this.renderTree();
+          } catch (e) {
+            this.ui.error.replaceChildren(el("div", { class: "error-box" }, String(e)));
+          }
+          this.renderStatus();
+        },
+
+        renderStatus() {
+          this.ui.status.textContent = this.totalCount === null
+            ? ""
+            : `${fmtInt(this.rows.length)} of ${fmtInt(this.totalCount)} keys loaded`;
+          this.ui.loadMoreBtn.disabled = !this.nextFromKey;
+          this.ui.loadMoreBtn.style.display = this.nextFromKey ? "" : "none";
+        },
+
+        // The loaded keys form a tree on `/`. A node can be both a value
+        // and a directory (etcd allows `/a` and `/a/b` to coexist): its
+        // chevron toggles the children, clicking the row opens the value.
+        buildTree(rows) {
+          const root = { name: "", path: "", children: new Map(), leaf: null, count: 0 };
+          for (const row of rows) {
+            const parts = row.key.split("/").filter((s) => s !== "");
+            let node = root;
+            let path = "";
+            for (let i = 0; i < parts.length; i++) {
+              path += "/" + parts[i];
+              if (!node.children.has(parts[i])) {
+                node.children.set(parts[i], { name: parts[i], path, children: new Map(), leaf: null, count: 0 });
+              }
+              node = node.children.get(parts[i]);
+              node.count++;
+              if (i === parts.length - 1) node.leaf = row;
+            }
+          }
+          return root;
+        },
+
+        isOpen(node, depth) {
+          if (this.query) return true;
+          if (this.openState.has(node.path)) return this.openState.get(node.path);
+          // Top-level and single-child chains open by default, so the
+          // common deep prefix does not cost a click per segment.
+          return depth === 0 || node.children.size === 1;
+        },
+
+        toggleDir(node, depth) {
+          this.openState.set(node.path, !this.isOpen(node, depth));
+          this.renderTree();
+        },
+
+        renderTree() {
+          const q = this.query;
+          const rows = q ? this.rows.filter((row) => row.key.toLowerCase().includes(q)) : this.rows;
+          this.ui.matchCount.textContent = q ? `${fmtInt(rows.length)} of ${fmtInt(this.rows.length)}` : fmtInt(this.rows.length);
+          if (!rows.length) {
+            this.ui.treeBody.replaceChildren(el("div", { class: "empty" }, q ? "No matches." : "No keys loaded. Set a prefix and load."));
+            return;
+          }
+          const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+          const lines = [];
+          const renderNode = (node, depth) => {
+            const isDir = node.children.size > 0;
+            const open = isDir && this.isOpen(node, depth);
+            const meta = node.leaf
+              ? el("span", { class: "meta" },
+                  node.leaf.lease && node.leaf.lease !== 0 ? el("span", { class: "pill accent", title: `lease ${node.leaf.lease}` }, "leased") : null,
+                  el("span", {}, `v${fmtInt(node.leaf.version)}`),
+                  el("span", {}, fmtBytes(node.leaf.value_bytes)))
+              : el("span", { class: "meta" }, `${fmtInt(node.count)} key${node.count === 1 ? "" : "s"}`);
+            lines.push(el("div", {
+              class: `tree-row ${node.leaf && node.leaf.key === this.selectedKey ? "selected" : ""}`,
+              style: `padding-left: ${14 + depth * 16}px`,
+              title: node.leaf ? node.leaf.key : node.path,
+              onclick: () => node.leaf ? this.openKey(node.leaf.key) : this.toggleDir(node, depth),
+            },
+              isDir
+                ? el("span", { class: "chev", onclick: (e) => { e.stopPropagation(); this.toggleDir(node, depth); } }, open ? "▾" : "▸")
+                : el("span", { class: "chev" }),
+              el("span", { class: "mono" }, isDir && !node.leaf ? `${node.name}/` : node.name),
+              meta));
+            if (open) {
+              for (const child of [...node.children.values()].sort(byName)) renderNode(child, depth + 1);
+            }
+          };
+          const root = this.buildTree(rows);
+          for (const node of [...root.children.values()].sort(byName)) renderNode(node, 0);
+          this.ui.treeBody.replaceChildren(...lines);
+        },
+
+        async openKey(key) {
+          this.selectedKey = key;
+          this.renderTree();
+          try {
+            const detail = await fetchJSON(`api/etcd/key?key=${encodeURIComponent(key)}`);
+            this.renderDetail(detail);
+          } catch (e) {
+            this.ui.detail.replaceChildren(el("div", { class: "panel" }, el("div", { class: "error-box" }, String(e))));
+          }
+        },
+
+        confirmWrite(action, key) {
+          let message = `${action} etcd key:\n\n${key}\n\nThis bypasses every coordination protocol.`;
+          if (key.includes("/assignments/")) {
+            message += "\n\n⚠️ This is a personhog ASSIGNMENT key. Writing it directly is forbidden by the protocol: routers only observe ownership through handoff Complete events, so a raw write leaves an unfenced old owner serving beside the new one. A force-reassignment must create a handoff record instead.";
+          }
+          return window.confirm(message);
+        },
+
+        renderDetail(detail) {
+          let pretty = detail.value;
+          try { pretty = JSON.stringify(JSON.parse(detail.value), null, 2); } catch { /* not JSON */ }
+          const meta = el("div", { class: "row" },
+            el("span", { class: "pill muted" }, `version ${fmtInt(detail.version)}`),
+            el("span", { class: "pill muted" }, `mod rev ${fmtInt(detail.mod_revision)}`),
+            el("span", { class: "pill muted" }, `create rev ${fmtInt(detail.create_revision)}`),
+            detail.lease !== 0
+              ? el("span", { class: "pill accent", title: `lease ${detail.lease}` },
+                  detail.lease_ttl_secs === null ? "leased (ttl unknown)" : `lease ${detail.lease_ttl_secs}s / ${detail.lease_granted_ttl_secs}s`)
+              : null,
+            el("span", { class: "muted mono" }, fmtBytes(detail.value_bytes)),
+            el("span", { class: "row", style: "padding: 0; margin-left: auto" },
+              el("button", { class: "small", disabled: !detail.value_is_utf8, title: detail.value_is_utf8 ? "" : "Value is not UTF-8; editing would corrupt it", onclick: () => this.openEditor(detail) }, "Edit"),
+              el("button", { class: "small", onclick: () => this.deleteKey(detail.key) }, "Delete")));
+          this.ui.detail.replaceChildren(
+            el("div", { class: "panel" },
+              el("h2", {}, el("span", { class: "ns" }, detail.key)),
+              meta,
+              el("div", { style: "padding: 0 14px 12px" }, el("pre", { class: "payload" }, pretty)))
+          );
+        },
+
+        // `detail === null` creates a new key; otherwise edits in place.
+        openEditor(detail) {
+          const keyInput = el("input", {
+            type: "text", class: "search", style: "width: 100%; box-sizing: border-box",
+            value: detail ? detail.key : this.prefix, spellcheck: "false",
+            readonly: !!detail,
+          });
+          const valueInput = el("textarea", { class: "kv-value", spellcheck: "false" });
+          valueInput.value = detail ? detail.value : "";
+          const error = el("div", {});
+          const save = async () => {
+            const key = keyInput.value.trim();
+            if (!key) return;
+            if (detail && detail.lease !== 0 &&
+                !window.confirm(`${key}\n\nThis key is lease-backed; writing it detaches it from its lease, so it will no longer expire with its owner. Continue?`)) return;
+            if (!this.confirmWrite("Write", key)) return;
+            try {
+              await fetchJSON("api/etcd/key", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ key, value: valueInput.value }),
+              });
+              this.reload();
+              this.openKey(key);
+            } catch (e) {
+              error.replaceChildren(el("div", { class: "error-box" }, String(e)));
+            }
+          };
+          this.ui.detail.replaceChildren(
+            el("div", { class: "panel" },
+              el("h2", {}, detail ? `Edit ${detail.key}` : "New key"),
+              el("div", { style: "padding: 10px 14px", class: "mono" },
+                detail ? null : el("div", { style: "margin-bottom: 8px" }, keyInput),
+                valueInput),
+              error,
+              el("div", { class: "row" },
+                el("button", { onclick: save }, "Save"),
+                el("button", { class: "small", onclick: () => detail ? this.renderDetail(detail) : this.ui.detail.replaceChildren() }, "Cancel")))
+          );
+        },
+
+        async deleteKey(key) {
+          if (!this.confirmWrite("Delete", key)) return;
+          try {
+            await fetchJSON(`api/etcd/key?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+            this.selectedKey = null;
+            this.ui.detail.replaceChildren();
+            this.reload();
+          } catch (e) {
+            this.ui.detail.replaceChildren(el("div", { class: "panel" }, el("div", { class: "error-box" }, String(e))));
+          }
+        },
+      };
+
+      // ---------- section: personhog topology ----------
+      // Protocol-aware view over the personhog coordination prefix: pods,
+      // routers, assignments, and in-flight handoffs, with server-derived
+      // issues (stuck handoffs, dead owners, missing acks) computed by the
+      // same predicates the coordinator runs.
+      const personhogSection = {
+        id: "personhog",
+        title: "Personhog topology",
+        description: "Live view of personhog's etcd coordination state: coordinator, pods, routers, partition ownership, and in-flight handoffs, with derived issues. Refreshes every 5 seconds.",
+        timers: [],
+        refreshSeq: 0,
+        unmount() {
+          this.timers.forEach(clearInterval);
+          this.timers = [];
+        },
+        mount(root) {
+          this.ui = {
+            summary: el("div", { class: "row", style: "padding: 0 0 10px" }),
+            issuesBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            partitionsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            podsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            routersBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+          };
+          this.partitionsView = listView({
+            placeholder: "Filter by partition, owner, or phase…",
+            pageSize: 100,
+            matches: (p, q) =>
+              String(p.partition).includes(q) ||
+              (p.owner || "").toLowerCase().includes(q) ||
+              (p.handoff ? p.handoff.phase.toLowerCase().includes(q) : false),
+            renderTable: (rows) => this.renderPartitionsTable(rows),
+            emptyText: "No partitions.",
+          });
+          root.append(
+            this.ui.summary,
+            el("div", { class: "panel" }, el("h2", {}, "Issues"), this.ui.issuesBody),
+            el("div", { class: "panel" }, el("h2", {}, "Partitions"), this.ui.partitionsBody),
+            el("div", { class: "panel" }, el("h2", {}, "Pods"), this.ui.podsBody),
+            el("div", { class: "panel" }, el("h2", {}, "Routers"), this.ui.routersBody)
+          );
+          this.refresh();
+          this.timers.push(setInterval(() => this.refresh(), 5000));
+        },
+
+        async refresh() {
+          const seq = ++this.refreshSeq;
+          let data;
+          try {
+            data = await fetchJSON("api/personhog/topology");
+          } catch (e) {
+            if (seq !== this.refreshSeq) return;
+            this.ui.summary.replaceChildren(el("div", { class: "error-box", style: "flex: 1 1 100%" }, String(e)));
+            return;
+          }
+          if (seq !== this.refreshSeq) return;
+          this.render(data);
+        },
+
+        render(data) {
+          const readyPods = data.pods.filter((p) => p.status === "Ready").length;
+          const errors = data.issues.filter((issue) => issue.severity === "error").length;
+          const warnings = data.issues.filter((issue) => issue.severity === "warning").length;
+          // replaceChildren stringifies nulls instead of skipping them like
+          // el() does, so absent pills must be filtered out.
+          this.ui.summary.replaceChildren(...[
+            data.leader
+              ? el("span", { class: "pill good", title: `lease ${data.leader.lease_id}${data.leader.lease_ttl_secs !== null ? ` · ttl ${data.leader.lease_ttl_secs}s` : ""}` }, `coordinator ${data.leader.holder}`)
+              : el("span", { class: "pill bad" }, "no coordinator"),
+            el("span", { class: "pill muted" },
+              data.total_partitions === null ? "total_partitions missing" : `${fmtInt(data.total_partitions)} partitions`),
+            el("span", { class: `pill ${readyPods === data.pods.length && readyPods > 0 ? "good" : "warn"}` },
+              `${fmtInt(readyPods)}/${fmtInt(data.pods.length)} pods ready`),
+            el("span", { class: "pill muted" }, `${fmtInt(data.routers.length)} router${data.routers.length === 1 ? "" : "s"}`),
+            errors ? el("span", { class: "pill bad" }, `${fmtInt(errors)} error${errors === 1 ? "" : "s"}`) : null,
+            warnings ? el("span", { class: "pill warn" }, `${fmtInt(warnings)} warning${warnings === 1 ? "" : "s"}`) : null,
+            el("span", { class: "muted mono", style: "margin-left: auto" },
+              `rev ${fmtInt(data.revision)} · as of ${new Date(data.fetched_at).toLocaleTimeString()}`),
+          ].filter(Boolean));
+
+          const pillFor = { error: "bad", warning: "warn", info: "muted" };
+          this.ui.issuesBody.replaceChildren(
+            data.issues.length === 0
+              ? el("div", { class: "empty" }, "No issues detected.")
+              : el("div", { style: "padding: 6px 0" }, data.issues.map((issue) =>
+                  el("div", { class: "row", style: "padding: 4px 14px" },
+                    el("span", { class: `pill ${pillFor[issue.severity] || "muted"}` }, issue.severity),
+                    el("span", {}, issue.summary))))
+          );
+
+          this.partitionsView.setRows(data.partitions);
+          this.ui.partitionsBody.replaceChildren(this.partitionsView.body);
+          this.ui.podsBody.replaceChildren(this.renderPodsTable(data.pods));
+          this.ui.routersBody.replaceChildren(this.renderRoutersTable(data.routers));
+        },
+
+        renderPartitionsTable(rows) {
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "partition"), el("th", {}, "owner"), el("th", {}, "address"),
+              el("th", {}, "handoff"), el("th", {}, "waiting on"))),
+            el("tbody", {}, rows.map((p) => {
+              const h = p.handoff;
+              const phasePill = h
+                ? el("span", {
+                    class: `pill ${h.past_deadline ? "bad" : h.phase === "Complete" ? "good" : "accent"}`,
+                    title: `${h.old_owner ? `${h.old_owner} → ` : ""}${h.new_owner} · ${h.handoff_id}`,
+                  }, `${h.phase}${h.phase_age_secs !== null ? ` ${h.phase_age_secs}s` : ""}${h.past_deadline ? " ⏰" : ""}`)
+                : el("span", { class: "muted" }, "–");
+              return el("tr", {},
+                el("td", { class: "mono" }, String(p.partition)),
+                el("td", { class: "mono" }, p.owner
+                  ? el("span", {}, p.owner, " ", p.owner_registered === false ? el("span", { class: "pill bad" }, "gone") : null)
+                  : el("span", { class: "pill warn" }, "unassigned")),
+                el("td", { class: "muted mono" }, p.advertise_address || "–"),
+                el("td", {}, phasePill),
+                el("td", { class: "muted" }, h && h.waiting_on ? h.waiting_on : "–"));
+            }))
+          );
+        },
+
+        renderPodsTable(pods) {
+          if (!pods.length) return el("div", { class: "empty" }, "No pods registered.");
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "pod"), el("th", {}, "status"), el("th", {}, "address"),
+              el("th", {}, "lease ttl"), el("th", {}, "heartbeat"), el("th", {}, "partitions"))),
+            el("tbody", {}, pods.map((pod) =>
+              el("tr", {},
+                el("td", { class: "mono" }, pod.pod_name),
+                el("td", {}, el("span", { class: `pill ${pod.status === "Ready" ? "good" : "warn"}` }, pod.status)),
+                el("td", { class: "muted mono" }, pod.advertise_address || "–"),
+                el("td", { class: "mono" }, pod.lease_ttl_secs === null ? "–" : `${pod.lease_ttl_secs}s`),
+                el("td", { class: "muted mono" }, pod.last_heartbeat ? fmtAgo(pod.last_heartbeat * 1000) : "–"),
+                el("td", { class: "mono", title: pod.partitions.join(", ") },
+                  `${fmtInt(pod.partitions.length)}`))
+            ))
+          );
+        },
+
+        renderRoutersTable(routers) {
+          if (!routers.length) return el("div", { class: "empty" }, "No routers registered.");
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "router"), el("th", {}, "lease ttl"), el("th", {}, "heartbeat"))),
+            el("tbody", {}, routers.map((router) =>
+              el("tr", {},
+                el("td", { class: "mono" }, router.router_name),
+                el("td", { class: "mono" }, router.lease_ttl_secs === null ? "–" : `${router.lease_ttl_secs}s`),
+                el("td", { class: "muted mono" }, router.last_heartbeat ? fmtAgo(router.last_heartbeat * 1000) : "–"))
+            ))
+          );
+        },
+      };
+
       // ---------- boot ----------
-      SECTIONS.push(lagSection, debugSection);
+      SECTIONS.push(lagSection, debugSection, personhogSection, etcdSection);
       const nav = document.getElementById("nav");
       for (const section of SECTIONS) {
         nav.append(el("span", { class: "nav-item", "data-id": section.id, onclick: () => navigate(section.id) }, section.title));

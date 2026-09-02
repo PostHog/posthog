@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -7,20 +7,25 @@ from fastapi import HTTPException
 from llm_gateway.config import Settings
 from llm_gateway.modal import (
     MODAL_ALLOWED_MODELS,
-    MODAL_MODEL_MAP,
+    MODAL_MODELS,
     _inject_modal_params,
     ensure_modal_model_allowed,
+    ensure_modal_model_configured,
     make_modal_responses_call,
     should_route_glm_to_modal,
 )
+from llm_gateway.modal_routing import send_modal_anthropic_messages
 from llm_gateway.rate_limiting.cost_refresh import ALIAS_METRIC_LABELS, COST_ALIASES
+from llm_gateway.rate_limiting.model_cost_overrides import MODEL_COST_OVERRIDES
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
+KIMI_MODEL = "moonshotai/kimi-k3"
 
 
 def _modal_settings(**overrides: Any) -> Settings:
     base: dict[str, Any] = {
         "modal_api_base": "https://posthog--glm.us-east.modal.direct/v1",
+        "modal_kimi_api_base": "https://posthog--kimi.us-west.modal.direct/v1",
         "modal_key": "wk-test",
         "modal_secret": "ws-test",
     }
@@ -63,17 +68,42 @@ def test_inject_modal_params_drop_params(initial: dict, expected: bool) -> None:
 def test_modal_model_map_served_names_all_priced_and_labeled() -> None:
     # An unpriced Modal model would bill the flat fallback cost; the label must keep the public id
     # so one model id slices across backends in dashboards.
-    for public_id, served in MODAL_MODEL_MAP.items():
-        litellm_key = f"openai/{served}"
-        assert litellm_key in COST_ALIASES
+    for public_id, config in MODAL_MODELS.items():
+        litellm_key = f"openai/{config.served_model}"
+        assert litellm_key in COST_ALIASES or litellm_key in MODEL_COST_OVERRIDES
         provider, metric_model = ALIAS_METRIC_LABELS[litellm_key]
         assert provider == "modal"
         assert metric_model == public_id
 
 
-def test_ensure_modal_model_allowed_accepts_mapped_model() -> None:
-    ensure_modal_model_allowed(GLM_MODEL)
-    assert GLM_MODEL in MODAL_ALLOWED_MODELS
+@pytest.mark.parametrize("model", [GLM_MODEL, KIMI_MODEL])
+def test_ensure_modal_model_allowed_accepts_mapped_model(model: str) -> None:
+    ensure_modal_model_allowed(model)
+    assert model in MODAL_ALLOWED_MODELS
+
+
+def test_kimi_uses_its_endpoint_with_shared_credentials() -> None:
+    assert ensure_modal_model_configured(KIMI_MODEL, _modal_settings()) == (
+        "https://posthog--kimi.us-west.modal.direct/v1",
+        "wk-test",
+        "ws-test",
+    )
+
+
+async def test_modal_anthropic_drops_clear_thinking_when_thinking_is_disabled() -> None:
+    request = {
+        "model": KIMI_MODEL,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "thinking": {"type": "disabled"},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+    }
+
+    with patch("llm_gateway.modal_routing.send_modal_request", new=AsyncMock(return_value={})) as send_request:
+        await send_modal_anthropic_messages(request, MagicMock(), False, "posthog_code")
+
+    forwarded_request = send_request.call_args.args[0]
+    assert "context_management" not in forwarded_request
+    assert request["context_management"] == {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]}
 
 
 @pytest.mark.parametrize("model", ["@cf/moonshotai/kimi-k2.6", "@cf/unknown/model", "zai-org/GLM-5.2-FP8"])

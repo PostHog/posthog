@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconExpand45, IconPencil, IconRevert } from '@posthog/icons'
+import { IconPencil, IconRevert } from '@posthog/icons'
 import {
-    LemonButton,
     LemonCard,
     LemonInput,
-    LemonModal,
     LemonSegmentedButton,
     LemonTag,
     LemonTagType,
@@ -14,14 +12,13 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { scannerQualityLogic } from '../scannerQualityLogic'
+import { scannerCalibrationLogic } from '../scannerCalibrationLogic'
 import { SummarizerScannerConfig } from '../types'
 import {
     changedFields,
@@ -32,107 +29,8 @@ import {
     parseConfigChanges,
     ScannerConfigChange,
 } from './configChanges'
+import { PromptDiff } from './PromptDiff'
 import { SUMMARIZER_LENGTH_OPTIONS } from './ScannerTypeConfigEditor'
-
-function SuggestionDiffPanes({
-    original,
-    modified,
-    onChange,
-    editable,
-    isDarkModeOn,
-    editorHeight,
-    onExpand,
-}: {
-    original: string | null
-    modified: string | null
-    onChange?: (value: string) => void
-    editable?: boolean
-    isDarkModeOn: boolean
-    editorHeight?: string
-    onExpand?: () => void
-}): JSX.Element {
-    return (
-        <div className="border rounded overflow-hidden">
-            <div className="flex items-center border-b bg-surface-secondary text-xs font-medium">
-                <div className="flex-1 px-3 py-1.5 border-r">Current prompt</div>
-                <div className="flex-1 px-3 py-1.5 flex items-center justify-between">
-                    <span>{editable ? 'New prompt (edit directly)' : 'New prompt'}</span>
-                    {onExpand && (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            tooltip="Expand diff to full screen"
-                            onClick={onExpand}
-                            data-attr="vision-quality-expand-diff"
-                        />
-                    )}
-                </div>
-            </div>
-            <MonacoDiffEditor
-                original={original}
-                modified={modified}
-                onChange={onChange ? (value) => onChange(value) : undefined}
-                modifiedEditable={editable}
-                language="markdown"
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-                height={editorHeight}
-                options={{
-                    renderSideBySide: true,
-                    useInlineViewWhenSpaceIsLimited: false,
-                    // Keep both panes at exactly half width on resize, in lockstep with the header row.
-                    enableSplitViewResizing: false,
-                    splitViewDefaultRatio: 0.5,
-                    automaticLayout: true,
-                    wordWrap: 'on',
-                    lineNumbers: 'off',
-                    folding: false,
-                    renderOverviewRuler: false,
-                    scrollBeyondLastLine: false,
-                    diffAlgorithm: 'advanced',
-                }}
-            />
-        </div>
-    )
-}
-
-/** The prompt diff, expandable to full screen. Both instances share one onChange. */
-function PromptDiff({
-    original,
-    modified,
-    onChange,
-    editable,
-    isDarkModeOn,
-}: {
-    original: string | null
-    modified: string | null
-    onChange?: (value: string) => void
-    editable?: boolean
-    isDarkModeOn: boolean
-}): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(false)
-    return (
-        <>
-            <SuggestionDiffPanes
-                original={original}
-                modified={modified}
-                onChange={onChange}
-                editable={editable}
-                isDarkModeOn={isDarkModeOn}
-                onExpand={() => setIsExpanded(true)}
-            />
-            <LemonModal isOpen={isExpanded} onClose={() => setIsExpanded(false)} title="Recommendation" fullScreen>
-                <SuggestionDiffPanes
-                    original={original}
-                    modified={modified}
-                    onChange={onChange}
-                    editable={editable}
-                    isDarkModeOn={isDarkModeOn}
-                    editorHeight="calc(100vh - 16rem)"
-                />
-            </LemonModal>
-        </>
-    )
-}
 
 const TAG_OP_TAG_TYPE: Record<ScannerConfigChange['op'], LemonTagType> = {
     add: 'success',
@@ -195,7 +93,7 @@ function EditableTags({
                 onChange={setDraft}
                 onPressEnter={addDraft}
                 onBlur={addDraft}
-                placeholder="Add tag…"
+                placeholder="Add category…"
                 className="w-24 [&_input]:placeholder:text-tertiary [&_input]:placeholder:text-xs"
             />
         </div>
@@ -267,6 +165,7 @@ function FieldValueEditor({
     if (kind === 'length') {
         return (
             <LemonSegmentedButton
+                className="max-w-full overflow-x-auto"
                 options={SUMMARIZER_LENGTH_OPTIONS}
                 value={value as SummarizerScannerConfig['length']}
                 onChange={onChange}
@@ -279,7 +178,8 @@ function FieldValueEditor({
     return <LemonTextArea value={String(value ?? '')} onChange={onChange} minRows={2} />
 }
 
-function FieldCurrentValue({ kind, value }: { kind: FieldEditorKind; value: unknown }): JSX.Element {
+/** A config field's value, read-only. Shared with the config-versions history so both read the same. */
+export function FieldCurrentValue({ kind, value }: { kind: FieldEditorKind; value: unknown }): JSX.Element {
     if (kind === 'tags') {
         const tags = (value as string[]) ?? []
         return tags.length ? (
@@ -373,8 +273,8 @@ export function ConfigChangeCards({
     scannerId: string
     readOnly?: boolean
 }): JSX.Element {
-    const { fieldValues } = useValues(scannerQualityLogic({ scannerId }))
-    const { setFieldValue } = useActions(scannerQualityLogic({ scannerId }))
+    const { fieldValues } = useValues(scannerCalibrationLogic({ scannerId }))
+    const { setFieldValue } = useActions(scannerCalibrationLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const changes = parseConfigChanges(suggestion.changes)
 
@@ -435,7 +335,7 @@ export function ConfigChangeCards({
                 <button
                     type="button"
                     aria-label="Revert to the suggested value"
-                    data-attr="vision-quality-revert-field"
+                    data-attr="vision-calibration-revert-field"
                     onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
                     className="absolute top-0 right-0 flex cursor-pointer text-muted hover:text-default"
                 >
@@ -464,8 +364,8 @@ export function ConfigChangeCards({
                 )}
                 {structuredFields.length > 0 && (
                     <div className="relative flex flex-col gap-4">
-                        <div className="absolute inset-y-4 left-1/2 border-l" aria-hidden />
-                        <div className="grid grid-cols-2 gap-10 text-xs font-medium text-muted">
+                        <div className="hidden sm:block absolute inset-y-4 left-1/2 border-l" aria-hidden />
+                        <div className="hidden sm:grid grid-cols-2 gap-10 text-xs font-medium text-muted">
                             <span>Current</span>
                             <span>New</span>
                         </div>
@@ -477,7 +377,10 @@ export function ConfigChangeCards({
                                     ? [...((base[field] as string[]) ?? []), ...((suggested[field] as string[]) ?? [])]
                                     : []
                             return (
-                                <div key={field} className="grid grid-cols-2 gap-10 items-start">
+                                <div
+                                    key={field}
+                                    className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-10 items-start"
+                                >
                                     <div>
                                         <div className="text-xs text-muted mb-1">{label}</div>
                                         <FieldCurrentValue kind={kind} value={base[field]} />

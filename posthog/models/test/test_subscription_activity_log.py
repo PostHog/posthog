@@ -11,7 +11,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 @freeze_time("2022-01-01")
@@ -32,7 +32,9 @@ class TestSubscriptionActivityLog(BaseTest):
         return Subscription.objects.create(**params)
 
     def _subscription_logs(self):
-        return ActivityLog.objects.filter(scope="Subscription").order_by("created_at")
+        # Every row shares one created_at under freeze_time, leaving order undefined. The UUIDT
+        # id's per-millisecond series counter increments per insert, so id tie-breaks in insertion order.
+        return ActivityLog.objects.filter(scope="Subscription").order_by("created_at", "id")
 
     @parameterized.expand(
         [

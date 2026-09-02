@@ -83,6 +83,26 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @mock.patch("products.experiments.backend.presentation.views.sync_connect")
     @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    def test_post_from_mcp_client_attributes_trigger_to_agent(self, mock_run, mock_connect):
+        exp = self._launched_experiment()
+        resp = self.client.post(self._post_url(exp.id), format="json", headers={"X-PostHog-Client": "mcp"})
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
+        assert (
+            ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
+            == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
+        )
+
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    def test_post_without_mcp_header_honors_body_trigger(self, mock_run, mock_connect):
+        exp = self._launched_experiment()
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        assert resp.status_code == status.HTTP_201_CREATED, resp.content
+        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.MANUAL
+
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
     def test_post_is_idempotent_returns_200(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         first = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")

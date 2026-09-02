@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -9,26 +8,39 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
+from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
 from products.cohorts.backend.models.cohort import Cohort
 
 
-@dataclass
+@frozen
 class BlastRadiusResult:
     affected: int
     total: int
+
+
+# ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
+# 72 CANNOT_PARSE_NUMBER — e.g. a numeric operator (gt/lt) against a null or non-numeric filter
+# value casts 'None' to Float64 and fails deterministically. Both are classified USER_ERROR in
+# posthog/errors.py but not user_safe, so they wrap to InternalCHQueryError, not Exposed.
+_VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
 
 
 @contextmanager
@@ -38,10 +50,13 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # malformed regexes, values that don't cast to the property's type - fail deterministically
     # on every request, so they're the caller's input, not a server fault: surface them as a 400
     # carrying the layer's own message instead of an opaque 500. Only deliberately-exposed error
-    # types (plus ObjectDoesNotExist from cohort lookups) are converted across query build and
-    # execution; caller-shaped ValueError is converted separately in the parse phase
+    # types are converted across query build and execution - plus ObjectDoesNotExist from cohort
+    # lookups, PropertyValidationError from Property construction during query build (its message
+    # already names the offending property), and the ClickHouse cannot-parse-value codes above.
+    # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
-    # during build/execution still surfaces as a server fault.
+    # during build/execution still surfaces as a server fault, as does any other
+    # InternalCHQueryError.
     try:
         yield
     except (
@@ -49,8 +64,17 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
         HogQLNotImplementedError,
         ExposedCHQueryError,
         ObjectDoesNotExist,
+        PropertyValidationError,
     ) as e:
         raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+    except InternalCHQueryError as e:
+        if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # Unlike ExposedCHQueryError, InternalCHQueryError's str() keeps the raw server message.
+        # Rewrap so ExposedCHQueryError.__str__ strips the DB::Exception framing and any stack
+        # trace tail before the message is echoed back to the caller.
+        sanitized = str(ExposedCHQueryError(e.message, code=e.code, code_name=e.code_name))
+        raise ValidationError({"filters": sanitized or "These filters cannot be evaluated."}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:
@@ -101,10 +125,9 @@ def get_user_blast_radius(
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
         if group_type_index is not None:
-            affected, total = _get_group_blast_radius(team, cleaned_filter, group_type_index)
+            return _get_group_blast_radius(team, cleaned_filter, group_type_index)
         else:
-            affected, total = _get_person_blast_radius(team, cleaned_filter)
-    return BlastRadiusResult(affected=affected, total=total)
+            return _get_person_blast_radius(team, cleaned_filter)
 
 
 def get_user_blast_radius_persons(
@@ -123,38 +146,40 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
+def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 
     if len(properties) == 0:
         # No filters means all persons are affected
         total_users = team.persons_seen_so_far
-        return total_users, total_users
+        return BlastRadiusResult(affected=total_users, total=total_users)
 
     # Build the SELECT query - property_to_expr handles all properties including cohorts
     select_query = _build_person_query(team, filter, return_count=True)
 
     # Execute the query
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # Build the team's HogQL database once and share it between the two counts below.
+    # Each execute_hogql_query call would otherwise build its own, and the build cost
+    # scales with the team's warehouse size.
+    database = Database.create_for(team=team)
     response = execute_hogql_query(
         query=select_query,
         team=team,
+        context=HogQLContext(team_id=team.pk, database=database),
     )
 
     total_count = response.results[0][0] if response.results else 0
-    total_users = team.persons_seen_so_far
+    total_users = team.count_persons_seen_so_far(database=database)
     blast_radius = min(total_count, total_users)
 
-    return blast_radius, total_users
+    return BlastRadiusResult(affected=blast_radius, total=total_users)
 
 
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
     """Build HogQL AST query to count or select distinct persons matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
     if return_count:
@@ -204,9 +229,8 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     return select_query
 
 
-def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> tuple[int, int]:
+def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 
@@ -225,23 +249,26 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     if len(properties) == 0:
         # No filters means all groups of this type are affected
         total_groups = team.groups_seen_so_far(group_type_index)
-        return total_groups, total_groups
+        return BlastRadiusResult(affected=total_groups, total=total_groups)
 
     # Build the SELECT query for groups
     select_query = _build_group_query(team, filter, group_type_index, return_count=True)
 
     # Execute the query with OFFLINE workload (groups queries can be massive)
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # One database build shared by both counts, as in _get_person_blast_radius above.
+    database = Database.create_for(team=team)
     response = execute_hogql_query(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
+        context=HogQLContext(team_id=team.pk, database=database),
     )
 
     total_affected = response.results[0][0] if response.results else 0
-    total_groups = team.groups_seen_so_far(group_type_index)
+    total_groups = team.count_groups_seen_so_far(group_type_index, database=database)
 
-    return total_affected, total_groups
+    return BlastRadiusResult(affected=total_affected, total=total_groups)
 
 
 PERSON_BATCH_SIZE = 500
@@ -255,8 +282,6 @@ def _build_group_query(
     cursor: Optional[str] = None,
 ):
     """Build HogQL AST query to count or select distinct groups matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT groups.key) or DISTINCT groups.key
     if return_count:
@@ -391,6 +416,26 @@ def _build_group_query(
                     right=ast.Constant(value=f"%{value}%"),
                 )
             )
+        elif operator in (
+            PropertyOperator.STARTS_WITH,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.ENDS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
+        ):
+            if isinstance(value, list):
+                raise ValidationError(
+                    f"Operator '{operator}' does not support list values for $group_key property. "
+                    "Use a single value instead."
+                )
+            is_starts = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH)
+            is_positive = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.ENDS_WITH)
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.ILike if is_positive else ast.CompareOperationOp.NotILike,
+                    left=ast.Field(chain=["groups", "key"]),
+                    right=ast.Constant(value=f"{value}%" if is_starts else f"%{value}"),
+                )
+            )
         elif operator == PropertyOperator.REGEX:
             if isinstance(value, list):
                 raise ValidationError(
@@ -429,7 +474,8 @@ def _build_group_query(
             # Unsupported operator for $group_key
             raise ValidationError(
                 f"Operator '{operator}' is not supported for $group_key property. "
-                f"Supported operators: exact, is_not, in, not_in, icontains, not_icontains, regex, not_regex"
+                f"Supported operators: exact, is_not, in, not_in, icontains, not_icontains, "
+                f"starts_with, not_starts_with, ends_with, not_ends_with, regex, not_regex"
             )
 
     # Add regular property filters using property_to_expr (only if there are any)
@@ -464,7 +510,6 @@ def _build_group_query(
 
 def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
     """Get distinct person IDs matching person-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
 
     # Build the SELECT query to get person IDs
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
@@ -484,7 +529,6 @@ def _get_group_blast_radius_persons(
     team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
 ) -> list[str]:
     """Get distinct group keys matching group-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 

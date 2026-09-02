@@ -145,8 +145,8 @@ def bucket_name() -> str:
 
 
 @pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage a MinIO S3 client, creating and cleaning up a test bucket."""
+async def object_storage_client(bucket_name):
+    """Manage an S3 client for local object storage, creating and cleaning up a test bucket."""
     async with create_test_client(
         "s3",
         aws_access_key_id="object_storage_root_user",
@@ -161,7 +161,7 @@ async def minio_client(bucket_name):
 
 
 @pytest_asyncio.fixture
-async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, minio_client):
+async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, object_storage_client):
     """Create a batch export for testing backfill info (defaults to events model)."""
     await truncate_events(clickhouse_client)
 

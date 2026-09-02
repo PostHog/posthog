@@ -6,6 +6,8 @@ models/
 test-data/
 # Generated/transient
 corpus/
+code-corpus/
+code-corpus-degraded/
 out/
 # tesseract.js downloads this language data at runtime
 *.traineddata

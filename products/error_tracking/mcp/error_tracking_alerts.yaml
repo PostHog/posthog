@@ -130,6 +130,7 @@ tools:
             properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`),
             `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.
         exclude_params:
+            - base_updated_at
             - _create_in_folder
             - batch_export_id
             - bytecode

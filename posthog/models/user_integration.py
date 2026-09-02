@@ -8,10 +8,11 @@ from django.db import models
 import requests
 import structlog
 
+from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import invalidate_github_repository_caches_for_installation
+from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -40,7 +41,10 @@ class UserIntegration(UUIDModel):
 
     Contents for Slack (user identity link):
     - `integration_id` holds the Slack user id (e.g. "U123ABC"), workspace-scoped
-    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, linked_at}
+    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, scope,
+      linked_at}; `scope` is the user scopes Slack granted, space-delimited as OIDC
+      returns them (the workspace row's `Integration.config["scope"]` is Slack's
+      comma-separated bot list, so don't parse the two the same way)
     - `sensitive_config` holds {user_access_token, user_refresh_token?} — the
       Slack user-to-server token plus, when the Slack app has
       `token_rotation_enabled`, a refresh token used to rotate it. Today's
@@ -90,6 +94,55 @@ class UserIntegration(UUIDModel):
         unique_together = [("user", "kind", "integration_id")]
         indexes = [
             models.Index(fields=["kind", "integration_id"], name="user_integration_kind_extid"),
+        ]
+
+
+class GitHubInstallRequest(UUIDModel):
+    """Durable record of a personal GitHub App install that an org owner must approve.
+
+    GitHub sends the user back with ``setup_action=request`` (no ``installation_id``) when the
+    installing account isn't an org owner. That wait can take hours to days, so unlike the
+    in-flight connect state machine it needs server-side state the desktop can poll instead of a
+    client-held marker: a row here is the fact of "approval requested"; the
+    ``installation.created`` webhook (see ``posthog.api.github_callback.installation_events``)
+    flips it to ``approved`` once an owner acts. User-scoped like ``UserIntegration``, not
+    team-scoped, because the request predates any team's Integration row.
+
+    ``github_user_id`` is what the webhook matches on, because a pending row can outlive the login
+    it was created under: GitHub logins are renameable and a freed one can be claimed by someone
+    else. ``github_login`` is display data only. A request whose requester we could not resolve at
+    all is ``unidentified`` rather than ``pending``, since no webhook can ever match it.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        APPROVED = "approved"
+        UNIDENTIFIED = "unidentified"
+
+    # db_constraint=False: posthog_user is a hot table, see safe-django-migrations.md.
+    user = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="github_install_requests",
+    )
+    github_user_id = models.BigIntegerField(null=True, blank=True)
+    github_login = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    installation_id = models.CharField(max_length=64, null=True, blank=True)
+    # The GitHub org or user the approved installation landed on, from the installation.created
+    # payload. Only known once approved; the request itself doesn't say which org was targeted.
+    account_login = models.CharField(max_length=255, null=True, blank=True)
+    account_type = models.CharField(max_length=32, null=True, blank=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_github_install_request"
+        indexes = [
+            models.Index(fields=["github_user_id", "status"], name="github_install_req_ghuser_idx"),
         ]
 
 
@@ -283,6 +336,169 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         assert token is not None, "user_access_token cleared unexpectedly after refresh"
         return token
 
+    def create_pull_request_review_comment(
+        self,
+        repository: str,
+        pr_number: int,
+        body: str,
+        *,
+        in_reply_to: str | None = None,
+        commit_id: str | None = None,
+        path: str | None = None,
+        line: int | None = None,
+        side: str | None = None,
+    ) -> dict[str, Any]:
+        """Post an inline PR review comment as the user (user-to-server token).
+
+        Two shapes, matching GitHub's API: a reply to an existing thread needs only
+        ``in_reply_to`` (the thread root comment id); a new thread needs ``commit_id``
+        (the PR head SHA) + ``path`` + ``line`` (+ ``side``). The comment is attributed
+        to the user's GitHub identity, not the app.
+
+        Raises :class:`ReauthorizationRequired` when the stored user token is unusable
+        and :class:`GitHubRateLimitError` on rate limits; other failures return
+        ``{"success": False, "error": ...}``.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        payload: dict[str, Any]
+        if in_reply_to is not None:
+            url = f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/comments/{in_reply_to}/replies"
+            endpoint = "/repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies"
+            payload = {"body": body}
+        else:
+            if not (commit_id and path and line):
+                return {"success": False, "error": "New comment threads need commit_id, path, and line"}
+            url = f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/comments"
+            endpoint = "/repos/{owner}/{repo}/pulls/{pull_number}/comments"
+            payload = {"body": body, "commit_id": commit_id, "path": path, "line": line, "side": side or "RIGHT"}
+
+        response = github_request(
+            "POST",
+            url,
+            source="signals_pr_review_comment",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            endpoint=endpoint,
+            json=payload,
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code not in (200, 201):
+            logger.warning(
+                "UserGitHubIntegration: review comment post failed",
+                status_code=response.status_code,
+                repository=repo_path,
+                pr_number=pr_number,
+            )
+            return {
+                "success": False,
+                "error": f"GitHub rejected the comment (HTTP {response.status_code})",
+                "status_code": response.status_code,
+            }
+        return {"success": True, "comment": response.json()}
+
+    def _user_review_comment_request(
+        self,
+        method: str,
+        repository: str,
+        path_suffix: str,
+        *,
+        source: str,
+        json: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Shared transport for user-authored reads and edits of a review comment (fetch/edit/delete/react).
+
+        ``path_suffix`` is appended to ``/repos/{repo}/pulls/comments`` — e.g. ``/{id}`` for a
+        comment or ``/{id}/reactions`` for its reactions. Returns ``{"success", ...}``; raises
+        :class:`ReauthorizationRequired`/:class:`GitHubRateLimitError` like the create path.
+        """
+        token = self.get_usable_user_access_token()
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        response = github_request(
+            method,
+            f"https://api.github.com/repos/{repo_path}/pulls/comments{path_suffix}",
+            source=source,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            installation_id=self.github_installation_id,
+            priority=Priority.CRITICAL,
+            json=json,
+            timeout=15,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code not in (200, 201, 204):
+            logger.warning(
+                "UserGitHubIntegration: review comment request failed",
+                method=method,
+                status_code=response.status_code,
+                repository=repo_path,
+            )
+            return {
+                "success": False,
+                "error": f"GitHub rejected the change (HTTP {response.status_code})",
+                "status_code": response.status_code,
+            }
+        body = response.json() if response.status_code != 204 and response.content else None
+        return {"success": True, "result": body}
+
+    def get_pull_request_review_comment(self, repository: str, comment_id: str) -> dict[str, Any]:
+        """Fetch a single review comment as the user, so callers can check what it hangs off before
+        writing to it. ``comment`` is None when GitHub says there is no such comment this user can
+        see, which callers should treat the same as a comment that isn't theirs to touch.
+        """
+        result = self._user_review_comment_request(
+            "GET", repository, f"/{comment_id}", source="signals_pr_review_comment_fetch"
+        )
+        if result.get("success"):
+            return {"success": True, "comment": result.get("result")}
+        if result.get("status_code") == 404:
+            return {"success": True, "comment": None}
+        return result
+
+    def update_pull_request_review_comment(self, repository: str, comment_id: str, body: str) -> dict[str, Any]:
+        """Edit an existing review comment's body as the user."""
+        result = self._user_review_comment_request(
+            "PATCH", repository, f"/{comment_id}", source="signals_pr_review_comment_edit", json={"body": body}
+        )
+        if result.get("success"):
+            return {"success": True, "comment": result.get("result")}
+        return result
+
+    def delete_pull_request_review_comment(self, repository: str, comment_id: str) -> dict[str, Any]:
+        """Delete a review comment as the user."""
+        return self._user_review_comment_request(
+            "DELETE", repository, f"/{comment_id}", source="signals_pr_review_comment_delete"
+        )
+
+    def add_pull_request_review_comment_reaction(
+        self, repository: str, comment_id: str, content: str
+    ) -> dict[str, Any]:
+        """Add an emoji reaction to a review comment as the user. ``content`` is a GitHub reaction
+        key (``+1``, ``-1``, ``laugh``, ``hooray``, ``confused``, ``heart``, ``rocket``, ``eyes``)."""
+        result = self._user_review_comment_request(
+            "POST",
+            repository,
+            f"/{comment_id}/reactions",
+            source="signals_pr_review_comment_reaction",
+            json={"content": content},
+        )
+        if result.get("success"):
+            return {"success": True, "reaction": result.get("result")}
+        return result
+
+    def delete_pull_request_review_comment_reaction(
+        self, repository: str, comment_id: str, reaction_id: str
+    ) -> dict[str, Any]:
+        """Remove one of the user's own reactions from a review comment."""
+        return self._user_review_comment_request(
+            "DELETE",
+            repository,
+            f"/{comment_id}/reactions/{reaction_id}",
+            source="signals_pr_review_comment_reaction_delete",
+        )
+
     def _apply_user_token_payload(self, payload: dict[str, Any]) -> None:
         """Write a fresh user token pair + expirations onto the integration row."""
         now = int(time.time())
@@ -372,7 +588,7 @@ def user_github_integration_from_installation(
     }
 
     if create_only:
-        integration, _created = UserIntegration.objects.get_or_create(
+        integration, created = UserIntegration.objects.get_or_create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id=installation.installation_id,
@@ -382,7 +598,7 @@ def user_github_integration_from_installation(
             },
         )
     else:
-        integration, _created = UserIntegration.objects.update_or_create(
+        integration, created = UserIntegration.objects.update_or_create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id=installation.installation_id,
@@ -392,7 +608,39 @@ def user_github_integration_from_installation(
             },
         )
         invalidate_github_repository_caches_for_installation(installation.installation_id)
+
+    if created:
+        _report_personal_integration_created(user, config, auto_created=create_only)
+
     return integration
+
+
+def _report_personal_integration_created(user: "User", config: dict[str, Any], *, auto_created: bool) -> None:
+    """Personal integrations live in their own table and never pass through the team integration
+    path, so ``integration created`` cannot see them. They get their own event rather than a scope
+    property on the team one, because saved insights already count ``integration created`` unfiltered
+    and would silently start including personal links.
+    """
+    from posthog.event_usage import report_user_action  # noqa: PLC0415 — posthog.event_usage imports posthog.models
+
+    owner_type = (config.get("account") or {}).get("type")
+    try:
+        report_user_action(
+            user,
+            "personal integration created",
+            {
+                "integration_kind": "github",
+                "repo_owner_type": owner_type,
+                "account_type": github_account_type(owner_type),
+                # True when the row rode along with a team App install rather than the user
+                # deliberately linking their account under Personal integrations.
+                "auto_created": auto_created,
+            },
+        )
+    except Exception:
+        # The row is already committed. Raising here would report a link that actually succeeded as
+        # a failure, and on the team install path it would take the team connect down with it.
+        logger.exception("user_github_integration: failed to report personal integration created")
 
 
 def refresh_user_github_installation_access(
@@ -440,6 +688,7 @@ def user_slack_integration_from_identity(
     slack_email_at_link: str | None,
     user_access_token: str,
     user_refresh_token: str | None = None,
+    user_scopes: str = "",
 ) -> UserIntegration:
     """Create or refresh a Slack ``UserIntegration`` from a Sign-in-with-Slack
     identity.
@@ -451,11 +700,17 @@ def user_slack_integration_from_identity(
     Storing both fields now means flipping rotation on later requires no
     schema or callback-shape change. ``slack_email_at_link`` is stored for
     support diagnostics and is not consulted at resolve time.
+
+    ``user_scopes`` records what Slack granted this link. Nothing gates on it today
+    — the OIDC consent screen grants ``OIDC_SCOPES`` all-or-nothing, so the row
+    existing already implies them — but it's what tells you, after the fact, which
+    scopes an older link was created with.
     """
     config: dict[str, Any] = {
         "slack_team_id": slack_team_id,
         "slack_team_name": slack_team_name,
         "slack_email_at_link": slack_email_at_link,
+        "scope": user_scopes,
         "linked_at": int(time.time()),
     }
     sensitive_config: dict[str, Any] = {

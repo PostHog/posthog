@@ -1,3 +1,4 @@
+import re
 import copy
 import json
 from collections.abc import Iterable
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from tenacity import Future, RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear import (
+    _FLOAT_FIELDS,
     LINEAR_MAX_RETRY_AFTER_SECONDS,
     LINEAR_MAX_RETRY_ATTEMPTS,
     LinearResumeConfig,
@@ -20,7 +22,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linear.lin
     _wait_strategy,
     linear_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES
+from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    LINEAR_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.source import LinearSource
+
+
+def _graphql_query_name(endpoint_name: str) -> str:
+    config = LINEAR_ENDPOINTS[endpoint_name]
+    return config.graphql_query_name or endpoint_name
 
 
 def _make_response(nodes: list[dict[str, Any]], has_next_page: bool, end_cursor: str | None) -> MagicMock:
@@ -58,6 +71,16 @@ def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicM
     response.text = "<!DOCTYPE html><html><head><title>Rate limited</title></head></html>"
     response.headers = headers or {}
     response.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+    return response
+
+
+def _make_graphql_error_response(message: str) -> MagicMock:
+    """Mimic Linear's GraphQL-level failure: HTTP 200/ok, but the body carries an `errors` array."""
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.reason = "OK"
+    response.json.return_value = {"errors": [{"message": message}]}
     return response
 
 
@@ -376,19 +399,81 @@ class TestMakePaginatedRequest:
         assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
         assert "secret customer issue" not in str(exc_info.value)
 
+    @patch("time.sleep", return_value=None)
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_graphql_internal_server_error_is_retried_then_succeeds(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        # Linear's GraphQL layer can wrap a resolver-side blip as a 200 with a generic
+        # "Internal server error" message instead of an HTTP 5xx. It must be retried with
+        # backoff like the status-code 5xx case, not surfaced as a non-retryable Exception.
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_graphql_error_response("Internal server error"),
+            _make_response([{"id": "a"}], False, None),
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        assert session.post.call_count == 2
+
+    @patch("time.sleep", return_value=None)
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_persistent_graphql_internal_server_error_raises_retryable_error(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_graphql_error_response("Internal server error") for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        with pytest.raises(LinearRetryableError):
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
+
 
 class TestFloatFieldCoercion:
-    @parameterized.expand([("cycles",), ("projects",)])
+    @parameterized.expand(
+        [(endpoint, field) for endpoint, fields in _FLOAT_FIELDS.items() for field in fields],
+        name_func=lambda func, _num, param: f"{func.__name__}_{param.args[0]}_{param.args[1]}",
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
-    def test_whole_number_progress_is_coerced_to_float(self, endpoint_name: str, mock_session_cls: MagicMock) -> None:
-        # Whole progress values (0, 1) arrive as JSON ints. Left as ints, a table-creating batch of
-        # only whole values infers int64 and the first fractional progress wedges the sync with
-        # ArrowInvalid. The source must yield floats so the column always infers as float64.
+    def test_whole_number_float_field_is_coerced_to_float(
+        self, endpoint_name: str, field_name: str, mock_session_cls: MagicMock
+    ) -> None:
+        # Whole values (0, 1) of Linear's Float fields arrive as JSON ints. Left as ints, a
+        # table-creating batch of only whole values infers int64 and the first fractional value
+        # wedges the sync with ArrowInvalid. The source must yield floats so the column always
+        # infers as float64.
         session = MagicMock()
         session.post.side_effect = [
             _make_response_for(
-                endpoint_name,
-                [{"id": "a", "progress": 0}, {"id": "b", "progress": 1}, {"id": "c", "progress": None}],
+                _graphql_query_name(endpoint_name),
+                [{"id": "a", field_name: 0}, {"id": "b", field_name: 1}, {"id": "c", field_name: None}],
             )
         ]
         mock_session_cls.return_value = session
@@ -402,9 +487,62 @@ class TestFloatFieldCoercion:
             )
         )
 
-        progress_values = [node["progress"] for node in pages[0]]
-        assert progress_values == [0.0, 1.0, None]
-        assert all(isinstance(v, float) for v in progress_values if v is not None)
+        values = [node[field_name] for node in pages[0]]
+        assert values == [0.0, 1.0, None]
+        assert all(isinstance(v, float) for v in values if v is not None)
+
+
+class TestEndpointCatalog:
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_query_root_field_matches_declared_graphql_query_name(self, endpoint_name: str) -> None:
+        # The paginator reads payload["data"][graphql_query_name]. If the catalog's query name
+        # drifts from the root field the query actually asks for, every page raises KeyError.
+        query = QUERIES[endpoint_name]
+        root_field = re.search(r"\)\s*\{\s*\n\s*(\w+)\(", query)
+        assert root_field is not None, f"could not find a root field in the {endpoint_name} query"
+        assert root_field.group(1) == _graphql_query_name(endpoint_name)
+
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_filter_variable_is_declared_exactly_when_the_endpoint_is_incremental(self, endpoint_name: str) -> None:
+        # The incremental cutoff rides in a $filter variable. Linear ignores variables a query
+        # doesn't declare, so an incremental endpoint whose query omits $filter silently re-reads
+        # the whole collection on every sync instead of failing.
+        declares_filter = "$filter" in QUERIES[endpoint_name]
+        assert declares_filter == bool(INCREMENTAL_FIELDS[endpoint_name])
+
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_query_selects_primary_key_and_partition_keys(self, endpoint_name: str) -> None:
+        # A primary key or partition key that the query never selects lands as a missing column:
+        # merges stop deduping and partitioning silently degrades.
+        config = LINEAR_ENDPOINTS[endpoint_name]
+        query = QUERIES[endpoint_name]
+        for required in [config.primary_key, *(config.partition_keys or [])]:
+            assert re.search(rf"^\s*{required}\s*$", query, re.MULTILINE), (
+                f"{endpoint_name} query does not select {required}"
+            )
+
+
+class TestGetSchemas:
+    def test_reports_every_endpoint_with_its_sync_capabilities(self) -> None:
+        schemas = {s.name: s for s in LinearSource().get_schemas(cast(Any, None), team_id=1)}
+
+        assert set(schemas) == set(ENDPOINTS)
+        # Only endpoints whose Linear query takes a server-side updatedAt filter may sync
+        # incrementally; the rest must stay full refresh.
+        assert {name for name, s in schemas.items() if s.supports_incremental} == {
+            "issues",
+            "projects",
+            "comments",
+            "cycles",
+            "resources",
+            "workflow_states",
+            "project_milestones",
+            "initiatives",
+            "project_updates",
+            "documents",
+        }
+        # Initiatives are plan-gated, so they must not be enabled for every new connection.
+        assert {name for name, s in schemas.items() if not s.should_sync_default} == {"initiatives"}
 
 
 class TestRateLimitBackoff:

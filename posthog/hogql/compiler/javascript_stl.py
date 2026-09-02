@@ -326,12 +326,28 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function md5 (data, encoding, options) { return 'md5 not implemented' }",
         [],
     ],
+    "sha1Hex": [
+        "function sha1Hex (data) { return 'sha1Hex not implemented' }",
+        [],
+    ],
+    "sha1": [
+        "function sha1 (data, encoding, options) { return 'sha1 not implemented' }",
+        [],
+    ],
     "sha256HmacChainHex": [
         "function sha256HmacChainHex (data, options) { return 'sha256HmacChainHex not implemented' }",
         [],
     ],
     "sha256HmacChain": [
         "function sha256HmacChain (data, encoding, options) { return 'sha256HmacChain not implemented' }",
+        [],
+    ],
+    "sha1HmacChainHex": [
+        "function sha1HmacChainHex (data, options) { return 'sha1HmacChainHex not implemented' }",
+        [],
+    ],
+    "sha1HmacChain": [
+        "function sha1HmacChain (data, encoding, options) { return 'sha1HmacChain not implemented' }",
         [],
     ],
     "isIPAddressInRange": [

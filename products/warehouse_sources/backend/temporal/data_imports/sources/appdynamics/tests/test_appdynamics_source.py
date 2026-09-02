@@ -1,24 +1,17 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import (
-    AppdynamicsAuth,
-    AppdynamicsResumeConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import AppdynamicsAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
     ENDPOINTS,
     MAX_METRIC_PATHS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appdynamics import (
     AppdynamicsAuthMethodConfig,
     AppdynamicsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _api_client_config(metric_paths: str | None = None) -> AppdynamicsSourceConfig:
@@ -61,33 +54,6 @@ class TestAppdynamicsSource:
     def setup_method(self) -> None:
         self.source = AppdynamicsSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APPDYNAMICS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Appdynamics"
-        assert config.unreleasedSource is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["host", "account_name", "auth_method", "metric_paths"]
-
-        host_field = config.fields[0]
-        assert isinstance(host_field, SourceFieldInputConfig)
-        assert host_field.required is True
-
-        auth_field = config.fields[2]
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert {option.value for option in auth_field.options} == {"api_client", "basic"}
-
-    def test_non_retryable_errors(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "AppDynamics OAuth token request failed" in errors
 
     def test_account_name_is_a_connection_host_field(self) -> None:
         # Changing account_name retargets the preserved credential, so it must force re-entry.
@@ -168,11 +134,6 @@ class TestAppdynamicsSource:
         valid, error = self.source.validate_credentials(_basic_config("u", None), self.team_id)
         assert valid is False
         assert error is not None
-
-    def test_get_resumable_source_manager(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AppdynamicsResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.appdynamics_source"

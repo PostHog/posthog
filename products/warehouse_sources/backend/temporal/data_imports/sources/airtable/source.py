@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.airtable import (
     airtable_source,
     validate_credentials as validate_airtable_credentials,
@@ -27,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airtable import (
     AirtableSourceConfig,
 )
@@ -99,7 +96,10 @@ Create a personal access token at [airtable.com/create/tokens](https://airtable.
         if validate_airtable_credentials(config.personal_access_token):
             return True, None
 
-        return False, "Invalid Airtable personal access token"
+        return (
+            False,
+            "Invalid Airtable personal access token. Check that the token is correct and has access to the bases you want to sync, then try again.",
+        )
 
     def source_for_pipeline(self, config: AirtableSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return airtable_source(

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.s
     BASE_URL,
     FAILING_TESTS_DEFAULT_LOOKBACK_DAYS,
     FAILING_TESTS_WINDOW_DAYS,
+    MERGE_QUEUE_PAGE_SIZE,
     PAGE_SIZE,
     UNHEALTHY_STATUSES,
 )
@@ -29,6 +30,8 @@ class TrunkIoResumeConfig:
     page_token: str = ""
     status: Optional[str] = None
     window_start: Optional[str] = None
+    cursor: Optional[str] = None
+    synced_through: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -87,6 +90,59 @@ class TrunkPageQueryPaginator(BasePaginator):
 
     def __str__(self) -> str:
         return f"TrunkPageQueryPaginator(page_token={self.page_token!r})"
+
+
+class TrunkCursorPaginator(BasePaginator):
+    """The Merge Queue endpoints take `cursor`/`take` as top-level POST body params and return
+    `nextCursor`, unlike the flaky-tests endpoints' nested `page_query` object."""
+
+    def __init__(self, take: int = MERGE_QUEUE_PAGE_SIZE, cursor: str = "") -> None:
+        super().__init__()
+        self.take = take
+        self.cursor = cursor
+        if cursor:
+            self._has_next_page = True
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def _apply(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        request.json["take"] = self.take
+        # `cursor` is typed as a uuid, so send it only once we have one, because an empty string
+        # is not the documented "first page" value the way `page_token` is on the flaky-tests
+        # endpoints.
+        if self.cursor:
+            request.json["cursor"] = self.cursor
+        else:
+            request.json.pop("cursor", None)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            next_cursor = response.json().get("nextCursor") or ""
+        except Exception:
+            next_cursor = ""
+        if next_cursor:
+            self.cursor = next_cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self.cursor} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor:
+            self.cursor = cursor
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"TrunkCursorPaginator(cursor={self.cursor!r})"
 
 
 def _client(api_token: str) -> RESTClient:
@@ -243,6 +299,48 @@ def failing_tests(
         window_start = window_end
         page_token = ""
         resumable_source_manager.save_state(TrunkIoResumeConfig(window_start=window_start.isoformat(), page_token=""))
+
+    resumable_source_manager.clear_state()
+
+
+def merge_queue_pull_requests(
+    api_token: str,
+    repo: TrunkRepo,
+    target_branch: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[list[dict[str, Any]]]:
+    client = _client(api_token)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    cursor = (resume.cursor if resume else None) or ""
+    # Pin the stamp across a resume so the second half of an interrupted run doesn't claim
+    # coverage the first half never had.
+    synced_through = (resume.synced_through if resume else None) or _format_rfc3339(datetime.now(UTC))
+
+    body: dict[str, Any] = {"repo": repo.as_dict(), "targetBranch": target_branch}
+    if should_use_incremental_field and db_incremental_field_last_value:
+        body["since"] = _format_rfc3339(_coerce_datetime(db_incremental_field_last_value))
+
+    def checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(
+                TrunkIoResumeConfig(cursor=str(state["cursor"]), synced_through=synced_through)
+            )
+
+    for page in client.paginate(
+        path="/listPullRequests",
+        method="post",
+        json=body,
+        paginator=TrunkCursorPaginator(cursor=cursor),
+        data_selector="pullRequests",
+        resume_hook=checkpoint,
+    ):
+        if page:
+            for row in page:
+                row["synced_through"] = synced_through
+            yield page
 
     resumable_source_manager.clear_state()
 

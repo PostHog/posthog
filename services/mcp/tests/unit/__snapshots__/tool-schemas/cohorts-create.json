@@ -26,6 +26,16 @@
             "anyOf": [
                 {
                     "properties": {
+                        "filterTestAccounts": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
                         "properties": {
                             "description": "AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.",
                             "properties": {

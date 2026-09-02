@@ -357,5 +357,46 @@ describe('hog-function-filtering', () => {
             // Should execute bytecode because properties filters are present
             expect(result.match).toBe(true)
         })
+
+        describe('SQL date comparison trigger filter', () => {
+            // Regression: a hand-written SQL trigger filter like `timestamp > toDateTime('2024-01-01')`
+            // only wraps the RHS in toDateTime, so the VM compares the filter globals' plain ISO
+            // `timestamp` against a HogDateTime object. Before the fix in
+            // common/hogvm/typescript/src/utils.ts, that comparison was always false and the trigger
+            // silently never fired for any live event.
+            const timestampAfterJan2024 = [
+                '_H',
+                1,
+                32,
+                '2024-01-01',
+                2,
+                'toDateTime',
+                1,
+                32,
+                'timestamp',
+                1,
+                1,
+                13, // GT
+            ]
+
+            test.each([
+                ['2025-01-01T00:00:00.000Z', true],
+                ['2023-01-01T00:00:00.000Z', false],
+            ])('event timestamp %s matches: %s', async (timestamp, expectedMatch) => {
+                mockHogFunction.filters = {
+                    filter_test_accounts: false,
+                    bytecode: timestampAfterJan2024,
+                }
+                mockFilterGlobals.timestamp = timestamp
+
+                const result = await filterFunctionInstrumented({
+                    fn: mockHogFunction,
+                    filters: mockHogFunction.filters,
+                    filterGlobals: mockFilterGlobals,
+                })
+
+                expect(result.match).toBe(expectedMatch)
+            })
+        })
     })
 })

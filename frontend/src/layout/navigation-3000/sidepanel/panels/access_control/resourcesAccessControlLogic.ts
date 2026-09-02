@@ -29,12 +29,10 @@ const RESOURCE_FEATURE_REQUIREMENTS: Partial<Record<AccessControlResourceType, A
 // until the user has that product rolled out or has opted in, matching the product's own nav gating.
 export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlResourceType, string>> = {
     [AccessControlResourceType.CustomerAnalytics]: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
-    [AccessControlResourceType.Endpoint]: FEATURE_FLAGS.ENDPOINTS,
     [AccessControlResourceType.McpAnalytics]: FEATURE_FLAGS.MCP_ANALYTICS,
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
-    [AccessControlResourceType.ReplayScanner]: FEATURE_FLAGS.REPLAY_VISION,
 }
 
 export function isResourceRolledOut(
@@ -183,6 +181,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Heatmap,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
+                    AccessControlResourceType.Evaluation,
                     AccessControlResourceType.McpAnalytics,
                     AccessControlResourceType.Tagger,
                     AccessControlResourceType.LlmSkill,
@@ -192,11 +191,14 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,
                     AccessControlResourceType.SharingConfiguration,
+                    AccessControlResourceType.Stamphog,
                     AccessControlResourceType.ErrorTracking,
                     AccessControlResourceType.ReplayScanner,
                     AccessControlResourceType.Survey,
+                    AccessControlResourceType.Ticket,
                     AccessControlResourceType.WebAnalytics,
                     AccessControlResourceType.Toolbar,
+                    AccessControlResourceType.LlmPlayground,
                     AccessControlResourceType.Workflow,
                     AccessControlResourceType.Tracing,
                 ]

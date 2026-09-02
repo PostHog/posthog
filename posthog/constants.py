@@ -5,6 +5,7 @@ from semantic_version import Version
 
 FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted version, just for backwards compat now
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
+POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 
 
 # N.B. Keep this in sync with frontend enum (types.ts)
@@ -49,10 +50,16 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
+    LOGS_RETENTION_30D = "logs_retention_30d"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
+
+
+LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
+    30: AvailableFeature.LOGS_RETENTION_30D,
+}
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -64,6 +71,7 @@ TRENDS_LINEAR = "ActionsLineGraph"
 TRENDS_TABLE = "ActionsTable"
 TRENDS_FUNNEL = "FunnelViz"
 TRENDS_PIE = "ActionsPie"
+TRENDS_DONUT = "ActionsDonut"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
@@ -77,6 +85,7 @@ TRENDS_BOX_PLOT = "BoxPlot"
 NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_TABLE,
     TRENDS_PIE,
+    TRENDS_DONUT,
     TRENDS_BAR_VALUE,
     TRENDS_WORLD_MAP,
     TRENDS_BOLD_NUMBER,
@@ -109,6 +118,7 @@ DISPLAY_TYPES = Literal[
     "ActionsLineGraphCumulative",
     "ActionsTable",
     "ActionsPie",
+    "ActionsDonut",
     "ActionsBar",
     "ActionsBarValue",
     "WorldMap",
@@ -323,7 +333,13 @@ PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 # Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
 SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
+# Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
+# share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
+SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
+EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
+    "experiments-retention-metric-events-preaggregation"
+)
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

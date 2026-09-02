@@ -14,6 +14,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { login2FALogic } from './login2FALogic'
 
+// The lead text below is wrapped in a <span>: in-page translation replaces text nodes with <font>
+// elements, so inserting the conditional support link beside a bare text node crashes React
+// (insertBefore / removeChild NotFoundError, see react#11538).
 export function Login2FA(): JSX.Element {
     const { isTwofactortokenSubmitting, generalError, passkey2FALoading, passkeysAvailable, totpAvailable } =
         useValues(login2FALogic)
@@ -26,7 +29,7 @@ export function Login2FA(): JSX.Element {
             <div className="deprecated-space-y-2">
                 <h2>Two-Factor Authentication</h2>
                 <p>
-                    Enter a token from your authenticator app, use your passkey, or enter a backup code.
+                    <span>Enter a token from your authenticator app, use your passkey, or enter a backup code.</span>
                     {preflight?.cloud && (
                         <>
                             {' '}
@@ -36,7 +39,6 @@ export function Login2FA(): JSX.Element {
                                     e.preventDefault()
                                     openSupportForm({
                                         kind: 'support',
-                                        target_area: 'login',
                                     })
                                 }}
                             >

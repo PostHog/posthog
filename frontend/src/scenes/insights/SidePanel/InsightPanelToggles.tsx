@@ -27,7 +27,7 @@ export function InsightPanelToggles({ insightLogicProps }: { insightLogicProps: 
     const { preflight } = useValues(preflightLogic)
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
-    const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || !preflight?.cloud)
+    const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || preflight?.is_debug)
 
     const handleToggleQueryEditorPanel = (): void => {
         if (hasDashboardItemId && insightMode !== ItemMode.Edit) {

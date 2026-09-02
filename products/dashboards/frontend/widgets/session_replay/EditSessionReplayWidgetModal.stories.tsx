@@ -38,7 +38,7 @@ function EditSessionReplayWidgetModalStory({
 }
 
 const meta: Meta<typeof EditSessionReplayWidgetModalStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Session replay/Recent recordings/Widget settings',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Session replay/Recent recordings/Widget settings',
     component: EditSessionReplayWidgetModalStory,
     parameters: {
         layout: 'fullscreen',

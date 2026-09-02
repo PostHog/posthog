@@ -65,6 +65,22 @@ describe('experimentActivityDescriber', () => {
         })
     })
 
+    describe('exposure freeze rows', () => {
+        it.each([
+            { activity: 'exposure_frozen', expectedFragment: 'froze exposure for', notExpected: 'unfroze' },
+            { activity: 'exposure_unfrozen', expectedFragment: 'unfroze exposure for', notExpected: 'unknown action' },
+            { activity: 'paused', expectedFragment: 'paused experiment:', notExpected: 'unknown action' },
+            { activity: 'resumed', expectedFragment: 'resumed experiment:', notExpected: 'unknown action' },
+        ])('$activity: "$expectedFragment experiment name"', ({ activity, expectedFragment, notExpected }) => {
+            const result = experimentActivityDescriber(baseLogItem({ activity }))
+            const text = textOf(result)
+            expect(text).toContain('Alice Adams')
+            expect(text).toContain(expectedFragment)
+            expect(text).toContain('Checkout funnel')
+            expect(text).not.toContain(notExpected)
+        })
+    })
+
     describe('metric reorder rows on the experiment scope', () => {
         it.each([
             {

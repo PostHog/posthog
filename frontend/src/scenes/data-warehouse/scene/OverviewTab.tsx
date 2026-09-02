@@ -105,10 +105,10 @@ export function OverviewTab(): JSX.Element {
             sorter: (a, b) => STATUS_SEVERITY[a.readiness_state] - STATUS_SEVERITY[b.readiness_state],
         },
         {
-            title: 'Schemas backfilled',
-            key: 'backfilled_schemas',
-            render: (_, source) => `${source.backfilled_schemas} / ${source.total_schemas}`,
-            sorter: (a, b) => a.backfilled_schemas / a.total_schemas - b.backfilled_schemas / b.total_schemas,
+            title: 'Schemas applied',
+            key: 'applied_schemas',
+            render: (_, source) => `${source.applied_schemas} / ${source.total_schemas}`,
+            sorter: (a, b) => a.applied_schemas / a.total_schemas - b.applied_schemas / b.total_schemas,
         },
         {
             title: 'Last source import',
@@ -167,7 +167,7 @@ export function OverviewTab(): JSX.Element {
                 <div>
                     <h2 className="mb-1">Warehouse data readiness</h2>
                     <p className="text-muted mb-0">
-                        Track historical backfills and whether recent source imports have reached your warehouse.
+                        Track historical backfills and the workflows applying source imports to your warehouse.
                     </p>
                 </div>
                 <LemonButton

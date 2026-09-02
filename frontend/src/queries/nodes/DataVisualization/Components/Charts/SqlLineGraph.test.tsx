@@ -15,10 +15,11 @@ import {
     renderWithInsights,
     sqlChart,
 } from '~/test/insight-testing'
-import { ChartDisplayType } from '~/types'
+import { buildAnnotation } from '~/test/insight-testing/test-data'
+import { AnnotationScope, ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlLineGraph } from './SqlLineGraph'
 
 // Some blocks below mount the full DataVisualization tree (~7 logics). Neither timeout is set
@@ -68,7 +69,7 @@ const ySeries = (name: string, data: (number | null)[], settings: YSettings = {}
     settings,
 })
 
-const props = (overrides: Partial<LineGraphProps>): LineGraphProps => ({
+const props = (overrides: Partial<SqlChartProps>): SqlChartProps => ({
     xData: xData(['Mon', 'Tue', 'Wed']),
     yData: [],
     visualizationType: ChartDisplayType.ActionsLineGraph,
@@ -76,7 +77,7 @@ const props = (overrides: Partial<LineGraphProps>): LineGraphProps => ({
     ...overrides,
 })
 
-const renderChart = async (overrides: Partial<LineGraphProps>): Promise<void> => {
+const renderChart = async (overrides: Partial<SqlChartProps>): Promise<void> => {
     renderWithInsights({ component: <SqlLineGraph {...props(overrides)} /> })
     await screen.findByLabelText(/chart with/i)
 }
@@ -115,6 +116,58 @@ const renderLine = (
     })
 
 describe('SqlLineGraph', () => {
+    describe('annotations', () => {
+        it('renders annotations when enabled', async () => {
+            renderDataVisualization({
+                query: buildDataVisualizationQuery({
+                    display: ChartDisplayType.ActionsLineGraph,
+                    chartSettings: { xAxis: { column: 'month' }, showAnnotations: true },
+                }),
+                response: twoSeries(),
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Feature released',
+                            date_marker: '2025-12-01T12:00:00Z',
+                        }),
+                    ],
+                },
+            })
+
+            await waitFor(() => {
+                expect(
+                    [...document.querySelectorAll<HTMLButtonElement>('.AnnotationsBadge')].some(
+                        (element) => element.textContent === '1'
+                    )
+                ).toBe(true)
+            })
+        })
+
+        it('does not render annotations for a categorical X axis', async () => {
+            renderDataVisualization({
+                query: buildDataVisualizationQuery({
+                    display: ChartDisplayType.ActionsLineGraph,
+                    chartSettings: { xAxis: { column: 'category' }, showAnnotations: true },
+                }),
+                response: {
+                    columns: ['category', 'accounts'],
+                    types: [
+                        ['category', 'String'],
+                        ['accounts', 'UInt64'],
+                    ],
+                    results: [
+                        ['small', 1],
+                        ['large', 2],
+                    ],
+                },
+            })
+
+            await screen.findByLabelText(/chart with/i)
+            expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
+        })
+    })
+
     describe('y-axis tick formatting', () => {
         const waitForYTicks = async (): Promise<string[]> => {
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
@@ -304,7 +357,14 @@ describe('SqlLineGraph', () => {
             expect(container.querySelector('[data-attr="hog-chart-timeseries-line-legend"]')).not.toBeInTheDocument()
         })
 
-        it('hides a series from the chart and tooltip when its legend item is toggled off', async () => {
+        it.each([
+            { name: 'clicking a legend item isolates that series', additive: false, expectedRows: ['b'] },
+            {
+                name: 'meta-clicking a legend item hides just that series',
+                additive: true,
+                expectedRows: ['a'],
+            },
+        ])('$name', async ({ additive, expectedRows }) => {
             const { container } = renderLine(
                 { yAxis: [{ column: 'a' }, { column: 'b' }], showLegend: true },
                 twoSeries()
@@ -314,11 +374,11 @@ describe('SqlLineGraph', () => {
             const bButton = [...getLegend(container).querySelectorAll('button')].find((b) =>
                 b.textContent?.includes('b')
             )!
-            fireEvent.click(bButton)
+            fireEvent.click(bButton, { metaKey: additive })
 
             await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
-            expect(tooltip.rows()).toEqual(['a'])
+            expect(tooltip.rows()).toEqual(expectedRows)
         })
     })
 
@@ -338,8 +398,12 @@ describe('SqlLineGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe(expectedX)
-            expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears, so read them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe(expectedX)
+                expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            })
         })
     })
 

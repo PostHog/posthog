@@ -26,6 +26,22 @@ describe('useChartMargins', () => {
         expect(render({ hideXAxis: true }).bottom).toBe(8)
     })
 
+    describe('override', () => {
+        it('applies the sides it sets', () => {
+            expect(render({ override: { top: 30, left: 24 } })).toMatchObject({ top: 30, left: 24 })
+        })
+
+        it('leaves a side alone when its override is undefined', () => {
+            const withUndefined = render({ override: { top: undefined, left: 24 } })
+            expect(withUndefined.top).toBe(DEFAULT_MARGINS.top)
+            expect(withUndefined.left).toBe(24)
+        })
+
+        it('honors an explicit zero rather than treating it as unset', () => {
+            expect(render({ override: { top: 0, left: 0 } })).toMatchObject({ top: 0, left: 0 })
+        })
+    })
+
     it('keeps default bottom margin otherwise', () => {
         expect(render().bottom).toBe(DEFAULT_MARGINS.bottom)
     })
@@ -38,8 +54,13 @@ describe('useChartMargins', () => {
         expect(render({ xAxisLabel: '   ' }).bottom).toBe(DEFAULT_MARGINS.bottom)
     })
 
-    it('collapses left margin when hideYAxis is true', () => {
-        expect(render({ hideYAxis: true }).left).toBe(8)
+    it('collapses the left margin when hideYAxis is true, floored on the first x label half-width', () => {
+        // Widest label "Mon" measures 30px mocked → half 15 + 4 edge padding = 19.
+        expect(render({ hideYAxis: true }).left).toBe(19)
+    })
+
+    it('fully collapses the left margin when both axes are hidden', () => {
+        expect(render({ hideYAxis: true, hideXAxis: true }).left).toBe(8)
     })
 
     it('left margin is at least 20 when y-axis is shown', () => {
@@ -111,6 +132,15 @@ describe('useChartMargins', () => {
         const big: Series[] = [{ key: 'a', label: 'A', data: [1_000_000_000, 2_000_000_000] }]
         const small: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]
         expect(render({ series: big }).left).toBeGreaterThan(render({ series: small }).left)
+    })
+
+    it('moves rotated category-label space from the horizontal margins to the bottom margin', () => {
+        const longLabels = ['a-very-long-category-label', 'another-long-category-label']
+        const horizontal = render({ labels: longLabels })
+        const rotated = render({ labels: longLabels, xTickLabelRotation: -45 })
+
+        expect(rotated.bottom).toBeGreaterThan(horizontal.bottom)
+        expect(rotated.left + rotated.right).toBeLessThan(horizontal.left + horizontal.right)
     })
 
     describe('horizontal orientation', () => {

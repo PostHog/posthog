@@ -17,7 +17,12 @@ axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
@@ -25,7 +30,6 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-rand = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

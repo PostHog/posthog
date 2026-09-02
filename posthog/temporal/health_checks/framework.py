@@ -7,7 +7,7 @@ from typing import Any
 from django.conf import settings
 
 from posthog.clickhouse.query_tagging import Product
-from posthog.dags.common.owners import JobOwners
+from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
@@ -152,6 +152,18 @@ class HealthCheckRegistration:
     active_since_days: int | None
     product: Product | None
     remediation: Remediation | None
+
+    def __post_init__(self) -> None:
+        # A fraction, not a percent: 50 here would silently skip the rollout filter and hit every team.
+        if not (0.0 <= self.rollout_percentage <= 1.0):
+            raise ValueError(
+                f"HealthCheckRegistration rollout_percentage must be between 0 and 1, got {self.rollout_percentage}"
+            )
+        if not (0.0 <= self.not_processed_threshold <= 1.0):
+            raise ValueError(
+                f"HealthCheckRegistration not_processed_threshold must be between 0 and 1, "
+                f"got {self.not_processed_threshold}"
+            )
 
 
 def _register_health_check(cls: type[HealthCheck]) -> None:

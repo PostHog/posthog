@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
+from posthog.llm_prompt import normalize_prompt_to_string
+
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
 INTERNAL_FIRST_VERSION_ID_KEY = "_first_version_id"
 
@@ -24,6 +26,7 @@ def serialize_prompt(prompt: LLMPrompt, *, include_internal: bool = False) -> di
         "id": str(prompt.id),
         "name": prompt.name,
         "prompt": normalize_prompt_to_string(prompt.prompt),
+        "config": prompt.config,
         "version": prompt.version,
         "created_at": _serialize_timestamp(prompt.created_at),
         "updated_at": _serialize_timestamp(prompt.updated_at),
@@ -43,6 +46,7 @@ def serialize_prompt_version(prompt: LLMPrompt, *, include_internal: bool = Fals
         "id": str(prompt.id),
         "name": prompt.name,
         "prompt": normalize_prompt_to_string(prompt.prompt),
+        "config": prompt.config,
         "version": prompt.version,
         "created_at": _serialize_timestamp(prompt.created_at),
         "updated_at": _serialize_timestamp(prompt.updated_at),

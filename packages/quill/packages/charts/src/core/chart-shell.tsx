@@ -40,7 +40,7 @@ export interface ChartShellProps {
     crosshair?: boolean
     ariaLabel: string
     handlers: Required<Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseMove' | 'onMouseLeave' | 'onClick'>> &
-        Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown'>
+        Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown' | 'onPointerDown'>
     /** Render the overlay layer — bases gate this on layout readiness (dimensions + scales). */
     showOverlay: boolean
     children?: React.ReactNode
@@ -80,6 +80,7 @@ export function ChartShell({
             onMouseMove={handlers.onMouseMove}
             onMouseLeave={handlers.onMouseLeave}
             onClick={handlers.onClick}
+            onPointerDown={handlers.onPointerDown}
         >
             <canvas ref={canvasRef} role="img" aria-label={ariaLabel} className={STATIC_CANVAS_CLASS} />
             <canvas ref={overlayCanvasRef} aria-hidden="true" className={OVERLAY_CANVAS_CLASS} />

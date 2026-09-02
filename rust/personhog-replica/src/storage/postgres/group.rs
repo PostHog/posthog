@@ -785,6 +785,7 @@ impl GroupStorage for PostgresStorage {
         name_plural: Option<&str>,
         detail_dashboard_id: Option<i64>,
         default_columns: Option<&[String]>,
+        created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> StorageResult<Option<GroupTypeMapping>> {
         let client = current_client_name();
         let method = current_method_name();
@@ -831,7 +832,8 @@ impl GroupStorage for PostgresStorage {
             SET name_singular = CASE WHEN $3 THEN $4 ELSE name_singular END,
                 name_plural = CASE WHEN $5 THEN $6 ELSE name_plural END,
                 detail_dashboard_id = CASE WHEN $7 THEN $8 ELSE detail_dashboard_id END,
-                default_columns = CASE WHEN $9 THEN $10 ELSE default_columns END
+                default_columns = CASE WHEN $9 THEN $10 ELSE default_columns END,
+                created_at = CASE WHEN $11 THEN $12 ELSE created_at END
             WHERE project_id = $1 AND group_type_index = $2
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
                       project_id as "project_id!",
@@ -849,6 +851,8 @@ impl GroupStorage for PostgresStorage {
             detail_dashboard_id.map(|id| id as i32),
             mask_set.contains("default_columns"),
             default_columns,
+            mask_set.contains("created_at"),
+            created_at,
         )
         .fetch_optional(&mut *conn)
         .await?;

@@ -1,12 +1,17 @@
+import hmac
 import json
 import time
+import hashlib
 from datetime import UTC, datetime, timedelta
-from enum import Enum
-from typing import Any, Optional, cast
+from enum import Enum, StrEnum
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import F
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import jwt
 import requests
@@ -15,14 +20,19 @@ from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.team.event_retention import (
+    organization_events_retention_months,
+    reconcile_organization_events_retention,
+)
+from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.signature import compute_signature
-from ee.billing.billing_types import BillingProvider, BillingStatus
+from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -32,6 +42,35 @@ logger = structlog.get_logger(__name__)
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
+BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+
+# Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
+# on its read-only billing status path for tokens without a user role.
+BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
+
+
+StartupProgramLabel = Literal["Startup", "YC"]
+
+
+class PrepaidCreditState(StrEnum):
+    NONE = "none"
+    PENDING = "pending"
+    ACTIVE = "active"
+    EXHAUSTED = "exhausted"
+    EXPIRED = "expired"
+
+
+class FundingStatusUnavailable(Exception):
+    pass
+
+
+_FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
+
+
+@frozen
+class OrganizationFundingStatus:
+    startup_program_label: StartupProgramLabel | None
+    prepaid_credit_state: PrepaidCreditState
 
 
 class BillingAPIErrorCodes(Enum):
@@ -55,6 +94,19 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _free_trial_active(customer: CustomerInfo) -> bool:
+    free_trial_until = customer.get("free_trial_until")
+    if not free_trial_until:
+        return False
+    expires = parse_datetime(free_trial_until) if isinstance(free_trial_until, str) else free_trial_until
+    if expires is None:
+        return False
+    # An offset-less timestamp parses naive, and comparing naive to aware raises TypeError.
+    if timezone.is_naive(expires):
+        expires = expires.replace(tzinfo=UTC)
+    return expires > timezone.now()
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -143,13 +195,21 @@ def build_billing_token(
     return encoded_jwt
 
 
+def _compute_webhook_signature(secret: str, timestamp: int, body: bytes) -> str:
+    """HMAC-SHA256 over "<timestamp>.<body>", hex-encoded."""
+    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
+    mac.update(f"{timestamp}.".encode())
+    mac.update(body)
+    return mac.digest().hex()
+
+
 def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, str]:
     secret = getattr(settings, "BILLING_PROVIDER_WEBHOOK_SECRET", "")
     if not secret:
         raise ValueError("BILLING_PROVIDER_WEBHOOK_SECRET is not configured")
 
     timestamp = int(time.time())
-    digest = compute_signature(secret, timestamp, body)
+    digest = _compute_webhook_signature(secret, timestamp, body)
     return {
         BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER: f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={digest}",
         BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER: str(timestamp),
@@ -164,6 +224,31 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
         except JSONDecodeError:
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+
+
+def _parse_funding_status(data: object) -> OrganizationFundingStatus:
+    if not isinstance(data, dict):
+        raise FundingStatusUnavailable("Billing returned an invalid funding status response")
+
+    if "startup_program_label" not in data:
+        raise FundingStatusUnavailable("Billing returned an invalid startup program label")
+    raw_startup_program_label = data.get("startup_program_label")
+    if raw_startup_program_label not in (None, "Startup", "YC"):
+        raise FundingStatusUnavailable("Billing returned an invalid startup program label")
+    startup_program_label = cast(StartupProgramLabel | None, raw_startup_program_label)
+
+    raw_prepaid_credit_state = data.get("prepaid_credit_state")
+    if not isinstance(raw_prepaid_credit_state, str):
+        raise FundingStatusUnavailable("Billing returned an invalid prepaid credit state")
+    try:
+        prepaid_credit_state = PrepaidCreditState(raw_prepaid_credit_state)
+    except ValueError as error:
+        raise FundingStatusUnavailable("Billing returned an invalid prepaid credit state") from error
+
+    return OrganizationFundingStatus(
+        startup_program_label=startup_program_label,
+        prepaid_credit_state=prepaid_credit_state,
+    )
 
 
 class BillingManager:
@@ -210,6 +295,17 @@ class BillingManager:
 
         response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
 
+        usage_summary = response.get("usage_summary") or {}
+        if organization.usage:
+            for usage_key, usage in usage_summary.items():
+                # both dicts carry non-usage entries, e.g. "period" is a list
+                org_usage = organization.usage.get(usage_key)
+                if not isinstance(org_usage, dict) or not isinstance(usage, dict):
+                    continue
+                todays_usage = org_usage.get("todays_usage")
+                if todays_usage is not None:
+                    usage["todays_usage"] = todays_usage
+
         # Extend the products with accurate usage_limit info
         for product in response["products"]:
             usage_key = product.get("usage_key")
@@ -220,12 +316,8 @@ class BillingManager:
             billing_reported_usage = usage.get("usage") or 0
             current_usage = billing_reported_usage
 
-            product_usage: dict[str, Any] = {}
-            if organization and organization.usage:
-                product_usage = organization.usage.get(usage_key) or {}
-
-            if product_usage.get("todays_usage"):
-                todays_usage = product_usage["todays_usage"]
+            if usage.get("todays_usage"):
+                todays_usage = usage["todays_usage"]
                 current_usage = billing_reported_usage + todays_usage
 
             product["current_usage"] = current_usage
@@ -254,8 +346,27 @@ class BillingManager:
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])
+        previous_feature_keys = {
+            feature.get("key") for feature in (organization.available_product_features or []) if feature
+        }
+        previous_retention_months = organization_events_retention_months(organization)
         organization.available_product_features = available_product_features
         organization.save()
+
+        if (
+            available_product_features
+            and organization_events_retention_months(organization) != previous_retention_months
+        ):
+            reconcile_organization_events_retention(organization)
+
+        # Only reset on a non-empty list: the retention reset is not self-healing, so an
+        # empty error-path response must not permanently downgrade team settings.
+        if available_product_features:
+            revoked_feature_keys = previous_feature_keys - {
+                feature.get("key") for feature in available_product_features if feature
+            }
+            if revoked_feature_keys:
+                reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         return available_product_features
 
@@ -331,6 +442,44 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+    def get_funding_status(self, organization: Organization) -> OrganizationFundingStatus:
+        cache_key = f"organization_funding_status:{organization.id}"
+        try:
+            cached_status = cache.get(cache_key)
+        except Exception:
+            logger.warning("funding_status_cache_read_failed", exc_info=True)
+            cached_status = None
+
+        if cached_status == _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE:
+            raise FundingStatusUnavailable("Could not resolve organization funding status")
+        if cached_status is not None:
+            return _parse_funding_status(cached_status)
+
+        try:
+            response = requests.get(
+                f"{BILLING_SERVICE_URL}/api/billing/funding-status/",
+                headers=self.get_auth_headers(organization),
+                timeout=5,
+            )
+            handle_billing_service_error(response, valid_codes=(200,))
+            raw_status = response.json()
+            funding_status = _parse_funding_status(raw_status)
+        except Exception as error:
+            try:
+                cache.set(cache_key, _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE, timeout=5)
+            except Exception:
+                logger.warning("funding_status_failure_cache_write_failed", exc_info=True)
+            if isinstance(error, FundingStatusUnavailable):
+                raise
+            raise FundingStatusUnavailable("Could not resolve organization funding status") from error
+
+        try:
+            cache.set(cache_key, raw_status, timeout=30)
+        except Exception:
+            logger.warning("funding_status_cache_write_failed", exc_info=True)
+
+        return funding_status
 
     def _get_default_billing_response(self, organization: Organization | None) -> dict[str, Any]:
         products = self.get_default_products(organization)
@@ -457,6 +606,10 @@ class BillingManager:
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
+                posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
+                sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
+                sandbox_compute_cpu_millicore_seconds=usage_summary.get("sandbox_compute_cpu_millicore_seconds", {}),
+                sandbox_compute_memory_mib_seconds=usage_summary.get("sandbox_compute_memory_mib_seconds", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
@@ -477,14 +630,37 @@ class BillingManager:
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
+        revoked_feature_keys: set[str] = set()
+        events_retention_changed = False
+        # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
+        # reports) and a partial or error-path billing response must not downgrade the org.
+        # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
+            previous_feature_keys = {
+                feature.get("key") for feature in (organization.available_product_features or []) if feature
+            }
+            new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
+            revoked_feature_keys = previous_feature_keys - new_feature_keys
+            previous_retention_months = organization_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
+            events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
 
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
             org_modified = True
+
+        # A missing key (partial or error-path response) must not reset a known value to unknown.
+        if "has_active_subscription" in data:
+            has_active_subscription = data.get("has_active_subscription")
+            # Trials run without a Stripe subscription, so a trialing org would otherwise read
+            # as free tier and get metered; count an active trial as paid until it expires.
+            if has_active_subscription is False and _free_trial_active(data):
+                has_active_subscription = True
+            if has_active_subscription != organization.has_active_subscription:
+                organization.has_active_subscription = has_active_subscription
+                org_modified = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -513,6 +689,12 @@ class BillingManager:
 
         if org_modified:
             organization.save()
+
+        if events_retention_changed:
+            reconcile_organization_events_retention(organization)
+
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
@@ -745,6 +927,20 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    def get_billing_status_for_alerts(self, organization: Organization) -> dict[str, Any]:
+        """Read billing status for billing alert evaluation.
+
+        Evaluation runs as a backend job without an acting user, so the token carries the
+        billing alerts service_action claim instead of a user role claim.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=self.get_auth_headers(organization, service_action=BILLING_ALERTS_EVALUATION_SERVICE_ACTION),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
+        handle_billing_service_error(res)
+        return res.json()
+
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_with_post_fallback(organization, "/api/v2/usage/", params)
 
@@ -765,7 +961,12 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = requests.get(
+            url,
+            headers=headers,
+            params=self._to_query_params(params),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
 
         if res.status_code in (414, 431):
             logger.info(
@@ -774,7 +975,12 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = requests.post(
+                url,
+                headers=headers,
+                json=self._to_post_body(params),
+                timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+            )
 
         handle_billing_service_error(res)
         return res.json()

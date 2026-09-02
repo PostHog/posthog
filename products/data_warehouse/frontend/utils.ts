@@ -184,25 +184,19 @@ export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = 
 // Sync frequencies ordered shortest→longest. Object key order above is the single source of truth.
 export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]
 
-// Sub-5-minute cadence is CDC-only; every other sync type floors at 5 minutes. This is the one
-// place that rule lives — the schedule picker, bulk edits, and the clamp all derive from it.
-export const CDC_ONLY_SYNC_FREQUENCIES: DataWarehouseSyncInterval[] = ['1min']
+// Every sync type floors at 5 minutes. Rows written before the floor may still carry '1min'
+// (the label maps above keep rendering it), but it is never offered or accepted again. This is
+// the one place the floor lives — the schedule picker, bulk edits, and the clamp all derive
+// from it. (The backend enforces the same rule in ExternalDataSchemaSerializer.)
+const LEGACY_SUB_FLOOR_SYNC_FREQUENCIES: DataWarehouseSyncInterval[] = ['1min']
 
-// Frequencies a given sync type is allowed to use. (The backend enforces the same rule in
-// ExternalDataSchemaSerializer — keep them in sync if this changes.)
-export function allowedSyncFrequencies(syncType: string | null | undefined): DataWarehouseSyncInterval[] {
-    if (syncType === 'cdc') {
-        return SYNC_FREQUENCY_ORDER
-    }
-    return SYNC_FREQUENCY_ORDER.filter((frequency) => !CDC_ONLY_SYNC_FREQUENCIES.includes(frequency))
+export function allowedSyncFrequencies(): DataWarehouseSyncInterval[] {
+    return SYNC_FREQUENCY_ORDER.filter((frequency) => !LEGACY_SUB_FLOOR_SYNC_FREQUENCIES.includes(frequency))
 }
 
-// Raise a requested frequency to the fastest one the sync type permits (e.g. 1min → 5min for non-CDC).
-export function clampSyncFrequency(
-    requested: DataWarehouseSyncInterval,
-    syncType: string | null | undefined
-): DataWarehouseSyncInterval {
-    const allowed = allowedSyncFrequencies(syncType)
+// Raise a requested frequency to the fastest allowed one (e.g. a legacy 1min → 5min).
+export function clampSyncFrequency(requested: DataWarehouseSyncInterval): DataWarehouseSyncInterval {
+    const allowed = allowedSyncFrequencies()
     return allowed.includes(requested) ? requested : allowed[0]
 }
 

@@ -66,10 +66,13 @@
 }
 
 // Dark theme overrides
-.hljs-dark {
+.hljs-dark,
+[theme='dark'] .hljs {
+    color: rgb(212 212 212);
+
     .hljs-comment,
     .hljs-quote {
-        color: rgb(106 153 85);
+        color: rgb(124 166 104);
     }
 
     .hljs-keyword,
@@ -77,7 +80,8 @@
         color: rgb(86 156 214);
     }
 
-    .hljs-tag {
+    .hljs-tag,
+    .hljs-type {
         color: rgb(78 201 176);
     }
 
@@ -88,7 +92,7 @@
 
     .hljs-literal,
     .hljs-variable.constant_ {
-        color: rgb(100 102 149);
+        color: rgb(197 134 192);
     }
 
     .hljs-number,
@@ -103,6 +107,7 @@
 
     .hljs-attr,
     .hljs-attribute,
+    .hljs-property,
     .hljs-variable,
     .hljs-template-variable {
         color: rgb(156 220 254);
@@ -132,7 +137,7 @@
     }
 
     .hljs-meta {
-        color: rgb(0 0 128);
+        color: rgb(156 220 254);
     }
 }
 

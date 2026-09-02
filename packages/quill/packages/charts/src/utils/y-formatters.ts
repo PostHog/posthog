@@ -1,10 +1,11 @@
 import {
     compactNumber,
     formatCurrency,
+    formatDurationMilliseconds,
     humanFriendlyCurrency,
-    humanFriendlyDuration,
     humanFriendlyNumber,
     percentage,
+    significantDecimalPlaces,
 } from './format'
 
 export type YAxisFormat =
@@ -39,28 +40,32 @@ function formatNanoseconds(value: number): string {
     if (absoluteValue < 1_000_000) {
         return `${humanFriendlyNumber(value / 1_000)}µs`
     }
-    return humanFriendlyDuration(value / 1_000_000_000, { secondsFixed: 1 })
+    return formatDurationMilliseconds(value / 1_000_000)
 }
 
 export function buildYTickFormatter(config: YFormatterConfig): (value: number) => string {
     const { format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency } = config
     return (value: number): string => {
-        let formatted = humanFriendlyNumber(value, decimalPlaces, minDecimalPlaces)
+        let formatted = humanFriendlyNumber(
+            value,
+            decimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces),
+            minDecimalPlaces
+        )
         switch (format) {
             case 'duration':
-                formatted = humanFriendlyDuration(value)
+                formatted = formatDurationMilliseconds(value * 1000)
                 break
             case 'duration_ms':
-                formatted = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
+                formatted = formatDurationMilliseconds(value)
                 break
             case 'duration_ns':
                 formatted = formatNanoseconds(value)
                 break
             case 'percentage':
-                formatted = percentage(value / 100, decimalPlaces)
+                formatted = percentage(value / 100, decimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces))
                 break
             case 'percentage_scaled':
-                formatted = percentage(value, decimalPlaces)
+                formatted = percentage(value, decimalPlaces ?? significantDecimalPlaces(value * 100, minDecimalPlaces))
                 break
             case 'currency':
                 try {

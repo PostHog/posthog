@@ -7,11 +7,5 @@
  * driven by the registry build in `registry.ts`.
  */
 
-export const PREFILTERED_EVENTS_OUTPUT = 'prefiltered_events' as const
-export type PrefilteredEventsOutput = typeof PREFILTERED_EVENTS_OUTPUT
-
-export const PRECALCULATED_PERSON_PROPERTIES_OUTPUT = 'precalculated_person_properties' as const
-export type PrecalculatedPersonPropertiesOutput = typeof PRECALCULATED_PERSON_PROPERTIES_OUTPUT
-
 export const WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT = 'warehouse_source_webhooks' as const
 export type WarehouseSourceWebhooksOutput = typeof WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT

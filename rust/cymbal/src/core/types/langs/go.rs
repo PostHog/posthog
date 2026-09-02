@@ -40,7 +40,6 @@ impl From<&RawGoFrame> for Frame {
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             context: None,
-            release: None,
             suspicious: false,
             module: None,
             code_variables: None,

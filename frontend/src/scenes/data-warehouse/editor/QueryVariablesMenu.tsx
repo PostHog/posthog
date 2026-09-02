@@ -21,7 +21,7 @@ import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components
 import { VariableInput } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -234,30 +234,18 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         sideIcon: <IconExternal />,
     }
 
+    // The menu's visibility is controlled, so clicking a nested item only closes the
+    // submenu — close the whole menu explicitly before handing over to the modal.
+    const newVariableTypes: VariableType[] = ['String', 'Number', 'Boolean', 'List', 'Date']
     const newVariableMenuItem: LemonMenuItem = {
         label: 'New variable',
-        items: [
-            {
-                label: 'String',
-                onClick: () => openNewVariableModal('String'),
+        items: newVariableTypes.map((variableType) => ({
+            label: variableType,
+            onClick: () => {
+                closeMenu()
+                openNewVariableModal(variableType)
             },
-            {
-                label: 'Number',
-                onClick: () => openNewVariableModal('Number'),
-            },
-            {
-                label: 'Boolean',
-                onClick: () => openNewVariableModal('Boolean'),
-            },
-            {
-                label: 'List',
-                onClick: () => openNewVariableModal('List'),
-            },
-            {
-                label: 'Date',
-                onClick: () => openNewVariableModal('Date'),
-            },
-        ],
+        })),
     }
 
     const menuItems: LemonMenuItems = variablesLoading

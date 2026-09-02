@@ -5,11 +5,13 @@ import { useRef } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,13 +22,13 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
-import { SlaDisplay } from '../../components/SlaDisplay'
+import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
@@ -37,6 +39,8 @@ import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { useDiscussionTimelineExtras } from './ThreadDiscussions'
+import { reportTimelineExtras } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
@@ -55,7 +59,11 @@ export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
-    paramsToProps: ({ params: { ticketId } }) => ({ ticketId, id: ticketId || 'new' }),
+    // `id` must match supportTicketSceneLogic's `key((props) => props.id)` so the logic instance
+    // App.tsx binds via BindLogic (and that the side panel context reads) is the same keyed
+    // instance the component builds directly — otherwise the side panel reads a never-populated
+    // logic instance and the access control tab never appears.
+    paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new', id: ticketId || 'new' }),
 }
 
 // The rendered label is "<Send|Attach> and set <statusLabel>", depending on the private note checkbox
@@ -83,6 +91,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         eventsQuery,
         previousTickets,
         previousTicketsLoading,
+        linkedReports,
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
@@ -98,6 +107,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
+        editingMessageId,
+        discussionsEnabled,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -118,6 +129,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftModeEnabled,
         dismissKnowledgeGap,
         submitAiReplyFeedback,
+        startEditingMessage,
+        cancelEditingMessage,
+        deleteMessage,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -148,6 +162,19 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
           }[emailReplyBlockedReason]
         : undefined
 
+    const canEditTicket = accessLevelSatisfied(
+        AccessControlResourceType.Ticket,
+        ticket?.user_access_level ?? AccessControlLevel.None,
+        AccessControlLevel.Editor
+    )
+
+    const sendDisabledReason =
+        getAccessControlDisabledReason(
+            AccessControlResourceType.Ticket,
+            AccessControlLevel.Editor,
+            ticket?.user_access_level
+        ) ?? undefined
+
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
     const resizerLogicProps: ResizerLogicProps = {
@@ -158,6 +185,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    // Above the early returns below: this scene renders a spinner and a not-found state before the
+    // thread, and a hook can't be called on only some of those paths.
+    const discussionExtras = useDiscussionTimelineExtras(ticket?.id, discussionsEnabled)
 
     if (ticketLoading) {
         return (
@@ -208,6 +239,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 >
                     {/* Main conversation area */}
                     <ChatView
+                        threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
@@ -229,12 +261,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
                         unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
+                        sendDisabledReason={sendDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"
                         latestAiMessageId={latestAiMessage?.id ?? null}
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
+                        aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
+                        currentUserId={user?.id ?? null}
+                        canEditTicket={canEditTicket}
+                        editingMessageId={editingMessageId}
+                        onEditMessage={startEditingMessage}
+                        onDeleteMessage={deleteMessage}
+                        onCancelEdit={cancelEditingMessage}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -336,6 +376,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'email' && ticket?.email_to && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">To</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
+                                        {ticket.email_to}
+                                    </span>
+                                </div>
+                            )}
                             {ticket?.channel_source === 'email' &&
                                 ticket?.cc_participants &&
                                 ticket.cc_participants.length > 0 && (
@@ -400,6 +448,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
                                     dropdownMatchSelectWidth={false}
+                                    disabledReason={sendDisabledReason}
                                 />
                             </div>
                             <div className="flex justify-between items-center">
@@ -410,6 +459,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     options={priorityOptions}
                                     onChange={(value: TicketPriority | null) => value && setPriority(value)}
                                     dropdownMatchSelectWidth={false}
+                                    disabledReason={sendDisabledReason}
                                 />
                             </div>
                             <div className="flex justify-between items-start">
@@ -421,17 +471,23 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                                 size="xxsmall"
                                                 type="tertiary"
                                                 onClick={() => setAssignee({ type: 'user', id: user.id })}
+                                                disabledReason={sendDisabledReason}
                                             >
                                                 <span className="text-accent">Assign to me</span>
                                             </LemonButton>
                                         )}
-                                    <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                    <AssigneeSelect
+                                        assignee={assignee}
+                                        onChange={setAssignee}
+                                        disabledReason={sendDisabledReason}
+                                    >
                                         {(resolvedAssignee, isOpen) => (
                                             <LemonButton
                                                 size="small"
                                                 type="secondary"
                                                 active={isOpen}
                                                 sideIcon={<IconChevronDown />}
+                                                disabledReason={sendDisabledReason}
                                             >
                                                 <span className="flex items-center gap-1">
                                                     <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
@@ -459,24 +515,49 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     selectionPeriod="upcoming"
                                     clearable
                                     placeholder="Not snoozed"
-                                    buttonProps={{ size: 'small', type: 'secondary', fullWidth: false }}
+                                    applyActions={[
+                                        {
+                                            label: 'Apply and set to on hold',
+                                            onClick: (date) => {
+                                                setSnoozedUntil(date.startOf('minute').toISOString())
+                                                setStatus('on_hold')
+                                            },
+                                        },
+                                    ]}
+                                    buttonProps={{
+                                        size: 'small',
+                                        type: 'secondary',
+                                        fullWidth: false,
+                                        disabledReason: sendDisabledReason,
+                                    }}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Tags</span>
-                                <TicketTags tags={tags} onChange={setTags} saving={false} />
+                            <div className="flex justify-between items-start gap-2">
+                                <span className="text-muted-alt shrink-0">Tags</span>
+                                <TicketTags
+                                    tags={tags}
+                                    onChange={setTags}
+                                    saving={false}
+                                    disabledReason={sendDisabledReason}
+                                />
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => updateTicket()}
-                                loading={ticketUpdating}
-                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Ticket}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={ticket?.user_access_level}
                             >
-                                Save changes
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => updateTicket()}
+                                    loading={ticketUpdating}
+                                    disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                                >
+                                    Save changes
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                     </LemonCard>
 

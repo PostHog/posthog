@@ -22,7 +22,6 @@ export interface SessionRecordingData {
     snapshot_source?: string | null
     ongoing?: boolean
     activity_score?: number | null
-    has_summary?: boolean
     person?: {
         id?: number | string | null
         distinct_ids?: string[]

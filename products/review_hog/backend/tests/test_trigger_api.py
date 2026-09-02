@@ -12,19 +12,34 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 TRIGGER_URL = "/api/review_hog/trigger/"
+RESOLVE_URL = "/api/review_hog/resolve/"
 _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
+_START_RESOLUTION = "products.review_hog.backend.api.trigger.start_resolution_workflow"
+_BUSY = "products.review_hog.backend.api.trigger.workflow_running"
 
 
-@override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token", REVIEWHOG_TEAM_ID=99, REVIEWHOG_RUN_USER_ID=42)
+@override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token")
 class TestReviewHogTriggerApi(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # The class-level REVIEWHOG_TEAM_ID=99 / REVIEWHOG_RUN_USER_ID=42 must be a real team and an
-        # active member of its org: the trigger rejects unauthorized run users (their sandbox
-        # credentials 403 and the review hangs).
-        self.trigger_team = Team.objects.create(id=99, organization=self.organization, name="reviewhog trigger")
-        self.run_user = User.objects.create(id=42, email="run-user-42@posthog.com")
+        # Let Postgres auto-assign IDs to avoid collisions with the sequence.
+        self.trigger_team = Team.objects.create(organization=self.organization, name="reviewhog trigger")
+        self.run_user = User.objects.create(email="run-user@posthog.com")
         OrganizationMembership.objects.create(organization=self.organization, user=self.run_user)
+        # Apply dynamic IDs via settings overrides
+        self._settings_ctx = self.settings(
+            REVIEWHOG_TEAM_IDS=[self.trigger_team.id],
+            REVIEWHOG_RUN_USER_ID=self.run_user.id,
+        )
+        self._settings_ctx.enable()
+        # The busy-guard probes Temporal on every trigger; tests must never open real connections.
+        busy_patcher = patch(_BUSY, return_value=False)
+        self.mock_busy = busy_patcher.start()
+        self.addCleanup(busy_patcher.stop)
+
+    def tearDown(self):
+        self._settings_ctx.disable()
+        super().tearDown()
 
     @patch(_START, return_value="wf-1")
     def test_valid_trigger_starts_workflow_and_publishes_by_default(self, mock_start):
@@ -38,8 +53,8 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.json(), {"workflow_id": "wf-1", "status": "started"})
         mock_start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog/pull/123",
-            team_id=99,
-            user_id=42,
+            team_id=self.trigger_team.id,
+            user_id=self.run_user.id,
             publish=True,
             trigger_source="label",
         )
@@ -95,7 +110,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         mock_start.assert_called_once()
 
-    @override_settings(REVIEWHOG_TEAM_ID=None)
+    @override_settings(REVIEWHOG_TEAM_IDS=[])
     @patch(_START, return_value="wf-1")
     def test_unconfigured_team_returns_503(self, mock_start):
         resp = self.client.post(
@@ -130,7 +145,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=self.user,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},
@@ -160,7 +175,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=departed,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},
@@ -169,6 +184,40 @@ class TestReviewHogTriggerApi(APIBaseTest):
             )
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
+
+    @patch(_START, return_value="wf-1")
+    def test_trigger_refused_while_resolution_is_running(self, mock_start):
+        # The busy-guard: a review started while the PR's resolve-pr workflow runs would race the
+        # resolution session's pushes and re-review threads it is mid-way through settling. Temporal
+        # can't dedupe across the two workflow ids, so a dropped (or wrong-id) probe here means
+        # double runs — the check must hit resolve-pr's exact deterministic id and refuse.
+        self.mock_busy.return_value = True
+        resp = self.client.post(
+            TRIGGER_URL,
+            {"repo": "PostHog/posthog", "pr_number": 123},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("Still resolving comments", resp.json()["error"])
+        self.mock_busy.assert_called_once_with(f"resolve-pr:{self.trigger_team.id}:posthog/posthog:123")
+        mock_start.assert_not_called()
+
+    @patch(_START_RESOLUTION, return_value="wf-r-1")
+    def test_resolve_refused_while_review_is_running(self, mock_start_resolution):
+        # The other direction: a standalone resolution during a live review would settle threads
+        # the finishing review is about to chain its own resolution for.
+        self.mock_busy.return_value = True
+        resp = self.client.post(
+            RESOLVE_URL,
+            {"repo": "PostHog/posthog", "pr_number": 123},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("review is already running", resp.json()["error"])
+        self.mock_busy.assert_called_once_with(f"review-pr:{self.trigger_team.id}:posthog/posthog:123")
+        mock_start_resolution.assert_not_called()
 
     @parameterized.expand(
         [
@@ -179,9 +228,9 @@ class TestReviewHogTriggerApi(APIBaseTest):
     @patch(_START, return_value="wf-1")
     def test_unauthorized_configured_run_user_rejected(self, _name, deactivate, mock_start):
         if deactivate:
-            User.objects.filter(id=42).update(is_active=False)
+            User.objects.filter(id=self.run_user.id).update(is_active=False)
         else:
-            OrganizationMembership.objects.filter(user_id=42).delete()
+            OrganizationMembership.objects.filter(user_id=self.run_user.id).delete()
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": "PostHog/posthog", "pr_number": 1},

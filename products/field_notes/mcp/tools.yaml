@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Field notes
 feature: field_notes
-url_prefix: /field_notes
+url_prefix: /
 ui_apps: {}
 tools:
     field-notes-create:
@@ -24,7 +24,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
         title: Get field note
         description: >
             Get a single field note by id, including the full element context (selector, element chain, inferred
@@ -39,7 +38,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
         list: true
         title: List field notes
         description: >
@@ -71,7 +69,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
         title: Update field note
         description: >
             Update a field note after acting on it — set `field_note_status` to `acknowledged`, `resolved`, or

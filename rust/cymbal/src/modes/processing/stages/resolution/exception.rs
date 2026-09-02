@@ -1,15 +1,4 @@
-use crate::{
-    error::UnhandledError,
-    frames::RawFrame,
-    metric_consts::EXCEPTION_RESOLVER_OPERATOR,
-    stages::{pipeline::HandledError, resolution::ResolutionStage},
-    types::{
-        batch::Batch,
-        exception_event::{ExceptionEvent, Parsed},
-        operator::{OperatorResult, ValueOperator},
-        Exception, ExceptionList,
-    },
-};
+use crate::{frames::RawFrame, types::Exception};
 
 #[derive(Clone)]
 pub struct ExceptionResolver;
@@ -29,62 +18,6 @@ impl ExceptionResolver {
     pub fn is_dart_exception(exc: &Exception) -> bool {
         // Checking if the exception is a Dart exception
         exc.exception_type.starts_with("minified:")
-    }
-
-    pub async fn resolve_exception_list(
-        team_id: i32,
-        list: ExceptionList,
-        ctx: ResolutionStage,
-    ) -> Result<ExceptionList, UnhandledError> {
-        let resolved = Batch::from(list.0)
-            .apply_func(
-                move |exc, ctx| async move {
-                    let ctx = ctx.clone();
-                    if ExceptionResolver::is_java_exception(&exc) {
-                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
-                        ctx.symbol_resolver
-                            .resolve_java_exception(team_id, exc)
-                            .await
-                    } else if ExceptionResolver::is_dart_exception(&exc) {
-                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
-                        ctx.symbol_resolver
-                            .resolve_dart_exception(team_id, exc)
-                            .await
-                    } else {
-                        Ok(exc)
-                    }
-                },
-                ctx,
-            )
-            .await?;
-        Ok(ExceptionList::from(Vec::from(resolved)))
-    }
-}
-
-impl ValueOperator for ExceptionResolver {
-    type Context = ResolutionStage;
-    type Item = ExceptionEvent<Parsed>;
-    type HandledError = HandledError;
-    type UnhandledError = UnhandledError;
-
-    fn name(&self) -> &'static str {
-        EXCEPTION_RESOLVER_OPERATOR
-    }
-
-    async fn execute_value(
-        &self,
-        mut evt: ExceptionEvent<Parsed>,
-        ctx: ResolutionStage,
-    ) -> OperatorResult<Self> {
-        let team_id = evt.team_id;
-        evt.exception_list = ExceptionResolver::resolve_exception_list(
-            team_id,
-            std::mem::take(&mut evt.exception_list),
-            ctx,
-        )
-        .await?;
-
-        Ok(Ok(evt))
     }
 }
 
@@ -192,6 +125,9 @@ mod test {
             function: "onClick".to_string(),
             lineno: Some(14),
             map_id: Some(map_id),
+            context_line: None,
+            pre_context: Vec::new(),
+            post_context: Vec::new(),
             method_synthetic: false,
             meta: CommonFrameMetadata::default(),
         };

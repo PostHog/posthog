@@ -1,5 +1,7 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+from itertools import count
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -8,28 +10,36 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
+    TRUNK_MERGE_QUEUE_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _issue_event_row,
     _pr_row,
     _run_row,
+    _trunk_queue_row,
     connect_github_source_without_data,
+    create_trunk_source,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _RUN_QUERY,
     _ago,
+    _ago_offset_with_duration,
     _ago_with_duration,
     _dt,
     _EndpointsWarehouseMixin,
     _job_row,
     _resp,
+    _seed_now,
 )
 
 
@@ -93,7 +103,7 @@ class TestWorkflowEndpointMapping(BaseTest):
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
-        bucket_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC) - timedelta(days=1), 10, 8, 7, 1)]
+        bucket_rows = [("PostHog", "posthog", "CI", _seed_now() - timedelta(days=1), 10, 8, 7, 1)]
         # Third response: the previous-window success rate (the Δ baseline); Deploy had no prior runs.
         prev_rows = [("PostHog", "posthog", "CI", 0.95)]
         with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows), _resp(prev_rows)]):
@@ -214,9 +224,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
     def test_repo_overview_headlines_and_series_toggle(self) -> None:
         # The weekly digest's whole read path: headline aggregates with include_series=False must
-        # still carry every number the digest renders — merged counts over ALL merged PRs (bots
+        # still carry every number the digest renders: merged counts over ALL merged PRs (bots
         # included: the merge population that triggered the spend) while the median keeps the
-        # locked bots/drafts-excluded recipe, plus job-backed billable minutes — with all four
+        # locked bots/drafts-excluded recipe, plus job-backed billable minutes, with every
         # chart series empty. The default call keeps the series for the UI.
         self._create_table(
             "github_pull_requests",
@@ -235,32 +245,374 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
-                _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+                _run_row(9501, "CI", "sha81", "completed", "success", _ago(2), _ago(2), pr_number=81, run_attempt=2),
+                # A merge-queue batch run: its job funds the queue slice, and only it.
+                _run_row(
+                    9502, "CI", "sha82q", "completed", "success", _ago(2), _ago(2), head_branch="trunk-merge/gr-1"
+                ),
+                _run_row(9503, "CI", "failed", "completed", "failure", _ago(2), _ago(2)),
+                _run_row(9504, "CI", "skipped", "completed", "skipped", _ago(2), _ago(2)),
+                _run_row(9505, "CI", "cancelled", "completed", "cancelled", _ago(2), _ago(2)),
+                _run_row(9506, "CI", "action", "completed", "action_required", _ago(2), _ago(2)),
+                _run_row(9507, "CI", "startup", "completed", "startup_failure", _ago(2), _ago(2)),
+                _run_row(9508, "CI", "stale", "completed", "stale", _ago(2), _ago(2)),
+                _run_row(9509, "CI", "neutral", "completed", "neutral", _ago(2), _ago(2)),
             ],
         )
         self._create_table(
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
-            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+            [
+                _job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(95020, 9502, "build", "success", head_branch="trunk-merge/gr-1"),
+            ],
         )
 
         overview = api.get_repo_overview(team=self.team, include_series=False)
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
-        assert overview.run_count == 2
+        assert overview.run_count == 10
+        assert overview.success_rate == pytest.approx(0.5)  # 3 successes of 6 conclusive runs
         assert overview.rerun_cycles == 1
-        assert overview.billable_minutes == pytest.approx(2.0)  # one 120s job on a billable tier
-        assert overview.estimated_cost_usd == pytest.approx(0.016)  # 2 min x $0.004 x 2 (4-core)
+        assert overview.billable_minutes == pytest.approx(4.0)  # two 120s jobs on a billable tier
+        assert overview.estimated_cost_usd == pytest.approx(0.032)  # 4 min x $0.004 x 2 (4-core)
+        assert overview.cost_per_merge_usd == pytest.approx(0.016)  # the window's cost over its 2 merges
+        assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
+        assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
+        assert overview.median_ready_to_merge_seconds is None  # issue events unsynced: not observed, never zero
         assert overview.cost_series == []
         assert overview.time_to_green_series == []
         assert overview.success_rate_series == []
         assert overview.open_to_merge_series == []
+        assert overview.ready_to_merge_series == []
         assert overview.cost_series_granularity == "day"  # the grain the series would have used
+        # No gate runs synced: the gate legs read unobserved, never zero.
+        assert overview.delivery_pipeline.merged_pr_count == 1
+        assert all(leg.median_seconds is None for leg in overview.delivery_pipeline.stages)
 
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
-        assert len(with_series.success_rate_series) > 0
+        observed_pass_rates = [
+            bucket.success_rate for bucket in with_series.success_rate_series if bucket.success_rate is not None
+        ]
+        assert observed_pass_rates == [pytest.approx(0.5)]
+
+    def test_time_to_green_measures_push_rounds_not_runs(self) -> None:
+        # A per-run median would read this fixture as ~5 min. The round definition asks a different
+        # question, how long until a push is green, so every rule below has to hold for the
+        # per-bucket medians to land where the assertions say.
+        run_ids = count(9600)
+
+        def _round(
+            head_sha: str,
+            *runs: tuple[str, str, str | None, int, int],
+            days_ago: int = 1,
+            pr_number: int | None = 90,
+            branch: str | None = None,
+        ) -> list[dict[str, Any]]:
+            """One push round's runs, each ``(workflow, status, conclusion, start offset, duration)``
+            in seconds from the round's anchor."""
+            return [
+                _run_row(
+                    next(run_ids),
+                    workflow,
+                    head_sha,
+                    status,
+                    conclusion,
+                    *_ago_offset_with_duration(days_ago, offset, duration),
+                    pr_number=pr_number,
+                    head_branch=branch or f"feat/{head_sha}",
+                )
+                for workflow, status, conclusion, offset, duration in runs
+            ]
+
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(5), head_sha="green1")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                # Lint flaked and re-ran green half an hour later, so the wall reaches the recovery
+                # (2400s) rather than any one run's duration.
+                *_round(
+                    "green1",
+                    ("CI", "completed", "success", 0, 600),
+                    ("Lint", "completed", "failure", 0, 300),
+                    ("Lint", "completed", "success", 1800, 600),
+                ),
+                # A skipped workflow holds nothing back, so this round is green at 300s.
+                *_round("green2", ("CI", "completed", "success", 0, 300), ("Docs", "completed", "skipped", 0, 60)),
+                # Green at 900s, then a re-fire failed an hour later: a later failure can neither
+                # stretch nor void a round that already went green.
+                *_round("flip1", ("CI", "completed", "success", 0, 900), ("CI", "completed", "failure", 3600, 300)),
+                # Never green: Lint never passed.
+                *_round("red1", ("CI", "completed", "success", 0, 300), ("Lint", "completed", "failure", 0, 300)),
+                # Still running.
+                *_round("pend1", ("CI", "in_progress", None, 0, 0)),
+                # Cancelled reaches no verdict, so this round never went green.
+                *_round("canc1", ("CI", "completed", "success", 0, 300), ("Deploy", "completed", "cancelled", 0, 60)),
+                # A fork push: one sibling lands unassociated, so the whole round drops. Without that
+                # guard the attributed 60s run alone would read as a green round.
+                *_round("fork1", ("Housekeeping", "completed", "success", 0, 60)),
+                *_round("fork1", ("CI", "completed", "success", 0, 60), pr_number=None),
+                # A green merge-queue gate round is CI the PR paid for, but not a push round.
+                *_round("mq1", ("CI", "completed", "success", 0, 60), branch="trunk-merge/pr-96/abc", pr_number=None),
+                # The known overstatement, pinned: a workflow first firing two hours in (what marking
+                # a draft ready does) carries the wait into the wall, because the push really wasn't
+                # green until it passed. Its own bucket, so the day above stays readable.
+                *_round(
+                    "late1",
+                    ("CI", "completed", "success", 0, 300),
+                    ("Ready only", "completed", "success", 7200, 300),
+                    days_ago=2,
+                ),
+            ],
+        )
+
+        overview = api.get_repo_overview(team=self.team)
+        observed = [b.p50_seconds for b in overview.time_to_green_series if b.p50_seconds is not None]
+        # Oldest first: late1's own wall, then the median of the round walls {2400, 300, 900}.
+        assert observed == [pytest.approx(7500.0), pytest.approx(900.0)]
+        # The window aggregate pools every round the series shows: median over {300, 900, 2400, 7500}.
+        assert overview.median_time_to_green_seconds == pytest.approx(1650.0)
+        assert overview.median_time_to_green_seconds_prev is None  # no rounds in the previous window
+
+    def test_repo_overview_merge_queue_landing_stats(self) -> None:
+        # Guards the queue landing stats end to end: gate runs resolve their PR through the branch
+        # name only when the actor corroborates (a contributor-named trunk-merge/** branch must not
+        # enter the population), bisection branches collapse into their attempt, and the medians key
+        # on first gate start to merge.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(80, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha80"),
+                _pr_row(81, "bob", "closed", 0, _ago(9), merged_at=_ago(3), head_sha="sha81"),
+                _pr_row(82, "carol", "closed", 0, _ago(8), merged_at=_ago(4), head_sha="sha82"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                # PR 80: failed attempt, its bisection probe (same attempt), then a green attempt.
+                _run_row(
+                    9700,
+                    "CI",
+                    "g80a",
+                    "completed",
+                    "failure",
+                    _ago(4),
+                    _ago(4),
+                    head_branch="trunk-merge/pr-80/aaaa",
+                    actor="trunk-io[bot]",
+                ),
+                _run_row(
+                    9701,
+                    "CI",
+                    "g80ab",
+                    "completed",
+                    "failure",
+                    _ago(4),
+                    _ago(4),
+                    head_branch="trunk-merge/pr-80/aaaa-bisection",
+                    actor="trunk-io[bot]",
+                ),
+                _run_row(
+                    9702,
+                    "CI",
+                    "g80b",
+                    "completed",
+                    "success",
+                    _ago(3),
+                    _ago(3),
+                    head_branch="trunk-merge/pr-80/bbbb",
+                    actor="trunk-io[bot]",
+                ),
+                # PR 81: one clean attempt.
+                _run_row(
+                    9703,
+                    "CI",
+                    "g81",
+                    "completed",
+                    "success",
+                    _ago(4),
+                    _ago(4),
+                    head_branch="trunk-merge/pr-81/cccc",
+                    actor="trunk-io[bot]",
+                ),
+                # Gate-shaped branch pushed by a contributor: fails corroboration, PR 82 stays out.
+                _run_row(
+                    9704,
+                    "CI",
+                    "g82",
+                    "completed",
+                    "success",
+                    _ago(5),
+                    _ago(5),
+                    head_branch="trunk-merge/pr-82/dddd",
+                    actor="mallory",
+                ),
+            ],
+        )
+
+        overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert overview.merge_queue_merged_pr_count == 2  # 80 and 81; 82's gate run is uncorroborated
+        assert overview.merge_queue_merged_pr_count_prev == 0
+        assert overview.merge_queue_avg_attempts_per_merge == pytest.approx(1.5)  # 80: two, 81: one
+        assert overview.merge_queue_multi_attempt_merge_share == pytest.approx(0.5)
+        assert overview.merge_queue_failed_gate_merge_share == pytest.approx(0.5)
+        # PR 80: first gate at -4d, merged -2d (2 days); PR 81: -4d to -3d (1 day).
+        assert overview.merge_queue_median_first_gate_to_merge_seconds == pytest.approx(1.5 * 86400)
+        assert overview.merge_queue_p90_first_gate_to_merge_seconds == pytest.approx(1.9 * 86400)
+        assert overview.merge_queue_p95_first_gate_to_merge_seconds == pytest.approx(1.95 * 86400)
+        assert overview.merge_queue_p99_first_gate_to_merge_seconds == pytest.approx(1.99 * 86400)
+        assert overview.merge_queue_median_first_gate_to_merge_seconds_prev is None
+        # No TrunkIo source connected: the Trunk-recorded outcomes read unavailable, never zero.
+        assert overview.merge_queue_trunk_available is False
+        assert overview.merge_queue_failed_or_cancelled_share is None
+        assert overview.merge_queue_skip_the_line_count is None
+
+    def test_repo_overview_delivery_pipeline_legs(self) -> None:
+        # Guards the two pre-merge legs end to end: a gate run that only ran after the merge is a
+        # bisection probe, so it carries no leg rather than a negative one.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(90, "alice", "closed", 0, _ago(10), merged_at=_ago(4), head_sha="sha90"),
+                _pr_row(91, "bob", "closed", 0, _ago(9), merged_at=_ago(3), head_sha="sha91"),
+                _pr_row(92, "carol", "closed", 0, _ago(8), merged_at=_ago(6), head_sha="sha92"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    9800,
+                    "CI",
+                    "g90",
+                    "completed",
+                    "success",
+                    _ago(5),
+                    _ago(5),
+                    head_branch="trunk-merge/pr-90/aaaa",
+                    actor="trunk-io[bot]",
+                ),
+                _run_row(
+                    9801,
+                    "CI",
+                    "g91",
+                    "completed",
+                    "success",
+                    _ago(4),
+                    _ago(4),
+                    head_branch="trunk-merge/pr-91/bbbb",
+                    actor="trunk-io[bot]",
+                ),
+                # PR 92 merged at -6d; this gate run at -2d is the queue bisecting a later failure.
+                _run_row(
+                    9802,
+                    "CI",
+                    "g92",
+                    "completed",
+                    "success",
+                    _ago(2),
+                    _ago(2),
+                    head_branch="trunk-merge/pr-92/cccc",
+                    actor="trunk-io[bot]",
+                ),
+            ],
+        )
+        pipeline = api.get_repo_overview(team=self.team, include_series=False).delivery_pipeline
+        assert pipeline.merged_pr_count == 3
+        legs = {leg.stage: leg for leg in pipeline.stages}
+        # PR 92's only gate run postdates its merge, so the gate legs see 90 and 91 only.
+        assert legs[DeliveryStage.OPEN_TO_GATE].pr_count == 2
+        assert legs[DeliveryStage.OPEN_TO_GATE].median_seconds == pytest.approx(5 * 86400)
+        assert legs[DeliveryStage.GATE_TO_MERGE].pr_count == 2
+        assert legs[DeliveryStage.GATE_TO_MERGE].median_seconds == pytest.approx(86400)
+
+    def test_repo_overview_trunk_queue_outcomes(self) -> None:
+        # Guards the Trunk-recorded outcomes: only concluded states enter the share's denominator,
+        # and windowing keys on each entry's last state change.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80)],
+        )
+        trunk = create_trunk_source(self.team)
+        self._create_table(
+            "trunk_io_merge_queue_pull_requests",
+            TRUNK_MERGE_QUEUE_COLUMNS,
+            [
+                _trunk_queue_row("q1", "merged", 80, _ago(2), skip_the_line=True),
+                _trunk_queue_row("q2", "merged", 81, _ago(3)),
+                _trunk_queue_row("q3", "merged", 82, _ago(4)),
+                _trunk_queue_row("q4", "failed", 83, _ago(5)),
+                _trunk_queue_row("q5", "cancelled", 84, _ago(6)),
+                # Still testing: concluded nothing, so it enters no denominator.
+                _trunk_queue_row("q6", "testing", 85, _ago(1)),
+                # Previous window (a -30d window's prev twin covers [-60d, -30d)).
+                _trunk_queue_row("q7", "failed", 60, _ago(45)),
+                _trunk_queue_row("q8", "merged", 61, _ago(44), skip_the_line=True),
+            ],
+            source=trunk,
+            prefix="trunkprefix_",
+            schema_name="MergeQueuePullRequests",
+        )
+
+        overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert overview.merge_queue_trunk_available is True
+        assert overview.merge_queue_failed_or_cancelled_share == pytest.approx(0.4)  # failed + cancelled of 5 concluded
+        assert overview.merge_queue_failed_or_cancelled_share_prev == pytest.approx(0.5)  # 1 of 2 concluded
+        assert overview.merge_queue_skip_the_line_count == 1
+        assert overview.merge_queue_skip_the_line_count_prev == 1
+
+    def test_repo_overview_ready_to_merge_median_and_series(self) -> None:
+        # Guards the overview's ready_by_pr join: the headline must anchor on the last ready
+        # transition (3 days), not open->merge (9 days), and keep the bot exclusion. The bot's
+        # merge bucket has no observed human value, so its series bucket must be None, not 0.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(90, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha90"),
+                _pr_row(91, "dependabot[bot]", "closed", 0, _ago(6), merged_at=_ago(2), head_sha="sha91"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9600, "CI", "sha90", "completed", "success", _ago(1), _ago(1), pr_number=90)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [
+                _issue_event_row(6000, "ready_for_review", 90, _ago(4)),
+                _issue_event_row(6001, "ready_for_review", 91, _ago(3)),
+            ],
+        )
+
+        overview = api.get_repo_overview(team=self.team)
+        day = 86400
+        assert overview.median_open_to_merge_seconds == pytest.approx(9 * day)
+        assert overview.median_ready_to_merge_seconds == pytest.approx(3 * day)
+        assert overview.median_ready_to_merge_seconds_prev is None  # nothing merged in the prev window
+        observed = [b.p50_seconds for b in overview.ready_to_merge_series if b.p50_seconds is not None]
+        assert observed == [pytest.approx(3 * day)]
+        assert overview.ready_to_merge_series_granularity == "day"
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
@@ -329,9 +681,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         health = api.list_workflow_health(team=self.team, date_from="-30d")
         ci = next(item for item in health if item.workflow_name == "CI")
 
-        # Counts and rate stay over all/completed runs; only the duration population narrows.
+        # Counts keep every run, while the rate excludes the cancelled runs that reached no verdict.
         assert ci.run_count == 9
-        assert ci.success_rate == pytest.approx(5 / 9)
+        assert ci.success_rate == pytest.approx(5 / 6)
         assert ci.p50_seconds == pytest.approx(100)
         assert ci.p95_seconds == pytest.approx(100)
 
@@ -388,8 +740,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
-        assert ci.estimated_cost_usd is not None and ci.estimated_cost_usd > 0
-        assert ci.billable_minutes is not None and ci.billable_minutes > 0
+        # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
+        assert ci.estimated_cost_usd == pytest.approx(0.016)
+        assert ci.billable_minutes == pytest.approx(2.0)
 
     def test_workflow_runner_costs_breaks_down_by_tier(self) -> None:
         # The single-workflow breakdown splits a workflow's spend across runner tiers.
@@ -420,8 +773,8 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert github_hosted.estimated_cost_usd is None  # free tier: minutes/jobs only, no billable cost
 
     def test_workflow_health_daily_failures_exclude_non_failures(self) -> None:
-        # The daily failure count is decisive failures only — skipped / cancelled / action_required
-        # runs are completed but neither successes nor failures, so they must not inflate the trend.
+        # The daily failure count keeps decisive failures while completed non-verdict runs stay out
+        # of the pass-rate denominator.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -437,16 +790,20 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                 _run_row(6004, "CI", "sha-d", "completed", "skipped", _ago(1), _ago(1)),
                 _run_row(6005, "CI", "sha-e", "completed", "cancelled", _ago(1), _ago(1)),
                 _run_row(6006, "CI", "sha-f", "completed", "action_required", _ago(1), _ago(1)),
+                _run_row(6007, "CI", "sha-g", "completed", "startup_failure", _ago(1), _ago(1)),
+                _run_row(6008, "CI", "sha-h", "completed", "stale", _ago(1), _ago(1)),
+                _run_row(6009, "CI", "sha-i", "completed", "neutral", _ago(1), _ago(1)),
             ],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
         bucket = next(entry for entry in ci.buckets if entry.run_count > 0)
-        # 6 completed, 1 success, 2 failures (failure + timed_out) — skipped/cancelled/action_required are neither.
-        assert (bucket.completed, bucket.successes, bucket.failures) == (6, 1, 2)
+        # Non-verdict runs remain in volume but not the pass-rate denominator.
+        assert (bucket.completed, bucket.successes, bucket.failures) == (9, 1, 4)
+        assert ci.success_rate == pytest.approx(1 / 5)
 
-    def test_workflow_health_last_failure_includes_timed_out(self) -> None:
-        # last_failure_at must agree with the failure definition used by the trend: a workflow whose
-        # only decisive failure is a timeout still has a "last failure".
+    @parameterized.expand(["timed_out", "startup_failure", "stale"])
+    def test_workflow_health_last_failure_includes_decisive_conclusion(self, conclusion: str) -> None:
+        # last_failure_at, rate buckets, and the latest-run badge must share one failure definition.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -457,15 +814,14 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(6101, "CI", "sha-g", "completed", "success", _ago(2), _ago(2)),
-                _run_row(6102, "CI", "sha-h", "completed", "timed_out", _ago(1), _ago(1)),
+                _run_row(6102, "CI", "sha-h", "completed", conclusion, _ago(1), _ago(1)),
             ],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
         assert ci.last_failure_at is not None
-        # The latest completed run (the timeout) was decisive — drives the RED status badge.
         assert ci.latest_run_failed is True
-        # And its raw conclusion is carried so the UI can distinguish a real pass from a non-failure.
-        assert ci.latest_run_conclusion == "timed_out"
+        # The raw conclusion lets the UI retain the specific failure label while sharing the verdict.
+        assert ci.latest_run_conclusion == conclusion
 
     def test_workflow_run_detail_by_id(self) -> None:
         # The run detail page fetches one run by id; re-runs share the id, so the latest attempt wins.

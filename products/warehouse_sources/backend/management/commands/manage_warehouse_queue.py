@@ -1,12 +1,9 @@
-"""Ops tooling for the v3 warehouse sources load queue (delta and duckgres sinks).
+"""Ops tooling for the v3 warehouse sources load queue.
 
-Inspect queue state, manually fail wedged runs, and force-release stuck
-coordination state (group leases, the v3 Redis pipeline lock) from a toolbox
-pod. ``--sink duckgres`` drives the same verbs against the duckgres sink's
-status and lease tables; that sink does not own the ExternalDataJob, the Redis
-pipeline lock, or the Temporal workflow, so those steps are delta-only.
-Mutating actions are dry-run by default and mirror the consumers' own
-fail/reconcile semantics rather than inventing a second code path.
+Inspect queue state, count batches whose state disagrees with their job's,
+manually fail wedged runs, and force-release stuck coordination state (group
+leases, the v3 Redis pipeline lock) from a toolbox pod. Mutating actions are
+dry-run by default and mirror the consumer's own fail/reconcile semantics.
 """
 
 import sys
@@ -26,14 +23,9 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.sync_teardown import teardown_run
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     RECOVERY_GRACE_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
-    DuckgresBatchQueue,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
-    mark_job_failed_if_not_terminal,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PARTITION_PRUNING_INTERVAL,
@@ -49,17 +41,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 logger = structlog.get_logger(__name__)
 
 DEFAULT_FAIL_REASON = "manually failed via manage_warehouse_queue"
+DEFAULT_MISMATCH_REASON = "reconciled via manage_warehouse_queue check-mismatches"
 MAX_RUNS_DEFAULT = 20
 PRINT_LIMIT = 50
 DRY_RUN_MESSAGE = "Dry run - no changes written. Re-run with --live-run to apply."
 
-SINK_DELTA = "delta"
-SINK_DUCKGRES = "duckgres"
-
-# Both queue classes expose the same sync ops helpers (get_active_runs,
-# get_state_summary, get_leases, force_release_leases, get_stale_executing_sync,
-# fail_run_sync), so the handlers drive whichever sink was selected.
-SinkQueue = type[BatchQueue] | type[DuckgresBatchQueue]
+QueueType = type[BatchQueue]
 
 
 @dataclass(frozen=True)
@@ -91,11 +78,10 @@ class FailTarget:
 
 class Command(BaseCommand):
     help = (
-        "Manage the v3 warehouse sources load queue: inspect state (status), manually fail "
-        "wedged runs (fail-run/cancel), or force-release stuck group leases and v3 Redis "
-        "pipeline locks (release-locks). --sink duckgres targets the duckgres sink's queue "
-        "state instead of the delta loader's. Mutating actions are dry-run unless --live-run "
-        "is given."
+        "Manage the v3 warehouse sources load queue: inspect state (status), count batches "
+        "whose state disagrees with their job's (check-mismatches), manually fail wedged runs "
+        "(fail-run/cancel), or force-release stuck group leases and v3 Redis "
+        "pipeline locks (release-locks). Mutating actions are dry-run unless --live-run is given."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -142,7 +128,7 @@ class Command(BaseCommand):
         fail_run.add_argument(
             "--cancel-workflow",
             action="store_true",
-            help="Also request cancellation of each run's Temporal workflow (delta sink only)",
+            help="Also request cancellation of each run's Temporal workflow",
         )
         # Temporal connection overrides (same flags as start_temporal_workflow): ops pods
         # often lack the worker pods' TEMPORAL_* env, so settings-based sync_connect
@@ -171,15 +157,42 @@ class Command(BaseCommand):
             help="Also delete LIVE group leases (skipped by default - a healthy pod may hold them)",
         )
 
+        mismatches = subparsers.add_parser(
+            "check-mismatches",
+            help="Count batches whose queue state disagrees with their ExternalDataJob's status",
+        )
+        self._add_target_args(mismatches)
+        mismatches.add_argument(
+            "--grace-seconds",
+            type=int,
+            default=RECOVERY_GRACE_SECONDS,
+            help="Ignore mismatches younger than this - a job can go terminal moments before the "
+            f"consumer writes its last batch status (default {RECOVERY_GRACE_SECONDS}s)",
+        )
+        mismatches.add_argument(
+            "--reason", type=str, default=DEFAULT_MISMATCH_REASON, help="Recorded as the job's error when repairing"
+        )
+        mismatches.add_argument("--live-run", action="store_true", help="Repair what was found (default is dry-run)")
+        mismatches.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
+        mismatches.add_argument(
+            "--max-runs",
+            type=int,
+            default=MAX_RUNS_DEFAULT,
+            help=f"Abort the repair if more than this many mismatches were found (default {MAX_RUNS_DEFAULT})",
+        )
+        mismatches.add_argument(
+            "--force",
+            action="store_true",
+            help="Also delete LIVE group leases while repairing (skipped by default)",
+        )
+
         release = subparsers.add_parser(
             "release-locks",
             help="Force-release group leases and/or v3 Redis pipeline locks left behind by dead pods",
         )
         self._add_target_args(release)
         release.add_argument("--leases-only", action="store_true", help="Only release Postgres group leases")
-        release.add_argument(
-            "--redis-only", action="store_true", help="Only release v3 Redis pipeline locks (delta sink only)"
-        )
+        release.add_argument("--redis-only", action="store_true", help="Only release v3 Redis pipeline locks")
         release.add_argument("--live-run", action="store_true", help="Apply changes (default is dry-run)")
         release.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
         release.add_argument(
@@ -190,12 +203,6 @@ class Command(BaseCommand):
 
     @staticmethod
     def _add_target_args(parser: CommandParser) -> None:
-        parser.add_argument(
-            "--sink",
-            choices=[SINK_DELTA, SINK_DUCKGRES],
-            default=SINK_DELTA,
-            help="Which sink's queue state to manage: the delta loader (default) or the duckgres sink",
-        )
         parser.add_argument("--team-id", type=int, help="Scope by team")
         parser.add_argument("--schema-id", type=str, help="Scope by schema (requires --team-id)")
         parser.add_argument("--source-id", type=str, help="Scope by source (requires --team-id)")
@@ -209,16 +216,15 @@ class Command(BaseCommand):
         if action == "cancel":
             action = "fail-run"
 
-        sink: str = options.get("sink") or SINK_DELTA
-        queue: SinkQueue = BatchQueue if sink == SINK_DELTA else DuckgresBatchQueue
-
         with psycopg.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
             if action == "status":
-                self._handle_status(conn, options, sink=sink, queue=queue)
+                self._handle_status(conn, options, queue=BatchQueue)
             elif action == "fail-run":
-                self._handle_fail_run(conn, options, sink=sink, queue=queue)
+                self._handle_fail_run(conn, options, queue=BatchQueue)
+            elif action == "check-mismatches":
+                self._handle_check_mismatches(conn, options, queue=BatchQueue)
             elif action == "release-locks":
-                self._handle_release_locks(conn, options, sink=sink, queue=queue)
+                self._handle_release_locks(conn, options, queue=BatchQueue)
 
     # -- targeting --------------------------------------------------------------
 
@@ -307,7 +313,7 @@ class Command(BaseCommand):
         return list(jobs)
 
     def _collect_fail_targets(
-        self, conn: psycopg.Connection[Any], scope: Scope, *, queue: SinkQueue, include_job_only: bool
+        self, conn: psycopg.Connection[Any], scope: Scope, *, queue: QueueType
     ) -> list[FailTarget]:
         runs = queue.get_active_runs(
             conn,
@@ -340,14 +346,8 @@ class Command(BaseCommand):
                     f"Run {scope.run_uuid!r} has no batches inside the queue retention window "
                     f"({PARTITION_PRUNING_INTERVAL}) - nothing to fail."
                 )
-                if include_job_only:
-                    message += (
-                        " If its ExternalDataJob is stuck in Running, target it via --team-id/--schema-id instead."
-                    )
+                message += " If its ExternalDataJob is stuck in Running, target it via --team-id/--schema-id instead."
                 raise CommandError(message)
-            return targets
-
-        if not include_job_only:
             return targets
 
         # Running jobs the queue knows nothing about (producer died before enqueueing,
@@ -373,20 +373,15 @@ class Command(BaseCommand):
 
     # -- fail-run ---------------------------------------------------------------
 
-    def _handle_fail_run(
-        self, conn: psycopg.Connection[Any], options: dict[str, Any], *, sink: str, queue: SinkQueue
-    ) -> None:
-        is_delta = sink == SINK_DELTA
+    def _handle_fail_run(self, conn: psycopg.Connection[Any], options: dict[str, Any], *, queue: QueueType) -> None:
         cancel_workflow: bool = options["cancel_workflow"]
-        if cancel_workflow and not is_delta:
-            raise CommandError("--cancel-workflow only applies to the delta sink; drop it or use --sink delta")
 
         scope = self._resolve_scope(options, allow_empty=options["only_stuck"])
         reason: str = options["reason"]
         live_run: bool = options["live_run"]
         force: bool = options["force"]
 
-        targets = self._collect_fail_targets(conn, scope, queue=queue, include_job_only=is_delta)
+        targets = self._collect_fail_targets(conn, scope, queue=queue)
         if options["only_stuck"]:
             targets, skipped_active = self._filter_stuck(targets, grace_seconds=options["stuck_grace_seconds"])
             if skipped_active:
@@ -414,7 +409,7 @@ class Command(BaseCommand):
         }
 
         verb = "Would fail" if not live_run else "Failing"
-        self.stdout.write(f"{verb} {len(targets)} run(s) [{sink} sink]:")
+        self.stdout.write(f"{verb} {len(targets)} run(s):")
         for t in targets:
             job = jobs_by_id.get(t.job_id)
             job_status = job.status if job else "<job not found>"
@@ -431,7 +426,7 @@ class Command(BaseCommand):
             )
             if t.schema_id:
                 notes = []
-                if is_delta and t.workflow_run_id:
+                if t.workflow_run_id:
                     holder = get_v3_pipeline_lock_holder(t.team_id, t.schema_id)
                     if holder is None:
                         notes.append("redis lock unheld")
@@ -449,12 +444,6 @@ class Command(BaseCommand):
                 if notes:
                     self.stdout.write(f"    -> {'; '.join(notes)}")
 
-        if not is_delta:
-            self.stdout.write(
-                "Note: failing duckgres runs leaves the ExternalDataJob untouched; "
-                "retry failed duckgres batches later with reset_duckgres_failed_runs."
-            )
-
         if not live_run:
             self.stdout.write(DRY_RUN_MESSAGE)
             return
@@ -463,10 +452,9 @@ class Command(BaseCommand):
 
         for t in targets:
             self.stdout.write(f"run={t.run_uuid or '-'} job={t.job_id}:")
-            self._fail_target(conn, t, reason=reason, queue=queue, is_delta=is_delta)
+            self._fail_target(conn, t, reason=reason, queue=queue)
             logger.info(
                 "manage_warehouse_queue_fail_run",
-                sink=sink,
                 run_uuid=t.run_uuid,
                 job_id=t.job_id,
                 team_id=t.team_id,
@@ -477,6 +465,16 @@ class Command(BaseCommand):
         if cancel_workflow:
             self._cancel_workflows(options, [jobs_by_id.get(t.job_id) for t in targets])
 
+        released, skipped_live = self._release_leases_for(conn, targets, queue=queue, force=force)
+        summary = f"Done. Released {released} group lease(s)."
+        if skipped_live:
+            summary += f" Skipped {skipped_live} LIVE lease(s)."
+        self.stdout.write(self.style.SUCCESS(summary))
+
+    def _release_leases_for(
+        self, conn: psycopg.Connection[Any], targets: list[FailTarget], *, queue: QueueType, force: bool
+    ) -> tuple[int, int]:
+        """Drop the group leases the just-failed targets held. Returns (released, skipped_live)."""
         pair_set = {(t.team_id, t.schema_id) for t in targets if t.schema_id}
         # Re-read lease state after the fail writes: gate liveness on what holds now,
         # not on the preview snapshot, so a lease acquired mid-operation counts as live.
@@ -496,11 +494,7 @@ class Command(BaseCommand):
                 )
                 continue
             leases_to_delete.append((lease.team_id, lease.schema_id))
-        released = queue.force_release_leases(conn, pairs=leases_to_delete)
-        summary = f"Done. Released {released} group lease(s)."
-        if skipped_live:
-            summary += f" Skipped {skipped_live} LIVE lease(s)."
-        self.stdout.write(self.style.SUCCESS(summary))
+        return queue.force_release_leases(conn, pairs=leases_to_delete), skipped_live
 
     @staticmethod
     def _filter_stuck(targets: list[FailTarget], *, grace_seconds: int) -> tuple[list[FailTarget], int]:
@@ -516,44 +510,45 @@ class Command(BaseCommand):
         target: FailTarget,
         *,
         reason: str,
-        queue: SinkQueue,
-        is_delta: bool,
+        queue: QueueType,
     ) -> None:
-        """Mirror the consumer's fail path; each step isolated so one failure doesn't abort the rest."""
+        """Run the shared teardown core (also used by the disable-sync Celery task) and report each step."""
+        outcome = teardown_run(
+            conn,
+            run_uuid=target.run_uuid,
+            job_id=target.job_id,
+            team_id=target.team_id,
+            schema_id=target.schema_id,
+            workflow_run_id=target.workflow_run_id,
+            reason=reason,
+            queue=queue,
+        )
+
         if target.run_uuid:
-            try:
-                failed = queue.fail_run_sync(conn, run_uuid=target.run_uuid, reason=reason)
-                self.stdout.write(f"  queue: marked {failed} pending batch(es) failed")
-            except Exception:
-                logger.exception("manage_warehouse_queue_fail_run_queue_write_failed", run_uuid=target.run_uuid)
+            if outcome.queue_write_failed:
                 self.stdout.write(self.style.ERROR("  queue: FAILED to write failed statuses (see logs)"))
+            else:
+                self.stdout.write(f"  queue: marked {outcome.batches_failed} pending batch(es) failed")
 
-        if not is_delta:
-            # The duckgres sink doesn't own the job, the redis lock, or the workflow.
-            return
-
-        try:
-            transitioned = mark_job_failed_if_not_terminal(job_id=target.job_id, team_id=target.team_id, error=reason)
-            self.stdout.write("  job: marked Failed" if transitioned else "  job: already terminal - left unchanged")
-        except Exception:
-            logger.exception("manage_warehouse_queue_fail_run_job_update_failed", job_id=target.job_id)
+        if outcome.job_transitioned is None:
             self.stdout.write(self.style.ERROR("  job: FAILED to update status (see logs)"))
+        elif outcome.job_transitioned:
+            self.stdout.write("  job: marked Failed")
+        else:
+            self.stdout.write("  job: already terminal - left unchanged")
 
         if target.workflow_run_id and target.schema_id:
-            released = release_v3_pipeline_lock(target.team_id, target.schema_id, token=target.workflow_run_id)
-            if released:
+            if outcome.lock_released:
                 self.stdout.write("  redis lock: released")
+            elif outcome.lock_holder is None:
+                self.stdout.write("  redis lock: not held")
             else:
-                holder = get_v3_pipeline_lock_holder(target.team_id, target.schema_id)
-                if holder is None:
-                    self.stdout.write("  redis lock: not held")
-                else:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f"  redis lock: held by a different token ({holder!r}) - a newer run may own it; "
-                            "use release-locks if it is genuinely stale"
-                        )
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  redis lock: held by a different token ({outcome.lock_holder!r}) - a newer run may own it; "
+                        "use release-locks if it is genuinely stale"
                     )
+                )
 
     def _cancel_workflows(self, options: dict[str, Any], jobs: list[ExternalDataJob | None]) -> None:
         """Cancel each job's Temporal workflow over a single client connection.
@@ -610,16 +605,169 @@ class Command(BaseCommand):
                 )
             )
 
+    # -- check-mismatches -------------------------------------------------------
+
+    def _handle_check_mismatches(
+        self, conn: psycopg.Connection[Any], options: dict[str, Any], *, queue: QueueType
+    ) -> None:
+        """Report (and optionally repair) runs whose queue state disagrees with their job's status.
+
+        The queue and the ExternalDataJob live in different databases with no FK
+        between them, so nothing enforces agreement. Three ways they can diverge:
+
+          A. the job went terminal but the queue still holds non-terminal batches
+          B. the job is still Running with nothing left pending in the queue
+          C. batches reference a job_id that has no row in the main DB
+
+        A and B are the two halves of the consumers' own reconcile loop, so
+        repair reuses ``_fail_target`` rather than a second code path. C is
+        reported only: the job may have been hard-deleted or the id may be
+        corrupt, and guessing is worse than surfacing it.
+        """
+        scope = self._resolve_scope(options, allow_empty=True)
+        grace: int = options["grace_seconds"]
+        live_run: bool = options["live_run"]
+
+        targets = self._collect_fail_targets(conn, scope, queue=queue)
+        jobs_by_id = {str(j.id): j for j in ExternalDataJob.objects.filter(id__in=[t.job_id for t in targets])}
+
+        class_a: list[FailTarget] = []
+        class_b: list[FailTarget] = []
+        class_c: list[FailTarget] = []
+        for t in targets:
+            if t.run_uuid is None:
+                class_b.append(t)
+                continue
+            if t.pending_batches == 0:
+                # Only reachable under --run-uuid, which reads terminal runs too.
+                continue
+            job = jobs_by_id.get(t.job_id)
+            if job is None:
+                class_c.append(t)
+            elif job.status != ExternalDataJob.Status.RUNNING:
+                class_a.append(t)
+
+        class_a, skipped_a = self._filter_stuck(class_a, grace_seconds=grace)
+        class_b, skipped_b = self._filter_stuck(class_b, grace_seconds=grace)
+        class_c, skipped_c = self._filter_stuck(class_c, grace_seconds=grace)
+        skipped = skipped_a + skipped_b + skipped_c
+
+        self.stdout.write(self.style.MIGRATE_HEADING(f"Mismatches (grace {grace}s)"))
+        a_batches = sum(t.pending_batches for t in class_a)
+        c_batches = sum(t.pending_batches for t in class_c)
+        self.stdout.write(f"  A: terminal job, non-terminal batches   {len(class_a)} run(s), {a_batches} batch(es)")
+        by_status: dict[str, list[FailTarget]] = {}
+        for t in class_a:
+            job = jobs_by_id.get(t.job_id)
+            by_status.setdefault(job.status if job else "?", []).append(t)
+        for status in sorted(by_status):
+            group = by_status[status]
+            self.stdout.write(f"       {status}: {len(group)} runs / {sum(t.pending_batches for t in group)} batches")
+        self.stdout.write(f"  B: Running job, nothing pending         {len(class_b)} job(s)")
+        self.stdout.write(f"  C: batches referencing a missing job    {len(class_c)} run(s), {c_batches} batch(es)")
+        if skipped:
+            self.stdout.write(f"  skipped (within grace): {skipped}")
+
+        for label, group in (("A", class_a), ("B", class_b), ("C", class_c)):
+            if not group:
+                continue
+            self.stdout.write(self.style.MIGRATE_HEADING(f"Class {label} detail ({len(group)})"))
+            for t in group[:PRINT_LIMIT]:
+                job = jobs_by_id.get(t.job_id)
+                job_status = job.status if job else "<job not found>"
+                queue_note = (
+                    f"pending={t.pending_batches}/{t.total_batches}"
+                    if t.run_uuid
+                    else "no queue batches in retention window"
+                )
+                self.stdout.write(
+                    f"  run={t.run_uuid or '-'} job={t.job_id} (status={job_status}) team={t.team_id} "
+                    f"schema={t.schema_id or '-'} {queue_note} last_activity={self._age(t.last_activity_at)} ago "
+                    f"workflow_run_id={t.workflow_run_id or '-'}"
+                )
+            if len(group) > PRINT_LIMIT:
+                self.stdout.write(f"  ... and {len(group) - PRINT_LIMIT} more")
+
+        repairable = class_a + class_b
+        if not repairable:
+            if not class_c:
+                self.stdout.write(self.style.SUCCESS("No mismatches in scope."))
+            else:
+                self.stdout.write("Class C is reported only - resolve the missing jobs by hand.")
+            return
+
+        if not live_run:
+            self.stdout.write(f"Would repair {len(repairable)} mismatch(es) (class A and B). {DRY_RUN_MESSAGE}")
+            return
+
+        max_runs: int = options["max_runs"]
+        if len(repairable) > max_runs:
+            raise CommandError(
+                f"{len(repairable)} repairable mismatches, above the --max-runs cap of {max_runs}. "
+                "Narrow the targeting or raise --max-runs explicitly."
+            )
+
+        reason: str = options["reason"]
+        self._confirm(f"Repair {len(repairable)} mismatch(es)? Type 'fail' to continue: ", "fail", yes=options["yes"])
+
+        repaired: list[FailTarget] = []
+        raced = 0
+        for t in repairable:
+            # Class B is a job-only snapshot taken during collection. Re-check that
+            # the queue still holds nothing pending for this job before failing it:
+            # a consumer that enqueued batches since then has turned it back into a
+            # healthy Running job, and failing it now would create the class A
+            # mismatch this command exists to fix.
+            if t.run_uuid is None and self._job_has_pending_batches(conn, t, queue=queue):
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"job={t.job_id}: batches enqueued since detection - no longer a class B mismatch, skipped"
+                    )
+                )
+                raced += 1
+                continue
+            self.stdout.write(f"run={t.run_uuid or '-'} job={t.job_id}:")
+            self._fail_target(conn, t, reason=reason, queue=queue)
+            repaired.append(t)
+            logger.info(
+                "manage_warehouse_queue_check_mismatches",
+                run_uuid=t.run_uuid,
+                job_id=t.job_id,
+                team_id=t.team_id,
+                external_data_schema_id=t.schema_id,
+                mismatch_class="B" if t.run_uuid is None else "A",
+                reason=reason,
+            )
+
+        # Only release leases for jobs we actually failed - a raced-back class B job
+        # is live work whose lease must stay put.
+        released, skipped_live = self._release_leases_for(conn, repaired, queue=queue, force=options["force"])
+        summary = f"Done. Repaired {len(repaired)} mismatch(es), released {released} group lease(s)."
+        if raced:
+            summary += f" Skipped {raced} that raced back to healthy."
+        if skipped_live:
+            summary += f" Skipped {skipped_live} LIVE lease(s)."
+        self.stdout.write(self.style.SUCCESS(summary))
+
+    def _job_has_pending_batches(self, conn: psycopg.Connection[Any], target: FailTarget, *, queue: QueueType) -> bool:
+        """True if the queue now holds non-terminal batches for this job's schema.
+
+        Used to re-check a class B (job-only) target at repair time so a job that
+        enqueued work between detection and now is not failed out from under a live
+        consumer.
+        """
+        if target.schema_id is None:
+            return False
+        runs = queue.get_active_runs(conn, team_id=target.team_id, schema_ids=[target.schema_id], only_pending=True)
+        return any(str(r.job_id) == target.job_id for r in runs)
+
     # -- release-locks ----------------------------------------------------------
 
     def _handle_release_locks(
-        self, conn: psycopg.Connection[Any], options: dict[str, Any], *, sink: str, queue: SinkQueue
+        self, conn: psycopg.Connection[Any], options: dict[str, Any], *, queue: QueueType
     ) -> None:
-        is_delta = sink == SINK_DELTA
         if options["leases_only"] and options["redis_only"]:
             raise CommandError("--leases-only and --redis-only are mutually exclusive")
-        if options["redis_only"] and not is_delta:
-            raise CommandError("--redis-only only applies to the delta sink; the duckgres sink has no redis lock")
         scope = self._resolve_scope(options, allow_empty=False)
         if scope.run_uuid:
             raise CommandError("release-locks targets (team, schema) pairs; --run-uuid is not supported here")
@@ -632,7 +780,7 @@ class Command(BaseCommand):
         live_run: bool = options["live_run"]
         force: bool = options["force"]
         check_leases = not options["redis_only"]
-        check_redis = is_delta and not options["leases_only"]
+        check_redis = not options["leases_only"]
 
         # workflow_run_ids of Running jobs, per schema: a redis lock held by one of
         # these tokens belongs to live work and needs --force.
@@ -704,7 +852,6 @@ class Command(BaseCommand):
                 )
         logger.info(
             "manage_warehouse_queue_release_locks",
-            sink=sink,
             released_leases=released_leases,
             released_locks=released_locks,
             team_id=scope.team_id,
@@ -715,7 +862,7 @@ class Command(BaseCommand):
         )
 
     def _resolve_lock_pairs(
-        self, conn: psycopg.Connection[Any], scope: Scope, *, queue: SinkQueue
+        self, conn: psycopg.Connection[Any], scope: Scope, *, queue: QueueType
     ) -> list[tuple[int, str]]:
         """(team_id, schema_id) pairs to check for stuck coordination state."""
         if scope.team_id is not None:
@@ -750,10 +897,7 @@ class Command(BaseCommand):
 
     # -- status -----------------------------------------------------------------
 
-    def _handle_status(
-        self, conn: psycopg.Connection[Any], options: dict[str, Any], *, sink: str, queue: SinkQueue
-    ) -> None:
-        is_delta = sink == SINK_DELTA
+    def _handle_status(self, conn: psycopg.Connection[Any], options: dict[str, Any], *, queue: QueueType) -> None:
         scope = self._resolve_scope(options, allow_empty=True)
 
         runs = queue.get_active_runs(
@@ -773,7 +917,7 @@ class Command(BaseCommand):
         if summary_schema_ids is None and (scope.source_type or scope.run_uuid):
             summary_schema_ids = sorted({r.schema_id for r in runs})
 
-        self.stdout.write(self.style.MIGRATE_HEADING(f"Queue summary [{sink} sink] (within retention window)"))
+        self.stdout.write(self.style.MIGRATE_HEADING("Queue summary (within retention window)"))
         summary = queue.get_state_summary(conn, team_id=scope.team_id, schema_ids=summary_schema_ids)
         if not summary:
             self.stdout.write("  no batches in scope")
@@ -800,13 +944,9 @@ class Command(BaseCommand):
             self.stdout.write(f"  ... and {len(runs) - PRINT_LIMIT} more")
 
         known_job_ids = {r.job_id for r in runs}
-        # Delta-only: Running V3 jobs belong to the delta path, and a run-uuid scope
-        # carries no team/schema constraint, so _running_v3_jobs would return every
-        # Running V3 job in the fleet — skip the section.
+        # A run-uuid scope carries no team/schema constraint, so skip the fleet-wide job query.
         orphan_jobs = (
-            []
-            if scope.run_uuid or not is_delta
-            else [j for j in self._running_v3_jobs(scope) if str(j.id) not in known_job_ids]
+            [] if scope.run_uuid else [j for j in self._running_v3_jobs(scope) if str(j.id) not in known_job_ids]
         )
         if orphan_jobs:
             self.stdout.write(
@@ -820,7 +960,7 @@ class Command(BaseCommand):
                     f"workflow_run_id={job.workflow_run_id or '-'}"
                 )
 
-        self.stdout.write(self.style.MIGRATE_HEADING(f"Group leases [{sink} sink]"))
+        self.stdout.write(self.style.MIGRATE_HEADING("Group leases"))
         leases = queue.get_leases(conn, team_id=scope.team_id, schema_ids=summary_schema_ids)
         if not leases:
             self.stdout.write("  none in scope")
@@ -831,31 +971,30 @@ class Command(BaseCommand):
                 f"(expires {lease.expires_at.isoformat()})"
             )
 
-        if is_delta:
-            self.stdout.write(self.style.MIGRATE_HEADING("Redis pipeline locks"))
-            workflow_tokens: dict[tuple[int, str], set[str]] = {}
-            for r in runs:
-                if r.workflow_run_id:
-                    workflow_tokens.setdefault((r.team_id, r.schema_id), set()).add(r.workflow_run_id)
-            for job in orphan_jobs:
-                if job.schema_id and job.workflow_run_id:
-                    workflow_tokens.setdefault((job.team_id, str(job.schema_id)), set()).add(job.workflow_run_id)
-            lock_pairs = sorted(
-                {(r.team_id, r.schema_id) for r in runs}
-                | {(lease.team_id, lease.schema_id) for lease in leases}
-                | {(job.team_id, str(job.schema_id)) for job in orphan_jobs if job.schema_id}
-            )[:PRINT_LIMIT]
-            held_any = False
-            for team_id, schema_id in lock_pairs:
-                holder = get_v3_pipeline_lock_holder(team_id, schema_id)
-                if holder is None:
-                    continue
-                held_any = True
-                known = holder in workflow_tokens.get((team_id, schema_id), set())
-                note = "" if known else " - token matches no known active workflow_run_id (stale-lock smell)"
-                self.stdout.write(f"  team={team_id} schema={schema_id} holder={holder!r}{note}")
-            if not held_any:
-                self.stdout.write("  none held for in-scope pairs")
+        self.stdout.write(self.style.MIGRATE_HEADING("Redis pipeline locks"))
+        workflow_tokens: dict[tuple[int, str], set[str]] = {}
+        for r in runs:
+            if r.workflow_run_id:
+                workflow_tokens.setdefault((r.team_id, r.schema_id), set()).add(r.workflow_run_id)
+        for job in orphan_jobs:
+            if job.schema_id and job.workflow_run_id:
+                workflow_tokens.setdefault((job.team_id, str(job.schema_id)), set()).add(job.workflow_run_id)
+        lock_pairs = sorted(
+            {(r.team_id, r.schema_id) for r in runs}
+            | {(lease.team_id, lease.schema_id) for lease in leases}
+            | {(job.team_id, str(job.schema_id)) for job in orphan_jobs if job.schema_id}
+        )[:PRINT_LIMIT]
+        held_any = False
+        for team_id, schema_id in lock_pairs:
+            holder = get_v3_pipeline_lock_holder(team_id, schema_id)
+            if holder is None:
+                continue
+            held_any = True
+            known = holder in workflow_tokens.get((team_id, schema_id), set())
+            note = "" if known else " - token matches no known active workflow_run_id (stale-lock smell)"
+            self.stdout.write(f"  team={team_id} schema={schema_id} holder={holder!r}{note}")
+        if not held_any:
+            self.stdout.write("  none held for in-scope pairs")
 
         grace: int = options["stale_grace_seconds"]
         stale = queue.get_stale_executing_sync(

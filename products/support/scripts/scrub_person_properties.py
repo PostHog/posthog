@@ -16,10 +16,16 @@ Scrubbing happens either by:
     with `$unset` through the batch endpoint - one event per person covers all matched
     properties, batched --batch-size events per request.
   - api mode: calls `POST /api/projects/:id/persons/:uuid/delete_property/` - one request
-    per (person, property) pair, so prefer events mode for large scrubs.
+    per person covers all matched properties, but still one request per person, so prefer
+    events mode for large scrubs.
 
 Scrubbing is processed by the ingestion pipeline, so it is eventually consistent: persons
 can keep showing the property for a short while after the script finishes.
+
+--output NAME writes two files: NAME-findings.json (the affected-persons report, written once
+discovery finishes) and NAME-log.txt (every line the operator sees on stderr, written as it
+happens - a dry run, an aborted confirm, a completed scrub, or a crash mid-run all leave a
+complete transcript up to that point).
 
 Usage:
   export POSTHOG_PERSONAL_API_KEY=phx_...   # needs query:read and person:read (+ person:write for api mode)
@@ -46,34 +52,20 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from lib.console import confirm, format_status_counts, log, printable
+from lib.console import close_log_file, confirm, format_status_counts, log, printable, resolve_output_base, set_log_file
 from lib.errors import PostHogScriptError
-from lib.posthog_api import MAX_RETRIES, request_with_retries, resolve_host, setup_session_auth
+from lib.posthog_api import (
+    build_session,
+    hogql_string_literal,
+    log_session_expiry,
+    request_with_retries,
+    resolve_host,
+    run_hogql_query,
+)
 
-# api mode has no bulk endpoint, so it deletes one (person, property) pair per request;
+# api mode deletes the properties for one person per request (all matched properties in one $unset list);
 # report a status-code histogram every this many so a long run shows steady progress.
 API_REPORT_EVERY = 50
-
-
-def run_hogql_query(
-    session: requests.Session, host: str, project_id: str, query: str, max_retries: int = MAX_RETRIES
-) -> list[list[Any]]:
-    """Run a HogQL query through the query API and return its result rows."""
-    response = request_with_retries(
-        session,
-        "POST",
-        f"{host}/api/projects/{project_id}/query/",
-        max_retries=max_retries,
-        json={"query": {"kind": "HogQLQuery", "query": query}},
-    )
-    if response.status_code != 200:
-        raise PostHogScriptError(f"HogQL query failed (HTTP {response.status_code}): {response.text[:500]}")
-    return response.json()["results"]
-
-
-def hogql_string_literal(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
 
 
 def iter_persons(
@@ -229,41 +221,48 @@ def scrub_via_events(
 
 def scrub_via_api(
     session: requests.Session, host: str, project_id: str, affected: list[dict[str, Any]]
-) -> tuple[Counter[str], list[str]]:
-    """Call delete_property per (person, property), one request each (there is no bulk endpoint).
+) -> tuple[Counter[str], list[str], int]:
+    """Call delete_property once per person, unsetting all its matched properties in one request.
 
-    Returns (status_counts, failures). status_counts is keyed by HTTP status code (as a string),
-    plus an "error" bucket for requests that never got a response; only a 2xx counts as a scrubbed
-    value. A read-only key returns 403, and field-level access control can make some deletes 403
-    while others succeed, so outcomes are reported as a status-code histogram, not assumed uniform.
+    Returns (status_counts, failures, values_deleted). status_counts is keyed by HTTP status code
+    (as a string), plus an "error" bucket for requests that never got a response; only a 2xx counts
+    the person's matched properties as deleted. A read-only key returns 403, and a request naming
+    any property under field-level access control fails as a whole (400) - drop the restricted
+    keys from the run to scrub the rest.
     """
     status_counts: Counter[str] = Counter()
     failures: list[str] = []
-    total_pairs = sum(len(p["matched_properties"]) for p in affected)
+    values_deleted = 0
+    total = len(affected)
     batch_counts: Counter[str] = Counter()
     batch_start = 1
-    index = 0
-    for person in affected:
-        for prop in person["matched_properties"]:
-            index += 1
-            url = f"{host}/api/projects/{project_id}/persons/{person['uuid']}/delete_property/"
-            try:
-                response = request_with_retries(session, "POST", url, json={"$unset": prop})
-            except PostHogScriptError as err:
-                status_counts["error"] += 1
-                batch_counts["error"] += 1
-                failures.append(f"{person['uuid']} / {prop}: {err}")
+    for index, person in enumerate(affected, start=1):
+        props = person["matched_properties"]
+        url = f"{host}/api/projects/{project_id}/persons/{person['uuid']}/delete_property/"
+        try:
+            response = request_with_retries(session, "POST", url, json={"$unset": props})
+        except PostHogScriptError as err:
+            status_counts["error"] += 1
+            batch_counts["error"] += 1
+            message = f"{person['uuid']} / {', '.join(props)}: {err}"
+            failures.append(message)
+            log(f"  FAILED: {printable(message)}")
+        else:
+            code = response.status_code
+            status_counts[str(code)] += 1
+            batch_counts[str(code)] += 1
+            if 200 <= code < 300:
+                values_deleted += len(props)
             else:
-                code = response.status_code
-                status_counts[str(code)] += 1
-                batch_counts[str(code)] += 1
-                if not 200 <= code < 300:
-                    failures.append(f"{person['uuid']} / {prop}: HTTP {code} {response.text[:200]}")
-            if index % API_REPORT_EVERY == 0 or index == total_pairs:
-                log(f"  deletes {batch_start}-{index} of {total_pairs}: {format_status_counts(batch_counts)}")
-                batch_counts = Counter()
-                batch_start = index + 1
-    return status_counts, failures
+                message = f"{person['uuid']} / {', '.join(props)}: HTTP {code} {response.text[:200]}"
+                failures.append(message)
+                log(f"  FAILED: {printable(message)}")
+        if index % API_REPORT_EVERY == 0 or index == total:
+            log(f"  persons {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
+            log_session_expiry(session, host)
+            batch_counts = Counter()
+            batch_start = index + 1
+    return status_counts, failures, values_deleted
 
 
 def parse_args() -> argparse.Namespace:
@@ -302,12 +301,17 @@ def parse_args() -> argparse.Namespace:
         required=True,
         default=argparse.SUPPRESS,
         help="events: batched $unset capture events (1 request per --batch-size persons); "
-        "api: delete_property endpoint (1 request per person-property pair)",
+        "api: delete_property endpoint (1 request per person)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Only report who would be affected; change nothing")
     parser.add_argument("--batch-size", type=int, default=500, help="Events per batch capture request (events mode)")
     parser.add_argument("--page-size", type=int, default=500, help="Persons fetched per page when scanning")
-    parser.add_argument("--output", help="Write the affected persons report to this JSON file")
+    parser.add_argument(
+        "--output",
+        metavar="NAME",
+        help="Base name for output files (no extension): writes <NAME>-findings.json (the affected "
+        "persons report) and <NAME>-log.txt (the full run log, written as it happens)",
+    )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
@@ -333,14 +337,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    properties = sorted(set(args.properties))
+    if args.output:
+        args.output = resolve_output_base(args.output)
+        set_log_file(f"{args.output}-log.txt")
+    try:
+        return run(args)
+    finally:
+        close_log_file()
 
-    session = requests.Session()
-    if args.personal_api_key:
-        session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
-    else:
-        setup_session_auth(session, args.host, args.session_id)
 
+def discover_affected(
+    session: requests.Session, args: argparse.Namespace, properties: list[str]
+) -> list[dict[str, Any]]:
+    """Scan for affected persons, log a summary, and write the --output findings report."""
     log(f"Finding persons in project {args.project_id} with any of: {', '.join(properties)}")
     affected_by_uuid = find_affected_persons(session, args.host, args.project_id, properties, args.page_size)
     affected = sorted(affected_by_uuid.values(), key=lambda p: p["uuid"])
@@ -352,16 +361,15 @@ def main() -> int:
         log(f"  {prop}: {count} persons")
 
     if args.output:
-        with open(args.output, "w") as f:
+        findings_path = f"{args.output}-findings.json"
+        with open(findings_path, "w") as f:
             json.dump({"properties": properties, "affected_persons": affected}, f, indent=2)
-        log(f"Wrote report to {args.output}")
+        log(f"Wrote report to {findings_path}")
 
-    if not affected:
-        log("Nothing to scrub.")
-        return 0
+    return affected
 
-    pair_count = sum(len(p["matched_properties"]) for p in affected)
 
+def log_preview(affected: list[dict[str, Any]]) -> None:
     preview = affected[:10]
     log("")
     log("Sample of affected persons:")
@@ -371,47 +379,75 @@ def main() -> int:
     if len(affected) > len(preview):
         log(f"  ... and {len(affected) - len(preview)} more (use --output to save the full list)")
 
-    if args.dry_run:
-        log("")
-        log("DRY RUN: no changes made.")
-        return 0
 
-    if not args.yes:
-        prompt = (
-            f"\nAbout to permanently scrub {pair_count} property values "
-            f"from {len(affected)} persons via {args.mode} mode. Type 'scrub' to continue: "
-        )
-        if not confirm(
-            prompt, "scrub", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
-        ):
-            log("Aborted.")
-            return 1
+def confirm_scrub(args: argparse.Namespace, affected: list[dict[str, Any]], pair_count: int) -> bool:
+    """Prompt to confirm the scrub (unless --yes); return whether to proceed."""
+    if args.yes:
+        return True
+    prompt = (
+        f"\nAbout to permanently scrub {pair_count} property values "
+        f"from {len(affected)} persons via {args.mode} mode. Type 'scrub' to continue: "
+    )
+    if confirm(
+        prompt, "scrub", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
+    ):
+        return True
+    log("Aborted.")
+    return False
 
+
+def execute_scrub(
+    session: requests.Session, args: argparse.Namespace, affected: list[dict[str, Any]], pair_count: int
+) -> int:
     if args.mode == "events":
         sent, request_count = scrub_via_events(args.host, args.project_api_key, affected, args.batch_size)
         log("")
         log(f"Done: sent {sent} scrub events in {request_count} batch requests.")
         log("Ingestion is asynchronous - properties disappear once the events are processed.")
-    else:
-        status_counts, failures = scrub_via_api(session, args.host, args.project_id, affected)
-        scrubbed = sum(n for code, n in status_counts.items() if code.isdigit() and 200 <= int(code) < 300)
-        log("")
+        return 0
+
+    status_counts, failures, values_deleted = scrub_via_api(session, args.host, args.project_id, affected)
+    log("")
+    log(
+        f"Done: {values_deleted}/{pair_count} property values deleted "
+        f"({len(affected)} requests). Status breakdown: {format_status_counts(status_counts)}"
+    )
+    forbidden = status_counts.get("403", 0)
+    if forbidden:
+        log(f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - likely a read-only key.")
+    bad_request = status_counts.get("400", 0)
+    if bad_request:
         log(
-            f"Done: {scrubbed}/{pair_count} property values deleted. Status breakdown: {format_status_counts(status_counts)}"
+            f"  {bad_request} rejected (HTTP 400): often field-level access control on one of the "
+            "properties - a request naming any restricted property fails as a whole."
         )
-        forbidden = status_counts.get("403", 0)
-        if forbidden:
-            log(
-                f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - a read-only "
-                "key, or field-level access control on restricted persons/properties."
-            )
-        for failure in failures[:20]:
-            log(f"  FAILED: {printable(failure)}")
-        if len(failures) > 20:
-            log(f"  ... and {len(failures) - 20} more failures")
-        if failures:
-            return 1
+    if failures:
+        log(f"  {len(failures)} failure(s) - see the FAILED lines above for details")
+        return 1
     return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    properties = sorted(set(args.properties))
+    session = build_session(args)
+    affected = discover_affected(session, args, properties)
+
+    if not affected:
+        log("Nothing to scrub.")
+        return 0
+
+    pair_count = sum(len(p["matched_properties"]) for p in affected)
+    log_preview(affected)
+
+    if args.dry_run:
+        log("")
+        log("DRY RUN: no changes made.")
+        return 0
+
+    if not confirm_scrub(args, affected, pair_count):
+        return 1
+
+    return execute_scrub(session, args, affected, pair_count)
 
 
 if __name__ == "__main__":

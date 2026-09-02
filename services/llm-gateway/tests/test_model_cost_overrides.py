@@ -9,6 +9,7 @@ import pytest
 
 from llm_gateway.rate_limiting.model_cost_overrides import (
     MODEL_COST_OVERRIDES,
+    PINNED_MODEL_COST_OVERRIDES,
     apply_model_cost_overrides,
 )
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
@@ -32,12 +33,37 @@ class TestApplyModelCostOverrides:
         apply_model_cost_overrides(cost_map)
         assert cost_map[model_id] == MODEL_COST_OVERRIDES[model_id]
 
-    @pytest.mark.parametrize("model_id", sorted(MODEL_COST_OVERRIDES))
+    @pytest.mark.parametrize("model_id", sorted(MODEL_COST_OVERRIDES.keys() - PINNED_MODEL_COST_OVERRIDES))
     def test_does_not_override_existing_upstream_entry(self, model_id: str) -> None:
         upstream: ModelCost = {"litellm_provider": "anthropic", "max_input_tokens": 1_000_000}
         cost_map: dict[str, ModelCost] = {model_id: upstream}
         apply_model_cost_overrides(cost_map)
         assert cost_map[model_id] is upstream
+
+    @pytest.mark.parametrize("model_id", sorted(PINNED_MODEL_COST_OVERRIDES))
+    def test_overrides_upstream_entry_for_pinned_contract_price(self, model_id: str) -> None:
+        upstream: ModelCost = {
+            "litellm_provider": "openai",
+            "input_cost_per_token": -1.0,
+            "output_cost_per_token": -1.0,
+        }
+        cost_map: dict[str, ModelCost] = {model_id: upstream}
+
+        apply_model_cost_overrides(cost_map)
+
+        assert cost_map[model_id] == MODEL_COST_OVERRIDES[model_id]
+        assert cost_map[model_id] is not MODEL_COST_OVERRIDES[model_id]
+
+    def test_pinned_membership_is_exactly_the_baseten_contract_prices(self) -> None:
+        # Literals on purpose: the parametrized tests above derive their groups from the
+        # sets under test, so removing a member there only reshuffles which semantics get
+        # asserted. Un-pinning a contract price must fail here.
+        assert PINNED_MODEL_COST_OVERRIDES == {
+            "baseten/zai-org/glm-5.2",
+            "baseten/deepseek-ai/deepseek-v4-flash-0731",
+            "baseten/zai-org/glm-5.3",
+            "baseten/zai-org/glm-5.3-flash",
+        }
 
     def test_returns_same_object_in_place(self) -> None:
         cost_map: dict[str, ModelCost] = {}
@@ -76,8 +102,9 @@ class TestOverrideSurfacesThroughRefresh:
         ModelCostService.reset_instance()
         ModelRegistryService.reset_instance()
 
+    @pytest.mark.parametrize("model", ["claude-fable-5", "claude-fable-5-1"])
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
-    def test_refresh_injects_fable_5_when_upstream_missing(self, mock_get_cost_map: MagicMock) -> None:
+    def test_refresh_injects_fable_when_upstream_missing(self, mock_get_cost_map: MagicMock, model: str) -> None:
         mock_get_cost_map.return_value = {
             "claude-opus-4-8": {
                 "litellm_provider": "anthropic",
@@ -89,10 +116,10 @@ class TestOverrideSurfacesThroughRefresh:
         service = ModelCostService.get_instance()
         service._refresh_cache()
 
-        costs = service.get_costs("claude-fable-5")
+        costs = service.get_costs(model)
         assert costs is not None
         assert costs["litellm_provider"] == "anthropic"
-        assert "claude-fable-5" in service.get_all_models()
+        assert model in service.get_all_models()
 
     @patch("llm_gateway.rate_limiting.model_cost_service.get_model_cost_map")
     def test_fable_5_listed_for_posthog_code(self, mock_get_cost_map: MagicMock) -> None:
@@ -122,3 +149,4 @@ class TestOverrideSurfacesThroughRefresh:
 
         assert "claude-opus-4-8" in model_ids
         assert "claude-fable-5" in model_ids
+        assert "claude-fable-5-1" in model_ids

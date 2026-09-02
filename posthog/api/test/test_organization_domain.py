@@ -191,12 +191,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         self.assertEqual(OrganizationDomain.objects.count(), count)
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_can_request_verification_for_unverified_domains(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.return_value = FakeDNSResponse(
+        mock_dns_query.return_value.resolve.return_value = FakeDNSResponse(
             [
                 dns.rrset.from_text(
                     "_posthog-challenge.myposthog.com.",
@@ -227,12 +227,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
         self.assertEqual(self.domain.is_verified, True)
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.side_effect = dns.resolver.NoAnswer()
+        mock_dns_query.return_value.resolve.side_effect = dns.resolver.NoAnswer()
 
         with freeze_time("2021-10-10T10:10:10Z"):
             with self.is_cloud(True):
@@ -248,12 +248,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")),
         )
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_domain_is_not_verified_with_missing_domain(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.side_effect = dns.resolver.NXDOMAIN()
+        mock_dns_query.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
 
         with freeze_time("2021-10-10T10:10:10Z"):
             with self.is_cloud(True):
@@ -269,12 +269,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=ZoneInfo("UTC")),
         )
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_domain_is_not_verified_with_incorrect_challenge(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.return_value = FakeDNSResponse(
+        mock_dns_query.return_value.resolve.return_value = FakeDNSResponse(
             [
                 dns.rrset.from_text(
                     "_posthog-challenge.myposthog.com.",
@@ -508,6 +508,42 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
+
+    @parameterized.expand(
+        [
+            # (name, extra domains as (domain, verified), domain to delete, expected status)
+            ("last_verified_domain", [], "posthog.com", status.HTTP_400_BAD_REQUEST),
+            ("own_domain_with_another_remaining", [("other.com", True)], "posthog.com", status.HTTP_400_BAD_REQUEST),
+            ("other_domain_still_admitted", [("other.com", True)], "other.com", status.HTTP_204_NO_CONTENT),
+            ("unverified_domain", [("pending.com", False)], "pending.com", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_cannot_delete_domain_that_would_lock_out_the_admin_under_enforcement(
+        self, _name, extra_domains, target, expected_status
+    ):
+        # With enforcement on, deleting the domain that admits the acting admin (last one or not)
+        # would lock them out on their next request; deleting other domains stays allowed.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        domains = {
+            "posthog.com": OrganizationDomain.objects.create(
+                organization=self.organization, domain="posthog.com", verified_at=timezone.now()
+            )
+        }
+        for domain, verified in extra_domains:
+            domains[domain] = OrganizationDomain.objects.create(
+                organization=self.organization, domain=domain, verified_at=timezone.now() if verified else None
+            )
+
+        response = self.client.delete(f"/api/organizations/@current/domains/{domains[target].id}")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        blocked = expected_status == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(OrganizationDomain.objects.filter(id=domains[target].id).exists(), blocked)
+        if blocked:
+            self.assertEqual(response.json()["code"], "would_block_self")
 
     def test_only_admin_can_delete_domain(self):
         response = self.client.delete(f"/api/organizations/@current/domains/{self.domain.id}")

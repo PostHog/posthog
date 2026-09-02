@@ -13,30 +13,16 @@ use tracing::Level;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
+use crate::ordering::OrderingGuarantee;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, PreparedEvent, SinkResult};
+use crate::v1::sinks::types::{BatchSummary, Outcome, PreparedEvent, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
 use super::constants::*;
 use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
-
-/// Returns true when the partition key should be nulled — i.e. when person
-/// processing is force-disabled for Main/Overflow-shaped destinations
-/// (including the AI lane's own overflow), spreading load across partitions
-/// instead of hotspotting on a single key.
-fn should_null_partition_key(
-    force_disable_person_processing: bool,
-    destination: &Destination,
-) -> bool {
-    force_disable_person_processing
-        && matches!(
-            destination,
-            Destination::AnalyticsMain | Destination::Overflow | Destination::AiEventsOverflow
-        )
-}
 
 /// Shared label values for metrics emitted within a single `publish_batch` call.
 struct MetricLabels {
@@ -158,16 +144,12 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 None => continue,
             };
 
-            let key = if should_null_partition_key(
-                event
-                    .headers
-                    .force_disable_person_processing
-                    .unwrap_or(false),
-                &event.destination,
-            ) {
-                None
-            } else {
-                Some(event.partition_key.as_str())
+            // `None` is passed to rdkafka so it round-robins. Passing
+            // `Some("")` would hash to a single deterministic partition via
+            // murmur2, which is the hot partition this is meant to avoid.
+            let key = match event.ordering {
+                OrderingGuarantee::None => None,
+                _ => Some(event.partition_key.as_str()),
             };
 
             let headers: rdkafka::message::OwnedHeaders = event.headers.clone().into();
@@ -450,26 +432,6 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         })
         .await
         .map_err(|e| anyhow::anyhow!("flush task panicked: {e:#}"))?
-    }
-}
-
-#[cfg(test)]
-mod should_null_partition_key_tests {
-    use super::*;
-    use rstest::rstest;
-
-    #[rstest]
-    #[case::main_disabled(true, Destination::AnalyticsMain, true)]
-    #[case::overflow_disabled(true, Destination::Overflow, true)]
-    #[case::ai_overflow_disabled(true, Destination::AiEventsOverflow, true)]
-    #[case::ai_disabled(true, Destination::AiEvents, false)]
-    #[case::dlq_disabled(true, Destination::Dlq, false)]
-    #[case::historical_disabled(true, Destination::AnalyticsHistorical, false)]
-    #[case::custom_disabled(true, Destination::Custom("t".into()), false)]
-    #[case::main_not_disabled(false, Destination::AnalyticsMain, false)]
-    #[case::ai_overflow_not_disabled(false, Destination::AiEventsOverflow, false)]
-    fn policy(#[case] force_disable: bool, #[case] dest: Destination, #[case] expected: bool) {
-        assert_eq!(should_null_partition_key(force_disable, &dest), expected);
     }
 }
 

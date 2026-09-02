@@ -6,7 +6,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -28,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.settings import (
     DEEPGRAM_ENDPOINTS,
     DeepgramEndpointConfig,
@@ -97,14 +97,17 @@ class DeepgramResumeConfig:
 def _format_start_value(value: Any) -> str:
     """Format an incremental cursor value for Deepgram's `start` filter.
 
-    Deepgram accepts YYYY-MM-DD or ISO 8601; we send full ISO 8601 with a Z suffix. Future-dated
-    cursors are capped at now so we never build a start-in-the-future filter (harmless but pointless).
+    The requests log accepts only YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, or YYYY-MM-DDTHH:MM:SS+HH:MM.
+    It rejects fractional seconds and a `Z` suffix with HTTP 400, so a datetime cursor is emitted as
+    whole-second ISO 8601 with a numeric UTC offset. The seconds are floored, so the boundary second
+    is re-fetched (the merge dedupes on the composite primary key) rather than skipped. Future-dated
+    cursors are capped at now so we never build a start-in-the-future filter.
     """
     now = datetime.now(UTC)
     if isinstance(value, datetime):
         aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         aware = now if aware > now else aware
-        return aware.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        return aware.astimezone(UTC).replace(microsecond=0).isoformat()
     if isinstance(value, date):
         capped = now.date() if value > now.date() else value
         return capped.isoformat()

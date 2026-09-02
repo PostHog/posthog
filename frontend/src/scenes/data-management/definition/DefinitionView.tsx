@@ -146,6 +146,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                 kind: NodeKind.EventsQuery,
                 select: columnsToUse,
                 event: definition.name,
+                after: '-24h',
             },
             full: true,
             showEventFilter: false,

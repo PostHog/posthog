@@ -12,6 +12,7 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
+from products.replay_vision.backend.tags import slugify_tag
 
 # Sized for a full run at the session cap (100 sessions, 4 concurrent, a few minutes each).
 # Lives here rather than temporal/constants so quota-path imports don't drag in the temporal package.
@@ -78,7 +79,10 @@ def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
     verdict = output.get("verdict")
     if isinstance(verdict, str) and verdict:
         return f"Verdict: {verdict.strip().lower()}"
-    tags = sorted(t.strip().lower() for t in (output.get("tags") or []) if isinstance(t, str) and t.strip())
+    # Freeform tags are part of a classifier's output, so a rewrite that only changes them must not read as
+    # "no change". Matches `describe_output`, which merges both lists.
+    raw_tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
+    tags = sorted({slug for t in raw_tags if isinstance(t, str) and (slug := slugify_tag(t))})
     if tags:
         return f"Tags: {', '.join(tags)}"
     # Preview types have no discrete outcome, so show the raw output the reviewer compares by eye.
@@ -120,27 +124,57 @@ def evaluation_in_flight(evaluation: Any) -> bool:
     return timezone.now() - started_at < EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT + _EVALUATION_RUNNING_GRACE
 
 
+def _unsettled_evaluation_credits(evaluation: Any, scanner_model: str | None) -> int:
+    """Credits one running evaluation still plans to charge. Settled sessions hold a receipt or never charge."""
+    if not isinstance(evaluation, dict) or not evaluation_in_flight(evaluation):
+        return 0
+    unsettled = max(0, int(evaluation.get("total") or 0) - len(evaluation.get("results") or []))
+    # Receipts bill the model frozen at workflow start, so the reservation prices from the same frozen
+    # value. Stubs written before the field existed fall back to the scanner's current model.
+    model = evaluation.get("model") or scanner_model
+    return unsettled * observation_credits_for_model(model or "")
+
+
 def in_flight_evaluation_credits(organization_id: uuid.UUID) -> int:
-    """Credits that running evaluations still plan to charge. Settled sessions hold a receipt or never charge."""
+    """Credits that the org's running evaluations still plan to charge."""
     rows = ReplayScannerPromptSuggestion.objects.filter(
         team__organization_id=organization_id, evaluation__status="running"
     ).values_list("evaluation", "scanner__model")
-    total = 0
-    for evaluation, model in rows:
-        if not isinstance(evaluation, dict) or not evaluation_in_flight(evaluation):
-            continue
-        unsettled = max(0, int(evaluation.get("total") or 0) - len(evaluation.get("results") or []))
-        total += unsettled * observation_credits_for_model(model or "")
-    return total
+    return sum(_unsettled_evaluation_credits(evaluation, model) for evaluation, model in rows)
 
 
-def build_running_evaluation(total: int, labels_fingerprint: str) -> dict[str, Any]:
+def in_flight_evaluation_credits_by_scanner(
+    organization_id: uuid.UUID, scanner_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """The same reservation split per scanner: an evaluation re-runs one scanner, so it spends that
+    scanner's own cap as well as the org's. Scanners with nothing running are omitted."""
+    if not scanner_ids:
+        return {}
+    rows = ReplayScannerPromptSuggestion.objects.filter(
+        team__organization_id=organization_id, scanner_id__in=scanner_ids, evaluation__status="running"
+    ).values_list("scanner_id", "evaluation", "scanner__model")
+    totals: dict[uuid.UUID, int] = {}
+    for scanner_id, evaluation, model in rows:
+        credits = _unsettled_evaluation_credits(evaluation, model)
+        if credits:
+            totals[scanner_id] = totals.get(scanner_id, 0) + credits
+    return totals
+
+
+def build_running_evaluation(
+    total: int,
+    labels_fingerprint: str,
+    model: str | None = None,
+    started_at: str | None = None,
+) -> dict[str, Any]:
     return {
         "status": "running",
-        "started_at": timezone.now().isoformat(),
+        # Usage receipt ids are keyed on this, so a restamp mid-run must reuse the original value.
+        "started_at": started_at or timezone.now().isoformat(),
         "finished_at": None,
         "total": total,
         "labels_fingerprint": labels_fingerprint,
+        "model": model,
         "results": [],
         "summary": None,
     }

@@ -35,6 +35,27 @@ cleanup_lock() {
     rm -f "$LOCK_FILE"
 }
 
+PREVIEW_STATE_DIR=/tmp/posthog-preview
+PREVIEW_LOCK_FILE="$PREVIEW_STATE_DIR/lock"
+launched_by_preview() {
+    [[ "$(readlink /proc/self/fd/9 2>/dev/null)" == "$PREVIEW_LOCK_FILE" ]]
+}
+if [[ -z "${HOGLI_SKIP_PREVIEW_CHECK:-}" && -e "$PREVIEW_LOCK_FILE" ]] && ! launched_by_preview; then
+    if ! flock -n "$PREVIEW_LOCK_FILE" true 2>/dev/null; then
+        echo "ℹ️  The sandbox backend is already starting the dev stack."
+        echo "   Poll $PREVIEW_STATE_DIR/status.json until \"state\" is \"ready\" (or \"failed\"), then run 'hogli wait'."
+        echo "   'hogli wait' reports 'not reachable' while the backend is still installing dependencies; that is expected, retry it."
+        echo "   To force a start anyway: HOGLI_SKIP_PREVIEW_CHECK=1 hogli start -y -d"
+        exit 0
+    fi
+    if grep -qE '"state"[[:space:]]*:[[:space:]]*"ready"' "$PREVIEW_STATE_DIR/status.json" 2>/dev/null \
+        && curl -sf --max-time 5 http://localhost:8010/_health >/dev/null 2>&1; then
+        echo "ℹ️  The dev stack started by the sandbox backend is already running. Run 'hogli wait' to confirm it is ready."
+        echo "   To force a start anyway: HOGLI_SKIP_PREVIEW_CHECK=1 hogli start -y -d"
+        exit 0
+    fi
+fi
+
 # Acquire exclusive lock using flock (atomic, no race condition)
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -136,7 +157,6 @@ export PERSONS_DB_WRITER_URL=${PERSONS_DB_WRITER_URL:-$PERSONS_DATABASE_URL}
 export PERSONS_DB_READER_URL=${PERSONS_DB_READER_URL:-$PERSONS_READONLY_DATABASE_URL}
 export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
 export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
-export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
 export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
 
 # Clean up orphaned dev processes left behind by a previous unclean shutdown.
@@ -147,22 +167,55 @@ if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
 fi
 
-# Warn about a duplicate infra stack under a different compose project. It binds the
-# same host ports as "$COMPOSE_PROJECT_NAME", so our clickhouse/kafka can't start and
-# get stuck in "Created" — the "database missing" hang. Advisory only (never fail).
-foreign_stacks=$(docker ps --filter 'label=com.docker.compose.service=clickhouse' \
-    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
-    | grep -vx "$COMPOSE_PROJECT_NAME" | sort -u || true)
-if [[ -n "$foreign_stacks" ]]; then
-    echo "⚠️  Another dev infra stack is running under a different compose project:"
-    while IFS= read -r stack; do
-        [[ -n "$stack" ]] && echo "     • $stack"
-    done <<< "$foreign_stacks"
-    echo "   It holds the same host ports as '$COMPOSE_PROJECT_NAME', so clickhouse/kafka"
-    echo "   here may fail to start and get reported as 'missing'. Tear it down with:"
-    while IFS= read -r stack; do
-        [[ -n "$stack" ]] && echo "     docker compose -p $stack -f docker-compose.dev.yml down --remove-orphans"
-    done <<< "$foreign_stacks"
+# Repair git housekeeping. On a partial clone git never consolidates its own pack
+# files. A maintenance run killed by sleep or reboot also leaves a lock, which
+# disables every scheduled task without a message. Reading the state is cheap and
+# the repack runs detached, so start does not wait (see doctor_git in
+# hogli_commands/doctor.py).
+# Set HOGLI_SKIP_GIT_CHECK=1 to skip.
+if [[ -z "${HOGLI_SKIP_GIT_CHECK:-}" ]] && command -v hogli &>/dev/null; then
+    hogli doctor:git || true
+fi
+
+# Pre-flight: detect who already holds the host ports the dev stack needs. A stale
+# stack under a *different* compose project binds the same ports, so one of our
+# containers fails to bind — and that aborts the entire `docker compose up`,
+# sometimes leaving a container detached from the compose network. In a TTY, offer
+# to tear foreign stacks down; otherwise stay advisory. Delegated to hogli (tested
+# there, see doctor_ports in hogli_commands/doctor.py).
+#
+# Also runs the one-time migration for the July 2026 named-volume switch: the named
+# volume is absent until the first `up` after the switch, which would otherwise
+# reset a clickhouse container's data that already exists under this project.
+# Auto-salvages the old anonymous volumes when the mapping is unambiguous, otherwise
+# prints the same manual-salvage warning as before. Must run before `docker compose
+# up` below (see doctor_migrate_volumes in hogli_commands/doctor.py).
+#
+# Both skipped if hogli isn't on PATH, same as doctor:zombies above. Without hogli
+# there's no auto-migration either, so warn plainly instead of silently losing data.
+if command -v hogli &>/dev/null; then
+    hogli doctor:ports || true
+    hogli doctor:migrate-volumes || true
+else
+    named_volume_reset_notice() {
+        command -v docker &>/dev/null || return 0
+        docker volume inspect "${COMPOSE_PROJECT_NAME}_clickhouse-data" &>/dev/null && return 0
+        if ! docker ps -a --filter 'label=com.docker.compose.service=clickhouse' \
+            --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+            | grep -qx "$COMPOSE_PROJECT_NAME"; then
+            # No clickhouse container left — either a fresh clone (nothing to lose) or
+            # `docker compose down` (removes containers but keeps volumes). Postgres has
+            # no profile gate, so its volume surviving is a reliable "not a fresh clone"
+            # signal, same as _has_prior_install in hogli_commands/doctor.py.
+            docker volume inspect "${COMPOSE_PROJECT_NAME}_postgres-15-data" &>/dev/null || return 0
+        fi
+        echo "⚠️  Switching ClickHouse/ZooKeeper to named docker volumes. This first start"
+        echo "   recreates them empty, so local ClickHouse data resets once (happens once"
+        echo "   per machine). Install hogli to auto-migrate your existing data instead. See"
+        echo "   'Local ClickHouse suddenly empty' in"
+        echo "   docs/published/handbook/engineering/developing-locally.md to salvage old data."
+    }
+    named_volume_reset_notice || true
 fi
 
 # Geo files

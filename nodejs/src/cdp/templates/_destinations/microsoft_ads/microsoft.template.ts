@@ -19,10 +19,10 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Microsoft Click ID (msclkid)',
             description:
-                'The Microsoft click ID (msclkid) associated with this conversion. Required for click attribution.',
+                'The Microsoft click ID (msclkid) associated with this conversion. It gives the most accurate click attribution, but conversions can also match on hashed email or phone when no click ID is available.',
             default: '{person.properties.msclkid ?? person.properties.$initial_msclkid}',
             secret: false,
-            required: true,
+            required: false,
         },
         {
             key: 'eventTime',
@@ -77,7 +77,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             label: 'Phone number',
             description:
                 'Phone number for enhanced conversions. Sent SHA-256 hashed; leave blank to omit. Normalize to E.164 format (e.g. +14255551234) for best match rates.',
-            default: '',
+            default: '{person.properties.phone}',
             secret: false,
             required: false,
         },
@@ -95,19 +95,20 @@ export const template: HogFunctionTemplate = {
     category: ['Advertisement'],
     code_language: 'hog',
     code: `
-if (empty(inputs.microsoftClickId)) {
-    print('Empty \`microsoftClickId\`. Skipping...')
-    return
-}
-
-let userData := {
-    'msclkid': inputs.microsoftClickId
+let userData := {}
+if (not empty(inputs.microsoftClickId)) {
+    userData.msclkid := inputs.microsoftClickId
 }
 if (not empty(inputs.email)) {
     userData.em := sha256Hex(lower(trim(inputs.email)))
 }
 if (not empty(inputs.phone)) {
     userData.ph := sha256Hex(lower(trim(inputs.phone)))
+}
+// Microsoft can only attribute a conversion if it carries at least one identifier
+if (length(keys(userData)) == 0) {
+    print('No \`microsoftClickId\`, \`email\` or \`phone\` to identify the user with. Skipping...')
+    return
 }
 
 let conversion := {

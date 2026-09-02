@@ -3,13 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nocrm import NoCRMSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.nocrm import NoCRMResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source import NoCRMSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNoCRMSource:
@@ -17,23 +12,6 @@ class TestNoCRMSource:
         self.source = NoCRMSource()
         self.config = NoCRMSourceConfig(subdomain="acme", api_key="key")
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NOCRM
-
-    def test_source_config_basics(self) -> None:
-        config = self.source.get_source_config
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/nocrm"
-        # Behind the release gate while in alpha.
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["subdomain", "api_key"]
-
-    def test_api_key_field_is_a_secret_password_input(self) -> None:
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if f.name == "api_key")
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == "password"
-        assert api_key_field.required is True
 
     def test_connection_host_fields_includes_subdomain(self) -> None:
         # Changing the subdomain retargets where the API key is sent, so it must force key re-entry.
@@ -71,10 +49,6 @@ class TestNoCRMSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["leads", "users"])
         assert {s.name for s in schemas} == {"leads", "users"}
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert any(expected_key in key for key in self.source.get_non_retryable_errors())
-
     def test_validate_credentials_success(self) -> None:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source.validate_nocrm_credentials",
@@ -90,11 +64,6 @@ class TestNoCRMSource:
             ok, message = self.source.validate_credentials(self.config, self.team_id)
             assert ok is False
             assert message is not None
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is NoCRMResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = mock.MagicMock()

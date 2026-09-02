@@ -8,13 +8,14 @@ from dateutil import parser as date_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.settings import (
     PERSONA_ENDPOINTS,
     PersonaEndpointConfig,
+    PersonaFanout,
 )
 
 PERSONA_BASE_URL = "https://api.withpersona.com/api/v1"
@@ -29,8 +30,9 @@ class PersonaRetryableError(Exception):
 
 @dataclasses.dataclass
 class PersonaResumeConfig:
-    # `page[after]` cursor (the id of the last object we durably yielded). On resume we re-window the
-    # request with the same created-at filter and continue from this object. `None` starts at page one.
+    # `page[after]` cursor (the id of the last list object whose rows we durably yielded). On resume
+    # we re-window the request with the same created-at filter and continue from this object.
+    # `None` starts at page one.
     after: str | None = None
 
 
@@ -108,7 +110,10 @@ def validate_credentials(api_key: str) -> int:
     """
     url = _build_url(f"{PERSONA_BASE_URL}/inquiries", {"page[size]": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        # Inquiry and verification bodies carry KYC PII (names, DOBs, government-ID and selfie check
+        # results) that the name-based scrubber can't reliably strip, so keep them out of HTTP sample
+        # capture, following the same pattern as gusto and workday.
+        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code
     except Exception:
         return 0
@@ -144,6 +149,41 @@ def _fetch_page(
     return response.json()
 
 
+def _rows_for_parent(
+    session: requests.Session,
+    parent_path: str,
+    fanout: PersonaFanout,
+    parent: dict[str, Any],
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    """Hydrate one parent object and return its child rows, tagged with the parent's identifiers."""
+    parent_id = parent["id"]
+    url = _build_url(f"{PERSONA_BASE_URL}{parent_path}/{parent_id}", {"include": fanout.relationship})
+    try:
+        data = _fetch_page(session, url, headers, logger)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            # The parent can be redacted/deleted between the list page and this hydrate call. Skip
+            # it rather than aborting the whole sync — the caller still advances its checkpoint past
+            # this item, so a resume won't keep re-hitting the same gone parent.
+            logger.warning(f"Persona: {parent_path}/{parent_id} returned 404 on fan-out hydrate, skipping")
+            return []
+        raise
+
+    rows: list[dict[str, Any]] = []
+    for item in data.get("included") or []:
+        if not str(item.get("type", "")).startswith(fanout.type_prefix):
+            continue
+        row = _flatten_item(item)
+        # Children don't repeat their parent's attributes, so carry the two the warehouse needs: one
+        # to join back to the parent table, one for the incremental cursor and partition key.
+        row[f"{fanout.parent_key_prefix}-id"] = parent_id
+        row[f"{fanout.parent_key_prefix}-created-at"] = parent.get("attributes", {}).get("created-at")
+        rows.append(row)
+    return rows
+
+
 def _build_params(config: PersonaEndpointConfig, watermark: Optional[datetime], after: str | None) -> dict[str, Any]:
     params: dict[str, Any] = {"page[size]": PAGE_SIZE}
     if watermark is not None:
@@ -165,8 +205,10 @@ def get_rows(
     config = PERSONA_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. Inquiry and
+    # verification bodies carry KYC PII the name-based scrubber can't reliably strip, so keep them
+    # out of HTTP sample capture, following the same pattern as gusto and workday.
+    session = make_tracked_session(capture=False)
 
     use_incremental = should_use_incremental_field and config.supports_incremental
     watermark = _to_datetime(db_incremental_field_last_value) if use_incremental else None
@@ -179,6 +221,10 @@ def get_rows(
         logger.debug(f"Persona: resuming {endpoint} from page[after]={after}")
 
     stop = False
+    # `page[after]` cursor for the last list object whose rows are all in the batcher. Fan-out rows
+    # carry their own ids rather than the list object's, and one list object can straddle a batch
+    # boundary, so the cursor is tracked here instead of read back off the yielded table.
+    checkpoint_after: str | None = None
     while not stop:
         url = _build_url(f"{PERSONA_BASE_URL}{config.path}", _build_params(config, watermark, after))
         data = _fetch_page(session, url, headers, logger)
@@ -199,16 +245,24 @@ def get_rows(
                     stop = True
                     break
 
-            batcher.batch(_flatten_item(item))
+            rows = (
+                _rows_for_parent(session, config.path, config.fanout, item, headers, logger)
+                if config.fanout is not None
+                else [_flatten_item(item)]
+            )
+            for row in rows:
+                batcher.batch(row)
 
-            while batcher.should_yield():
-                py_table = batcher.get_table()
-                yield py_table
-                # Save AFTER yielding so a crash re-yields the last batch (merge dedupes on the
-                # primary key) rather than skipping it. Only checkpoint while more pages remain.
-                if has_next:
-                    last_id = py_table.column("id")[-1].as_py()
-                    resumable_source_manager.save_state(PersonaResumeConfig(after=last_id))
+                while batcher.should_yield():
+                    yield batcher.get_table()
+                    # Save AFTER yielding so a crash re-yields the last batch (merge dedupes on the
+                    # primary key) rather than skipping it. The cursor deliberately stops short of the
+                    # object being batched, whose remaining rows may still be buffered. Only
+                    # checkpoint while more pages remain.
+                    if has_next and checkpoint_after is not None:
+                        resumable_source_manager.save_state(PersonaResumeConfig(after=checkpoint_after))
+
+            checkpoint_after = item["id"]
 
         if stop or not has_next:
             break

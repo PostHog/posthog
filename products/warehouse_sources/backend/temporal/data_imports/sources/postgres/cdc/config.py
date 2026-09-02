@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING
 
 from posthog.utils import str_to_bool
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, ManagementMode
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import (
+    CDCConfig,
+    ManagementMode,
+    parse_ingest_mode,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -38,6 +42,7 @@ class PostgresCDCConfig(CDCConfig):
         management_mode: ManagementMode = (
             "self_managed" if ji.get("cdc_management_mode") == "self_managed" else "posthog"
         )
+        ingest_mode = parse_ingest_mode(ji)
         return cls(
             enabled=str_to_bool(ji.get("cdc_enabled", False)),
             slot_name=ji.get("cdc_slot_name") or "",
@@ -47,6 +52,7 @@ class PostgresCDCConfig(CDCConfig):
             lag_critical_threshold_mb=int(ji.get("cdc_lag_critical_threshold_mb", DEFAULT_LAG_CRITICAL_THRESHOLD_MB)),
             auto_drop_slot=str_to_bool(ji.get("cdc_auto_drop_slot", True)),
             consistent_point=ji.get("cdc_consistent_point"),
+            ingest_mode=ingest_mode,
         )
 
     @classmethod

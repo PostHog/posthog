@@ -5,7 +5,6 @@ from typing import Any
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.queries import (
     OPTIONAL_QUERY_FIELDS,
     QUERIES,
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildbette
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 _MISSING_FIELD_RE = re.compile(r"field '([^']+)' not found in type")
 

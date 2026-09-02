@@ -146,8 +146,8 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     # If the body already succeeded, the delivery event was emitted (Slack post happened);
                     # a failed bookkeeping update must not flip the workflow to FAILED — re-running would
                     # double-post. Log loudly and let the workflow finish; the run row may stay RUNNING
-                    # (cosmetic, a post-MVP reconciler can resolve it). If the body failed, the original
-                    # error still re-raises below — the update failure must not mask it.
+                    # (reap_stuck_vision_action_runs_activity fails it once provably stuck). If the body
+                    # failed, the original error still re-raises below — the update failure must not mask it.
                     wf.logger.exception(
                         "vision_action.update_run_failed", vision_action_id=str(inputs.vision_action_id)
                     )

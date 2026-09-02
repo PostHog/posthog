@@ -1,7 +1,7 @@
 import React from 'react'
 
 import { ChartLegendLayout } from './ChartLegendLayout'
-import { Legend, type LegendItem } from './Legend'
+import { Legend, type LegendItem, type LegendProps } from './Legend'
 
 export interface ChartLegendProps {
     /** When false, renders children with no wrapper and no legend. Defaults to true. */
@@ -10,7 +10,7 @@ export interface ChartLegendProps {
     position?: 'top' | 'bottom' | 'left' | 'right'
     align?: 'start' | 'center' | 'end'
     gap?: number
-    onItemClick?: (key: string) => void
+    onItemClick?: LegendProps['onItemClick']
     hiddenKeys?: string[]
     className?: string
     /** Wrap each legend row — forwarded to {@link Legend}'s `renderItem`. */

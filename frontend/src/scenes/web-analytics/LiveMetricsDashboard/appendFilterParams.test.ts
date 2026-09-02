@@ -1,53 +1,53 @@
-import { WebAnalyticsPropertyFilter } from '~/queries/schema/schema-general'
-import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterBaseValue, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { appendFilterParams } from './liveWebAnalyticsMetricsLogic'
 
-const filter = (key: string, value: string | string[]): WebAnalyticsPropertyFilter => ({
-    type: PropertyFilterType.Event,
-    key,
-    value,
-    operator: PropertyOperator.Exact,
-})
+const filter = (
+    key: string,
+    value: string | string[],
+    operator: PropertyOperator = PropertyOperator.Exact
+): AnyPropertyFilter => ({ type: PropertyFilterType.Event, key, value, operator }) as AnyPropertyFilter
 
 describe('appendFilterParams', () => {
     it.each([
-        { label: 'empty list appends nothing', filters: [] as WebAnalyticsPropertyFilter[], expected: [] },
+        { label: 'empty list appends nothing', filters: [] as AnyPropertyFilter[], expected: null },
         {
-            label: 'scalar filter appends a single property entry',
+            label: 'scalar filter serializes value as an array',
             filters: [filter('$host', 'example.com')],
-            expected: ['$host=example.com'],
+            expected: [{ key: '$host', operator: 'exact', value: ['example.com'] }],
         },
         {
-            label: 'array value appends one entry per element',
+            label: 'array value stays a single entry matched as IN',
             filters: [filter('$device_type', ['Mobile', 'Tablet'])],
-            expected: ['$device_type=Mobile', '$device_type=Tablet'],
+            expected: [{ key: '$device_type', operator: 'exact', value: ['Mobile', 'Tablet'] }],
         },
         {
-            label: 'mixed list appends one entry per filter',
+            label: 'forwards the operator for non-exact event filters',
             filters: [
-                filter('$host', 'example.com'),
-                filter('$geoip_country_code', 'US'),
-                filter('$device_type', ['Mobile', 'Tablet']),
-                filter('$referring_domain', 'twitter.com'),
+                filter('$host', 'localhost', PropertyOperator.IContains),
+                filter('$current_url', '/admin', PropertyOperator.NotIContains),
+                filter('$referring_domain', '^https://', PropertyOperator.Regex),
+                filter('$device_type', 'Desktop', PropertyOperator.IsNot),
             ],
             expected: [
-                '$host=example.com',
-                '$geoip_country_code=US',
-                '$device_type=Mobile',
-                '$device_type=Tablet',
-                '$referring_domain=twitter.com',
+                { key: '$host', operator: 'icontains', value: ['localhost'] },
+                { key: '$current_url', operator: 'not_icontains', value: ['/admin'] },
+                { key: '$referring_domain', operator: 'regex', value: ['^https://'] },
+                { key: '$device_type', operator: 'is_not', value: ['Desktop'] },
             ],
         },
         {
-            label: 'skips filters that use a non-Exact operator',
-            filters: [
-                { type: PropertyFilterType.Event, key: '$host', value: 'foo', operator: PropertyOperator.IsNot },
-            ] as WebAnalyticsPropertyFilter[],
-            expected: [],
+            label: 'set operators carry no values',
+            filters: [filter('$browser', '', PropertyOperator.IsSet)],
+            expected: [{ key: '$browser', operator: 'is_set', value: [] }],
         },
         {
-            label: 'skips filters that are not event properties',
+            label: 'skips operators the livestream cannot compile',
+            filters: [filter('$host', '2024-01-01', PropertyOperator.IsDateAfter)],
+            expected: null,
+        },
+        {
+            label: 'skips person filters, which the raw event payload cannot satisfy',
             filters: [
                 {
                     type: PropertyFilterType.Person,
@@ -55,32 +55,52 @@ describe('appendFilterParams', () => {
                     value: 'test@example.com',
                     operator: PropertyOperator.Exact,
                 },
-            ] as WebAnalyticsPropertyFilter[],
-            expected: [],
+            ] as AnyPropertyFilter[],
+            expected: null,
         },
         {
-            label: 'skips null entries within an array value',
+            label: 'skips cohort filters, which the raw event payload cannot satisfy',
+            filters: [
+                { type: PropertyFilterType.Cohort, key: 'id', value: 426532, operator: PropertyOperator.NotIn },
+            ] as AnyPropertyFilter[],
+            expected: null,
+        },
+        {
+            label: 'drops null entries within an array value',
             filters: [
                 {
                     type: PropertyFilterType.Event,
                     key: '$host',
                     value: [null, 'bar'] as unknown as PropertyFilterBaseValue[],
                     operator: PropertyOperator.Exact,
-                } as WebAnalyticsPropertyFilter,
+                } as AnyPropertyFilter,
             ],
-            expected: ['$host=bar'],
+            expected: [{ key: '$host', operator: 'exact', value: ['bar'] }],
+        },
+        {
+            label: 'drops a filter whose values are all null',
+            filters: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$host',
+                    value: [null] as unknown as PropertyFilterBaseValue[],
+                    operator: PropertyOperator.Exact,
+                } as AnyPropertyFilter,
+            ],
+            expected: null,
         },
         {
             label: 'preserves existing query params on the URL',
             url: 'https://example.com/events?columns=$pathname&geo=true',
             filters: [filter('$host', 'example.com')],
-            expected: ['$host=example.com'],
+            expected: [{ key: '$host', operator: 'exact', value: ['example.com'] }],
             preservedParams: { columns: '$pathname', geo: 'true' },
         },
     ])('$label', ({ filters, expected, url, preservedParams }) => {
         const u = new URL(url ?? 'https://example.com/events')
         appendFilterParams(u, filters)
-        expect(u.searchParams.getAll('property')).toEqual(expected)
+        const raw = u.searchParams.get('properties')
+        expect(raw === null ? null : JSON.parse(raw)).toEqual(expected)
         for (const [key, value] of Object.entries(preservedParams ?? {})) {
             expect(u.searchParams.get(key)).toEqual(value)
         }

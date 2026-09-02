@@ -41,19 +41,21 @@
         },
     ],
     "observability": {
-        "enabled": true,
-        "head_sampling_rate": 0.1,
         "logs": {
-            "enabled": true,
-            "destinations": ["posthog"],
+            "enabled": false,
             "head_sampling_rate": 0.1,
-            "persist": true, // Keep showing logs in Cloudflare dashboard
+            "invocation_logs": true,
+            "destinations": ["posthog"],
+        },
+        "traces": {
+            "enabled": false,
+            "head_sampling_rate": 0.1,
         },
     },
     "rules": [
         {
             "type": "Text",
-            "globs": ["**/*.md"],
+            "globs": ["**/*.md", "**/*.yaml"],
             "fallthrough": true,
         },
     ],

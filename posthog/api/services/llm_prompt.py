@@ -175,6 +175,8 @@ def publish_prompt_version(
     prompt_name: str,
     prompt_payload: Any | None = None,
     edits: list[dict[str, str]] | None = None,
+    config: Any | None = None,
+    config_provided: bool = False,
     base_version: int,
     version_description: str | None = None,
 ) -> LLMPrompt:
@@ -195,14 +197,22 @@ def publish_prompt_version(
 
         if edits is not None:
             resolved_payload = apply_prompt_edits(current_latest.prompt, edits)
-        else:
+        elif prompt_payload is not None:
             resolved_payload = prompt_payload
+        else:
+            # Config-only publish: carry the prompt content forward unchanged.
+            resolved_payload = current_latest.prompt
+
+        # `config_provided` distinguishes "not sent" (carry forward) from an explicit
+        # null (clear) — text-only publishes must not silently drop the config.
+        resolved_config = config if config_provided else current_latest.config
 
         LLMPrompt.objects.filter(pk=current_latest.pk).update(is_latest=False)
         published_prompt = LLMPrompt.objects.create(
             team=team,
             name=current_latest.name,
             prompt=resolved_payload,
+            config=resolved_config,
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
@@ -222,6 +232,9 @@ def publish_prompt_version(
             changes.append(
                 Change(type="LLMPrompt", action="created", field="version_description", after=version_description)
             )
+        if resolved_config != current_latest.config:
+            # No before/after payloads: config contents are never logged, like prompt content.
+            changes.append(Change(type="LLMPrompt", action="changed", field="config"))
         log_llm_prompt_activity(
             team=team,
             user=user,
@@ -276,6 +289,7 @@ def duplicate_prompt(
                 team=team,
                 name=new_name,
                 prompt=source_latest.prompt,
+                config=source_latest.config,
                 version=1,
                 is_latest=True,
                 created_by=user,

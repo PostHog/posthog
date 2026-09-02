@@ -23,9 +23,11 @@ def refresh_integrations() -> int:
     # refreshes are minted on demand under a Postgres row lock by the sync path
     # (resolve_resend_oauth_token). This unlocked periodic sweep would race that path and
     # double-spend the rotating token, so it must not refresh Resend.
+    # The Meta kinds are excluded because their grants carry no refresh token: a long-lived token is
+    # re-exchanged on use by `MetaGraphIntegration.refresh_access_token` rather than by this sweep.
     oauth_integrations = defer_repository_cache_fields(
         Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
-        .exclude(kind__in=["meta-ads", "resend"])
+        .exclude(kind__in=["meta-ads", "instagram", "resend"])
         .all()
     )
 

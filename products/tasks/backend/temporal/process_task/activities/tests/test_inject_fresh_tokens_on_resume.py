@@ -32,8 +32,8 @@ class TestInjectFreshTokensOnResumeActivity:
     ):
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
@@ -82,8 +82,8 @@ class TestInjectFreshTokensOnResumeActivity:
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
@@ -117,8 +117,8 @@ class TestInjectFreshTokensOnResumeActivity:
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",

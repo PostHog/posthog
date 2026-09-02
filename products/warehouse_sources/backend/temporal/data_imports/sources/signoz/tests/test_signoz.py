@@ -7,6 +7,7 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz import signoz as sgz
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.settings import SIGNOZ_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz import (
@@ -59,7 +60,7 @@ class TestToEpochMs:
 
 class TestBuildQueryRangeBody:
     def test_logs_body_shape(self) -> None:
-        body = _build_query_range_body(SIGNOZ_ENDPOINTS["logs"], 1000, 2000, 50)
+        body = _build_query_range_body(SIGNOZ_ENDPOINTS["logs"], 50, window=SyncWindow(start=1000, end=2000))
 
         assert body["start"] == 1000
         assert body["end"] == 2000
@@ -76,7 +77,7 @@ class TestBuildQueryRangeBody:
         ]
 
     def test_traces_order_uses_span_id_tiebreaker(self) -> None:
-        body = _build_query_range_body(SIGNOZ_ENDPOINTS["traces"], 0, 1, 0)
+        body = _build_query_range_body(SIGNOZ_ENDPOINTS["traces"], 0, window=SyncWindow(start=0, end=1))
         spec = body["compositeQuery"]["queries"][0]["spec"]
         assert spec["signal"] == "traces"
         assert [o["key"]["name"] for o in spec["order"]] == ["timestamp", "span_id"]

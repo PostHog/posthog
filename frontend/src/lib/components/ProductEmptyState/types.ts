@@ -1,9 +1,11 @@
 import type { LogicWrapper } from 'kea'
 import type { ComponentType, CSSProperties, ReactNode } from 'react'
 
-import type { FeatureFlagKey } from 'lib/constants'
+import type { RestrictionScope } from 'lib/components/RestrictedArea'
+import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 
 import type { ProductKey } from '~/queries/schema/schema-general'
+import type { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 /**
  * Normalized setup status for a product, pushed into `productSetupStatusLogic`
@@ -22,7 +24,10 @@ export interface ProductEmptyStateText {
     /** Sentence case, benefit-first, e.g. "Know how agents actually use your tools" */
     headline: string
     lead: ReactNode
-    /** Small line above the install command, e.g. "Fastest way in — our wizard wires up the SDK for you:" */
+    /**
+     * Small line introducing the install command or primary action, e.g. "Fastest way in - our
+     * wizard wires up the SDK for you:". It only renders when the mode has one of those under it.
+     */
     hint?: ReactNode
 }
 
@@ -44,11 +49,50 @@ export interface ProductEmptyStateWizard {
     pinProjectId?: boolean
 }
 
+export interface ProductEmptyStateAccessControl {
+    resourceType: AccessControlResourceType
+    minAccessLevel: AccessControlLevel
+}
+
+export interface ProductEmptyStateRestriction {
+    scope: RestrictionScope
+    minimumAccessLevel: TeamMembershipLevel
+}
+
 export interface ProductEmptyStatePrimaryAction {
     label: string
     to?: string
     onClick?: () => void
+    /**
+     * Permission the action requires, mirroring the gated scene's own create button.
+     * Without it a viewer gets an enabled button and only finds out they can't create
+     * when the form fails to save.
+     */
+    accessControl?: ProductEmptyStateAccessControl
+    /**
+     * Membership level the action requires, for actions that write a team setting rather
+     * than create a resource. Resource access control cannot express this: recording
+     * Editor does not carry permission to flip the project's opt-in, so gating such an
+     * action on a resource level enables a button whose update the backend rejects.
+     */
+    restriction?: ProductEmptyStateRestriction
+    /**
+     * `data-attr` on the button, defaulting to `product-empty-state-primary-action`.
+     * Set it to the attr the gated scene's create button carries, so end-to-end specs
+     * keep one selector across both surfaces.
+     */
+    dataAttr?: string
 }
+
+/**
+ * A primary action keyed by mode, mirroring `text`: a mode left out has no primary
+ * action at all, and its hint goes with it. Key the action when it stops making sense
+ * once the product is on - a one-click "Enable X" would re-send the same opt-in while
+ * the screen waits for the first event.
+ */
+export type ProductEmptyStatePrimaryActionByMode = Partial<
+    Record<ProductEmptyStateMode, ProductEmptyStatePrimaryAction>
+>
 
 export interface ProductEmptyStateConfig {
     productKey: ProductKey
@@ -62,11 +106,29 @@ export interface ProductEmptyStateConfig {
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
     hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
+    /**
+     * Where the hedgehog sits: `above` (default) is a small illustration above the
+     * product name; `beside` renders it large next to the text and install command,
+     * for wide scene-setting illustrations.
+     */
+    hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode
     /** Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows */
     wizard?: ProductEmptyStateWizard
-    /** Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag" */
-    primaryAction?: ProductEmptyStatePrimaryAction
+    /**
+     * Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag".
+     * With `wizard` also set, the terminal card stays the hero and this renders as a secondary button
+     * (in place of the "Configure manually" link), for products with both a terminal and an in-app path.
+     * One action covers every mode; pass a `ProductEmptyStatePrimaryActionByMode` map to vary it.
+     */
+    primaryAction?: ProductEmptyStatePrimaryAction | ProductEmptyStatePrimaryActionByMode
+    /**
+     * Rendered in the primary-action slot instead of the `primaryAction` button, for
+     * actions that need hooks - e.g. a create flow that opens PostHog AI via `useMaxTool`.
+     * Takes precedence over `primaryAction`. With `wizard` also set, the terminal card
+     * stays the hero and this renders under the "or" divider.
+     */
+    PrimaryAction?: ComponentType
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
@@ -76,6 +138,12 @@ export interface ProductEmptyStateConfig {
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
     statusIndicator?: ReactNode
+    /**
+     * Whether the "Skip for now" escape hatch shows. Defaults to true. Set false for
+     * creation-first products where the gated scene is just an empty list, so skipping
+     * has nothing to reveal and the primary action is the only next step.
+     */
+    skippable?: boolean
 }
 
 /**
@@ -97,4 +165,11 @@ export interface SceneProductEmptyState {
      * roll the empty state out gradually.
      */
     featureFlag?: FeatureFlagKey
+    /**
+     * Only gate these scene ids (`Scene` values), for scene modules that serve
+     * several scenes (tabs) where just one is the product being gated - e.g. the
+     * web analytics module, where only the web vitals tab has a setup state.
+     * Omit to gate every scene the module serves.
+     */
+    scenes?: string[]
 }

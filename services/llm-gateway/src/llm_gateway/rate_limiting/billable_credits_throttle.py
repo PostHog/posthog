@@ -70,4 +70,7 @@ class BillableCreditThrottle(Throttle):
             detail=_BUCKET_EXHAUSTED_DETAIL.get(config.credit_bucket, _DEFAULT_EXHAUSTED_DETAIL),
             scope=self.scope,
             retry_after=_RETRY_AFTER_SECONDS,
+            # Credits come back on top-up or billing rollover, not when the
+            # back-off above elapses.
+            retry_after_resets_limit=False,
         )

@@ -5,6 +5,7 @@ import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general
 import { ActivityScope, ProductManifest } from '~/types'
 
 import type { ModelsSceneTab } from '../../frontend/src/scenes/models/modelsSceneLogic'
+import type { NodeDetailSceneTab } from '../../frontend/src/scenes/models/nodeDetailSceneLogic'
 import type { SchemaConfigurationSection, SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
@@ -18,6 +19,7 @@ export const manifest: ProductManifest = {
             activityScope: 'DataWarehouse',
             description: "Manage your organization's shared data warehouse.",
             iconType: 'data_warehouse',
+            docsHref: 'https://posthog.com/docs/data-warehouse',
         },
         Models: {
             name: 'Models',
@@ -37,6 +39,7 @@ export const manifest: ProductManifest = {
             layout: 'app-raw-no-header',
             hideProjectNotice: true,
             description: 'Write and execute SQL queries against your data warehouse',
+            docsHref: 'https://posthog.com/docs/sql',
         },
         Sources: {
             import: () => import('./frontend/scenes/SourcesScene/SourcesScene'),
@@ -73,6 +76,7 @@ export const manifest: ProductManifest = {
         '/models': ['Models', 'models'],
         '/models/dags': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],
+        '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
             'DataWarehouseSourceSchema',
@@ -91,14 +95,30 @@ export const manifest: ProductManifest = {
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     },
     redirects: {
+        // Switching projects while in the new-source wizard truncates the URL to bare
+        // `/data-warehouse`, which otherwise 404s. Send it to the sources list instead.
+        '/data-warehouse': () => urls.sources(),
+        // `/data-warehouse/new` is a natural URL for "add a source" but was never a real route.
+        // Redirect it to the new-source wizard rather than 404ing.
+        '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
         '/data-warehouse/sources': () => urls.sources(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
-        dataOps: (tab?: string): string => (tab ? `/data-ops?tab=${tab}` : '/data-ops'),
+        dataOps: (tab?: string, dagId?: string): string => {
+            const params = new URLSearchParams()
+            if (tab) {
+                params.set('tab', tab)
+            }
+            if (dagId) {
+                params.set('dag', dagId)
+            }
+            const query = params.toString()
+            return query ? `/data-ops?${query}` : '/data-ops'
+        },
         models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
-        nodeDetail: (id: string): string => `/models/${id}`,
+        nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
             `/data-management/sources/${id}/${tab ?? 'schemas'}`,

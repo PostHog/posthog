@@ -11,14 +11,15 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
     CHECKMARX_ENDPOINTS,
     CHECKMARX_REGION_HOSTS,
     CheckmarxEndpointConfig,
+    RegionHosts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT = 60
 TOKEN_REQUEST_TIMEOUT = 30
@@ -61,8 +62,8 @@ def _make_session(api_key: str) -> requests.Session:
     return make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
 
 
-def get_region_hosts(region: str) -> tuple[str, str]:
-    """Return (api_base_url, iam_base_url) for a Checkmarx One region."""
+def get_region_hosts(region: str) -> RegionHosts:
+    """Return the API and IAM base URLs for a Checkmarx One region."""
     hosts = CHECKMARX_REGION_HOSTS.get(region)
     if hosts is None:
         raise ValueError(f"Unknown Checkmarx One region: {region}")
@@ -331,17 +332,17 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = CHECKMARX_ENDPOINTS[endpoint]
-    api_base_url, iam_base_url = get_region_hosts(region)
+    hosts = get_region_hosts(region)
     # One session reused across every page (and, for fan-out, every scan) so urllib3 keeps the
     # connection alive instead of re-handshaking per request.
     session = _make_session(api_key)
-    auth = CheckmarxAuth(session, iam_base_url, tenant_name, api_key)
+    auth = CheckmarxAuth(session, hosts.iam_base_url, tenant_name, api_key)
 
     from_date = _build_incremental_value(config, should_use_incremental_field, db_incremental_field_last_value)
 
     if config.fan_out_over_scans:
         yield from _get_fan_out_rows(
-            session, auth, api_base_url, endpoint, config, resumable_source_manager, from_date, logger
+            session, auth, hosts.api_base_url, endpoint, config, resumable_source_manager, from_date, logger
         )
         return
 
@@ -357,7 +358,7 @@ def get_rows(
     for items, next_offset in _iter_pages(
         session,
         auth,
-        f"{api_base_url}{config.path}",
+        f"{hosts.api_base_url}{config.path}",
         params,
         config.data_key,
         config.page_size,
@@ -371,17 +372,17 @@ def get_rows(
 
 def validate_credentials(tenant_name: str, region: str, api_key: str) -> tuple[bool, str | None]:
     try:
-        api_base_url, iam_base_url = get_region_hosts(region)
+        hosts = get_region_hosts(region)
     except ValueError as e:
         return False, str(e)
 
     session = _make_session(api_key)
-    auth = CheckmarxAuth(session, iam_base_url, tenant_name, api_key)
+    auth = CheckmarxAuth(session, hosts.iam_base_url, tenant_name, api_key)
 
     try:
         token = auth.get_token()
         response = session.get(
-            f"{api_base_url}/api/projects",
+            f"{hosts.api_base_url}/api/projects",
             params={"offset": 0, "limit": 1},
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json; version=1.0"},
             timeout=TOKEN_REQUEST_TIMEOUT,

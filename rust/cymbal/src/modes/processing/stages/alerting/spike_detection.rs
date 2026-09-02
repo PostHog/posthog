@@ -14,6 +14,7 @@ use crate::metric_consts::{
     SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
     SPIKE_ISSUES_SPIKING,
 };
+use crate::modes::processing::redis_heal::{heal_on_connection_error, HealGate};
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
 use crate::types::ProcessedExceptionProperties;
 
@@ -43,8 +44,17 @@ fn cooldown_key(issue_id: &Uuid) -> String {
 pub struct SpikingIssue {
     pub issue: Issue,
     pub props: ProcessedExceptionProperties,
+    pub event_uuid: Uuid,
+    pub event_timestamp: String,
     pub computed_baseline: f64,
     pub current_bucket_value: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpikeSample {
+    pub props: ProcessedExceptionProperties,
+    pub event_uuid: Uuid,
+    pub event_timestamp: String,
 }
 
 /// Bucket data for a single issue
@@ -80,7 +90,8 @@ fn get_now_rounded_to_minutes(minutes: i64) -> String {
 }
 
 async fn try_increment_issue_buckets(
-    redis: &(dyn Client + Send + Sync),
+    heal_gate: &HealGate,
+    redis: &Arc<dyn Client + Send + Sync>,
     issue_counts: &HashMap<Uuid, u32>,
 ) {
     if issue_counts.is_empty() {
@@ -103,11 +114,13 @@ async fn try_increment_issue_buckets(
         .await
     {
         warn!("Failed to increment issue buckets batch: {err}");
+        heal_on_connection_error(heal_gate, redis, &err);
     }
 }
 
 async fn try_increment_team_buckets(
-    redis: &(dyn Client + Send + Sync),
+    heal_gate: &HealGate,
+    redis: &Arc<dyn Client + Send + Sync>,
     issues_by_id: &HashMap<Uuid, Issue>,
     issue_counts: &HashMap<Uuid, u32>,
 ) {
@@ -143,6 +156,7 @@ async fn try_increment_team_buckets(
         .await
     {
         warn!("Failed to increment team buckets batch: {err}");
+        heal_on_connection_error(heal_gate, redis, &err);
     }
 
     // Track unique issues per team bucket using sets
@@ -162,13 +176,14 @@ async fn try_increment_team_buckets(
         .await
     {
         warn!("Failed to add issues to team sets: {err}");
+        heal_on_connection_error(heal_gate, redis, &err);
     }
 }
 
 pub async fn do_spike_detection(
     context: Arc<AppContext>,
     issues_by_id: HashMap<Uuid, Issue>,
-    issue_props_by_id: HashMap<Uuid, ProcessedExceptionProperties>,
+    issue_samples_by_id: HashMap<Uuid, SpikeSample>,
     issue_counts: HashMap<Uuid, u32>,
 ) -> Result<(), UnhandledError> {
     if issue_counts.is_empty() {
@@ -200,12 +215,18 @@ pub async fn do_spike_detection(
         .await;
 
     let issue_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, &[]);
-    try_increment_issue_buckets(&*context.issue_buckets_redis_client, &issue_counts).await;
+    try_increment_issue_buckets(
+        &context.issue_buckets_heal_gate,
+        &context.issue_buckets_redis_client,
+        &issue_counts,
+    )
+    .await;
     issue_buckets_timer.fin();
 
     let team_buckets_timer = common_metrics::timing_guard(SPIKE_INCREMENT_TEAM_BUCKETS_TIME, &[]);
     try_increment_team_buckets(
-        &*context.issue_buckets_redis_client,
+        &context.issue_buckets_heal_gate,
+        &context.issue_buckets_redis_client,
         &issues_by_id,
         &issue_counts,
     )
@@ -218,7 +239,7 @@ pub async fn do_spike_detection(
     let spiking = get_spiking_issues(
         &*context.issue_buckets_redis_client,
         &issues_by_id,
-        &issue_props_by_id,
+        &issue_samples_by_id,
         &team_configs,
     )
     .await;
@@ -306,6 +327,8 @@ async fn emit_spiking_events(
             context,
             &spike.issue,
             spike.props.clone(),
+            spike.event_uuid,
+            &spike.event_timestamp,
             spike.computed_baseline,
             spike.current_bucket_value as f64,
         )
@@ -379,7 +402,7 @@ fn is_spiking(current_value: i64, baseline: f64, config: &SpikeDetectionConfig) 
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
     issues_by_id: &HashMap<Uuid, Issue>,
-    issue_props_by_id: &HashMap<Uuid, ProcessedExceptionProperties>,
+    issue_samples_by_id: &HashMap<Uuid, SpikeSample>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
 ) -> Result<Vec<SpikingIssue>, UnhandledError> {
     if issues_by_id.is_empty() {
@@ -419,7 +442,7 @@ async fn get_spiking_issues(
         })?;
 
         if is_spiking(current_value, baseline, config) {
-            let props = issue_props_by_id
+            let sample = issue_samples_by_id
                 .get(&bucket.issue_id)
                 .cloned()
                 .ok_or_else(|| {
@@ -430,7 +453,9 @@ async fn get_spiking_issues(
                 })?;
             spiking.push(SpikingIssue {
                 issue: issue.clone(),
-                props,
+                props: sample.props,
+                event_uuid: sample.event_uuid,
+                event_timestamp: sample.event_timestamp,
                 computed_baseline: baseline,
                 current_bucket_value: current_value,
             });
@@ -550,6 +575,14 @@ mod tests {
         .unwrap()
     }
 
+    fn spike_sample(issue_id: Uuid) -> SpikeSample {
+        SpikeSample {
+            props: processed_properties(issue_id),
+            event_uuid: Uuid::now_v7(),
+            event_timestamp: Utc::now().to_rfc3339(),
+        }
+    }
+
     struct TestContext {
         redis: MockRedisClient,
         issue_id: Uuid,
@@ -617,6 +650,7 @@ mod tests {
                 id: self.issue_id,
                 team_id: self.team_id,
                 status: crate::issue_resolution::IssueStatus::Active,
+                severity: None,
                 name: Some("Test Issue".to_string()),
                 description: Some("Test Description".to_string()),
                 created_at: Utc::now(),
@@ -625,8 +659,8 @@ mod tests {
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
             let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
-            let properties = HashMap::from([(self.issue_id, processed_properties(self.issue_id))]);
-            get_spiking_issues(&self.redis, &self.issues_by_id(), &properties, &configs)
+            let samples = HashMap::from([(self.issue_id, spike_sample(self.issue_id))]);
+            get_spiking_issues(&self.redis, &self.issues_by_id(), &samples, &configs)
                 .await
                 .unwrap()
         }
@@ -949,6 +983,7 @@ mod tests {
             id,
             team_id,
             status: crate::issue_resolution::IssueStatus::Active,
+            severity: None,
             name: Some("Test".to_string()),
             description: Some("Test".to_string()),
             created_at: Utc::now(),
@@ -1054,11 +1089,11 @@ mod tests {
             (team_1, SpikeDetectionConfig::default()),
             (team_2, SpikeDetectionConfig::default()),
         ]);
-        let properties = issues_by_id
+        let samples = issues_by_id
             .keys()
-            .map(|issue_id| (*issue_id, processed_properties(*issue_id)))
+            .map(|issue_id| (*issue_id, spike_sample(*issue_id)))
             .collect();
-        let result = get_spiking_issues(&redis, &issues_by_id, &properties, &configs)
+        let result = get_spiking_issues(&redis, &issues_by_id, &samples, &configs)
             .await
             .unwrap();
 

@@ -252,6 +252,40 @@ export const Anchored: Story = {
     },
 } satisfies Story
 
+export const AnchoredWithAction: Story = {
+    render: () => {
+        const buttonRef = useRef<HTMLButtonElement>(null)
+        const [deleted, setDeleted] = useState(false)
+
+        return (
+            <div className="flex items-center justify-center gap-3 p-20">
+                <Button
+                    ref={buttonRef}
+                    onClick={() => {
+                        setDeleted(true)
+                        anchoredToast({
+                            title: 'Event deleted',
+                            description: 'The event has been removed.',
+                            anchor: buttonRef.current,
+                            timeout: 0,
+                            action: {
+                                label: 'Undo',
+                                onClick: () => setDeleted(false),
+                            },
+                        })
+                    }}
+                    disabled={deleted}
+                >
+                    Delete event
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                    {deleted ? 'Deleted (click Undo in toast)' : 'Not deleted'}
+                </span>
+            </div>
+        )
+    },
+} satisfies Story
+
 export const Dismiss: Story = {
     render: () => {
         const toastIdRef = useRef<string | undefined>(undefined)

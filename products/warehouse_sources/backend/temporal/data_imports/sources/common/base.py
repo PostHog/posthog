@@ -1,7 +1,7 @@
 import datetime
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -24,17 +24,17 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    ResumableData,
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ResumableData,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
@@ -97,6 +97,20 @@ SourceCredentialsValidationResult = tuple[bool, str | None]
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
 UNVERSIONED_API_VERSION = "v1"
 
+# Wall-clock bound on `probe_new_data` before the import falls back to the full sync.
+FAST_RETURN_PROBE_TIMEOUT = datetime.timedelta(minutes=2)
+
+
+def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
+    """Case-insensitive match of `error_msg` against `get_non_retryable_errors`/`get_retryable_errors` patterns.
+
+    Vendors don't reliably return the reason phrase casing `requests.raise_for_status()`
+    assumes (e.g. Eventbrite sends "UNAUTHORIZED" where the library-generated wording is
+    "Unauthorized"), so an exact-case substring check can silently fail to match.
+    """
+    error_msg_lower = error_msg.lower()
+    return any(pattern.lower() in error_msg_lower for pattern in patterns)
+
 
 @dataclasses.dataclass(frozen=True)
 class VersionDeprecation:
@@ -146,6 +160,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # Direct-only connectors opt out so API clients cannot create a source that is accepted by
+    # discovery but can never run a scheduled import.
+    supports_scheduled_sync: bool = True
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -163,6 +181,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Versions from `supported_versions` the vendor has deprecated. Drives the generic
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
+
+    # How far back a first sync reaches, for a source that bounds one. A source that sets this
+    # reads `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    # See `sources/common/history_window.py`.
+    history_lookback: datetime.timedelta | None = None
 
     @property
     @abstractmethod
@@ -211,6 +234,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
+
+        Non-empty only for fan-out children that read their parent from the warehouse
+        (`DependentEndpointConfig.parent_source == "warehouse"`). Nothing requires these to
+        be enabled: `import_data_activity_sync` checks them per run and falls back to the
+        parent API when they aren't usable. Sources built on the shared REST fan-out wire
+        this to `required_parents_from_endpoint_configs`.
+        """
+
+        return []
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 
@@ -222,6 +257,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        """Curated descriptions adapted to one connected source's physical table names.
+
+        `get_canonical_descriptions` is keyed by source type, so a description that names a physical
+        table is written for a source connected without a table prefix, while `build_table_name`
+        prepends whatever prefix that source was given. Sources whose descriptions embed table names
+        override this to rebuild them for `table_prefix`; almost none do, so the default ignores it.
+        """
+
+        return self.get_canonical_descriptions()
 
     def get_schemas(
         self,
@@ -308,6 +354,21 @@ class _BaseSource(ABC, Generic[ConfigType]):
         ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
         return True, None
+
+    def probe_new_data(self, config: ConfigType, inputs: SourceInputs) -> bool | None:
+        """Whether the source has data past this schema's stored watermark.
+
+        `False` lets the run complete without extracting anything, so only return it when the
+        source is provably unchanged. `None` (the default) means "unknown" and runs the normal
+        sync, which is also the right answer for any error: never let a probe failure suppress
+        a sync. Callers guarantee the schema is incremental/append, past its initial sync, and
+        has no repair work pending.
+
+        The caller stops waiting after FAST_RETURN_PROBE_TIMEOUT but cannot interrupt this
+        method's thread, so implementations should bound their own remote call below that limit
+        (for example a server-side statement timeout) to avoid orphaned queries.
+        """
+        return None
 
     def get_endpoint_permissions(
         self, config: ConfigType, team_id: int, endpoints: list[str], api_version: str | None = None
@@ -452,6 +513,20 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook payload versions often key off it).
         """
         raise NotImplementedError()
+
+    def webhook_creation_blocked_reason(self, config: ConfigType, team_id: int) -> str | None:
+        """Why this connection can never create the provider-side webhook, or ``None``.
+
+        Some connections are known ahead of time to lack the grant `create_webhook` needs — an
+        OAuth app installation can only hold permissions the app itself requests, so no amount of
+        reconnecting will earn it. Returning a reason lets the UI offer the manual setup steps
+        instead of a button whose only outcome is a permission error.
+
+        ``None`` means "not known to be blocked", not "will succeed": it is the answer for every
+        credential whose grants can't be introspected (API keys, tokens), so a real denial still
+        surfaces from `create_webhook`.
+        """
+        return None
 
     def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
         """Events the webhook should subscribe to. ``None`` when the source has no

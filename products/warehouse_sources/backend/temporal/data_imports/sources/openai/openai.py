@@ -4,9 +4,9 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
+import structlog
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -20,11 +20,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.settings import (
     OPENAI_ENDPOINTS,
     OpenAIEndpointConfig,
     PaginationType,
 )
+
+logger = structlog.get_logger(__name__)
 
 OPENAI_BASE_URL = "https://api.openai.com"
 # Entity list endpoints allow up to 100 per page.
@@ -385,6 +388,18 @@ def openai_source(
             if state:
                 resumable_source_manager.save_state(OpenAIResumeConfig(fanout_state=state))
 
+        def skip_failing_project(path: str, exc: Exception) -> None:
+            # A single project whose resource keeps returning a transient 5xx (after the client
+            # exhausts its retries) would otherwise fail the whole schema, with no workaround for the
+            # user. Skip that project, record it, and let every other project's rows land; the next
+            # sync re-attempts the skipped one once OpenAI recovers.
+            logger.warning(
+                "openai_source.skipped_failing_project",
+                endpoint=endpoint,
+                path=path,
+                error=str(exc),
+            )
+
         resources = rest_api_resources(
             rest_config,
             team_id,
@@ -392,6 +407,7 @@ def openai_source(
             db_incremental_field_last_value,
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=initial_fanout_state,
+            on_parent_error=skip_failing_project,
         )
         resource = next(r for r in resources if r.name == endpoint)
     else:

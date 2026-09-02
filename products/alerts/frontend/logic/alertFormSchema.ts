@@ -41,7 +41,7 @@ const alertFormSchema = z
                                 lower: z.number().finite().nullish(),
                                 upper: z.number().finite().nullish(),
                             })
-                            .optional(),
+                            .nullish(),
                     })
                     .optional(),
             })

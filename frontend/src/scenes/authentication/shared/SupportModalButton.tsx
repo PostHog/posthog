@@ -3,14 +3,14 @@ import { useActions, useValues } from 'kea'
 import { IconBug, IconQuestion } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { SupportTicketKind, SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
+import { SupportTicketKind, supportLogic } from 'lib/components/Support/supportLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 interface SupportModalButtonProps {
     name?: string
     email?: string
     kind?: SupportTicketKind
-    target_area?: SupportTicketTargetArea
+    billingIssue?: boolean
     label?: string
 }
 
@@ -18,7 +18,7 @@ export function SupportModalButton({
     name,
     email,
     kind = 'bug',
-    target_area = 'login',
+    billingIssue = false,
     label = 'Report an issue',
 }: SupportModalButtonProps): JSX.Element | null {
     const { openSupportForm } = useActions(supportLogic)
@@ -33,7 +33,7 @@ export function SupportModalButton({
                             name,
                             email,
                             kind,
-                            target_area,
+                            billing_issue: billingIssue,
                         })
                     }}
                     icon={kind === 'bug' ? <IconBug /> : <IconQuestion />}

@@ -1,24 +1,23 @@
+import datetime
+
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from parameterized import parameterized
+
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesksunshine import (
     ZendeskSunshineSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
+    ENDPOINTS_BY_VERSION,
+    ZENDESK_SUNSHINE_V1,
+    ZENDESK_SUNSHINE_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source import (
     ZendeskSunshineSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.zendesk_sunshine import (
-    ZendeskSunshineResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZendeskSunshineSource:
@@ -28,9 +27,6 @@ class TestZendeskSunshineSource:
         self.config = ZendeskSunshineSourceConfig(
             subdomain="nibbles", api_key="zendesk-token", email_address="agent@example.com"
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZENDESKSUNSHINE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -43,28 +39,25 @@ class TestZendeskSunshineSource:
         # A finished source ships visible; the scaffold's unreleasedSource flag must stay gone.
         assert not config.unreleasedSource
 
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"subdomain", "api_key", "email_address"}
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].secret is True
-        assert fields["subdomain"].secret is False
-        assert fields["email_address"].type == SourceFieldInputConfigType.EMAIL
-        assert all(f.required for f in fields.values())
+    @parameterized.expand([("v1", ZENDESK_SUNSHINE_V1), ("v2", ZENDESK_SUNSHINE_V2)])
+    def test_get_schemas_returns_version_table_set(self, _name: str, api_version: str) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
+        assert {s.name for s in schemas} == set(ENDPOINTS_BY_VERSION[api_version])
 
-    def test_get_schemas_endpoints(self) -> None:
+    def test_get_schemas_defaults_to_v2_table_set(self) -> None:
+        # No pin resolves to default_version (v2); discovery of a NULL-pinned source must not fall
+        # back to the legacy v1 catalog.
         schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
+        assert {s.name for s in schemas} == set(ENDPOINTS_BY_VERSION[ZENDESK_SUNSHINE_V2])
 
-    def test_get_schemas_incremental_semantics(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+    def test_get_schemas_v1_object_records_are_merge_incremental(self) -> None:
+        schemas = {
+            s.name: s for s in self.source.get_schemas(self.config, self.team_id, api_version=ZENDESK_SUNSHINE_V1)
+        }
 
-        # Only object records have a server-side timestamp filter (the `objects/query`
-        # endpoint's `_updated_at` range); everything else is full refresh.
+        # v1 object records sync incrementally via the `objects/query` `_updated_at` range; its
+        # inclusive lower bound re-fetches boundary rows, so only merge (dedupes on `id`) is offered.
         assert schemas["object_records"].supports_incremental is True
-        # The inclusive `_updated_at.start` window re-fetches boundary rows each sync, so only
-        # merge (which dedupes on `id`) is offered — append would duplicate those rows.
         assert schemas["object_records"].supports_append is False
         assert [f["field"] for f in schemas["object_records"].incremental_fields] == ["updated_at"]
 
@@ -72,12 +65,35 @@ class TestZendeskSunshineSource:
             assert schemas[name].supports_incremental is False, name
             assert schemas[name].incremental_fields == [], name
 
+    def test_get_schemas_v2_records_are_full_refresh(self) -> None:
+        # The v2 records list endpoint has no server-side updated_at filter, so no v2 table is
+        # incremental.
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=ZENDESK_SUNSHINE_V2)
+        for schema in schemas:
+            assert schema.supports_incremental is False, schema.name
+            assert schema.incremental_fields == [], schema.name
+
     def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["object_records"])
+        schemas = self.source.get_schemas(
+            self.config, self.team_id, names=["object_records"], api_version=ZENDESK_SUNSHINE_V1
+        )
         assert [s.name for s in schemas] == ["object_records"]
 
     def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+
+    def test_get_schemas_rejects_unsupported_version(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported Zendesk Sunshine API version"):
+            self.source.get_schemas(self.config, self.team_id, api_version="v9")
+
+    def test_versions_declare_deprecated_v1_with_sunset(self) -> None:
+        assert self.source.supported_versions == (ZENDESK_SUNSHINE_V1, ZENDESK_SUNSHINE_V2)
+        assert self.source.default_version == ZENDESK_SUNSHINE_V2
+        deprecation = self.source.get_version_deprecation(ZENDESK_SUNSHINE_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at == datetime.date(2026, 6, 30)
+        # The default must never be deprecated — new sources are stamped with it.
+        assert self.source.get_version_deprecation(ZENDESK_SUNSHINE_V2) is None
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -119,12 +135,18 @@ class TestZendeskSunshineSource:
         result = self.source.validate_credentials(self.config, self.team_id)
 
         assert result == (True, None)
-        mock_validate.assert_called_once_with("nibbles", "zendesk-token", "agent@example.com")
+        # No pin → resolves to default_version (v2), so a new source validates against v2.
+        mock_validate.assert_called_once_with("nibbles", "zendesk-token", "agent@example.com", ZENDESK_SUNSHINE_V2)
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is ZendeskSunshineResumeConfig
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.validate_zendesk_sunshine_credentials"
+    )
+    def test_validate_credentials_plumbs_pinned_version(self, mock_validate: mock.MagicMock) -> None:
+        mock_validate.return_value = (True, None)
+
+        self.source.validate_credentials(self.config, self.team_id, api_version=ZENDESK_SUNSHINE_V1)
+
+        mock_validate.assert_called_once_with("nibbles", "zendesk-token", "agent@example.com", ZENDESK_SUNSHINE_V1)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.zendesk_sunshine_source"
@@ -136,6 +158,7 @@ class TestZendeskSunshineSource:
         inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
+        inputs.api_version = ZENDESK_SUNSHINE_V1
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -148,6 +171,8 @@ class TestZendeskSunshineSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
+        # The resolved source pin reaches the request layer.
+        assert kwargs["api_version"] == ZENDESK_SUNSHINE_V1
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source.zendesk_sunshine_source"
@@ -164,4 +189,6 @@ class TestZendeskSunshineSource:
 
     def test_canonical_descriptions_cover_endpoints(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
+        # Descriptions are keyed by schema name and version-blind, so they must cover both catalogs.
+        expected = set(ENDPOINTS_BY_VERSION[ZENDESK_SUNSHINE_V1]) | set(ENDPOINTS_BY_VERSION[ZENDESK_SUNSHINE_V2])
+        assert set(descriptions.keys()) == expected

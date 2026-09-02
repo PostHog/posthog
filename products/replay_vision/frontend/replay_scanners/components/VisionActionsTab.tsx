@@ -8,14 +8,18 @@ import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/l
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
 
+import { visionDocsUrl } from '../../components/DocsLink'
+import { DeliveryTargetTypeEnumApi } from '../../generated/api.schemas'
 import type { VisionActionApi } from '../../generated/api.schemas'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
@@ -67,16 +71,19 @@ function EditorGate({
     })
 }
 
-function deliverySummary(action: VisionActionApi): string {
+export function deliverySummary(action: VisionActionApi): string {
     const targets = action.delivery_config ?? []
     if (!targets.length) {
         return '—'
     }
     return targets
         .map((t) => {
+            if (t.type === DeliveryTargetTypeEnumApi.Webhook) {
+                return 'Webhook'
+            }
             // channel is the `${id}|#${name}` picker composite for actions saved with a friendly name;
             // fall back to "Slack" rather than exposing a bare channel id (older rows, id-only input).
-            const name = slackChannelDisplayName(t.channel)
+            const name = slackChannelDisplayName(t.channel ?? '')
             return name.startsWith('#') ? name : 'Slack'
         })
         .join(', ')
@@ -105,46 +112,66 @@ function VisionActionsTable({
 }): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // When on, digests live on the scanner's own Scouts tab; vision actions then only carry alerts
+    // (plus any legacy digests awaiting migration).
+    const scoutDigests = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
+    // New alerts live on the Alerts tab; this tab then only lists legacy digests, and legacy
+    // alert rows and the legacy "New alert" button disappear (existing configs keep running
+    // backend-side until the migration).
+    const newAlerts = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ALERTS]
 
-    // The scanner's built-in daily digest is listed here alongside user-created summaries and alerts
-    // (marked with a "Daily digest" chip), so this page is the one place to see and manage every
+    // The scanner's built-in featured digest is listed here alongside user-created digests and alerts
+    // (marked with a "Featured digest" chip), so this page is the one place to see and manage every
     // automation on the scanner. It also has its own hero surface on the Observations tab.
-    const rows = visionActions
+    const rows = newAlerts ? visionActions.filter((action) => action.mode !== 'alert') : visionActions
 
     if (!visionActionsLoading && rows.length === 0) {
-        return (
+        const emptyState = (
             <ProductIntroduction
-                productName="Summaries and alerts"
-                thingName="summary or alert"
+                productName={newAlerts ? 'Digests' : scoutDigests ? 'Alerts' : 'Digests and alerts'}
+                thingName={newAlerts ? 'digest' : scoutDigests ? 'alert' : 'digest or alert'}
                 isEmpty
                 customHog={HedgehogXRay}
-                description="Get scheduled summaries of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                docsURL={visionDocsUrl('actions')}
+                description={
+                    newAlerts
+                        ? "Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose."
+                        : scoutDigests
+                          ? 'Set alerts that notify you when new matches appear or a threshold is reached. Alerts can deliver to Slack.'
+                          : "Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                }
                 actionElementOverride={
                     <div className="flex gap-2">
-                        <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconPlus />}
-                                to={urls.replayVisionActionNew(scannerId, 'group_summary')}
-                                data-attr="vision-action-new-empty"
-                            >
-                                New summary
-                            </LemonButton>
-                        </EditorGate>
-                        <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconPlus />}
-                                to={urls.replayVisionActionNew(scannerId, 'alert')}
-                                data-attr="vision-action-new-alert-empty"
-                            >
-                                New alert
-                            </LemonButton>
-                        </EditorGate>
+                        {!scoutDigests && (
+                            <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                                    data-attr="vision-action-new-empty"
+                                >
+                                    New digest
+                                </LemonButton>
+                            </EditorGate>
+                        )}
+                        {!newAlerts && (
+                            <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    to={urls.replayVisionActionNew(scannerId, 'alert')}
+                                    data-attr="vision-action-new-alert-empty"
+                                >
+                                    New alert
+                                </LemonButton>
+                            </EditorGate>
+                        )}
                     </div>
                 }
             />
         )
+        return emptyState
     }
 
     const columns: LemonTableColumns<VisionActionApi> = [
@@ -160,7 +187,7 @@ function VisionActionsTable({
                     >
                         {action.name}
                     </Link>
-                    {action.is_scanner_digest && <LemonTag type="highlight">Daily digest</LemonTag>}
+                    {action.is_scanner_digest && <LemonTag type="highlight">Featured digest</LemonTag>}
                     {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),
@@ -241,7 +268,7 @@ function VisionActionsTable({
                                 LemonDialog.open({
                                     title: `Delete "${action.name}"?`,
                                     description:
-                                        'This stops its scheduled summaries and removes its delivery destinations. This cannot be undone.',
+                                        'This stops its scheduled runs and removes its delivery destinations. This cannot be undone.',
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
@@ -260,26 +287,30 @@ function VisionActionsTable({
     return (
         <div className="flex flex-col gap-2">
             <div className="flex justify-end gap-2">
-                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        to={urls.replayVisionActionNew(scannerId, 'group_summary')}
-                        data-attr="vision-action-new"
-                    >
-                        New summary
-                    </LemonButton>
-                </EditorGate>
-                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        to={urls.replayVisionActionNew(scannerId, 'alert')}
-                        data-attr="vision-action-new-alert"
-                    >
-                        New alert
-                    </LemonButton>
-                </EditorGate>
+                {!scoutDigests && (
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                            data-attr="vision-action-new"
+                        >
+                            New digest
+                        </LemonButton>
+                    </EditorGate>
+                )}
+                {!newAlerts && (
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            to={urls.replayVisionActionNew(scannerId, 'alert')}
+                            data-attr="vision-action-new-alert"
+                        >
+                            New alert
+                        </LemonButton>
+                    </EditorGate>
+                )}
             </div>
             <LemonTable
                 columns={columns}
@@ -287,7 +318,13 @@ function VisionActionsTable({
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No summaries or alerts set up for this scanner yet."
+                emptyState={
+                    newAlerts
+                        ? 'No digests set up for this scanner yet.'
+                        : scoutDigests
+                          ? 'No alerts set up for this scanner yet.'
+                          : 'No digests or alerts set up for this scanner yet.'
+                }
             />
         </div>
     )

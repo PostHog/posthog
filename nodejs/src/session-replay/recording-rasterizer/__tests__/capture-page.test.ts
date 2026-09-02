@@ -4,6 +4,7 @@ import * as path from 'path'
 import { Page } from 'puppeteer'
 
 import { CapturePage, playerHtmlCache } from '~/session-replay/recording-rasterizer/capture/capture-page'
+import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 
 const mockLog = {
     info: jest.fn(),
@@ -206,7 +207,33 @@ describe('capture-page', () => {
             expect(result).toEqual({ data: 'frame-screenshot' })
         })
 
-        it('throws and detaches CDP session when beginFrame exceeds 15s', async () => {
+        it('logs a warning but keeps waiting when beginFrame exceeds the soft threshold', async () => {
+            jest.useFakeTimers()
+            const observeBeginFrameStall = jest.spyOn(RasterizationMetrics, 'observeBeginFrameStall')
+            const { page, capturePage } = await preparePage()
+            let resolveSend: (v: unknown) => void
+            originalSend.mockReturnValue(new Promise((resolve) => (resolveSend = resolve)))
+            capturePage.installCDPGuards('jpeg', 80, jest.fn().mockResolvedValue(undefined), mockLog)
+
+            const session = await (page as any).createCDPSession()
+            const sendPromise = session.send('HeadlessExperimental.beginFrame')
+
+            await jest.advanceTimersByTimeAsync(30_000)
+            expect(mockLog.warn).toHaveBeenCalledWith(expect.any(Object), expect.stringContaining('beginFrame slow'))
+            expect(mockSession.detach).not.toHaveBeenCalled()
+
+            resolveSend!({ data: 'late-frame' })
+            await expect(sendPromise).resolves.toEqual({ data: 'late-frame' })
+            expect(capturePage.fatalError).toBeNull()
+            expect(mockLog.warn).toHaveBeenCalledWith(
+                expect.objectContaining({ stall_s: expect.any(Number) }),
+                'beginFrame recovered after stall'
+            )
+            expect(observeBeginFrameStall).toHaveBeenCalledWith(expect.any(Number))
+            jest.useRealTimers()
+        })
+
+        it('throws and detaches CDP session when beginFrame exceeds the hard timeout', async () => {
             jest.useFakeTimers()
             const { page, capturePage } = await preparePage()
             originalSend.mockReturnValue(new Promise(() => {})) // never resolves
@@ -217,8 +244,8 @@ describe('capture-page', () => {
 
             // Attach the rejection handler before advancing timers so Jest
             // doesn't see an unhandled rejection.
-            const rejection = expect(sendPromise).rejects.toThrow('beginFrame timeout (15s) — compositor deadlock')
-            await jest.advanceTimersByTimeAsync(15_001)
+            const rejection = expect(sendPromise).rejects.toThrow('beginFrame timeout (120s) — compositor deadlock')
+            await jest.advanceTimersByTimeAsync(120_001)
             await rejection
 
             expect(mockSession.detach).toHaveBeenCalled()
@@ -240,7 +267,7 @@ describe('capture-page', () => {
             const sendPromise = session.send('HeadlessExperimental.beginFrame')
 
             const rejection = expect(sendPromise).rejects.toThrow('compositor deadlock')
-            await jest.advanceTimersByTimeAsync(15_001)
+            await jest.advanceTimersByTimeAsync(120_001)
             await rejection
 
             jest.useRealTimers()

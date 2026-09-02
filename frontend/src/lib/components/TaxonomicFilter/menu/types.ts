@@ -22,6 +22,7 @@ export interface MenuFilterEntry {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     name: string
+    canonicalValue?: TaxonomicFilterValue
     friendlyLabel?: string
     recentPropertyFilter?: AnyPropertyFilter
     recentLabel?: string

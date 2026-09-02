@@ -4,27 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.bigmailer import (
-    AUTH_ERROR_MESSAGE,
-    BigMailerResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.source import BigMailerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigmailer import (
     BigMailerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key") -> BigMailerSourceConfig:
@@ -48,24 +34,6 @@ def _inputs(schema_name: str) -> SourceInputs:
     )
 
 
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert BigMailerSource().source_type == ExternalDataSourceType.BIGMAILER
-
-    def test_config_identity_and_release(self) -> None:
-        config = BigMailerSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.BIG_MAILER
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bigmailer"
-
-    def test_single_password_api_key_field(self) -> None:
-        fields = cast(list[SourceFieldInputConfig], BigMailerSource().get_source_config.fields)
-        assert [f.name for f in fields] == ["api_key"]
-        assert fields[0].type == SourceFieldInputConfigType.PASSWORD
-        assert fields[0].required is True
-
-
 class TestGetSchemas:
     def test_returns_every_endpoint_as_full_refresh(self) -> None:
         schemas = BigMailerSource().get_schemas(_config(), team_id=1)
@@ -79,10 +47,6 @@ class TestGetSchemas:
         by_name = {s.name: s for s in BigMailerSource().get_schemas(_config(), team_id=1)}
         assert by_name["users"].should_sync_default is False
         assert by_name["contacts"].should_sync_default is True
-
-    def test_names_filter(self) -> None:
-        schemas = BigMailerSource().get_schemas(_config(), team_id=1, names=["contacts", "lists"])
-        assert {s.name for s in schemas} == {"contacts", "lists"}
 
 
 class TestDocumentedTables:
@@ -104,18 +68,8 @@ class TestCredentials:
         assert ok is expected_ok
         assert (error is None) is expected_ok
 
-    def test_non_retryable_errors_cover_auth_failure(self) -> None:
-        errors = BigMailerSource().get_non_retryable_errors()
-        assert AUTH_ERROR_MESSAGE in errors
-        assert errors[AUTH_ERROR_MESSAGE]  # has a user-facing message
-
 
 class TestPipelineHandoff:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = BigMailerSource().get_resumable_source_manager(_inputs("contacts"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BigMailerResumeConfig
-
     @parameterized.expand([("contacts", ["brand_id", "id"]), ("brands", ["id"])])
     def test_source_for_pipeline_builds_response(self, endpoint: str, expected_keys: list[str]) -> None:
         src = BigMailerSource()

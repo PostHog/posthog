@@ -7,4 +7,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class ShipStationSourceConfig(config.Config):
     api_key: str
-    api_secret: str
+    api_secret: str | None = None

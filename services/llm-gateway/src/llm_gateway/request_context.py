@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import structlog
 
@@ -19,6 +20,7 @@ POSTHOG_PROPERTY_PREFIX = "x-posthog-property-"
 POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
 POSTHOG_PROVIDER_HEADER = "x-posthog-provider"
 POSTHOG_USE_BEDROCK_FALLBACK_HEADER = "x-posthog-use-bedrock-fallback"
+TRACEPARENT_HEADER = "traceparent"
 
 _VALID_PROVIDERS = ("anthropic", "bedrock", "cloudflare")
 
@@ -29,6 +31,7 @@ class RequestContext:
     product: str = "llm_gateway"
     posthog_properties: dict[str, str] | None = None
     posthog_flags: dict[str, str] | None = None
+    traceparent_trace_id: str | None = None
 
 
 request_context_var: ContextVar[RequestContext | None] = ContextVar("request_context", default=None)
@@ -91,6 +94,34 @@ def get_posthog_flags() -> dict[str, str] | None:
     return ctx.posthog_flags if ctx else None
 
 
+def set_traceparent_trace_id(trace_id: str | None) -> None:
+    ctx = request_context_var.get()
+    if ctx is None:
+        return
+    request_context_var.set(replace(ctx, traceparent_trace_id=trace_id))
+
+
+def get_traceparent_trace_id() -> str | None:
+    ctx = request_context_var.get()
+    return ctx.traceparent_trace_id if ctx else None
+
+
+def _parse_traceparent_trace_id(value: str | None) -> str | None:
+    if not value:
+        return None
+    parts = value.split("-")
+    if len(parts) < 4:
+        return None
+    trace_id_hex = parts[1]
+    # All-zero means "no trace id" per the W3C spec, not a usable value.
+    if len(trace_id_hex) != 32 or set(trace_id_hex) == {"0"}:
+        return None
+    try:
+        return str(UUID(hex=trace_id_hex))
+    except ValueError:
+        return None
+
+
 def _extract_headers_with_prefix(request: Request, prefix: str) -> dict[str, str]:
     result: dict[str, str] = {}
     prefix_lower = prefix.lower()
@@ -138,6 +169,14 @@ def extract_posthog_use_bedrock_fallback_from_headers(request: Request) -> bool 
     )
 
 
+def rebuild_request_context(product: str) -> None:
+    ctx = request_context_var.get()
+    if ctx is None:
+        set_request_context(RequestContext(request_id="", product=product))
+        return
+    set_request_context(replace(ctx, product=product))
+
+
 def apply_posthog_context_from_headers(request: Request) -> None:
     properties = extract_posthog_properties_from_headers(request)
     flags = extract_posthog_flags_from_headers(request)
@@ -146,6 +185,7 @@ def apply_posthog_context_from_headers(request: Request) -> None:
         set_posthog_properties(properties)
     if flags:
         set_posthog_flags(flags)
+    set_traceparent_trace_id(_parse_traceparent_trace_id(request.headers.get(TRACEPARENT_HEADER)))
 
 
 def set_throttle_context(runner: ThrottleRunner, context: ThrottleContext) -> None:

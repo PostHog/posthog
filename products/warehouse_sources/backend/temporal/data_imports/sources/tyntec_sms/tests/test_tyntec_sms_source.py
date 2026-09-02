@@ -1,9 +1,8 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tyntecsms import (
     TyntecSMSSourceConfig,
 )
@@ -45,11 +44,6 @@ class TestTyntecSMSSource:
 
         assert schema.should_sync_default is expected_default
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(TyntecSMSSourceConfig(api_key="key"), team_id=1, names=[CONTACTS])
-
-        assert [schema.name for schema in schemas] == [CONTACTS]
-
     def test_validate_credentials_rejects_empty_key_without_network(self) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.source.validate_tyntec_credentials"
@@ -70,27 +64,6 @@ class TestTyntecSMSSource:
 
         assert valid is expected_valid
         assert (error is None) is expected_valid
-
-    def test_source_for_pipeline_plumbs_config_and_inputs(self) -> None:
-        config = TyntecSMSSourceConfig(api_key="key", request_ids="id-1, id-2")
-        inputs = MagicMock(spec=SourceInputs)
-        inputs.schema_name = MESSAGE_STATUS
-        inputs.team_id = 42
-        inputs.job_id = "job-1"
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.tyntec_sms.source.tyntec_sms_source"
-        ) as mock_source:
-            response = self.source.source_for_pipeline(config, inputs)
-
-        mock_source.assert_called_once_with(
-            api_key="key",
-            endpoint=MESSAGE_STATUS,
-            team_id=42,
-            job_id="job-1",
-            request_ids="id-1, id-2",
-        )
-        assert response is mock_source.return_value
 
     @pytest.mark.parametrize(
         "url",

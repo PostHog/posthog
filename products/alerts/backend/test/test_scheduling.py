@@ -108,6 +108,20 @@ class TestValidateAndNormalizeScheduleRestriction:
         raw = {"blocked_windows": [{"start": "19:00", "end": "00:00"}]}
         assert validate_and_normalize_schedule_restriction(raw) == raw
 
+    @parameterized.expand(
+        [
+            ("unknown_root_key", {"typo": True}),
+            ("missing_blocked_windows", {"enabled": True}),
+            (
+                "unknown_window_key",
+                {"blocked_windows": [{"start": "10:00", "end": "11:00", "typo": True}]},
+            ),
+        ]
+    )
+    def test_rejects_unknown_schedule_restriction_keys(self, _name: str, raw: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            validate_and_normalize_schedule_restriction(raw)
+
 
 class TestNextCalendarCheckTime:
     @parameterized.expand(

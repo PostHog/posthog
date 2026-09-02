@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.test import override_settings
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from structlog.contextvars import get_contextvars
@@ -11,11 +13,13 @@ from structlog.contextvars import get_contextvars
 from posthog.schema import (
     CohortPropertyFilter,
     CompareFilter,
+    CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -25,7 +29,7 @@ from posthog.hogql import ast
 
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -39,6 +43,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
     TEAM_SHAPE_SET_TTL_SECONDS,
+    DateRangeOverMax,
     PerQueryOptedOut,
     PropertyAccessControlled,
     UnsupportedFilterType,
@@ -51,11 +56,16 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     host_filter_expr,
     is_precompute_enabled_for_team,
     is_team_oom_pinned,
+    lazy_precompute_ineligible_reason,
+    log_eligibility_outcome,
     pin_team_oom,
     try_reserve_precompute_shape,
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    can_use_lazy_precompute as can_use_stats_lazy_precompute,
+)
 from products.web_analytics.backend.tasks.lazy_precompute_revalidation import REVALIDATION_EXPIRES_SECONDS
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
@@ -158,6 +168,152 @@ class TestCheckCommonEligibility(BaseTest):
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             with self.assertRaises(PropertyAccessControlled):
                 self._check(use_precompute=None)
+
+
+class TestEligibilityReasonTagging(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_query_tags()
+
+    def test_rejection_reason_is_tagged_then_cleared_once_a_gate_admits(self) -> None:
+        log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=DateRangeOverMax(120))
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "DateRangeOverMax"
+
+        log_eligibility_outcome(log_prefix="web_goals", team_id=self.team.pk, error=None)
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) is None
+
+    @parameterized.expand(
+        [
+            (WebAnalyticsPreComputeStrategy.PRE_AGGREGATED,),
+            (WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,),
+        ]
+    )
+    def test_rejection_reason_is_dropped_when_another_strategy_serves_the_read(
+        self, strategy: WebAnalyticsPreComputeStrategy
+    ) -> None:
+        # The lazy gate can refuse a read that the pre-aggregated tables then serve. Telemetry that
+        # breaks down by the reason must not count such a read as live.
+        log_eligibility_outcome(log_prefix="web_stats_table", team_id=self.team.pk, error=DateRangeOverMax(120))
+
+        assert lazy_precompute_ineligible_reason(strategy) is None
+
+    def test_a_remapped_breakdown_records_a_reason(self) -> None:
+        # First-pageview attribution rewrites the breakdown and no family precomputes the rewritten
+        # shape, so this gate refuses before any reason is recorded. Left silent, the read is
+        # indistinguishable from one the owning family admitted but had no data for.
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="-7d"),
+                properties=[],
+                breakdownBy=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            ),
+        )
+
+        with mock.patch.object(
+            WebStatsTableQueryRunner,
+            "_first_pageview_attribution_enabled",
+            new_callable=mock.PropertyMock,
+            return_value=True,
+        ):
+            with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+                assert not can_use_stats_lazy_precompute(runner)
+
+        assert lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE) == "BreakdownRemapped"
+
+
+class TestOwningLazyPrecomputeFamily(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "page with bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeBounceRate=True,
+                ),
+                "paths",
+            ),
+            (
+                "page with avg time and no bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeAvgTimeOnPage=True,
+                ),
+                "paths",
+            ),
+            (
+                "page with neither",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
+                ),
+                "simple",
+            ),
+            (
+                "page with a conversion goal",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeBounceRate=True,
+                    conversionGoal=CustomEventConversionGoal(customEventName="signed_up"),
+                ),
+                "simple",
+            ),
+            (
+                "entry page with bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.INITIAL_PAGE,
+                    includeBounceRate=True,
+                ),
+                "paths",
+            ),
+            (
+                "entry page without bounce rate",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.INITIAL_PAGE
+                ),
+                "simple",
+            ),
+            (
+                "frustration metrics",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.FRUSTRATION_METRICS,
+                ),
+                "frustration",
+            ),
+            (
+                "previous page",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PREVIOUS_PAGE
+                ),
+                "simple",
+            ),
+            (
+                "browser",
+                WebStatsTableQuery(
+                    dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.BROWSER
+                ),
+                "simple",
+            ),
+        ]
+    )
+    def test_family_mirrors_the_live_strategy_taxonomy(
+        self, _name: str, query: WebStatsTableQuery, expected: str
+    ) -> None:
+        # The classifier hand-mirrors the family-level branches of `_get_strategy`, and drift is
+        # silent either way: too narrow and a read consults a family that could never serve it, too
+        # broad and it skips the family that can and loses the precompute hit.
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+
+        assert runner._owning_lazy_precompute_family() == expected
 
 
 class TestCacheKeyVariesWithRolloutState(BaseTest):
@@ -542,6 +698,100 @@ class TestWebEnsurePrecomputed(BaseTest):
             assert grace == STALE_WHILE_REVALIDATE_SECONDS
         else:
             assert grace is None, f"background context {tags} must not be served stale"
+
+    @parameterized.expand(
+        [
+            # A user-initiated force refresh (the "Reload" button -> force_blocking for
+            # non-insight web tiles) must bypass the grace so it recomputes fresh instead
+            # of being handed the very stale row it is trying to clear (the reported bug).
+            ("force_blocking", ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, None),
+            ("force_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS.value, None),
+            # A normal (non-forced) read must keep the grace, or every read pays a
+            # synchronous recompute and the serve-stale optimization is lost.
+            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, STALE_WHILE_REVALIDATE_SECONDS),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_forced_refresh_bypasses_stale_grace(self, _name, execution_mode, expected_grace, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        with tags_context(execution_mode=execution_mode):
+            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
+
+    @parameterized.expand(
+        [
+            # A fresh-enough current-day bucket is still hours coarse (today band
+            # is 4h), which an hourly graph renders as missing recent data. On a
+            # forced refresh the current day must read as expired so the request
+            # falls through to the live query instead of the coarse bucket.
+            ("forced", ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, None, True),
+            # The SWR revalidation task also runs under the forced execution mode,
+            # and on background triggers the schedule sets the insert TTL too. The
+            # override must not apply there, or the rebuilt current-day bucket
+            # persists with a 1-second expiry that every ambient read misses.
+            ("forced_background", ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, REVALIDATION_TRIGGER, False),
+            ("not_forced", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, None, False),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_forced_refresh_expires_current_day_band(
+        self, _name, execution_mode, trigger, expect_override, mock_ensure
+    ):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        tags = {"execution_mode": execution_mode}
+        if trigger is not None:
+            tags["trigger"] = trigger
+        with tags_context(**tags):
+            web_ensure_precomputed(team=self.team, ttl_seconds={"0d": 4 * 3600, "default": 3600}, table=None)
+        schedule = mock_ensure.call_args.kwargs["ttl_seconds"]
+        first_cutoff, first_ttl = schedule.rules[0]
+        if expect_override:
+            assert first_ttl == 1
+            assert first_cutoff.hour == 0 and first_cutoff.minute == 0
+            assert schedule.get_ttl(django_timezone.now()) == 1
+        else:
+            assert first_ttl == 4 * 3600
+            assert schedule.get_ttl(django_timezone.now()) == 4 * 3600
+
+    @parameterized.expand(
+        [
+            # Jobs split on UTC day boundaries. For a team behind UTC the
+            # current-day window starts before local midnight, and for a team
+            # ahead of UTC the local morning lives in the previous UTC window;
+            # a cutoff at local midnight itself misses those windows and Reload
+            # keeps serving the coarse bucket.
+            (
+                "behind_utc",
+                "America/Sao_Paulo",
+                [datetime(2026, 8, 20, tzinfo=UTC)],
+                datetime(2026, 8, 19, tzinfo=UTC),
+            ),
+            (
+                "ahead_of_utc",
+                "Asia/Tokyo",
+                [datetime(2026, 8, 19, tzinfo=UTC), datetime(2026, 8, 20, tzinfo=UTC)],
+                datetime(2026, 8, 18, tzinfo=UTC),
+            ),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_forced_cutoff_expires_utc_windows_overlapping_local_day(
+        self, _name, tz, expired_window_starts, fresh_window_start, mock_ensure
+    ):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        self.team.timezone = tz
+        with (
+            freeze_time("2026-08-20T12:00:00Z"),
+            tags_context(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value),
+        ):
+            web_ensure_precomputed(team=self.team, ttl_seconds={"0d": 4 * 3600, "default": 3600}, table=None)
+        schedule = mock_ensure.call_args.kwargs["ttl_seconds"]
+        for window_start in expired_window_starts:
+            assert schedule.get_ttl(window_start) == 1
+        assert schedule.get_ttl(fresh_window_start) == 3600
 
 
 class TestStaleRevalidationEnqueue(BaseTest):
