@@ -29,6 +29,7 @@ import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { classifyEvent, EventCategory, eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
@@ -127,7 +128,9 @@ function EventRow({
     const handleCopyPayload = (ev: React.MouseEvent): void => {
         ev.stopPropagation()
         const payload = { event: e.event, timestamp: e.timestamp, properties: e.properties, uuid: e.uuid }
-        void navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+        // The toolbar runs on customer pages, which are often plain HTTP, so the copy needs the
+        // helper's textarea fallback and its feedback.
+        void copyToClipboard(JSON.stringify(payload, null, 2), 'event payload')
     }
 
     return (

@@ -1,7 +1,7 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonLabel } from '@posthog/lemon-ui'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export function EmailForwardingAddress({ forwardingAddress }: { forwardingAddress: string }): JSX.Element {
     return (
@@ -17,10 +17,7 @@ export function EmailForwardingAddress({ forwardingAddress }: { forwardingAddres
                     size="small"
                     icon={<IconCopy />}
                     tooltip="Copy forwarding address"
-                    onClick={() => {
-                        void navigator.clipboard.writeText(forwardingAddress)
-                        lemonToast.success('Forwarding address copied')
-                    }}
+                    onClick={() => void copyToClipboard(forwardingAddress, 'forwarding address')}
                 />
             </div>
             <div className="text-xs text-muted-alt mt-2 flex flex-col gap-0.5">
