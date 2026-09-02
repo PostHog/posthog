@@ -6,6 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -29,6 +30,8 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
+
+    const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
@@ -77,6 +80,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.EventMetadata,
+                    ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                    ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                    TaxonomicFilterGroupType.EmailAddresses,
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
@@ -87,6 +93,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
+                    ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
+                    ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
+                    TaxonomicFilterGroupType.AutocaptureEvents,
                     ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
             />

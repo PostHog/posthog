@@ -140,7 +140,7 @@ const renderItemContents = ({
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : (
-        <div className="taxonomic-list-row-contents">
+        <div className="taxonomic-list-row-contents min-w-0">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
             ) : (
@@ -184,6 +184,12 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Metadata,
             TaxonomicFilterGroupType.SessionProperties,
             TaxonomicFilterGroupType.ErrorTrackingProperties,
+            TaxonomicFilterGroupType.PageviewUrls,
+            TaxonomicFilterGroupType.PageviewEvents,
+            TaxonomicFilterGroupType.Screens,
+            TaxonomicFilterGroupType.ScreenEvents,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.AutocaptureEvents,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
