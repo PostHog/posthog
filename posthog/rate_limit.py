@@ -143,6 +143,24 @@ def get_route_from_path(path: str | None) -> str:
     return path_by_org_pattern.sub("/api/organizations/ORG_ID/", route_id)
 
 
+def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
+    """
+    Return a hash of the personal API key that authenticated this request, or None.
+
+    `find_key_with_source` gets an empty body on purpose. Reading `request.data` here consumes the
+    stream and leaves `request.body` unreadable for downstream signature verification. That hides a
+    key sent in the body, so fall back to the authenticator, which already resolved the key and
+    stored its hash. Without the fallback a body-supplied key looks like no key at all, and the
+    caller below skips throttling for it.
+    """
+    key_with_source = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+    if key_with_source is not None:
+        return hash_key_value(key_with_source[0])
+
+    key_hash = getattr(getattr(request, "successful_authenticator", None), "personal_api_key_hash", None)
+    return key_hash if isinstance(key_hash, str) else None
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
@@ -191,8 +209,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-        if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
+        hashed_personal_api_key = hashed_personal_api_key_for_throttling(request)
+        if personal_api_key_only and request.user.is_authenticated and hashed_personal_api_key is None:
             return True
 
         try:
@@ -229,7 +247,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                         "scope": scope,
                         "rate": rate,
                         "route": route,
-                        "hashed_personal_api_key": hash_key_value(personal_api_key[0]) if personal_api_key else None,
+                        "hashed_personal_api_key": hashed_personal_api_key,
                     },
                 )
                 RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=route, route=route).inc()
@@ -256,10 +274,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         """
         ident = None
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-            if api_key is not None:
-                ident = hash_key_value(api_key[0])
-            else:
+            ident = hashed_personal_api_key_for_throttling(request)
+            if ident is None:
                 try:
                     team_id = self.safely_get_team_id_from_view(view)
                     if team_id:
@@ -550,8 +566,7 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
-            ident = hash_key_value(api_key[0]) if api_key is not None else request.user.pk
+            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
