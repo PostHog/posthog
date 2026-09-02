@@ -57,12 +57,13 @@ describe('LemonButton', () => {
         expect(fn).not.toHaveBeenCalled()
     })
 
-    it('does not fire onClick when disabledReason is set', async () => {
+    it('sends a click to onDisabledClick instead of onClick when disabledReason is set', async () => {
         const user = userEvent.setup()
         const onClick = jest.fn()
+        const onDisabledClick = jest.fn()
 
         render(
-            <LemonButton disabledReason="Nope" onClick={onClick}>
+            <LemonButton disabledReason="Nope" onClick={onClick} onDisabledClick={onDisabledClick}>
                 Go
             </LemonButton>
         )
@@ -70,6 +71,7 @@ describe('LemonButton', () => {
         await user.click(screen.getByRole('button'))
 
         expect(onClick).not.toHaveBeenCalled()
+        expect(onDisabledClick).toHaveBeenCalledTimes(1)
     })
 
     it('keeps htmlType submit in the DOM when disabledReason is set', () => {

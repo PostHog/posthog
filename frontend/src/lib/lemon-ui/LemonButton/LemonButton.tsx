@@ -72,6 +72,8 @@ export interface LemonButtonPropsBase
     disabledReason?: React.ReactElement | string | null | false
     /** Whether the disabled reason tooltip is interactive (e.g., contains a link) */
     disabledReasonInteractive?: boolean
+    /** Called instead of `onClick` while the button is disabled, so a blocked click can still lead somewhere. */
+    onDisabledClick?: (event: React.MouseEvent<HTMLElement>) => void
     noPadding?: boolean
     size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -149,6 +151,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disabled,
                 disabledReason,
                 disabledReasonInteractive,
+                onDisabledClick,
                 loading,
                 type = 'tertiary',
                 status = 'default',
@@ -266,6 +269,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         }
                         if (disabled) {
                             event.preventDefault()
+                            onDisabledClick?.(event)
                             return
                         }
                         onClick?.(event)

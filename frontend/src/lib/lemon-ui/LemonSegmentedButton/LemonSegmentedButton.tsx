@@ -14,6 +14,8 @@ export type LemonSegmentedButtonOption<T extends React.Key> = { value: T } & (
         label?: string | JSX.Element
         icon?: JSX.Element
         disabledReason?: string
+        /** Called when the option is clicked while disabled, so a blocked click can still lead somewhere. */
+        onDisabledClick?: () => void
         tooltip?: string | JSX.Element
         'data-attr'?: string
     }
@@ -101,6 +103,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                                         onChange?.(option.value, e)
                                     }
                                 }}
+                                onDisabledClick={option.onDisabledClick}
                                 icon={option.icon}
                                 data-attr={option['data-attr']}
                                 tooltip={option.tooltip}

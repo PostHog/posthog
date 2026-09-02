@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
 import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo } from '@posthog/icons'
@@ -26,6 +27,7 @@ import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/ses
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { type SessionRecordingMaskingLevel, type SessionRecordingRetentionPeriod } from '~/types'
 
 export function Since(props: {
@@ -334,16 +336,27 @@ export function ReplayDataRetentionSettings(): JSX.Element {
     const retentionFeature = currentOrganization?.available_product_features?.find(
         (feature) => feature.key === 'session_replay_data_retention'
     )
-    const hasMaxRetentionEntitlement =
-        retentionFeature &&
-        retentionFeature?.unit?.startsWith('month') &&
-        retentionFeature?.limit &&
-        retentionFeature?.limit >= 60
     const currentRetention = currentTeam?.session_recording_retention_period || '30d'
+
+    const entitledMonths =
+        retentionFeature?.unit?.startsWith('month') && retentionFeature?.limit ? retentionFeature.limit : 1
 
     const renderOptions = (loading: boolean): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
         const disabledReason = loading ? 'Loading...' : (restrictedReason ?? undefined)
-        const options = [
+        // An option the organization cannot buy yet stays disabled, but sends the click to the plans that unlock it
+        const upsell = (
+            neededMonths: number,
+            reason: string,
+            products?: ProductKey[]
+        ): Pick<LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>, 'disabledReason' | 'onDisabledClick'> =>
+            entitledMonths >= neededMonths
+                ? { disabledReason }
+                : {
+                      disabledReason: reason,
+                      onDisabledClick: () => router.actions.push(urls.organizationBilling(products)),
+                  }
+
+        return [
             {
                 value: '30d' as SessionRecordingRetentionPeriod,
                 icon: <IconClock />,
@@ -355,45 +368,28 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 value: '90d' as SessionRecordingRetentionPeriod,
                 icon: <IconHourglass />,
                 label: '90 days',
-                disabledReason: 'Only available on the pay-as-you-go plan',
                 'data-attr': 'session-recording-retention-button-90d',
+                ...upsell(3, 'Only available on the pay-as-you-go plan. Click to see your upgrade options.'),
             },
             {
                 value: '1y' as SessionRecordingRetentionPeriod,
                 icon: <IconCalendar />,
                 label: '1 year (365 days)',
-                disabledReason: 'Only available with the Boost or Scale packages',
                 'data-attr': 'session-recording-retention-button-1y',
+                ...upsell(12, 'Only available with the Boost or Scale packages. Click to see your upgrade options.', [
+                    ProductKey.PLATFORM_AND_SUPPORT,
+                ]),
             },
             {
                 value: '5y' as SessionRecordingRetentionPeriod,
                 icon: <IconInfinity />,
                 label: '5 years (1825 days)',
-                disabledReason: 'Only available with the Enterprise package',
                 'data-attr': 'session-recording-retention-button-5y',
+                ...upsell(60, 'Only available with the Enterprise package. Click to see your upgrade options.', [
+                    ProductKey.PLATFORM_AND_SUPPORT,
+                ]),
             },
         ]
-
-        if (
-            retentionFeature &&
-            retentionFeature?.unit?.startsWith('month') &&
-            retentionFeature?.limit &&
-            retentionFeature?.limit > 1
-        ) {
-            if (retentionFeature.limit >= 3) {
-                options[1].disabledReason = disabledReason ?? ''
-            }
-
-            if (retentionFeature.limit >= 12) {
-                options[2].disabledReason = disabledReason ?? ''
-            }
-
-            if (retentionFeature.limit >= 60) {
-                options[3].disabledReason = disabledReason ?? ''
-            }
-        }
-
-        return options
     }
 
     const handleRetentionChange = (retention_period: SessionRecordingRetentionPeriod): void => {
@@ -424,7 +420,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 options={renderOptions(currentTeamLoading)}
                 disabledReason={restrictedReason ?? undefined}
             />
-            {!hasMaxRetentionEntitlement && (
+            {entitledMonths < 60 && (
                 <p className="mt-4">
                     Need longer data retention? Head over to our{' '}
                     <Link to={urls.organizationBilling()} target="_blank">
