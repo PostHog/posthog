@@ -1655,6 +1655,17 @@ class UserAccessControl:
             by_subject[self._row_subject(ac)].append(ac)
         return [group for group in by_subject.values() if group]
 
+    def _most_specific_rows_decision(
+        self, resource: APIScopeObject, rows: list[_AccessControl]
+    ) -> Optional[_AccessControl]:
+        """Select the deciding row for one scope (a single object, or a resource type).
+
+        The most specific subject that has rows decides. The highest of that subject's
+        rows wins. Returns None when `rows` is empty."""
+        for subject_rows in self._rows_by_subject(rows):
+            return self._highest_access_from_rows(resource, subject_rows)
+        return None
+
     def resolve_most_specific_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
         """Future source of truth for object access — NOT enforced yet, see the section comment.
 
@@ -1674,8 +1685,8 @@ class UserAccessControl:
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
         object_rows = self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
-        for subject_rows in self._rows_by_subject(object_rows):
-            row = self._highest_access_from_rows(resource, subject_rows)
+        row = self._most_specific_rows_decision(resource, object_rows)
+        if row:
             return ResolvedAccess(
                 access_level=row.access_level,
                 source="object",
@@ -1688,14 +1699,14 @@ class UserAccessControl:
             parent_rows = self._get_access_controls(
                 self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
             )
-            for subject_rows in self._rows_by_subject(parent_rows):
-                row = self._highest_access_from_rows(parent, subject_rows)
+            parent_row = self._most_specific_rows_decision(parent, parent_rows)
+            if parent_row:
                 return ResolvedAccess(
-                    access_level=row.access_level,
+                    access_level=parent_row.access_level,
                     source="parent_object",
-                    source_subject=self._row_subject(row),
+                    source_subject=self._row_subject(parent_row),
                     source_resource=parent,
-                    source_resource_id=row.resource_id,
+                    source_resource_id=parent_row.resource_id,
                 )
 
         if self.has_access_levels_for_resource(resource):
@@ -1753,8 +1764,8 @@ class UserAccessControl:
             )
 
         rows = self._get_access_controls(self._access_controls_filters_for_resource(resource))
-        for subject_rows in self._rows_by_subject(rows):
-            row = self._highest_access_from_rows(resource, subject_rows)
+        row = self._most_specific_rows_decision(resource, rows)
+        if row:
             return ResolvedAccess(
                 access_level=row.access_level,
                 source="resource",
