@@ -864,6 +864,68 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
 
+    def test_drop_table_with_custom_db_table_state_removal(self):
+        """
+        Valid pattern: the model set a custom db_table, so its name cannot be read off the table.
+
+        A model moved between apps keeps its original table, e.g. replay.SessionGroupSummary on
+        ee_group_session_summary. The migration history is what connects the two.
+        """
+        create_migration = MagicMock()
+        create_migration.app_label = "replay"
+        create_migration.name = "0001_migrate_replay_models"
+        create_migration.dependencies = []
+        create_migration.operations = [
+            create_mock_operation(
+                migrations.SeparateDatabaseAndState,
+                state_operations=[
+                    create_mock_operation(
+                        migrations.CreateModel,
+                        name="SessionGroupSummary",
+                        options={"db_table": "ee_group_session_summary"},
+                    )
+                ],
+                database_operations=[],
+            )
+        ]
+
+        state_removal_migration = MagicMock()
+        state_removal_migration.app_label = "replay"
+        state_removal_migration.name = "0002_remove_session_summary_models"
+        state_removal_migration.dependencies = [("replay", "0001_migrate_replay_models")]
+        state_removal_migration.operations = [
+            create_mock_operation(
+                migrations.SeparateDatabaseAndState,
+                state_operations=[create_mock_operation(migrations.DeleteModel, name="SessionGroupSummary")],
+                database_operations=[],
+            )
+        ]
+
+        mock_migration = MagicMock()
+        mock_migration.app_label = "replay"
+        mock_migration.name = "0003_drop_session_group_summary"
+        mock_migration.dependencies = [("replay", "0002_remove_session_summary_models")]
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.RunSQL,
+                sql='DROP TABLE IF EXISTS "ee_group_session_summary";',
+            )
+        ]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("replay", "0001_migrate_replay_models"): create_migration,
+            ("replay", "0002_remove_session_summary_models"): state_removal_migration,
+            ("replay", "0003_drop_session_group_summary"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "products/replay/backend/migrations/0003_drop_session_group_summary.py", mock_loader
+        )
+
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
     def test_drop_table_without_prior_state_removal(self):
         """
         Invalid pattern: DROP TABLE without prior state removal.

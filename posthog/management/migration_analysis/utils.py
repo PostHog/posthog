@@ -1,6 +1,7 @@
 """Utility classes and functions for migration analysis."""
 
 import re
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.apps import apps
@@ -173,7 +174,11 @@ def check_drop_properly_staged(
     # posthog_namedquery -> NamedQuery
     # llm_analytics_evaluation (app=llm_analytics) -> Evaluation
     app_label = getattr(migration, "app_label", None)
-    model_name = _model_name_for_table(app_label, table_name) or _extract_model_name_from_table(table_name, app_label)
+    model_name = (
+        _model_name_for_table(app_label, table_name)
+        or _model_name_from_migration_history(loader, app_label, table_name)
+        or _extract_model_name_from_table(table_name, app_label)
+    )
     if not model_name:
         return False
 
@@ -223,6 +228,52 @@ def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional
     for model in app_config.get_models():
         if model._meta.db_table == table_name:
             return model.__name__
+    return None
+
+
+def _iter_state_operations(operations: Any) -> Iterator[Any]:
+    """Yield the operations that shape Django state, looking inside SeparateDatabaseAndState."""
+    for op in operations or []:
+        if op.__class__.__name__ == "SeparateDatabaseAndState":
+            yield from getattr(op, "state_operations", []) or []
+        else:
+            yield op
+
+
+def _model_name_from_migration_history(loader: Any, app_label: Optional[str], table_name: str) -> Optional[str]:
+    """Resolve the model that owns db_table `table_name` from the app's migration history.
+
+    `_model_name_for_table` only sees models still in the registry, and the string heuristic below
+    assumes db_table follows the `<app_label>_<model>` convention. A deleted model that set a custom
+    db_table satisfies neither — a model moved between apps keeps its original table, so
+    replay.SessionGroupSummary still lives on ee_group_session_summary. The history is the only
+    place left that connects the two."""
+    if not app_label:
+        return None
+
+    tables_by_model: dict[str, str] = {}
+    for (migration_app, _), migration in sorted(getattr(loader, "disk_migrations", {}).items()):
+        if migration_app != app_label:
+            continue
+        for op in _iter_state_operations(getattr(migration, "operations", [])):
+            model_name = getattr(op, "name", "")
+            db_table = _db_table_set_by_operation(op)
+            if model_name and db_table:
+                tables_by_model[model_name.lower()] = db_table
+
+    for model_name, db_table in tables_by_model.items():
+        if db_table == table_name:
+            return model_name
+    return None
+
+
+def _db_table_set_by_operation(op: Any) -> Optional[str]:
+    """Return the db_table an operation gives its model, or None if it sets no table."""
+    op_type = op.__class__.__name__
+    if op_type == "CreateModel":
+        return (getattr(op, "options", None) or {}).get("db_table")
+    if op_type == "AlterModelTable":
+        return getattr(op, "table", None)
     return None
 
 
