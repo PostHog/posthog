@@ -20,9 +20,12 @@ class BillingUsageRecordsTable(Table):
     visible only in the project that produced them.
 
     Rows deduplicate on ``(team_id, toDate(timestamp), producer_id, usage_key, record_id)``, and
-    the collapse only happens on merge. Read with ``argMax(quantity, timestamp)`` grouped by that
-    key; a plain ``sum(quantity)`` counts duplicates that have not merged yet, and HogQL rejects
-    ``FINAL``.
+    the collapse only happens on merge. ``argMax(quantity, timestamp)`` grouped by that key is the
+    exact read, because HogQL rejects ``FINAL``, but ``record_id`` is unique per row, so that
+    grouping holds one aggregation state per row and exceeds the per-query memory limit over any
+    real range. A plain ``sum(quantity)`` counts un-merged duplicates instead, which overstates a
+    total by a fraction of a percent. Prefer the plain sum unless the read is both scoped to a
+    small range and required to be exact.
     """
 
     description: str = "Durable product-usage records emitted by event ingestion, CDP, and feature flags."
