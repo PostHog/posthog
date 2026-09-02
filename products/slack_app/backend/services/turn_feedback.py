@@ -267,9 +267,18 @@ def _capture(target: _FeedbackTarget, event: str, properties: dict[str, Any]) ->
             properties={**_event_context(target), **properties},
             groups=groups(team.organization, team),
         )
-    except Exception:
+        # The one positive trace on this path: without it, a rating that quietly went
+        # nowhere is indistinguishable in the logs from a reaction we ignored on purpose.
         # NB: structlog's first positional arg is named `event`, so the captured event
         # rides under a different key rather than colliding with it.
+        logger.info(
+            "slack_app_turn_feedback_captured",
+            captured_event=event,
+            feedback_source=properties.get("feedback_source"),
+            run_id=target.run_id,
+            turn_id=target.turn_id,
+        )
+    except Exception:
         logger.warning("slack_app_turn_feedback_capture_failed", captured_event=event, exc_info=True)
 
 
