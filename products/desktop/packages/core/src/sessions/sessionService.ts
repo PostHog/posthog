@@ -24,7 +24,6 @@ import {
   type AgentSession,
   type BedrockGatewayVariant,
   type CloudRegion,
-  type CodexModelAccess,
   classifyGatewayLimitError,
   type ExecutionMode,
   flattenSelectOptions,
@@ -39,7 +38,9 @@ import {
   isPersistedOptionSupported,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   leadingSlashCommand,
+  type ModelAccess,
   mergeConfigOptions,
   type OptimisticItem,
   type PermissionRequest,
@@ -499,7 +500,8 @@ export interface SessionServiceDeps {
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
-    codexModelAccess?: CodexModelAccess;
+    codexModelAccess?: ModelAccess;
+    claudeModelAccess?: ModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -532,13 +534,19 @@ type AuthCredentialsStatus =
   | { kind: "restoring" }
   | { kind: "missing" };
 
+export interface AdapterModelAccess {
+  codex?: ModelAccess;
+  claude?: ModelAccess;
+}
+
 export interface ConnectParams {
   task: Task;
   repoPath: string;
   initialPrompt?: ContentBlock[];
   executionMode?: ExecutionMode;
   adapter?: Adapter;
-  codexModelAccess?: CodexModelAccess;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
@@ -1928,6 +1936,7 @@ export class SessionService {
   private stampRunConfig(session: AgentSession, params: ConnectParams): void {
     session.adapter = params.adapter;
     session.codexModelAccess = params.codexModelAccess;
+    session.claudeModelAccess = params.claudeModelAccess;
     session.model = params.model;
     session.executionMode = params.executionMode;
     session.reasoningLevel = params.reasoningLevel;
@@ -1946,6 +1955,7 @@ export class SessionService {
       executionMode,
       adapter,
       codexModelAccess,
+      claudeModelAccess,
       model,
       reasoningLevel,
       contextWindow,
@@ -2065,7 +2075,7 @@ export class SessionService {
           importedSessionId,
           contextWindow,
           fastMode,
-          codexModelAccess,
+          { codex: codexModelAccess, claude: claudeModelAccess },
         );
       }
     } catch (error) {
@@ -2286,6 +2296,7 @@ export class SessionService {
         spokenNarrationEnabled,
         bedrockGatewayVariant,
         codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
       } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
@@ -2293,6 +2304,7 @@ export class SessionService {
         repoPath,
         rtkEnabled: rtkEnabledLocal,
         codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2628,7 +2640,7 @@ export class SessionService {
     importedSessionId?: string,
     contextWindow?: "200k" | "1m",
     fastMode?: boolean,
-    codexModelAccess?: CodexModelAccess,
+    modelAccess?: AdapterModelAccess,
   ): Promise<void> {
     const { client } = auth;
     if (!client) {
@@ -2646,9 +2658,12 @@ export class SessionService {
       spokenNarrationEnabled,
       bedrockGatewayVariant,
       codexModelAccess: settingsCodexModelAccess,
+      claudeModelAccess: settingsClaudeModelAccess,
     } = this.d.settings;
-    const resolvedCodexModelAccess =
-      codexModelAccess ?? settingsCodexModelAccess;
+    const resolvedModelAccess: AdapterModelAccess = {
+      codex: modelAccess?.codex ?? settingsCodexModelAccess,
+      claude: modelAccess?.claude ?? settingsClaudeModelAccess,
+    };
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
       taskId,
@@ -2658,7 +2673,8 @@ export class SessionService {
       projectId: auth.projectId,
       permissionMode: executionMode,
       adapter,
-      codexModelAccess: resolvedCodexModelAccess,
+      codexModelAccess: resolvedModelAccess.codex,
+      claudeModelAccess: resolvedModelAccess.claude,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
@@ -2676,7 +2692,8 @@ export class SessionService {
     session.channel = result.channel;
     session.status = "connected";
     session.adapter = adapter;
-    session.codexModelAccess = resolvedCodexModelAccess;
+    session.codexModelAccess = resolvedModelAccess.codex;
+    session.claudeModelAccess = resolvedModelAccess.claude;
     session.model = model;
     session.executionMode = executionMode;
     session.reasoningLevel = reasoningLevel;
@@ -4506,6 +4523,18 @@ export class SessionService {
         });
       }
 
+      if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) {
+        this.d.log.warn("Turn ended without an assistant response", {
+          taskRunId: session.taskRunId,
+          errorMessage,
+          errorDetails,
+        });
+        throw new Error(
+          "The model ended this turn without a response. Your session is unaffected — please send the message again.",
+          { cause: error },
+        );
+      }
+
       // A provider request that timed out or dropped leaves the session
       // healthy — no recovery ran above — so tell the user to just re-send
       // instead of surfacing the raw "Internal error: API Error: …" text.
@@ -6083,6 +6112,7 @@ export class SessionService {
         contextWindow,
         fastMode,
         codexModelAccess,
+        claudeModelAccess,
       } = session;
       await this.teardownSession(session.taskRunId);
       const authStatus = await this.getAuthCredentialsStatus();
@@ -6107,7 +6137,7 @@ export class SessionService {
         undefined,
         contextWindow,
         fastMode,
-        codexModelAccess,
+        { codex: codexModelAccess, claude: claudeModelAccess },
       );
       return;
     }

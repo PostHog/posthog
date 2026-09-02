@@ -2,7 +2,7 @@ import os
 import json
 from contextlib import suppress
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -84,7 +84,9 @@ else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES: dict[str, dict] = {"default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))}
+    DATABASES: dict[str, dict[str, Any]] = {
+        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+    }
 
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -584,12 +586,30 @@ TASKS_CREATE_JWT_SECRETS = get_list(
     get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
 )
 
+# Signs the tokens a workflow's "Run scout" action calls back with. Its own key rather than
+# TASKS_CREATE_JWT_SECRETS — see products/workflows/backend/service_jwt.py for why. The dev/test
+# value must match the plugin server's minting default.
+WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
+)
+
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
 # ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
 # Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
 # request until the secret is provisioned and the worker stays on its legacy auth path (#82564).
 CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
+)
+
+# Verifies the scoped JWTs the CDP worker's customer analytics account actions send to the
+# internal account routes (the worker mints, Django verifies;
+# products/customer_analytics/backend/presentation/views/internal.py). Comma-separated,
+# newest first. Empty outside dev/test, so the internal routes reject every request until
+# the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS = get_list(
+    get_from_env(
+        "CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET", "local-dev-customer-analytics-accounts-jwt" if DEBUG or TEST else ""
+    )
 )
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")

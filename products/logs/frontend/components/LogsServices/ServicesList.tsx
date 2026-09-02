@@ -9,6 +9,11 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 
+import {
+    useCanViewServiceMetrics,
+    ViewServiceMetricsButton,
+} from 'products/metrics/frontend/components/ViewServiceMetricsButton'
+
 import { NO_SERVICE_LABEL, ServiceRow } from './logsServicesLogic'
 import { copyServiceDeepLink, serviceViewerUrl } from './serviceViewerUrl'
 
@@ -21,19 +26,29 @@ const HEADER_HEIGHT = 28
 /** Shared by the header and every row so the columns line up either side of the scroller. */
 const COLUMN_TEMPLATE = 'grid grid-cols-[minmax(0,1fr)_6rem_5rem_12rem] items-center gap-2'
 
+/**
+ * Width the row actions reserve, so the header and the no-service placeholder line up with a
+ * normal row. The metrics link is flag-gated, so it changes the count — and two buttons also sit
+ * either side of the row's `gap-2`, which the reservation has to include.
+ */
+const actionsWidthClass = (withMetricsLink: boolean): string => (withMetricsLink ? 'w-14' : 'w-6')
+
 interface ServicesListProps {
     services: ServiceRow[]
     loading: boolean
     /** Both the empty state and the subtitle read differently for a search result than for the whole project. */
     searchTerm: string
+    /** The window these counts cover, so the metrics link opens on it rather than the metrics default. */
+    dateFrom: string
 }
 
 /**
  * Every service in the project, in one scroller. The aggregates query costs the same whether
  * it returns 25 rows or all of them, because the LIMIT lands after the GROUP BY.
  */
-export function ServicesList({ services, loading, searchTerm }: ServicesListProps): JSX.Element {
-    const rowProps = useMemo(() => ({ services }), [services])
+export function ServicesList({ services, loading, searchTerm, dateFrom }: ServicesListProps): JSX.Element {
+    const withMetricsLink = useCanViewServiceMetrics()
+    const rowProps = useMemo(() => ({ services, withMetricsLink, dateFrom }), [services, withMetricsLink, dateFrom])
 
     if (loading && services.length === 0) {
         return (
@@ -67,7 +82,7 @@ export function ServicesList({ services, loading, searchTerm }: ServicesListProp
                         <div className="h-6 shrink-0 text-xs text-muted px-2">
                             {densitySubtitle(services.length, screenCount(services.length, listHeight), !!searchTerm)}
                         </div>
-                        <ServicesListHeader />
+                        <ServicesListHeader withMetricsLink={withMetricsLink} />
                         <List<ServicesListRowProps>
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width, height: listHeight }}
@@ -95,7 +110,7 @@ function densitySubtitle(serviceCount: number, screens: number, searching: boole
     return screens <= 1 ? label : `${label}, about ${humanFriendlyNumber(screens)} screens`
 }
 
-function ServicesListHeader(): JSX.Element {
+function ServicesListHeader({ withMetricsLink }: { withMetricsLink: boolean }): JSX.Element {
     return (
         <div className="h-7 shrink-0 flex items-center gap-2 pr-2 border-b text-xs font-semibold text-secondary uppercase tracking-wide">
             <div className={cn(COLUMN_TEMPLATE, 'flex-1 min-w-0 pl-2')}>
@@ -104,14 +119,16 @@ function ServicesListHeader(): JSX.Element {
                 <span className="text-right">Error rate</span>
                 <span>Rules</span>
             </div>
-            {/* Matches the share button, which has no column title of its own. */}
-            <span className="w-6 shrink-0" />
+            {/* Matches the row actions, which have no column title of their own. */}
+            <span className={cn('shrink-0', actionsWidthClass(withMetricsLink))} />
         </div>
     )
 }
 
 interface ServicesListRowProps {
     services: ServiceRow[]
+    withMetricsLink: boolean
+    dateFrom: string
 }
 
 function ServicesListRow({
@@ -119,6 +136,8 @@ function ServicesListRow({
     index,
     style,
     services,
+    withMetricsLink,
+    dateFrom,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
@@ -158,18 +177,28 @@ function ServicesListRow({
                 </Tooltip>
             )}
             {deepLinkable ? (
-                <Tooltip title="Copy a link to the viewer filtered to this service">
-                    <LemonButton
+                <>
+                    <ViewServiceMetricsButton
+                        serviceName={service.service_name}
+                        dateFrom={dateFrom}
                         size="xsmall"
                         noPadding
-                        icon={<IconShare />}
-                        onClick={() => copyServiceDeepLink(service.service_name)}
-                        data-attr="logs-services-row-share"
+                        iconOnly
+                        data-attr="logs-services-row-metrics"
                     />
-                </Tooltip>
+                    <Tooltip title="Copy a link to the viewer filtered to this service">
+                        <LemonButton
+                            size="xsmall"
+                            noPadding
+                            icon={<IconShare />}
+                            onClick={() => copyServiceDeepLink(service.service_name)}
+                            data-attr="logs-services-row-share"
+                        />
+                    </Tooltip>
+                </>
             ) : (
-                /* Holds the share button's width so the columns line up across every row. */
-                <span className="w-6 shrink-0" />
+                /* Holds the row actions' width so the columns line up across every row. */
+                <span className={cn('shrink-0', actionsWidthClass(withMetricsLink))} />
             )}
         </div>
     )

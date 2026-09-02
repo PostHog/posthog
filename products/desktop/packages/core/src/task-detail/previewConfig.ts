@@ -15,7 +15,7 @@ export interface PreviewSettingsSnapshot {
   lastUsedFastMode?: boolean | null;
 }
 
-export interface EffortOption {
+interface EffortOption {
   value: string;
 }
 

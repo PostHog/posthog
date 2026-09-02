@@ -23,6 +23,7 @@ export function resolveGatewayProduct({
     loop: "posthog_code",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
+    scout_suggestions: "signals",
     signal_report: "signals",
     signals_chat: "signals",
     signals_scout: "signals",

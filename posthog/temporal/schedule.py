@@ -116,7 +116,10 @@ from products.replay_vision.backend.temporal.reconciler import create_replay_vis
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
-from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
+from products.signals.backend.temporal.agentic.schedule import (
+    create_scout_suggestions_coordinator_schedule,
+    create_signals_scout_coordinator_schedule,
+)
 from products.signals.backend.temporal.report_metric_refresh.schedule import (
     create_signals_report_metric_refresh_schedule,
 )
@@ -163,7 +166,7 @@ async def create_run_quota_limiting_schedule(client: Client):
 async def create_schedule_all_subscriptions_schedule(client: Client):
     """Create or update the schedule for the ScheduleAllSubscriptionsWorkflow.
 
-    This schedule runs every hour at the 55th minute to match the original Celery schedule.
+    This schedule runs twice an hour, shortly before each supported delivery slot.
     """
     schedule_all_subscriptions_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -172,10 +175,9 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             id="schedule-all-subscriptions-schedule",
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
+        spec=ScheduleSpec(cron_expressions=["25,55 * * * *"]),  # Run shortly before :30 and :00 deliveries
         # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
-        # Safe because child workflows use deterministic IDs (process-subscription-{id})
-        # and Temporal guarantees no two open workflows can share the same ID.
+        # Deterministic subscription child IDs prevent duplicate starts while a child is open.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
@@ -927,6 +929,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
+    create_scout_suggestions_coordinator_schedule,
     create_signals_report_metric_refresh_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,

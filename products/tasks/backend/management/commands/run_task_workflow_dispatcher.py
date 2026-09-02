@@ -42,6 +42,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 from products.tasks.backend.metrics import (
     WORKFLOW_DISPATCH_ATTEMPT_TOTAL,
     WORKFLOW_DISPATCH_START_DURATION_SECONDS,
+    WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS,
     observe_task_run_workflow_start,
 )
 from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch
@@ -239,19 +240,24 @@ class Command(BaseCommand):
                 return
             started = monotonic()
             try:
-                await client.start_workflow(
-                    "process-task",
-                    workflow_input,
-                    id=dispatch.workflow_id,
-                    id_reuse_policy=(
-                        WorkflowIDReusePolicy.TERMINATE_IF_RUNNING
-                        if is_restart
-                        else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
-                    ),
-                    task_queue=settings.TASKS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                    rpc_timeout=timedelta(seconds=settings.TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS),
-                )
+                try:
+                    await client.start_workflow(
+                        "process-task",
+                        workflow_input,
+                        id=dispatch.workflow_id,
+                        id_reuse_policy=(
+                            WorkflowIDReusePolicy.TERMINATE_IF_RUNNING
+                            if is_restart
+                            else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+                        ),
+                        task_queue=settings.TASKS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        rpc_timeout=timedelta(seconds=settings.TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS),
+                    )
+                finally:
+                    duration = monotonic() - started
+                    WORKFLOW_DISPATCH_START_DURATION_SECONDS.observe(duration)
+                    WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS.labels(kind=dispatch.dispatch_kind).observe(duration)
             except WorkflowAlreadyStartedError:
                 if is_restart:
                     await sync_to_async(reschedule)(dispatch.id, instance_id, "Restart workflow is already running")
@@ -266,5 +272,3 @@ class Command(BaseCommand):
                 await sync_to_async(mark_accepted)(dispatch.id, instance_id)
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="accepted").inc()
                 observe_task_run_workflow_start(run, outcome="started", reason="dispatcher")
-            finally:
-                WORKFLOW_DISPATCH_START_DURATION_SECONDS.observe(monotonic() - started)

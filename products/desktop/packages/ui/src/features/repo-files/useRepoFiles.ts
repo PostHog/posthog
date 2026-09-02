@@ -30,7 +30,7 @@ export interface FileItem {
 
 const MENTION_DISPLAY_LIMIT = 20;
 
-export function pathToFileItem(path: string): FileItem {
+function pathToFileItem(path: string): FileItem {
   const parts = path.split("/");
   const name = parts.pop() ?? path;
   const dir = parts.join("/");
@@ -58,7 +58,7 @@ function pathToFolderItem(path: string): FileItem {
   };
 }
 
-export function transformRawFiles(
+function transformRawFiles(
   rawFiles: MentionItem[],
   includeDirectories: boolean,
 ): FileItem[] {
@@ -72,7 +72,7 @@ export function transformRawFiles(
     );
 }
 
-export function createFzf(files: FileItem[]): Fzf<FileItem[]> {
+function createFzf(files: FileItem[]): Fzf<FileItem[]> {
   return new Fzf(files, {
     selector: (item) =>
       item.kind === "directory"
@@ -117,7 +117,7 @@ export function searchFiles(
   return results.map((result) => result.item);
 }
 
-export const MAX_FILE_RESULTS = 50;
+const MAX_FILE_RESULTS = 50;
 
 /** Ranks files whose path contains every query term (split on spaces and "/"). */
 export function rankFiles(files: FileItem[], query: string): FileItem[] {

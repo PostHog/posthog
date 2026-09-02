@@ -6,9 +6,13 @@ import type {
   PiMcpPermissionResponseCommand,
   RpcCommand,
 } from "@posthog/agent/pi/rpc-transport";
-import type {
-  PiPersistedSessionConfig,
-  PiQueueSnapshot,
+import {
+  type PiExtensionSessionEvent,
+  type PiPersistedSessionConfig,
+  type PiQueueSnapshot,
+  piExtensionSessionEventSchema,
+  piExtensionUIResponseSchema,
+  type RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
   type AgentConversationEvent,
@@ -69,6 +73,16 @@ function createTerminalPiRpcClient(
   };
 }
 
+function extensionMessageFromLogEntry(entry: StoredLogEntry): unknown {
+  if (
+    entry.type === "pi_extension_event" &&
+    entry.notification?.method === "_posthog/pi_extension_event"
+  ) {
+    return entry.notification.params;
+  }
+  return entry;
+}
+
 function permissionDescription(
   content: unknown[] | undefined,
 ): string | undefined {
@@ -122,6 +136,7 @@ export class CloudPiSessionClient implements PiSession {
     },
   );
   private terminalEventSent = false;
+  private readonly resolvedExtensionRequestIds = new Set<string>();
   private resolveTerminalStatus: () => void = () => {};
   private readonly terminalStatusReceived = new Promise<void>((resolve) => {
     this.resolveTerminalStatus = resolve;
@@ -232,11 +247,65 @@ export class CloudPiSessionClient implements PiSession {
     return this.snapshotEvents;
   }
 
+  onExtensionEvent(
+    onEvent: (event: PiExtensionSessionEvent) => void,
+    onError: (error: unknown) => void,
+  ): () => void {
+    let active = true;
+    const unsubscribe = this.cloudTaskClient.subscribe(
+      this.context.taskId,
+      this.context.runId,
+      (update) => {
+        if (update.kind !== "logs" && update.kind !== "snapshot") {
+          return;
+        }
+        for (const event of this.getExtensionEvents(update.newEntries)) {
+          onEvent(event);
+        }
+      },
+      onError,
+      () => {
+        if (!active) {
+          return;
+        }
+        void this.cloudTaskClient
+          .watch({
+            taskId: this.context.taskId,
+            runId: this.context.runId,
+            apiHost: this.context.apiHost,
+            teamId: this.context.teamId,
+          })
+          .catch(onError);
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }
+
+  async respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void> {
+    const result = await this.cloudTaskClient.sendCommand({
+      taskId: this.context.taskId,
+      id: response.id,
+      runId: this.context.runId,
+      apiHost: this.context.apiHost,
+      teamId: this.context.teamId,
+      method: "pi/rpc",
+      params: { command: response },
+    });
+    if (!result.success) {
+      throw new Error(result.error ?? "Pi extension UI response failed");
+    }
+  }
+
   onMcpToolPermissionRequest(
     onRequest: (request: McpToolPermissionRequest) => void,
     onError: (error: unknown) => void,
   ): () => void {
-    return this.cloudTaskClient.subscribe(
+    let active = true;
+    const unsubscribe = this.cloudTaskClient.subscribe(
       this.context.taskId,
       this.context.runId,
       (update) => {
@@ -259,8 +328,25 @@ export class CloudPiSessionClient implements PiSession {
         });
       },
       onError,
-      () => {},
+      () => {
+        if (!active) {
+          return;
+        }
+        void this.cloudTaskClient
+          .watch({
+            taskId: this.context.taskId,
+            runId: this.context.runId,
+            apiHost: this.context.apiHost,
+            teamId: this.context.teamId,
+          })
+          .catch(onError);
+      },
     );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }
 
   async respondMcpToolPermission(
@@ -447,6 +533,33 @@ export class CloudPiSessionClient implements PiSession {
         }),
       );
     }
+  }
+
+  private getExtensionEvents(
+    entries: StoredLogEntry[],
+  ): PiExtensionSessionEvent[] {
+    for (const entry of entries) {
+      const message = extensionMessageFromLogEntry(entry);
+      const response = piExtensionUIResponseSchema.safeParse(message);
+      if (response.success) {
+        this.resolvedExtensionRequestIds.add(response.data.id);
+      }
+    }
+
+    const events: PiExtensionSessionEvent[] = [];
+    for (const entry of entries) {
+      const message = extensionMessageFromLogEntry(entry);
+      const event = piExtensionSessionEventSchema.safeParse(message);
+      if (
+        event.success &&
+        (event.data.type === "extension_error" ||
+          event.data.type === "extension_ui_response" ||
+          !this.resolvedExtensionRequestIds.has(event.data.id))
+      ) {
+        events.push(event.data);
+      }
+    }
+    return events;
   }
 
   private getConversationEvents(
