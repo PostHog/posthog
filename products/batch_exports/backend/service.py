@@ -1394,15 +1394,15 @@ async def afetch_last_run_records_completed(
         candidates = candidates.filter(data_interval_end__lte=before_or_at_interval_end)
     if not_older_than is not None:
         candidates = candidates.filter(data_interval_end__gte=not_older_than)
-    candidates = candidates.order_by("-data_interval_end").values(
+    newest_first = candidates.order_by("-data_interval_end").values(
         "records_completed", "data_interval_start", "data_interval_end"
     )
 
     # One indexed lookup per parent kind. An `OR` across both parents makes Postgres sort every run
     # of the export instead of seeking the newest one, so we keep the two lookups apart.
-    run = await candidates.filter(batch_export_id=parent_id).afirst()
+    run = await newest_first.filter(batch_export_id=parent_id).afirst()
     if run is None:
-        run = await candidates.filter(batch_export_on_demand_id=parent_id).afirst()
+        run = await newest_first.filter(batch_export_on_demand_id=parent_id).afirst()
     if run is None:
         return None
     if matching_interval_duration is not None:
