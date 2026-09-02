@@ -16,22 +16,20 @@ import {
     ExperimentWatchMultipleVariantHandlingEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-// The four ways the "what to watch" shelf comes back with nothing. They are separate stories
-// because the copy is the whole feature here: each one sends the reader somewhere different, and
-// a screenshot is the only way to see that they read as four answers rather than one absence.
+// One story per empty reason: the copy is the feature, and a screenshot is the only way to check
+// that the four read as different answers.
 const DELTAS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_event_deltas/`
 
-// Typed as the generated response so a new required field on the serializer breaks the typecheck
-// here, rather than leaving four stories snapshotting a shape the endpoint can no longer return.
+// Typed as the generated response so a new required field on the serializer breaks the typecheck here.
 const emptyShelf = (
     emptyReason: ExperimentWatchEmptyReasonEnumApi,
-    armPersons: number
+    variantPersons: number
 ): ExperimentSessionEventDeltaResponseApi => ({
     cards: [],
-    arms: [
-        { key: 'control', persons: armPersons, sessions: Math.round(armPersons * 1.4) },
-        { key: 'test-1', persons: armPersons, sessions: Math.round(armPersons * 1.3) },
-        { key: 'test-2', persons: armPersons, sessions: Math.round(armPersons * 1.4) },
+    variants: [
+        { key: 'control', persons: variantPersons, sessions: Math.round(variantPersons * 1.4) },
+        { key: 'test-1', persons: variantPersons, sessions: Math.round(variantPersons * 1.3) },
+        { key: 'test-2', persons: variantPersons, sessions: Math.round(variantPersons * 1.4) },
     ],
     multiple_variant_persons: 0,
     multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi.Exclude,
@@ -42,11 +40,10 @@ const emptyShelf = (
     used_exposure_fallback: false,
     sessions_truncated: false,
     events_truncated: false,
-    min_arm_persons: 50,
+    min_variant_persons: 50,
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
-    // True for the unsessioned case as well: the arms really are below the floor there, and the
-    // backend only diverts which reason it reports. A fixture that set it false would hide that.
+    // True for the unsessioned case too: those variants are below the floor, only the reason differs.
     too_early:
         emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly ||
         emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
@@ -96,16 +93,14 @@ const openTheShelf: Story['play'] = async ({ canvasElement }) => {
     await makeDelay(500)()
 }
 
-const shelfStory = (emptyReason: ExperimentWatchEmptyReasonEnumApi, armPersons: number): Story => ({
-    decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, armPersons) } })],
+const shelfStory = (emptyReason: ExperimentWatchEmptyReasonEnumApi, variantPersons: number): Story => ({
+    decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons) } })],
     play: openTheShelf,
 })
 
 export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.TooEarly, 12)
 export const ExperimentWatchShelfNoSeparation: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoSeparation, 2400)
 export const ExperimentWatchShelfNoRecordings: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoRecordings, 2400)
-// Zero exposed people in every arm, which is what the scan finds when no exposure carried a
-// session: the events landed, and none of them resolved to something this surface can read.
 export const ExperimentWatchShelfNoSessionLinkedExposures: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
     0

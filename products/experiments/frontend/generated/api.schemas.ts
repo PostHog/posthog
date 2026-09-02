@@ -2402,7 +2402,7 @@ export interface ExperimentWatchCardApi {
 /**
  * One variant's compared population.
  */
-export interface ExperimentWatchArmApi {
+export interface ExperimentWatchVariantApi {
     /** The variant key. */
     key: string
     /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
@@ -2450,7 +2450,7 @@ export interface ExperimentSessionEventDeltaResponseApi {
     /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
     cards: ExperimentWatchCardApi[]
     /** Every variant's compared population, in the flag's variant order. */
-    arms: ExperimentWatchArmApi[]
+    variants: ExperimentWatchVariantApi[]
     /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
     multiple_variant_persons: number
     /** How the experiment handles someone who saw more than one variant, followed here so the cards split their people the same way the analysis does.
@@ -2473,14 +2473,14 @@ export interface ExperimentSessionEventDeltaResponseApi {
     /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
     events_truncated: boolean
     /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
-    min_arm_persons: number
+    min_variant_persons: number
     /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
     max_card_recordings: number
     /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
     dropped_duplicate_cards: number
-    /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Show the arms' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the arms are empty because the exposures never carried a session, which empty_reason reports as 'no_session_linked_exposures' and which waiting does not fix. */
+    /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because the exposures never carried a session, which empty_reason reports as 'no_session_linked_exposures' and which waiting does not fix. */
     too_early: boolean
-    /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_arm_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': this experiment's exposures landed but not one carried a session id, so there was never a session to compare. That is a setup fact rather than a wait, and telling the reader to check back is wrong: exposures captured server-side, or by an SDK with no session concept, never carry one however long the experiment runs, so point at capturing exposure from a client-side SDK instead. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+    /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': this experiment's exposures landed but not one carried a session id, so there was never a session to compare. That is a setup fact rather than a wait, and telling the reader to check back is wrong: exposures captured server-side, or by an SDK with no session concept, never carry one however long the experiment runs, so point at capturing exposure from a client-side SDK instead. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
      *
      * * `too_early` - too_early
      * * `no_separation` - no_separation

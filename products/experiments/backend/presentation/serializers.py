@@ -1963,7 +1963,7 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
     )
 
 
-class ExperimentWatchArmSerializer(serializers.Serializer):
+class ExperimentWatchVariantSerializer(serializers.Serializer):
     """One variant's compared population."""
 
     key = serializers.CharField(help_text="The variant key.")
@@ -2004,7 +2004,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "shelf in order would report it as the headline."
         ),
     )
-    arms = ExperimentWatchArmSerializer(
+    variants = ExperimentWatchVariantSerializer(
         many=True,
         help_text="Every variant's compared population, in the flag's variant order.",
     )
@@ -2071,7 +2071,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "some were never considered."
         )
     )
-    min_arm_persons = serializers.IntegerField(
+    min_variant_persons = serializers.IntegerField(
         help_text=(
             "How many exposed people a variant needs before it can be compared at all. Below it a variant's "
             "cards would be noise whatever the evidence bar allows."
@@ -2091,10 +2091,10 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     too_early = serializers.BooleanField(
         help_text=(
-            "True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and "
-            "cards is empty. Show the arms' counts alongside it: an empty shelf presented without them would "
+            "True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and "
+            "cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would "
             "read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: "
-            "this is also true when the arms are empty because the exposures never carried a session, which "
+            "this is also true when the variants are empty because the exposures never carried a session, which "
             "empty_reason reports as 'no_session_linked_exposures' and which waiting does not fix."
         )
     )
@@ -2104,7 +2104,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         help_text=(
             "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "
             "rather than reporting an empty shelf, because they ask different things of the reader. "
-            "'too_early': fewer than two variants have min_arm_persons exposed people, so nothing was compared "
+            "'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared "
             "yet and the answer can still change. 'no_separation': the variants were compared and no event told "
             "them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants "
             "apart, but no recording behind them can be opened, so the project's session replay sampling and "

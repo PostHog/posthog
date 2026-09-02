@@ -62,7 +62,7 @@ def rank_anything(test: Any) -> Any:
         ("CONFIDENCE_Z", 0.0),
         ("MIN_LOG_RATIO_LOWER_BOUND", 0.0),
         ("MIN_SUPPORT_PERSONS", 1),
-        ("MIN_ARM_PERSONS", 1),
+        ("MIN_VARIANT_PERSONS", 1),
     ):
         test = patch.object(session_event_deltas, constant, value)(test)
     return test
@@ -134,7 +134,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         distinct_id = distinct_id or f"person{len(self._people)}"
         if distinct_id not in self._people:
             # Without a person row every event resolves to a random person_id, which would put each
-            # of a person's sessions in its own arm total.
+            # of a person's sessions in its own variant total.
             _create_person(team=self.team, distinct_ids=[distinct_id])
             self._people.add(distinct_id)
 
@@ -181,8 +181,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             )
         return session_id
 
-    def _arm(self, variant: str, sessions: list[list[str]]) -> None:
-        """One person per session — the shape of an arm where nobody comes back."""
+    def _variant(self, variant: str, sessions: list[list[str]]) -> None:
+        """One person per session — the shape of a variant where nobody comes back."""
         for events in sessions:
             self._session(variants=[variant], events=events)
 
@@ -196,14 +196,14 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     def _cards(self, data: dict[str, Any], kind: Optional[str] = None) -> list[dict[str, Any]]:
         return [card for card in data["cards"] if kind is None or card["kind"] == kind]
 
-    @patch.object(session_event_deltas, "MIN_ARM_PERSONS", 20)
-    def test_arms_that_behave_the_same_earn_no_finding_cards(self) -> None:
-        # The A/A case, under the real evidence floors: arms doing the same things with a person
+    @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 20)
+    def test_variants_that_behave_the_same_earn_no_finding_cards(self) -> None:
+        # The A/A case, under the real evidence floors: variants doing the same things with a person
         # or two of sampling jitter must leave every finding shelf empty. This is the tripwire for
         # threshold work — a change that lets jitter card fails here, on whichever shelf it leaks
         # onto, before it ships noise as findings.
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm(
+        self._variant(
             "control",
             [["pricing_faq", "purchase"]] * 10
             + [["pricing_faq"]] * 8
@@ -211,7 +211,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             + [["$rageclick"]] * 3
             + [[]] * 4,
         )
-        self._arm(
+        self._variant(
             "test",
             [["pricing_faq", "purchase"]] * 11
             + [["pricing_faq"]] * 7
@@ -226,24 +226,22 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert self._cards(data, "behavior") == []
         assert self._cards(data, "friction") == []
         assert self._cards(data, "variant_only") == []
-        # Shortcuts go down with the findings. On their own they only restate what the results tab
-        # already answers, so a shelf of nothing else reads as a finding while carrying none.
+        # Shortcuts go down with the findings: alone they only restate the results tab.
         assert self._cards(data, "metric") == []
-        # ...and the empty state says which of the three things happened. Not too early: both arms
-        # are populated, so "the variants behaved the same" is an answer rather than a wait.
+        # Not too early: both variants are populated, so this is an answer rather than a wait.
         assert data["empty_reason"] == "no_separation"
         assert data["too_early"] is False
-        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 30), ("test", 30)]
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 30), ("test", 30)]
         # A clean shelf reports a clean caveat: no card was deduped away.
         assert data["dropped_duplicate_cards"] == 0
 
-    @patch.object(session_event_deltas, "MIN_ARM_PERSONS", 20)
-    def test_cards_rank_by_separation_and_leave_out_what_the_arms_share(self) -> None:
+    @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 20)
+    def test_cards_rank_by_separation_and_leave_out_what_the_variants_share(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         # The test variant sees pricing_faq far more and reaches checkout far less. `noise` differs
         # by a couple of people, which is nothing over thirty; `rare` happened once.
-        self._arm("control", [["pricing_faq"], ["pricing_faq"]] + [["checkout_start", "noise"]] * 20 + [[]] * 8)
-        self._arm("test", [["pricing_faq", "noise"]] * 22 + [["checkout_start"]] * 4 + [["rare"]] + [[]] * 3)
+        self._variant("control", [["pricing_faq"], ["pricing_faq"]] + [["checkout_start", "noise"]] * 20 + [[]] * 8)
+        self._variant("test", [["pricing_faq", "noise"]] * 22 + [["checkout_start"]] * 4 + [["rare"]] + [[]] * 3)
         flush_persons_and_events()
 
         response = self._post_deltas(experiment)
@@ -251,8 +249,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         data = response.json()
         behavior = self._cards(data, "behavior")
-        # Ranked on how far apart the arms are, not on which way — an event the test variant does
-        # much *less* has to be able to earn a card on the arm that does it more.
+        # Ranked on how far apart the variants are, not on which way — an event the test variant does
+        # much *less* has to be able to earn a card on the variant that does it more.
         assert [(card["event"], card["variant"]) for card in behavior] == [
             ("pricing_faq", "test"),
             ("checkout_start", "control"),
@@ -263,13 +261,12 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert {"ratio", "baseline_rate", "target_rate"}.isdisjoint(behavior[0])
         # Every card is backed by actual recordings, most recent first.
         assert all(card["recording_count"] == len(card["session_ids"]) > 0 for card in behavior)
-        # An event the arms share and one person's one-off get no card at all.
+        # An event the variants share and one person's one-off get no card at all.
         assert {"noise", "rare"}.isdisjoint({card["event"] for card in behavior})
-        # No reason, because there is a shelf. The frontend hides the whole shelf on any reason at
-        # all, so one leaking onto a populated response would replace these cards with a banner.
+        # A reason leaking onto a populated response would replace these cards with a banner.
         assert data["empty_reason"] is None
         assert data["too_early"] is False
-        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 30), ("test", 30)]
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 30), ("test", 30)]
 
     @rank_anything
     def test_cards_carry_only_sessions_that_were_actually_recorded(self) -> None:
@@ -307,24 +304,24 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         data = self._post_deltas(experiment).json()
 
         # The comparison reads each person from their first covered session only — reading all four
-        # would give this arm four times the chance to have done something. So checkout_start is a
+        # would give this variant four times the chance to have done something. So checkout_start is a
         # difference on the *test* side, even though control's later sessions are full of it.
         checkout = next(card for card in self._cards(data, "behavior") if card["event"] == "checkout_start")
         assert checkout["variant"] == "test"
-        # People counted once; the sessions total still says how much material sits behind the arm.
-        assert [(arm["persons"], arm["sessions"]) for arm in data["arms"]] == [(1, 4), (1, 1)]
+        # People counted once; the sessions total still says how much material sits behind the variant.
+        assert [(variant["persons"], variant["sessions"]) for variant in data["variants"]] == [(1, 4), (1, 1)]
 
     @parameterized.expand(
         [
-            # (name, multiple_variant_handling, expected people per arm, expected excluded)
+            # (name, multiple_variant_handling, expected people per variant, expected excluded)
             ("exclude", "exclude", [1, 1], 1),
-            # First-seen puts the person in the arm they saw first, so nobody is set aside.
+            # First-seen puts the person in the variant they saw first, so nobody is set aside.
             ("first_seen", "first_seen", [1, 2], 0),
         ]
     )
     @rank_anything
     def test_a_person_who_saw_both_variants_is_split_the_way_the_analysis_splits_them(
-        self, _name: str, handling: str, expected_arms: list[int], expected_multiple: int
+        self, _name: str, handling: str, expected_variants: list[int], expected_multiple: int
     ) -> None:
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC], exposure_criteria={"multiple_variant_handling": handling}
@@ -336,16 +333,16 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         data = self._post_deltas(experiment).json()
 
-        assert [arm["persons"] for arm in data["arms"]] == expected_arms
+        assert [variant["persons"] for variant in data["variants"]] == expected_variants
         assert data["multiple_variant_persons"] == expected_multiple
         assert data["multiple_variant_handling"] == handling
 
     @rank_anything
-    def test_one_vs_rest_puts_the_card_on_the_arm_that_stands_out(self) -> None:
+    def test_one_vs_rest_puts_the_card_on_the_variant_that_stands_out(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC], variants=["control", "test", "other"])
-        self._arm("control", [["dashboard_viewed"]] * 2)
-        self._arm("test", [["dashboard_viewed"]] * 2)
-        self._arm("other", [["dashboard_viewed", "tree_opened"]] * 2)
+        self._variant("control", [["dashboard_viewed"]] * 2)
+        self._variant("test", [["dashboard_viewed"]] * 2)
+        self._variant("other", [["dashboard_viewed", "tree_opened"]] * 2)
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -356,10 +353,10 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert [(card["event"], card["variant"]) for card in cards] == [("tree_opened", "other")]
 
     @rank_anything
-    def test_a_metric_event_that_separates_the_arms_gets_a_card_naming_its_metric(self) -> None:
+    def test_a_metric_event_that_separates_the_variants_gets_a_card_naming_its_metric(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SERVER_SIDE_METRIC])
-        self._arm("control", [["purchase", "pricing_faq"]] * 2)
-        self._arm("test", [["pricing_faq"], []])
+        self._variant("control", [["purchase", "pricing_faq"]] * 2)
+        self._variant("test", [["pricing_faq"], []])
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -376,12 +373,11 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["metric_events"] == ["purchase", "server charge"]
 
     @rank_anything
-    def test_a_metric_event_the_arms_share_falls_back_to_a_shortcut_card(self) -> None:
+    def test_a_metric_event_the_variants_share_falls_back_to_a_shortcut_card(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SERVER_SIDE_METRIC])
-        # `pricing_faq` is the finding. Shortcuts only reach the shelf beside one, so without it
-        # this fixture would test the suppression instead of the fallback it is about.
-        self._arm("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"]])
-        self._arm("test", [["purchase"], ["purchase"]])
+        # `pricing_faq` is the finding that keeps the shelf on screen; shortcuts alone never reach it.
+        self._variant("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"]])
+        self._variant("test", [["purchase"], ["purchase"]])
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -403,10 +399,10 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     def test_a_metric_event_whose_comparison_card_has_no_recordings_falls_back_to_shortcuts(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         # `pricing_faq` is the finding that keeps the shelf on screen at all.
-        self._arm("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"], [], []])
+        self._variant("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"], [], []])
         # `purchase` over-fires in test, so the comparison candidate lands there — but none of
         # test's sessions were recorded, so that card dies on the replay existence check. The
-        # shortcut route must come back for the other arms' playable recordings, or the
+        # shortcut route must come back for the other variants' playable recordings, or the
         # experiment's own metric vanishes from the shelf entirely.
         for _ in range(4):
             self._session(variants=["test"], events=["purchase"], recorded=False)
@@ -430,7 +426,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # `signup` takes the one shortcut slot at first. When purchase's comparison card then dies
         # on the replay existence check, purchase must reclaim the slot rather than land after
         # signup or beside it over budget. `pricing_faq` is the finding that keeps the shelf up.
-        self._arm(
+        self._variant(
             "control",
             [["purchase", "signup", "pricing_faq"], ["purchase", "signup", "pricing_faq"], ["signup"], ["signup"]],
         )
@@ -451,8 +447,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         experiment.primary_metrics_ordered_uuids = [SIGNUP_METRIC["uuid"], PURCHASE_METRIC["uuid"]]
         experiment.save()
         # `pricing_faq` is the finding that keeps the shelf up; shortcuts alone never reach it.
-        self._arm("control", [["purchase", "signup", "pricing_faq"]] * 2)
-        self._arm("test", [["purchase", "signup"]] * 2)
+        self._variant("control", [["purchase", "signup", "pricing_faq"]] * 2)
+        self._variant("test", [["purchase", "signup"]] * 2)
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -476,10 +472,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
                 }
             ]
         )
-        # Both arms purchase at the same rate, so the event earns no comparison card and the
-        # shortcut card this test is about is the one that survives. `pricing_faq` is the finding
-        # that keeps the shelf up; shortcuts alone never reach it.
-        self._arm("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"]])
+        # Both variants purchase at the same rate, so the event earns no comparison card and the
+        # shortcut card this test is about is the one that survives. `pricing_faq` keeps the shelf up.
+        self._variant("control", [["purchase", "pricing_faq"], ["purchase", "pricing_faq"]])
         matching = self._session(variants=["test"], events=["purchase"], properties={"plan": "enterprise"})
         self._session(variants=["test"], events=["purchase"], properties={"plan": "free"})
         flush_persons_and_events()
@@ -494,13 +489,13 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert metric_cards[0]["recording_count"] == 1
 
     @rank_anything
-    def test_an_event_the_other_arms_could_never_fire_is_split_off_from_the_findings(self) -> None:
+    def test_an_event_the_other_variants_could_never_fire_is_split_off_from_the_findings(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        # A variant instruments whatever it renders, so `callout_shown` separates the arms
+        # A variant instruments whatever it renders, so `callout_shown` separates the variants
         # perfectly and outranks everything a person actually chose to do. `pricing_faq` is the
         # real difference underneath it, and the control occurrences are what mark it as one.
-        self._arm("control", [["pricing_faq"]] * 2 + [[]] * 10)
-        self._arm("test", [["callout_shown", "pricing_faq"]] * 12)
+        self._variant("control", [["pricing_faq"]] * 2 + [[]] * 10)
+        self._variant("test", [["callout_shown", "pricing_faq"]] * 12)
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -513,11 +508,13 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_card_showing_another_cards_recordings_is_left_off_the_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [["purchase"], ["purchase"], ["faq_expanded", "purchase"], ["checkout_start", "purchase"]])
+        self._variant(
+            "control", [["purchase"], ["purchase"], ["faq_expanded", "purchase"], ["checkout_start", "purchase"]]
+        )
         # `faq_expanded` happens in exactly the sessions `pricing_faq` does, so its card is a second
         # name for one playlist: a reader who clicks it is shown what the card above already gave
         # them, which reads as the shelf being broken rather than as two findings.
-        self._arm("test", [["pricing_faq", "faq_expanded", "purchase"]] * 4 + [["checkout_start", "purchase"]] * 4)
+        self._variant("test", [["pricing_faq", "faq_expanded", "purchase"]] * 4 + [["checkout_start", "purchase"]] * 4)
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -541,7 +538,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_cards_highlights_name_which_of_its_recordings_to_open_first(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [[]] * 2)
+        self._variant("control", [[]] * 2)
         # Leads on neither signal alone, and carries both, which is the session a per-signal pick
         # would drop in favor of the two single-axis leaders below it.
         both = self._session(variants=["test"], events=["pricing_faq", "$rageclick", "$exception"])
@@ -568,7 +565,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_noisy_session_does_not_outrank_the_behavior_the_card_claims(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [[]] * 2)
+        self._variant("control", [[]] * 2)
         # Six errors against one is the session being longer rather than six times more worth
         # watching, and counting them raw is what puts the longest session at the top of every card
         # it happens to back.
@@ -597,7 +594,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_broken_session_is_not_offered_as_a_highlight(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [[]] * 2)
+        self._variant("control", [[]] * 2)
         # A hundred errors without a single rage click is a client stuck in a loop, not a person
         # hitting a hundred problems. Damping keeps it from winning on volume, but it still wins
         # ties on signal kinds, so without an exclusion it fronts every card its session backs.
@@ -620,7 +617,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         # The control occurrence ranks checkout_start below pricing_faq, so the shared recording
         # goes to the higher-ranked card rather than to whichever event sorts first.
-        self._arm("control", [["checkout_start"], []])
+        self._variant("control", [["checkout_start"], []])
         shared = self._session(
             variants=["test"],
             events=["pricing_faq", "checkout_start", "$rageclick", "$exception", "$dead_click"],
@@ -645,8 +642,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_friction_events_land_on_their_own_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [["pricing_faq"]] * 2)
-        self._arm("test", [["$exception", "$exception"], ["$exception", "pricing_faq"]])
+        self._variant("control", [["pricing_faq"]] * 2)
+        self._variant("test", [["$exception", "$exception"], ["$exception", "pricing_faq"]])
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
@@ -658,11 +655,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert [highlight["reason"] for highlight in friction[0]["highlights"]] == ["2 errors", "1 error"]
 
     def _unsessioned_exposure(self, variant: str, *, flag_key: str = "checkout-cta") -> None:
-        """One exposure captured where there is no session to record.
-
-        No `$session_id` on the event and no `EventProperty` row registering one, which is the
-        trace a backend SDK's exposure leaves: the event is there, and nothing ties it to a session.
-        """
+        # No `$session_id` and no EventProperty row for it: the trace a backend SDK's exposure leaves.
         distinct_id = f"unsessioned{len(self._people)}"
         _create_person(team=self.team, distinct_ids=[distinct_id])
         self._people.add(distinct_id)
@@ -678,23 +671,17 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         for index in range(4):
             self._unsessioned_exposure("control" if index % 2 else "test")
-        # Another flag's exposures do carry a session, so the project-level taxonomy answer for
-        # `$feature_flag_called` is "session-linked" and the exposure fallback never engages. A
-        # check at that scope would call this experiment healthy and leave it on the wait state;
-        # only asking per experiment gets it right, which is the whole point of the extra probe.
-        # Unrecorded, because only the taxonomy row it leaves behind matters here.
+        # Another flag's exposures carry a session, so the project-level taxonomy says
+        # `$feature_flag_called` is session-linked and the exposure fallback does not engage. Only
+        # a per-experiment check tells this experiment apart from a healthy one.
         self._session(variants=["control"], flag_key="other-flag", recorded=False)
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
 
-        # Waiting cannot fix this one: more traffic captured the same way produces more exposures
-        # that still carry no session, so "check back later" would be permanently false.
         assert data["cards"] == []
         assert data["empty_reason"] == "no_session_linked_exposures"
-        # Still true, because the arms really are below the floor, and still its own field for the
-        # counts a reader needs. It is no longer the whole story, which is why the shelf reads the
-        # reason rather than this to decide whether to tell anyone to come back.
+        # Still true: the variants are below the floor. The reason, not this flag, decides the copy.
         assert data["too_early"] is True
 
     def test_too_early_is_reported_rather_than_an_empty_shelf(self) -> None:
@@ -710,7 +697,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["too_early"] is True
         assert data["empty_reason"] == "too_early"
         assert data["cards"] == []
-        assert data["min_arm_persons"] == session_event_deltas.MIN_ARM_PERSONS
+        assert data["min_variant_persons"] == session_event_deltas.MIN_VARIANT_PERSONS
 
     @rank_anything
     @patch.object(session_event_deltas, "MAX_DELTA_SCAN_SESSIONS", 1)
@@ -744,7 +731,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         data = self._post_deltas(experiment).json()
 
         assert data["used_exposure_fallback"] is True
-        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 2)]
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 2)]
         pricing_faq = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
         assert pricing_faq["variant"] == "test"
         assert recorded in pricing_faq["session_ids"]
@@ -772,7 +759,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert datetime.fromisoformat(data["date_from"]) == NOW - timedelta(
             days=session_event_deltas.MAX_FALLBACK_DELTA_SCAN_DAYS
         )
-        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 1)]
         assert all(card["event"] != "old_event" for card in data["cards"])
 
     @parameterized.expand([("exclude", "exclude"), ("first_seen", "first_seen")])
@@ -805,7 +792,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         data = self._post_deltas(experiment).json()
 
-        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 1)]
         assert data["multiple_variant_persons"] == 0
         # The shared session started before their own, so an unconditioned "first covered session"
         # would read the strayer's behavior as backend_ping and lose pricing_faq — behavior comes
@@ -814,13 +801,13 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             ("checkout_start", "control"),
             ("pricing_faq", "test"),
         ]
-        assert [(arm["key"], arm["sessions"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
+        assert [(variant["key"], variant["sessions"]) for variant in data["variants"]] == [("control", 1), ("test", 1)]
 
-    # The fixture produces exactly five (event x arm) rows: two totals, 'faq' in both arms, and
+    # The fixture produces exactly five (event x variant) rows: two totals, 'faq' in both variants, and
     # 'rare_event' in one. The cap can't tell "exactly at the ceiling" from "cut short" unless the
     # query fetches one row past it, so both sides of the boundary are pinned. Past the cap,
     # 'rare_event' sorts last and must vanish whole — a card built on a partial read would claim
-    # one arm never did it — while the totals sort first, so the arms' counts survive any cut.
+    # one variant never did it — while the totals sort first, so the variants' counts survive any cut.
     @parameterized.expand(
         [
             ("exactly_at_cap", 5, False, [("rare_event", "test")]),
@@ -841,7 +828,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         assert data["events_truncated"] is truncated
         assert [(card["event"], card["variant"]) for card in self._cards(data, "behavior")] == expected_cards
-        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 1), ("test", 1)]
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 1)]
 
     @rank_anything
     def test_an_action_based_exposure_still_backs_its_cards_with_recordings(self) -> None:
@@ -919,11 +906,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_findings_nobody_can_watch_are_reported_as_such_rather_than_as_a_shortcut_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [["purchase"], ["purchase"]])
-        # The one thing that separates the arms happened only in sessions replay never kept. The
-        # shortcut to `purchase` would still resolve against control's recordings, and a shelf of
-        # that alone says nothing the results tab doesn't. The reader needs the reason instead,
-        # and this reason is fixed in the replay settings rather than by waiting.
+        self._variant("control", [["purchase"], ["purchase"]])
+        # The one thing that separates the variants happened only in sessions replay never kept.
+        # The shortcut to `purchase` would still resolve against control's recordings.
         for _ in range(2):
             self._session(variants=["test"], events=["pricing_faq", "purchase"], recorded=False)
         flush_persons_and_events()
@@ -937,7 +922,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_viewer_who_cannot_open_the_findings_is_left_with_no_shelf_either(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [["purchase"], ["purchase"]])
+        self._variant("control", [["purchase"], ["purchase"]])
         denied = [self._session(variants=["test"], events=["pricing_faq", "purchase"]) for _ in range(2)]
         # Object-level controls can only target a recording that has a Postgres row.
         for session_id in denied:
@@ -950,16 +935,15 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         ):
             data = self._post_deltas(experiment).json()
 
-        # The shelf the scan built has a finding on it, and this viewer may open none of its
-        # recordings. Suppressing shortcut-only shelves in the scan alone would leave exactly the
-        # shelf the rule exists to prevent, so the cut has to run again after the access filter.
+        # The scan built a shelf with a finding; this viewer may open none of its recordings, so the
+        # suppression has to run again after the access filter.
         assert data["cards"] == []
         assert data["empty_reason"] == "no_recordings"
 
     @rank_anything
     def test_a_card_the_viewer_can_still_watch_survives_its_duplicate_being_cut(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [[]] * 2)
+        self._variant("control", [[]] * 2)
         # The two events happen together in four sessions, enough for one card to be cut as the
         # other's playlist. Each event also has a session of its own.
         shared = [self._session(variants=["test"], events=["pricing_faq", "faq_expanded"]) for _ in range(4)]
@@ -988,7 +972,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_card_cut_as_a_duplicate_does_not_reserve_a_recording_for_itself(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._arm("control", [[]] * 2)
+        self._variant("control", [[]] * 2)
         # Both events happen in all four sessions, so one card is cut as the other's playlist. Every
         # session carries one rage click and nothing else, which leaves the highlight ranking on the
         # session id, and the staggered start times put those in the order they were created.

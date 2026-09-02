@@ -156,9 +156,7 @@ export interface ExperimentRecordingsFilterContext {
  */
 export interface ExperimentWatchShelfContext {
     too_early: boolean
-    /** Why the shelf carried no cards, null when it carried some. Says how often a reader gets a
-     * finding rather than one of the three empty states, which is what the suppression of
-     * shortcut-only shelves is measured on. */
+    /** Why the shelf carried no cards, null when it carried some. */
     empty_reason: string | null
     behavior_cards: number
     friction_cards: number
@@ -166,6 +164,25 @@ export interface ExperimentWatchShelfContext {
     metric_cards: number
     /** Cards removed for restating another card's recordings; what the dedupe threshold is tuned from. */
     dropped_duplicate_cards: number
+    used_exposure_fallback: boolean
+    /** Wall-clock time of the request, which is the heaviest read on the tab. */
+    duration_ms: number
+}
+
+/** The comparison could not be loaded, and how: a request failure or a backend refusal. */
+export interface ExperimentWatchLoadFailedContext {
+    duration_ms: number
+    /** HTTP status of the response, null when there was none. */
+    status: number | null
+    /** True for a 400 the backend raises on purpose (not launched, one variant, unmatchable exposure). */
+    unavailable: boolean
+}
+
+/** A link on an empty state was followed. Which reason showed it says which fix people go looking for. */
+export interface ExperimentWatchEmptyActionContext {
+    empty_reason: string | null
+    /** 'exposure_docs' or 'replay_settings'. */
+    action: string
 }
 
 /**
@@ -179,6 +196,12 @@ export interface ExperimentWatchCardContext {
     metric_backed: boolean
     recording_count: number
     highlight_count: number
+    /** The card's rank in the backend's order (findings strongest first, then metric shortcuts),
+     * 0 first; -1 when the card is not on the loaded response. Not its on-screen position: the UI
+     * splits the cards into shelves by kind. */
+    rank: number
+    /** Every card on the response, across all shelves. */
+    card_count: number
 }
 
 export interface ExperimentWatchHighlightContext {
@@ -1068,6 +1091,13 @@ export interface eventUsageLogicActions {
         experiment: Experiment
         interval: number
     }
+    reportExperimentBehaviorComparisonFailed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentWatchLoadFailedContext
+    ) => {
+        context: ExperimentWatchLoadFailedContext
+        experimentId: ExperimentIdType
+    }
     reportExperimentBehaviorComparisonLoaded: (
         experimentId: ExperimentIdType,
         context: ExperimentWatchShelfContext
@@ -1419,6 +1449,13 @@ export interface eventUsageLogicActions {
         context: ExperimentWatchCardContext
     ) => {
         context: ExperimentWatchCardContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentWatchEmptyActionClicked: (
+        experimentId: ExperimentIdType,
+        context: ExperimentWatchEmptyActionContext
+    ) => {
+        context: ExperimentWatchEmptyActionContext
         experimentId: ExperimentIdType
     }
     reportExperimentWatchHighlightOpened: (
@@ -2764,6 +2801,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentWatchShelfContext
         ) => ({ experimentId, context }),
+        reportExperimentBehaviorComparisonFailed: (
+            experimentId: ExperimentIdType,
+            context: ExperimentWatchLoadFailedContext
+        ) => ({ experimentId, context }),
+        reportExperimentWatchEmptyActionClicked: (
+            experimentId: ExperimentIdType,
+            context: ExperimentWatchEmptyActionContext
+        ) => ({ experimentId, context }),
         reportExperimentWatchCardSelected: (experimentId: ExperimentIdType, context: ExperimentWatchCardContext) => ({
             experimentId,
             context,
@@ -3993,6 +4038,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentBehaviorComparisonLoaded: ({ experimentId, context }) => {
             posthog.capture('experiment behavior comparison loaded', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentBehaviorComparisonFailed: ({ experimentId, context }) => {
+            posthog.capture('experiment behavior comparison failed', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentWatchEmptyActionClicked: ({ experimentId, context }) => {
+            posthog.capture('experiment watch empty state action clicked', {
                 experiment_id: experimentId,
                 ...context,
             })

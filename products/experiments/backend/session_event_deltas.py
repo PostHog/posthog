@@ -1,8 +1,8 @@
 """Pick the recordings worth watching in one experiment's exposed sessions.
 
-The recordings tab can list an arm's sessions but says nothing about which of the thousands carry
+The recordings tab can list a variant's sessions but says nothing about which of the thousands carry
 signal, so picking what to watch is sampling rather than targeting. This module answers that with
-watch cards: bounded groups of recordings, each one a sentence a reader can act on — "this arm did
+watch cards: bounded groups of recordings, each one a sentence a reader can act on — "this variant did
 this event clearly more than the others, here are recordings of it happening".
 
 **Recordings are the deliverable.** A card's count is a count of watchable recordings, checked
@@ -33,7 +33,7 @@ that follow are not stylistic:
      computed answer to the question the results tab answers, and rule 1 is what prevents that.
   3. An event no other variant can fire is the variant's own rendering rather than something a
      person chose to do, so it is separated onto its own shelf and capped. A variant that ships a
-     new element instruments that element, and such an event separates the arms perfectly, so
+     new element instruments that element, and such an event separates the variants perfectly, so
      without the split it outranks every real behavioral difference: measured on a production
      experiment, the two strongest findings were a callout variant's own impression and dismissal
      events, at a thousand times the separation of anything a person actually did differently.
@@ -42,27 +42,27 @@ that follow are not stylistic:
 use: a session containing an event that matches the experiment's exposure criteria and carries one
 of the flag's defined variants. That is not the analysis's population — a person whose SDK deduped
 later exposure events contributes only the session they were bucketed in. The comparison survives
-that because it is a *ratio* between arms selected by the same mechanism, which is exactly what an
+that because it is a *ratio* between variants selected by the same mechanism, which is exactly what an
 absolute per-session claim (the buckets) could not do.
 
-**One person, one session.** The sessions an arm is exposed in are not a fair denominator: a
+**One person, one session.** The sessions a variant is exposed in are not a fair denominator: a
 variant that stops re-evaluating the flag once a user has acted contributes fewer later sessions,
 and those missing sessions are the quiet ones. Measured on a production experiment this reached
-3.7x more exposed sessions in one arm off near-identical people, which pushed nine in ten event
+3.7x more exposed sessions in one variant off near-identical people, which pushed nine in ten event
 names to one side of the comparison: arithmetic reading as behavior. Counting each exposed person
 once fixes the denominator, and it makes the rows independent, which is what the ranking's noise
 test below assumes. It is not enough on its own, because the same imbalance is still in the
-numerator: on that experiment one arm's people averaged seven covered sessions each against the
+numerator: on that experiment one variant's people averaged seven covered sessions each against the
 other's two, so they had seven chances to have done anything rather than two, and nine in ten event
 names still leaned one way. So a person is read from one session, the first the comparison covers
 them in, which is the same amount of behavior on both sides. A card's *recordings*, by contrast,
-come from any of the arm's covered sessions containing the event — the statistics need fairness,
+come from any of the variant's covered sessions containing the event — the statistics need fairness,
 the watchlist needs the behavior on screen.
 
-**Ranking.** Each arm is compared against all the others pooled, so a five-arm experiment needs no
-pairing and costs the same one scan as two arms. Rates are compared on the log of their ratio, and
+**Ranking.** Each variant is compared against all the others pooled, so a five-variant experiment needs no
+pairing and costs the same one scan as two variants. Rates are compared on the log of their ratio, and
 an event earns a card only once the *conservative* end of that ratio is still a real difference.
-Without that test the list ranks rarity: on a production A/A pair — two arms of one experiment
+Without that test the list ranks rarity: on a production A/A pair — two variants of one experiment
 rendering identically — the raw ratio produced a full page of confident findings, every one of them
 noise, while the same data under this test produced nothing. The same conservative end picks the
 band a card is reported in, so a difference that only cleared the floor because the sample is large
@@ -131,8 +131,8 @@ MAX_DELTA_SCAN_DAYS = 14
 # reports the window actually covered.
 MAX_FALLBACK_DELTA_SCAN_DAYS = 2
 # Ceiling on the exposed sessions one comparison covers, most recent first. Bounds the aggregation
-# state rather than the rows read, and because the cut is on recency across both arms at once, the
-# arms stay covered over the same period — a comparison split across different stretches of time
+# state rather than the rows read, and because the cut is on recency across both variants at once, the
+# variants stay covered over the same period — a comparison split across different stretches of time
 # would be measuring the calendar as much as the variant.
 MAX_DELTA_SCAN_SESSIONS = 20_000
 # How far back of a session's own events the scan has to reach once the window is clamped to what
@@ -140,7 +140,7 @@ MAX_DELTA_SCAN_SESSIONS = 20_000
 # began before that floor would otherwise be read from the middle, and the events it opened with
 # would go missing from a comparison that claims to have seen the session.
 MAX_SESSION_DURATION_HOURS = 24
-# Ceiling on (event name x arm) rows one comparison ranks. Distinct event names per project are
+# Ceiling on (event name x variant) rows one comparison ranks. Distinct event names per project are
 # normally in the hundreds; a project that keys event names by id is what this is for.
 MAX_DELTA_EVENT_ROWS = 10_000
 # How many behavior cards one response carries. The shelf is scanned, not scrolled, and a long tail
@@ -175,15 +175,15 @@ MAX_HIGHLIGHT_SIGNAL_COUNT = 100
 # onto the card. The margin absorbs sessions that were never recorded without a second round trip.
 MAX_CARD_RECORDING_CANDIDATES = 60
 MAX_CARD_RECORDINGS = 20
-# An event has to have been done by this many people in the arm it is more common in before it can
+# An event has to have been done by this many people in the variant it is more common in before it can
 # earn a card. The separation test below already drops rare events on its own; this only keeps the
 # candidate set from being mostly rows that can never pass it.
 MIN_SUPPORT_PERSONS = 10
-# Below this many exposed people an arm is noise to compare, whatever the floor above allows. With
-# fewer than two arms past it there is nothing to compare at all, which is reported as "too early"
+# Below this many exposed people a variant is noise to compare, whatever the floor above allows. With
+# fewer than two variants past it there is nothing to compare at all, which is reported as "too early"
 # rather than as an empty shelf that would read as "the variants behaved identically".
-MIN_ARM_PERSONS = 50
-# Laplace-style smoothing on both shares before they are divided. Keeps "none in one arm" finite and
+MIN_VARIANT_PERSONS = 50
+# Laplace-style smoothing on both shares before they are divided. Keeps "none in one variant" finite and
 # pulls small counts toward no difference, so the ranking is not led by rare events.
 RATIO_SMOOTHING = 0.5
 # How many standard errors of separation a difference needs before it earns a card at all. This is a
@@ -202,10 +202,10 @@ MIN_LOG_RATIO_LOWER_BOUND = 0.3
 FAR_MORE_LOG_RATIO = 1.1
 MORE_LOG_RATIO = 0.4
 # When the other variants are this close to never firing an event at all, relative to how often
-# they would have fired it at this arm's rate, they are not doing it less: they have no way to do
+# they would have fired it at this variant's rate, they are not doing it less: they have no way to do
 # it. A leak is tolerated rather than requiring a flat zero because an element one variant renders
 # can still be reached from the others by a shared route, and because a person who saw two variants
-# in a session the comparison kept carries one arm's events under the other's key.
+# in a session the comparison kept carries one variant's events under the other's key.
 VARIANT_ONLY_MAX_LEAKAGE = 0.02
 # ...and how many people doing it the other variants had to be missing before their absence means
 # anything. The comparison counts each person once, so this floor is an expected count of people
@@ -224,7 +224,7 @@ EXPERIMENT_BEHAVIOR_COMPARISON_FLAG = "experiment-behavior-comparison"
 
 # Events whose *name* carries no behavior, so a difference in how often people do them says nothing
 # about what they did. Page views and autocaptures are the interesting ones to leave out: they are
-# in almost every session in both arms, so they rank last anyway, but their names describe a
+# in almost every session in both variants, so they rank last anyway, but their names describe a
 # mechanism rather than an action. What replaces them is a page-level comparison, which needs the
 # project's path-cleaning rules and a second grouping key, so it is not this scan.
 UNCOMPARABLE_EVENTS = frozenset(
@@ -248,7 +248,7 @@ UNCOMPARABLE_EVENTS = frozenset(
 )
 
 # What a card ranks its own recordings by, strongest kind first, as (event name, singular label).
-# Counted per session rather than compared across arms: each is a property of the session rather
+# Counted per session rather than compared across variants: each is a property of the session rather
 # than of the event that earned the card, so a recording keeps the same reason on every card it
 # backs. Counted over the whole covered session, so the phrase still describes what the reader sees
 # once the recording is open. One more signal rides alongside these without being one of them: how
@@ -279,13 +279,13 @@ CUSTOM_EXPOSURE_UNCOMPARABLE_REASON = (
 class SessionEventDeltasUnavailable(Exception):
     """The cards can't be computed for this experiment — a caller error, not a failure.
     Raised instead of returning an empty shelf, so "we declined to compare" never reads as
-    "the arms behaved identically"."""
+    "the variants behaved identically"."""
 
 
 class DeltaStrength(StrEnum):
-    """How far apart an arm and the rest are, conservatively, in bands rather than as a number."""
+    """How far apart a variant and the rest are, conservatively, in bands rather than as a number."""
 
-    # Nobody in the other arms did it, among the people compared. A fact about the compared set
+    # Nobody in the other variants did it, among the people compared. A fact about the compared set
     # rather than a ratio, and the one band that is exact.
     ONLY = "only"
     FAR_MORE = "far_more"
@@ -294,11 +294,11 @@ class DeltaStrength(StrEnum):
 
 
 class WatchCardKind(StrEnum):
-    # An event this arm did clearly more than the other arms together.
+    # An event this variant did clearly more than the other variants together.
     BEHAVIOR = "behavior"
     # Same evidence, but the event is an error/rage signal, so it reads as a defect lead.
     FRICTION = "friction"
-    # An event only this arm can fire, because the arm is what renders it. Confirms the change is
+    # An event only this variant can fire, because the variant is what renders it. Confirms the change is
     # live rather than saying anything about what people did with it.
     VARIANT_ONLY = "variant_only"
     # A shortcut to recordings around one of the experiment's own metric events. No comparison
@@ -307,24 +307,20 @@ class WatchCardKind(StrEnum):
 
 
 class WatchEmptyReason(StrEnum):
-    """Why a shelf carries no cards, which is not one thing.
+    """Why a shelf carries no cards. Set exactly when the shelf is empty.
 
-    Set whenever the shelf is empty, and never set when it is not. The four cases ask different
-    things of a reader: one is worth coming back for, one is an answer already, one is fixed in the
-    replay settings, and one is fixed in how the experiment captures exposure. A single "nothing
-    found" would send every reader down the same wrong path for three of the four.
+    Each reason asks something different of the reader, so the frontend and the MCP tool report
+    the reason rather than an empty list.
     """
 
-    # Fewer than two arms cleared MIN_ARM_PERSONS, so nothing was compared at all.
+    # Fewer than two variants cleared MIN_VARIANT_PERSONS.
     TOO_EARLY = "too_early"
-    # The arms were compared and no event told them apart. A result rather than a failure.
+    # The variants were compared and no event told them apart.
     NO_SEPARATION = "no_separation"
-    # Events did tell the arms apart, but no recording behind any of them can be opened, so there
-    # is nothing to watch.
+    # Events told the variants apart, but no recording behind them can be opened.
     NO_RECORDINGS = "no_recordings"
-    # Exposures landed, and not one carried a session, so there was never a session to compare.
-    # Distinct from TOO_EARLY because waiting cannot fix it: more traffic captured the same way
-    # produces more exposures that still carry no session.
+    # Exposures landed and none carried a session. Waiting cannot fix it: more traffic captured
+    # the same way produces more exposures with no session.
     NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures"
 
 
@@ -363,7 +359,7 @@ class _MetricEvent:
 
 @dataclass(frozen=True)
 class _CandidateRecording:
-    """One session behind one (event, arm) pair: its session-level signal counts, and how often it
+    """One session behind one (event, variant) pair: its session-level signal counts, and how often it
     fired the pair's own event."""
 
     session_id: str
@@ -383,7 +379,7 @@ class ExperimentWatchCard:
 
     kind: WatchCardKind
     event: str
-    # The arm whose recordings these are — for comparison cards, the arm that did the event more.
+    # The variant whose recordings these are — for comparison cards, the variant that did the event more.
     variant: str
     # None on metric cards: they are shortcuts, not comparisons.
     strength: Optional[DeltaStrength]
@@ -400,8 +396,8 @@ class ExperimentWatchCard:
 
 
 @dataclass(frozen=True)
-class ExperimentWatchArm:
-    """One arm's compared population: exposed people, and the sessions they were seen in."""
+class ExperimentWatchVariant:
+    """One variant's compared population: exposed people, and the sessions they were seen in."""
 
     key: str
     persons: int
@@ -411,7 +407,7 @@ class ExperimentWatchArm:
 @dataclass(frozen=True)
 class ExperimentWatchResult:
     cards: list[ExperimentWatchCard]
-    arms: list[ExperimentWatchArm]
+    variants: list[ExperimentWatchVariant]
     multiple_variant_persons: int
     multiple_variant_handling: str
     metric_events: list[str]
@@ -421,7 +417,7 @@ class ExperimentWatchResult:
     used_exposure_fallback: bool
     sessions_truncated: bool
     events_truncated: bool
-    min_arm_persons: int
+    min_variant_persons: int
     # Reported so a reader can tell a card carrying every recording of its event from one that ran
     # into the ceiling. A count sitting on the cap is a floor, and printed as a plain number beside
     # an event name it reads as a measurement of that event.
@@ -432,17 +428,13 @@ class ExperimentWatchResult:
     # cached across viewers and the duplicate cut runs on the shelf a viewer actually gets.
     dropped_duplicate_cards: int
     too_early: bool
-    # Why there is nothing on the shelf, or None when there is something on it. Settled per viewer
-    # in `finalize_watch_cards`, because a viewer's own recording access decides which cards reach
-    # them, and a shelf that loses its findings on the way out is as empty as one that never had
-    # any.
+    # Settled per viewer in `finalize_watch_cards`: the recording access cut can empty a shelf the
+    # scan built with findings on it.
     empty_reason: Optional[WatchEmptyReason]
 
 
 @dataclass(frozen=True)
 class _Shelf:
-    """The cards a reader gets, and why they get none when they get none."""
-
     cards: list[ExperimentWatchCard]
     empty_reason: Optional[WatchEmptyReason]
 
@@ -484,46 +476,33 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
                 replace(card, recording_count=len(session_ids), session_ids=session_ids, highlights=highlights)
             )
     deduped = _drop_duplicate_recording_sets(cards)
-    # Re-applied here and not only in the scan, because the access cut above can take the last
-    # finding off a shelf the scan built with one. What is left is shortcuts, which is the shelf
-    # this rule exists to suppress, whichever step emptied it.
+    # Run again after the access cut, which can take the last finding off a shelf the scan built
+    # with one.
     shelf = _findings_or_nothing(_assign_highlights(deduped), result.empty_reason)
     return replace(
         result,
         cards=shelf.cards,
-        # Counted only on a shelf the reader gets. The number exists so the shelf-loaded telemetry
-        # can say how often DUPLICATE_CARD_OVERLAP fires on real shelves, and a drop from a shelf
-        # that was then suppressed is not evidence about the threshold.
+        # A drop from a shelf that was then suppressed says nothing about DUPLICATE_CARD_OVERLAP.
         dropped_duplicate_cards=len(cards) - len(deduped) if shelf.cards else 0,
         empty_reason=shelf.empty_reason,
     )
 
 
 def _has_finding(cards: list[ExperimentWatchCard]) -> bool:
-    """Whether any card on the shelf claims the arms differ.
-
-    Behavior, friction and the variant's own rendering all claim it, each on the same evidence bar.
-    A metric shortcut claims nothing, so it is the one kind that cannot hold a shelf up alone.
-    """
+    """A metric shortcut claims nothing about the variants, so it cannot hold a shelf up alone."""
     return any(card.kind != WatchCardKind.METRIC for card in cards)
 
 
 def _findings_or_nothing(cards: list[ExperimentWatchCard], empty_reason: Optional[WatchEmptyReason]) -> _Shelf:
-    """The shelf, unless every card left on it is a metric shortcut, in which case there is none.
+    """The shelf, or nothing when only metric shortcuts are left on it.
 
-    A shortcut offers recordings of an event one of the experiment's own metrics counts, and says
-    nothing about how that metric moved. Beside a finding that is a second useful thing to watch.
-    Alone it fills the shelf with what reads as a result while telling the reader only what the
-    results tab already told them, so the empty state is the more honest answer: it at least says
-    which of the three things happened.
+    Shortcuts alone restate what the results tab already answers while reading as a finding.
     """
     if _has_finding(cards):
         return _Shelf(cards=cards, empty_reason=None)
-    # A reason is already set when the comparison itself produced no finding. It is not when this
-    # viewer's own recording access removed the findings, and that case cannot be named: saying the
-    # shelf lost cards would tell the viewer that recordings denied to them ran through this
-    # experiment, which is the fact the object-level control withholds. "No recordings" is what
-    # they have either way, and the copy behind it names no cause.
+    # No reason is set yet when the viewer's own recording access removed the findings. That case
+    # must not be named: it would tell the viewer that recordings denied to them ran through this
+    # experiment. "No recordings" is what they have either way.
     return _Shelf(cards=[], empty_reason=empty_reason or WatchEmptyReason.NO_RECORDINGS)
 
 
@@ -605,27 +584,26 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         window_start=window_start,
     )
 
-    arms = [
-        ExperimentWatchArm(key=key, persons=scan.persons.get(("", key), 0), sessions=scan.sessions.get(key, 0))
+    variants = [
+        ExperimentWatchVariant(key=key, persons=scan.persons.get(("", key), 0), sessions=scan.sessions.get(key, 0))
         for key in variant_keys
     ]
-    qualified_arms = [arm.key for arm in arms if arm.persons >= MIN_ARM_PERSONS]
-    too_early = len(qualified_arms) < 2
+    compared_variant_keys = [variant.key for variant in variants if variant.persons >= MIN_VARIANT_PERSONS]
+    too_early = len(compared_variant_keys) < 2
 
-    # Too few arms is the default reading of an empty comparison, and the wrong one when the
-    # exposures cannot reach a session: the arms are empty for a reason waiting will not change.
+    # Empty variants read as too early, unless the exposures can never reach a session.
     no_comparison_reason = (
         WatchEmptyReason.NO_SESSION_LINKED_EXPOSURES if scan.exposures_without_session else WatchEmptyReason.TOO_EARLY
     )
     shelf = (
         _Shelf(cards=[], empty_reason=no_comparison_reason)
         if too_early
-        else _build_shelf(setup, scan=scan, metrics=metrics, arm_keys=qualified_arms)
+        else _build_shelf(setup, scan=scan, metrics=metrics, compared_variant_keys=compared_variant_keys)
     )
 
     result = ExperimentWatchResult(
         cards=shelf.cards,
-        arms=arms,
+        variants=variants,
         multiple_variant_persons=scan.persons.get(("", MULTIPLE_VARIANT_KEY), 0),
         multiple_variant_handling=multiple_variant_handling.value,
         # Reported without the ones already left out for describing a mechanism: a reader pointed
@@ -638,7 +616,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         used_exposure_fallback=exposure.used_fallback,
         sessions_truncated=scan.sessions_truncated,
         events_truncated=scan.events_truncated,
-        min_arm_persons=MIN_ARM_PERSONS,
+        min_variant_persons=MIN_VARIANT_PERSONS,
         max_card_recordings=MAX_CARD_RECORDINGS,
         # Settled per viewer in `finalize_watch_cards`; the cached shelf carries a placeholder.
         dropped_duplicate_cards=0,
@@ -651,8 +629,8 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
 
 @dataclass(frozen=True)
 class SessionEventDeltaScan:
-    """What the scan returned: per (event name, variant) the number of that arm's exposed people
-    who did it in their first covered session, plus each arm's own totals under the empty event
+    """What the scan returned: per (event name, variant) the number of that variant's exposed people
+    who did it in their first covered session, plus each variant's own totals under the empty event
     name."""
 
     persons: dict[tuple[str, str], int]
@@ -663,9 +641,8 @@ class SessionEventDeltaScan:
     # session ceiling bit. Carried here rather than recomputed by the caller: it is a property of
     # the scan, and reporting the requested window instead would claim coverage that never happened.
     covered_from: datetime
-    # True when exposures landed in the window and not one of them carried a session, so this
-    # experiment can never fill a shelf however long it runs. Only ever asked when the scan covered
-    # no sessions at all; on any populated scan the question is moot and stays False.
+    # True when exposures landed in the window and none carried a session. Only asked when the
+    # scan covered no sessions; False on any populated scan.
     exposures_without_session: bool
 
 
@@ -685,19 +662,16 @@ class _QuerySetup:
 
     def exposure_condition(self) -> ast.Expr:
         # Every defined variant, not only the ones being compared: the multi-variant check has to
-        # see a person who also saw a third arm, or that person reads as single-variant and is
-        # attributed to an arm they only half belong to.
+        # see a person who also saw a third variant, or that person reads as single-variant and is
+        # attributed to a variant they only half belong to.
         return self.exposure.condition(self.variant_keys)
 
     def variant_value(self) -> ast.Expr:
         return self.exposure.variant_value()
 
     def window_conditions(self, start: datetime, *, require_session: bool = True) -> list[ast.Expr]:
-        """The window every query in this family reads over.
-
-        `require_session` is dropped only by the probe that asks whether exposures landed at all:
-        every other use site compares sessions, and an event with no session cannot be one.
-        """
+        """The window every query in this family reads over. Only the exposure probe drops the
+        session predicate; every other query compares sessions."""
         session_conditions = (
             [
                 ast.CompareOperation(
@@ -785,7 +759,7 @@ def _cache_key(
             int(window_end.timestamp()) // DELTA_CACHE_TTL,
             # The experiment's metrics decide which cards carry a metric label and which events
             # get shortcut cards, its exposure criteria decide who is compared and how someone who
-            # saw two variants is split, and the flag's variants decide the arms. All of them are
+            # saw two variants is split, and the flag's variants decide what is compared. All of them are
             # editable while an entry is warm, and none can be re-applied on read, so an edit has
             # to miss the cache rather than be served the answer to the previous configuration.
             experiment.updated_at.isoformat(),
@@ -818,7 +792,7 @@ def _cache_key(
     # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
     # on the heaviest read in this family is the difference between paying it once per team per
     # TTL and once per viewer.
-    return f"experiment_session_event_deltas_v10_{team.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_event_deltas_v11_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -869,10 +843,10 @@ def _query_event_deltas(
     oldest_covered: datetime = coverage[0][0]
     covered_from = max(window_start, oldest_covered - timedelta(hours=MAX_SESSION_DURATION_HOURS))
 
-    # One row per (person, exposed session): when it began, which arm its exposures carried, and
+    # One row per (person, exposed session): when it began, which variant its exposures carried, and
     # which event names it contains. The uncomparable names are dropped here rather than in the
     # WHERE so a session whose only events are exposures still produces a row and its person still
-    # counts toward their arm's total.
+    # counts toward their variant's total.
     session_rows = ast.SelectQuery(
         select=[
             ast.Field(chain=["person_id"]),
@@ -957,7 +931,7 @@ def _query_event_deltas(
             args=[
                 ast.Or(
                     exprs=[
-                        # Two arms across their sessions, or two inside one of them. The second is
+                        # Two variants across their sessions, or two inside one of them. The second is
                         # not implied by the first: a session carrying both exposures can still be
                         # the person's only one.
                         ast.CompareOperation(
@@ -977,8 +951,8 @@ def _query_event_deltas(
             ],
         )
 
-    # One row per exposed person: which arm they saw, how many sessions of theirs the comparison
-    # covers, and what they did in the first of them. Only the first, because the arms don't
+    # One row per exposed person: which variant they saw, how many sessions of theirs the comparison
+    # covers, and what they did in the first of them. Only the first, because the variants don't
     # necessarily get the same number of sessions per person — a variant that stops re-evaluating
     # the flag once someone has acted contributes fewer later sessions, and a person seen in seven
     # sessions has seven times the chance to have done anything than one seen in two. Measured on a
@@ -1009,7 +983,7 @@ def _query_event_deltas(
         group_by=[ast.Field(chain=["person_id"])],
     )
 
-    # The empty event name is the arm's own totals. They ride the same aggregation so the
+    # The empty event name is the variant's own totals. They ride the same aggregation so the
     # denominator can never be computed over a different set than the numerators — and `notEmpty`
     # above guarantees no real event name collides with it.
     query = ast.SelectQuery(
@@ -1031,11 +1005,11 @@ def _query_event_deltas(
             ast.Alias(alias="sessions", expr=ast.Call(name="sum", args=[ast.Field(chain=["session_count"])])),
         ],
         select_from=ast.JoinExpr(table=person_rows),
-        # Every arm, not only the qualifying ones: the totals are what decide which arms qualify at
-        # all, and on a three-arm experiment a total over two arms could never reach the ceiling.
+        # Every variant, not only the qualifying ones: the totals are what decide which variants qualify at
+        # all, and on a three-variant experiment a total over two variants could never reach the ceiling.
         group_by=[ast.Field(chain=["event_name"]), ast.Field(chain=["variant"])],
-        # By name, not by count: every arm's rows for one event stay adjacent, so hitting the
-        # ceiling drops whole events instead of leaving an event with one arm's count and a silent
+        # By name, not by count: every variant's rows for one event stay adjacent, so hitting the
+        # ceiling drops whole events instead of leaving an event with one variant's count and a silent
         # zero for the others.
         order_by=[
             ast.OrderExpr(expr=ast.Field(chain=["event_name"]), order="ASC"),
@@ -1048,7 +1022,7 @@ def _query_event_deltas(
     rows = [(str(row[0]), str(row[1]), int(row[2]), int(row[3])) for row in setup.run(query)]
     events_truncated = len(rows) > MAX_DELTA_EVENT_ROWS
     if events_truncated:
-        # The ceiling can land between an event's arm rows, which would read as one arm never
+        # The ceiling can land between an event's variant rows, which would read as one variant never
         # having done it. Dropping the last event name is exact rather than nearly right.
         last_event = rows[-1][0]
         rows = [row for row in rows if row[0] != last_event]
@@ -1065,24 +1039,15 @@ def _query_event_deltas(
 
 
 def _exposures_without_session(setup: _QuerySetup, *, window_start: datetime) -> bool:
-    """Whether exposures landed in the window without one of them carrying a session.
+    """Whether exposures landed in the window without a session.
 
-    Asked only once the coverage query has come back empty, which is the one moment it changes an
-    answer: it separates an experiment nobody has been exposed to yet from one whose exposures are
-    captured where there is no session to record. The first is worth waiting for and the second
-    never resolves, so reporting both as "too early" tells most of these readers to wait for
-    something that is not coming.
+    Asked only after the coverage query found no session. It separates "nobody exposed yet", which
+    is worth waiting for, from "exposures captured where there is no session to record", which
+    never resolves. Same window and test-account filter as the scan, minus the session predicate,
+    and LIMIT 1 because one row settles it.
 
-    The same window and test-account filter as the scan, minus the session predicate, so the only
-    difference between finding nothing here and finding nothing there is the session itself. It
-    stops at the first row rather than counting, because one exposure settles the question.
-
-    Skipped under the exposure fallback, and not merely to save the read. That path compares a
-    different population — client events carrying the stamped flag property, rather than the
-    exposure event — so exposures landing server-side there says nothing about whether that
-    population fills in later. A flag enrolled server-side but read in the browser accumulates
-    stamped client events over time, and telling that reader nothing can ever reach a session
-    would be wrong exactly where "check back later" is right.
+    Skipped under the exposure fallback: that path compares client events carrying the stamped
+    flag property, which fill in over time however the exposure itself was captured.
     """
     if setup.exposure.used_fallback:
         return False
@@ -1104,19 +1069,21 @@ def _exposures_without_session(setup: _QuerySetup, *, window_start: datetime) ->
 
 
 def _build_shelf(
-    setup: _QuerySetup, *, scan: SessionEventDeltaScan, metrics: list[MetricEventSource], arm_keys: list[str]
+    setup: _QuerySetup,
+    *,
+    scan: SessionEventDeltaScan,
+    metrics: list[MetricEventSource],
+    compared_variant_keys: list[str],
 ) -> _Shelf:
     """The cards this comparison earned, or the reason it earned none.
 
-    Nothing is looked up once the ranking finds no candidate: the only cards left to build would be
-    metric shortcuts, and a shelf of nothing but shortcuts is not shown, so the recordings behind
-    them are never needed. That is the common empty shelf, and this is what keeps it from paying
-    for the follow-up reads.
+    Returns before the recordings lookups when the ranking finds no candidate: only shortcuts
+    would be left, and a shortcut-only shelf is not shown.
     """
     named_metric_events, nodes_by_metric_event = _metric_events_by_name(metrics, setup.experiment)
     comparison_candidates = _pick_behavior_cards(
         scan,
-        arm_keys=arm_keys,
+        compared_variant_keys=compared_variant_keys,
         metric_names_by_event={named.event: named.metric_name for named in named_metric_events},
     )
     if not comparison_candidates:
@@ -1124,7 +1091,7 @@ def _build_shelf(
 
     metric_cards = _metric_card_candidates(
         named_metric_events,
-        arm_keys=arm_keys,
+        compared_variant_keys=compared_variant_keys,
         never_linked=setup.exposure.never_linked,
         # An event that already won a comparison card is not offered a second time as a shortcut to
         # the same recordings, which on a two-metric experiment would be half the shelf restating
@@ -1142,22 +1109,21 @@ def _build_shelf(
     )
     comparison_cards = [card for card in resolved if card.kind != WatchCardKind.METRIC]
     if not _has_finding(resolved):
-        # Every finding died on the replay existence check, so whatever shortcuts survived are the
-        # whole shelf and the shelf is not shown. Returning here also skips the shortcut recovery
-        # below, whose only purpose is to fill slots beside a finding.
+        # Every finding died on the replay existence check; the surviving shortcuts alone are not
+        # shown, so the shortcut recovery below has nothing to fill.
         return _Shelf(cards=[], empty_reason=WatchEmptyReason.NO_RECORDINGS)
     shortcut_by_pair = {(card.event, card.variant): card for card in resolved if card.kind == WatchCardKind.METRIC}
 
     # The shortcut selection is decided again now that survival is known: a comparison candidate
     # that died on the replay existence check must not keep suppressing its event's shortcuts, or
-    # an event the experiment measures vanishes from the shelf just because the one arm that earned
+    # an event the experiment measures vanishes from the shelf just because the one variant that earned
     # its comparison card had nothing recorded. Re-running the selection, rather than appending a
     # recovery batch, keeps the shelf inside MAX_METRIC_CARD_EVENTS and keeps a recovered event at
     # its display-order position instead of after lower-ranked ones, which can also displace a
     # lower-ranked event's already-resolved shortcut cards.
     final_shortcuts = _metric_card_candidates(
         named_metric_events,
-        arm_keys=arm_keys,
+        compared_variant_keys=compared_variant_keys,
         never_linked=setup.exposure.never_linked,
         carded_events={card.event for card in comparison_cards},
     )
@@ -1192,7 +1158,7 @@ def _separation(
     """The smoothed ratio of the two populations' rates, and how much of it survives the noise.
 
     The second number is the conservative end of the ratio in log space: the difference minus the
-    uncertainty in it, so an event two people did more of in one arm cannot outrank one hundreds
+    uncertainty in it, so an event two people did more of in one variant cannot outrank one hundreds
     did, however lopsided the raw ratio looks. Zero means the populations are indistinguishable on
     it.
     """
@@ -1235,10 +1201,10 @@ def _card_kind(
     single most useful thing this surface can find, and routing it to the variant's-own-rendering
     shelf on the strength of the same evidence would bury it.
 
-    Everything else turns on how much of the event the other arms are missing rather than on the
+    Everything else turns on how much of the event the other variants are missing rather than on the
     ratio. A ratio alone can't tell "almost nobody else did it" from "nobody else could": both look
     enormous, and the second is the variant rendering something the others never had. Comparing the
-    other arms' occurrences against the number this arm's rate predicts for them separates the two,
+    other variants' occurrences against the number this variant's rate predicts for them separates the two,
     and it needs the prediction to be large before an absence means anything at all.
     """
     if event_name in FRICTION_EVENTS:
@@ -1253,38 +1219,38 @@ def _card_kind(
 
 
 def _pick_behavior_cards(
-    scan: SessionEventDeltaScan, *, arm_keys: list[str], metric_names_by_event: dict[str, str]
+    scan: SessionEventDeltaScan, *, compared_variant_keys: list[str], metric_names_by_event: dict[str, str]
 ) -> list[ExperimentWatchCard]:
-    """The events one arm did clearly more than the other arms pooled, strongest first.
+    """The events one variant did clearly more than the other variants pooled, strongest first.
 
-    One card per event at most, on the arm where it is most over-represented — an event five arms
-    share is nobody's finding, and an event one arm lacks shows up as the other arms' card. Pooling
-    the rest is what makes a five-arm experiment cost the same ranking as two; on two arms it *is*
+    One card per event at most, on the variant where it is most over-represented — an event five variants
+    share is nobody's finding, and an event one variant lacks shows up as the other variants' card. Pooling
+    the rest is what makes a five-variant experiment cost the same ranking as two; on two variants it *is*
     the pairwise comparison.
     """
-    arm_persons = {key: scan.persons.get(("", key), 0) for key in arm_keys}
-    total_persons = sum(arm_persons.values())
+    variant_persons = {key: scan.persons.get(("", key), 0) for key in compared_variant_keys}
+    total_persons = sum(variant_persons.values())
     event_names = {event_name for event_name, _variant in scan.persons if event_name != ""}
 
     picked: list[tuple[float, ExperimentWatchCard]] = []
     for event_name in sorted(event_names):
-        counts = {key: scan.persons.get((event_name, key), 0) for key in arm_keys}
+        counts = {key: scan.persons.get((event_name, key), 0) for key in compared_variant_keys}
         total_count = sum(counts.values())
         best: Optional[tuple[float, ExperimentWatchCard]] = None
-        for key in arm_keys:
-            rest_persons = total_persons - arm_persons[key]
+        for key in compared_variant_keys:
+            rest_persons = total_persons - variant_persons[key]
             rest_count = total_count - counts[key]
             if counts[key] < MIN_SUPPORT_PERSONS or not rest_persons:
                 continue
-            # Only where the arm over-indexes: the card's recordings live on the arm that did the
-            # event, and under-indexing is the same fact seen from the other arms' cards.
-            if counts[key] * rest_persons <= rest_count * arm_persons[key]:
+            # Only where the variant over-indexes: the card's recordings live on the variant that did the
+            # event, and under-indexing is the same fact seen from the other variants' cards.
+            if counts[key] * rest_persons <= rest_count * variant_persons[key]:
                 continue
             _ratio, separation = _separation(
                 baseline_count=rest_count,
                 target_count=counts[key],
                 baseline_persons=rest_persons,
-                target_persons=arm_persons[key],
+                target_persons=variant_persons[key],
             )
             if separation < MIN_LOG_RATIO_LOWER_BOUND:
                 continue
@@ -1293,7 +1259,7 @@ def _pick_behavior_cards(
                 kind=_card_kind(
                     event_name=event_name,
                     target_count=counts[key],
-                    target_persons=arm_persons[key],
+                    target_persons=variant_persons[key],
                     baseline_count=rest_count,
                     baseline_persons=rest_persons,
                 ),
@@ -1338,8 +1304,8 @@ def _shares_recordings(session_ids: set[str], other: set[str]) -> bool:
 def _drop_duplicate_recording_sets(cards: list[ExperimentWatchCard]) -> list[ExperimentWatchCard]:
     """The shelf with every card that only restates a higher-ranked card's recordings taken out.
 
-    Two events an arm's people do together are ranked as two findings, because the comparison reads
-    one event name at a time and both separate the arms. The reader gets one playlist twice, and on
+    Two events a variant's people do together are ranked as two findings, because the comparison reads
+    one event name at a time and both separate the variants. The reader gets one playlist twice, and on
     a redesign experiment, where a whole flow's events move together, that is most of the shelf.
 
     Compared within a shelf and never across them. An event a variant renders itself always
@@ -1430,14 +1396,14 @@ def _metric_events_by_name(
 def _metric_card_candidates(
     named_metric_events: list[_MetricEvent],
     *,
-    arm_keys: list[str],
+    compared_variant_keys: list[str],
     never_linked: frozenset[str],
     carded_events: set[str],
 ) -> list[ExperimentWatchCard]:
-    """Shortcut cards to recordings around the experiment's own metric events, one per arm.
+    """Shortcut cards to recordings around the experiment's own metric events, one per variant.
 
     No strength and no comparison claim: what happened to the metric is the results tab's answer.
-    These cards only say "here is the metric's event happening on screen, in this arm". Events that
+    These cards only say "here is the metric's event happening on screen, in this variant". Events that
     have only ever been captured server-side can't back a recording and are skipped outright.
     """
     kept = [
@@ -1447,7 +1413,7 @@ def _metric_card_candidates(
         ExperimentWatchCard(
             kind=WatchCardKind.METRIC,
             event=named.event,
-            variant=arm_key,
+            variant=variant_key,
             strength=None,
             metric_name=named.metric_name,
             recording_count=0,
@@ -1455,7 +1421,7 @@ def _metric_card_candidates(
             highlights=[],
         )
         for named in kept
-        for arm_key in arm_keys
+        for variant_key in compared_variant_keys
     ]
 
 
@@ -1508,7 +1474,7 @@ def _recordings_for_cards(
     covered_from: datetime,
     metric_nodes: Optional[dict[str, list[EventsNode]]] = None,
 ) -> dict[tuple[str, str], _CardRecordings]:
-    """Recent recorded sessions per (event, arm) pair, most recent first, and which of them to open
+    """Recent recorded sessions per (event, variant) pair, most recent first, and which of them to open
     first.
 
     Unlike the scan this prunes on event names, so it reads a sliver of the window. Every candidate
@@ -1516,8 +1482,8 @@ def _recordings_for_cards(
     replay sampling, retention and deletion mean most exposed sessions have nothing to play, and a
     card is only as good as the recordings behind it.
     """
-    wanted_events = sorted({event for event, _arm in wanted})
-    wanted_arms = sorted({arm for _event, arm in wanted})
+    wanted_events = sorted({event for event, _variant in wanted})
+    wanted_variants = sorted({variant for _event, variant in wanted})
     # A metric card's event counts only where the metric's own property filters hold: the card
     # carries the metric's name, so a recording of the event happening outside the metric would be
     # mislabeled. An unfiltered source subsumes any filtered one on the same event, so an event
@@ -1662,11 +1628,11 @@ def _recordings_for_cards(
         # A session that saw more than one variant belongs to no card. The check is per session
         # here while the scan makes it per person across all of theirs, so under `exclude` a card
         # can carry a recording from someone the comparison itself set aside, and under
-        # `first_seen` one from a session the scan counted toward another arm. Same split as the
+        # `first_seen` one from a session the scan counted toward another variant. Same split as the
         # module docstring's: the comparison needs a fair population, the watchlist needs the
         # behavior on screen.
         where=ast.CompareOperation(
-            op=ast.CompareOperationOp.In, left=ast.Field(chain=["variant"]), right=ast.Constant(value=wanted_arms)
+            op=ast.CompareOperationOp.In, left=ast.Field(chain=["variant"]), right=ast.Constant(value=wanted_variants)
         ),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["last_seen"]), order="DESC")],
         limit_by=ast.LimitByExpr(
@@ -1674,16 +1640,16 @@ def _recordings_for_cards(
             exprs=[ast.Field(chain=["event_name"]), ast.Field(chain=["variant"])],
         ),
         # Sized on what LIMIT BY can emit, not on the cards asked for. The arrayJoin produces every
-        # (wanted event, wanted arm) pair that occurs, which is more pairs than there are cards —
-        # a carded event also happens in the arms that didn't earn a card. LIMIT runs after LIMIT BY
+        # (wanted event, wanted variant) pair that occurs, which is more pairs than there are cards —
+        # a carded event also happens in the variants that didn't earn a card. LIMIT runs after LIMIT BY
         # and cuts by recency across all of them, so a limit sized on the cards would drop a card's
         # older recordings in favor of rows belonging to a pair nobody asked about, and the card
         # would then be dropped as unbacked.
-        limit=ast.Constant(value=MAX_CARD_RECORDING_CANDIDATES * max(len(wanted_events) * len(wanted_arms), 1)),
+        limit=ast.Constant(value=MAX_CARD_RECORDING_CANDIDATES * max(len(wanted_events) * len(wanted_variants), 1)),
     )
 
-    # The query emits every (wanted event, wanted arm) pair that occurs — a carded event also
-    # happens in arms that earned no card — but only the pairs a card actually asked for go on to
+    # The query emits every (wanted event, wanted variant) pair that occurs — a carded event also
+    # happens in variants that earned no card — but only the pairs a card actually asked for go on to
     # the replay existence check, which pays per id.
     wanted_pairs = set(wanted)
     repetition_index = {event: index for index, event in enumerate(wanted_events)}
