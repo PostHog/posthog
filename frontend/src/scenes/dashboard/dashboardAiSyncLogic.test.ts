@@ -1,9 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 
 import {
     DASHBOARD_AI_HIGHLIGHT_MS,
@@ -17,6 +21,8 @@ import { dashboardResult } from './dashboardLogic.testHelpers'
 
 describe('dashboardAiSyncLogic', () => {
     let logic: ReturnType<typeof dashboardAiSyncLogic.build>
+    let subscriptionsListSpy: jest.SpyInstance
+    let alertsListSpy: jest.SpyInstance
 
     const baselineTiles: DashboardTileIdentity[] = [
         { tileId: 10, insightId: 42, insightShortId: 'abc123' },
@@ -31,12 +37,16 @@ describe('dashboardAiSyncLogic', () => {
             },
         })
         initKeaTests()
+        subscriptionsListSpy = jest.spyOn(api.subscriptions, 'list').mockResolvedValue({ results: [], count: 0 })
+        alertsListSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
         logic = dashboardAiSyncLogic({ dashboardId: 5 })
         logic.mount()
     })
 
     afterEach(() => {
         logic.unmount()
+        subscriptionsListSpy.mockRestore()
+        alertsListSpy.mockRestore()
         jest.useRealTimers()
     })
 
@@ -98,8 +108,10 @@ describe('dashboardAiSyncLogic', () => {
     })
 
     it('merges queued candidates while retaining the first baseline', () => {
+        const laterSnapshot: DashboardTileIdentity[] = [{ tileId: 99, insightId: 42, insightShortId: 'abc123' }]
+
         logic.actions.agentToolCompleted('dashboard-delete-tile', { id: 5, tile_id: 10 }, baselineTiles)
-        logic.actions.agentToolCompleted('insight-update', { id: 42 }, baselineTiles)
+        logic.actions.agentToolCompleted('insight-update', { id: 42 }, laterSnapshot)
 
         expect(logic.values.pendingChange).toEqual({
             baselineTileIds: [10, 11],
@@ -118,15 +130,27 @@ describe('dashboardAiSyncLogic', () => {
     })
 
     it('does not reload the open dashboard for an unrelated tool call', () => {
-        logic.actions.agentToolCompleted('dashboard-update', { id: 8 }, baselineTiles)
+        expectLogic().clearHistory()
+
+        expectLogic(logic, () => {
+            logic.actions.agentToolCompleted('dashboard-update', { id: 8 }, baselineTiles)
+        }).toNotHaveDispatchedActions(['loadDashboard'])
 
         expect(logic.values.pendingChange).toBeNull()
     })
 
     it('does nothing when subscription and alert views are not mounted', () => {
-        logic.actions.agentToolCompleted('subscriptions-create', { dashboard: 5 }, baselineTiles)
-        logic.actions.agentToolCompleted('alert-create', { insight: 42 }, baselineTiles)
+        expectLogic().clearHistory()
+
+        expectLogic(logic, () => {
+            logic.actions.agentToolCompleted('subscriptions-create', { dashboard: 5 }, baselineTiles)
+            logic.actions.agentToolCompleted('alert-create', { insight: 42 }, baselineTiles)
+        }).toNotHaveDispatchedActions(['loadDashboard'])
 
         expect(logic.values.pendingChange).toBeNull()
+        expect(subscriptionsLogic.isMounted({ dashboardId: 5 })).toBe(false)
+        expect(insightAlertsLogic.findAllMounted()).toHaveLength(0)
+        expect(subscriptionsListSpy).not.toHaveBeenCalled()
+        expect(alertsListSpy).not.toHaveBeenCalled()
     })
 })
