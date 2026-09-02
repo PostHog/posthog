@@ -70,7 +70,8 @@ def test_renders_session_recording_nullability() -> None:
     ):
         assert f"`{column}` | " in rendered
         assert (
-            next(line for line in rendered.splitlines() if line.startswith(f"`{column}` | ")).split(" | ")[2] == "NOT NULL"
+            next(line for line in rendered.splitlines() if line.startswith(f"`{column}` | ")).split(" | ")[2]
+            == "NOT NULL"
         )
 
 
