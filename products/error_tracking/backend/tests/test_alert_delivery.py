@@ -279,11 +279,14 @@ class TestSlackThreadDelivery(AlertTestMixin):
 
     @parameterized.expand(
         [
-            ("own_retry", "notif-1", timedelta(seconds=0)),
-            ("stale_holder", "notif-dead", PENDING_CLAIM_TTL + timedelta(seconds=1)),
+            ("own_live_claim", "notif-1", timedelta(seconds=0), False),
+            ("other_live_claim", "notif-other", timedelta(seconds=0), False),
+            ("stale_claim", "notif-dead", PENDING_CLAIM_TTL + timedelta(seconds=1), True),
         ]
     )
-    def test_claim_is_reusable_by_its_holder_or_after_it_goes_stale(self, _name, holder, age):
+    def test_live_claims_block_everyone_until_stale(self, _name, holder, age, proceeds):
+        # Even this notification's own retry waits: a timed-out attempt may still be
+        # mid-post when Temporal starts the retry.
         client = self._mock_slack()
         alert = self._create_alert(triggers=["issue_created"])
         thread = self._thread(alert, rooted=False)
@@ -291,12 +294,18 @@ class TestSlackThreadDelivery(AlertTestMixin):
         thread.pending_claimed_at = timezone.now() - age
         thread.save()
 
-        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
-
-        client.chat_postMessage.assert_called_once()
-        thread.refresh_from_db()
-        assert thread.pending_notification_id is None
-        assert thread.delivered_notification_ids == ["notif-1"]
+        if proceeds:
+            assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+            client.chat_postMessage.assert_called_once()
+            thread.refresh_from_db()
+            assert thread.pending_notification_id is None
+            assert thread.delivered_notification_ids == ["notif-1"]
+        else:
+            with self.assertRaises(AlertDeliveryError):
+                deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+            client.chat_postMessage.assert_not_called()
+            thread.refresh_from_db()
+            assert thread.pending_notification_id == holder
 
     def test_superseded_holder_does_not_overwrite_the_successor(self):
         # A holder that stalls past the TTL loses the claim; when it resumes and
