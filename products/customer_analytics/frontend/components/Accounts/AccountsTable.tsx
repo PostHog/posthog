@@ -886,7 +886,7 @@ export function AccountsTable(): JSX.Element {
     const { responseLoading, response } = useValues(
         dataNodeLogic({
             key: ACCOUNTS_TABLE_DATA_NODE_KEY,
-            query: accountsQuerySource ?? accountsDataTableQuery.source,
+            query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
     const { featureFlags } = useValues(featureFlagLogic)

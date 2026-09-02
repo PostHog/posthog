@@ -13,7 +13,7 @@ import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'pro
 import {
     type LegacyDesktopAccessResponseApi,
     type ModelChoiceApi,
-    OriginProductEnumApi,
+    TaskOriginProductEnumApi,
     ReasoningEffortEnumApi,
     type TaskWriteApi,
     TaskExecutionModeEnumApi,
@@ -166,6 +166,7 @@ export interface taskTrackerSceneLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -225,6 +226,7 @@ export interface taskTrackerSceneLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -660,7 +662,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 const taskData: TaskWriteApi = {
                     title: '',
                     description,
-                    origin_product: OriginProductEnumApi.PosthogAi,
+                    origin_product: TaskOriginProductEnumApi.PosthogAi,
                     // PostHog AI can run without a repo; null means the task is not scoped to any repository.
                     repository: repositoryConfig.repository ?? null,
                     github_integration: repositoryConfig.integrationId ?? null,

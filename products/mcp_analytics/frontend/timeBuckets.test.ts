@@ -12,6 +12,14 @@ import {
 } from './timeBuckets'
 
 describe('timeBuckets', () => {
+    beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     describe('normalizeBucket', () => {
         // Guards the flat-zero-sparkline bug: however the query serializes the bucket, its
         // wall-clock digits must survive verbatim, even when the browser sits in a different

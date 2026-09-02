@@ -5,7 +5,8 @@ use personhog_common::client::RouterClient;
 use personhog_proto::personhog::{
     identity::v1::{
         person_hog_identity_client::PersonHogIdentityClient, GetOrCreatePersonEntry,
-        GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
+        GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest, MergePersonsRequest,
+        MergePersonsResponse, MergeSource,
     },
     lifecycle::v1::{
         person_hog_lifecycle_client::PersonHogLifecycleClient, DeletePersonOutcome,
@@ -154,6 +155,46 @@ impl IdentityClient {
             .await
             .context("GetOrCreatePersonsByDistinctIds failed")?;
         Ok(resp.into_inner().results)
+    }
+
+    /// Merge `source_distinct_ids` into the person that
+    /// `target_distinct_id` resolves to. A retry with the same op id
+    /// returns the recorded outcome and does not merge again.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn merge_persons(
+        &self,
+        team_id: i64,
+        target_distinct_id: &str,
+        source_distinct_ids: &[String],
+        event_set: serde_json::Value,
+        event_set_once: serde_json::Value,
+        op_id: &uuid::Uuid,
+        allow_identified_sources: bool,
+        move_limit: i64,
+    ) -> Result<MergePersonsResponse> {
+        let resp = self
+            .inner
+            .clone()
+            .merge_persons(Request::new(MergePersonsRequest {
+                team_id,
+                target_distinct_id: target_distinct_id.to_string(),
+                sources: source_distinct_ids
+                    .iter()
+                    .map(|did| MergeSource {
+                        source_distinct_id: did.clone(),
+                        event_uuid: uuid::Uuid::new_v4().to_string(),
+                    })
+                    .collect(),
+                event_set: serde_json::to_vec(&event_set)?,
+                event_set_once: serde_json::to_vec(&event_set_once)?,
+                op_id: op_id.to_string(),
+                allow_identified_sources,
+                move_limit: Some(move_limit),
+                created_at: 0,
+            }))
+            .await
+            .context("MergePersons failed")?;
+        Ok(resp.into_inner())
     }
 }
 
