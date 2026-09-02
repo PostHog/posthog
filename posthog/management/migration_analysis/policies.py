@@ -120,6 +120,7 @@ class AtomicFalsePolicy(MigrationPolicy):
         # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently",
         "DropIndexConcurrently",
+        "DropReindexLeftovers",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",
     }
@@ -303,6 +304,7 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
     POSTHOG_SAFE_HELPER_OPS = {
         "CreateIndexConcurrently",
         "DropIndexConcurrently",
+        "DropReindexLeftovers",
         "SafeAddIndexConcurrently",
         "SafeRemoveIndexConcurrently",
     }

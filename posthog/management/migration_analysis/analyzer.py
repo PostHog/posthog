@@ -15,6 +15,7 @@ from posthog.management.migration_analysis.operations import (
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
     DropIndexConcurrentlyAnalyzer,
+    DropReindexLeftoversAnalyzer,
     RemoveFieldAnalyzer,
     RemoveIndexAnalyzer,
     RemoveIndexConcurrentlyAnalyzer,
@@ -64,6 +65,7 @@ class RiskAnalyzer:
         # PostHog migration helpers (posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently": CreateIndexConcurrentlyAnalyzer(),
         "DropIndexConcurrently": DropIndexConcurrentlyAnalyzer(),
+        "DropReindexLeftovers": DropReindexLeftoversAnalyzer(),
         "SafeAddIndexConcurrently": SafeAddIndexConcurrentlyAnalyzer(),
         "SafeRemoveIndexConcurrently": SafeRemoveIndexConcurrentlyAnalyzer(),
         "AddConstraintNotValid": AddConstraintNotValidAnalyzer(),
