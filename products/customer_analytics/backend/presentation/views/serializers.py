@@ -1005,10 +1005,15 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
     )
+    last_login = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the member last signed in, or null if they have never signed in.",
+    )
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user", "level"]
+        fields = ["id", "user", "level", "last_login"]
         read_only_fields = ["id", "user", "level"]
         extra_kwargs = {
             "id": {"help_text": "Organization membership ID."},

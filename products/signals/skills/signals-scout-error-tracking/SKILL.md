@@ -1,9 +1,8 @@
 ---
 name: signals-scout-error-tracking
 description: >
-  Signals scout for PostHog error tracking. Watches `$exception` bursts, stuck loops,
-  multi-fingerprint clusters, and status regressions, and files each validated issue as a
-  report in the inbox.
+  Signals scout for PostHog error tracking. Watches `$exception` bursts, stuck loops, multi-
+  fingerprint clusters, and status regressions.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the error-tracking tools in

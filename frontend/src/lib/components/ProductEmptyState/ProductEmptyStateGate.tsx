@@ -57,10 +57,14 @@ export interface ProductEmptyStateGateProps {
  */
 export function ProductEmptyStateGate({ emptyState, children }: ProductEmptyStateGateProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { activeSceneId } = useValues(sceneLogic)
 
-    // When the empty state is flag-gated, stay a strict no-op while the flag is off —
-    // don't even mount detection (the inner component is what mounts it).
+    // When the empty state is flag-gated or scoped to specific scenes, stay a strict
+    // no-op otherwise — don't even mount detection (the inner component mounts it).
     if (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) {
+        return <>{children}</>
+    }
+    if (emptyState.scenes && (!activeSceneId || !emptyState.scenes.includes(activeSceneId))) {
         return <>{children}</>
     }
     return <ProductEmptyStateGateInner emptyState={emptyState}>{children}</ProductEmptyStateGateInner>

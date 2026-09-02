@@ -65,6 +65,61 @@ function claudeModelOption(
   } as unknown as SessionConfigOption;
 }
 
+function mixedModelOption(currentValue = "claude-opus-5"): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue,
+    options: [
+      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "GLM 5.2", value: "@cf/zai-org/glm-5.2" },
+    ],
+  } as unknown as SessionConfigOption;
+}
+
+function groupedModelOption(
+  currentValue = "claude-sonnet-5",
+): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue,
+    options: [
+      {
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          {
+            name: "Claude Sonnet 5",
+            value: "claude-sonnet-5",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+          {
+            name: "Claude Opus 5",
+            value: "claude-opus-5",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      },
+      {
+        group: "openai",
+        name: "OpenAI",
+        options: [
+          {
+            name: "GPT-5.6 Sol",
+            value: "gpt-5.6-sol",
+            _meta: { "posthog.code/modelHarness": "codex" },
+          },
+        ],
+      },
+    ],
+  } as unknown as SessionConfigOption;
+}
+
 function effortlessModelOption(): SessionConfigOption {
   return {
     type: "select",
@@ -106,8 +161,11 @@ function fastOption(currentValue = "off"): SessionConfigOption {
   } as unknown as SessionConfigOption;
 }
 
-async function openAdvanced(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Reasoning: High" }));
+async function openAdvanced(
+  user: ReturnType<typeof userEvent.setup>,
+  triggerName: string | RegExp = "Reasoning: High",
+) {
+  await user.click(screen.getByRole("button", { name: triggerName }));
   await user.click(await screen.findByRole("button", { name: "Advanced" }));
 }
 
@@ -469,6 +527,46 @@ describe("ReasoningLevelSelector", () => {
     ).toBeInTheDocument();
   });
 
+  it("switches the harness when picking a model the current harness cannot run", async () => {
+    const onModelChange = vi.fn();
+    const onHarnessModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={groupedModelOption("claude-sonnet-5")}
+          adapter="claude"
+          onAdapterChange={() => {}}
+          onModelChange={onModelChange}
+          onHarnessModelChange={onHarnessModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    // The Harness row stays as the visible, overridable result of the pick.
+    expect(
+      screen.getByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "GPT-5.6 Sol" }),
+    );
+
+    expect(onHarnessModelChange).toHaveBeenCalledWith("codex", "gpt-5.6-sol");
+    expect(onModelChange).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+    );
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onHarnessModelChange).toHaveBeenCalledTimes(1);
+  });
+
   it("moves the model and effort together on a ladder notch that changes both", async () => {
     const onChange = vi.fn();
     const onModelChange = vi.fn();
@@ -637,4 +735,57 @@ describe("ReasoningLevelSelector", () => {
       await screen.findByRole("menuitem", { name: /Harness/ }),
     ).toBeInTheDocument();
   });
+
+  it("blocks a model the Claude plan cannot run and names the reason", async () => {
+    const onModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={mixedModelOption()}
+          adapter="claude"
+          modelAccess="own-subscription"
+          onModelChange={onModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /^Model and reasoning/ }),
+    );
+    await openSub(user, /^Model/);
+    const gatewayOnly = await screen.findByRole("menuitemradio", {
+      name: /GLM 5\.2/,
+    });
+
+    fireEvent.click(gatewayOnly);
+    expect(onModelChange).not.toHaveBeenCalled();
+  }, 20000);
+
+  it("lets every model through on PostHog credits", async () => {
+    const onModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={mixedModelOption()}
+          adapter="claude"
+          modelAccess="posthog-gateway"
+          onModelChange={onModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /^Model and reasoning/ }),
+    );
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: /GLM 5\.2/ }),
+    );
+
+    expect(onModelChange).toHaveBeenCalledWith("@cf/zai-org/glm-5.2");
+  }, 20000);
 });

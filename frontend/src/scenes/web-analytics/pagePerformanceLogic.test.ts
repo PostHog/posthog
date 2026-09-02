@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import { CompareFilter } from '~/queries/schema/schema-general'
 
 import {
+    OverviewTotals,
     PagePerformanceWindow,
     buildGoogleSearchConsoleQuery,
     buildPagePerformanceTableQuery,
@@ -10,6 +11,7 @@ import {
     mergePagePerformanceSeries,
     parsePagePerformanceOverviewResponse,
     resolvePagePerformanceBucket,
+    resolvePagePerformanceDataState,
     resolvePagePerformanceWindow,
 } from './pagePerformanceLogic'
 import { DateFilterState } from './webAnalyticsLogic'
@@ -218,6 +220,71 @@ describe('pagePerformanceLogic', () => {
             }
 
             expect(resolvePagePerformanceBucket(window)).toBe('week')
+        })
+    })
+
+    describe('data state', () => {
+        const totals = (overrides: Partial<OverviewTotals>): OverviewTotals => ({
+            visitors: 0,
+            visitorsPrevious: 0,
+            google: 0,
+            googlePrevious: 0,
+            llm: 0,
+            llmPrevious: 0,
+            crawls: 0,
+            crawlsPrevious: 0,
+            pages: 0,
+            serverLogs: 0,
+            ...overrides,
+        })
+
+        it('holds every section on loading until the overview answers', () => {
+            expect(resolvePagePerformanceDataState(null, true)).toEqual({
+                tab: 'loading',
+                aiTraffic: 'loading',
+                crawlers: 'loading',
+            })
+        })
+
+        it.each([
+            {
+                name: 'sends a team that has never ingested to the installation guide',
+                totals: totals({}),
+                hasIngestedEvents: false,
+                expected: { tab: 'no-events', aiTraffic: 'empty', crawlers: 'empty' },
+            },
+            {
+                name: 'blames the date range when the team has ingested before',
+                totals: totals({}),
+                hasIngestedEvents: true,
+                expected: { tab: 'no-traffic-in-range', aiTraffic: 'empty', crawlers: 'needs-server-logs' },
+            },
+            {
+                name: 'reads zero crawls as a missing feed when no access logs arrive',
+                totals: totals({ visitors: 1430, pages: 128, llm: 812 }),
+                hasIngestedEvents: true,
+                expected: { tab: 'ready', aiTraffic: 'ready', crawlers: 'needs-server-logs' },
+            },
+            {
+                name: 'reads zero crawls as a real zero once access logs arrive',
+                totals: totals({ visitors: 1430, pages: 128, llm: 812, serverLogs: 4200 }),
+                hasIngestedEvents: true,
+                expected: { tab: 'ready', aiTraffic: 'ready', crawlers: 'empty' },
+            },
+            {
+                name: 'empties only the AI section when nobody arrived from an assistant',
+                totals: totals({ visitors: 1430, pages: 128, crawls: 88100, serverLogs: 4200 }),
+                hasIngestedEvents: true,
+                expected: { tab: 'ready', aiTraffic: 'empty', crawlers: 'ready' },
+            },
+            {
+                name: 'keeps the tab alive for a site that only shows up in access logs',
+                totals: totals({ serverLogs: 4200, crawls: 88100 }),
+                hasIngestedEvents: true,
+                expected: { tab: 'ready', aiTraffic: 'empty', crawlers: 'ready' },
+            },
+        ])('$name', ({ totals: overviewTotals, hasIngestedEvents, expected }) => {
+            expect(resolvePagePerformanceDataState(overviewTotals, hasIngestedEvents)).toEqual(expected)
         })
     })
 })
