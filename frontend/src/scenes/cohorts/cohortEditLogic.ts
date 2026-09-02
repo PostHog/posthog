@@ -39,6 +39,7 @@ import {
     cleanCriteria,
     createCohortDataNodeLogicKey,
     createCohortFormData,
+    firstCohortCriteriaError,
     isCohortCriteriaGroup,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
@@ -1117,9 +1118,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
         submitCohortFailure: () => {
             scrollToFormError({
-                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                extraErrorSelectors: [
+                    '.CohortCriteriaRow__Criteria--error',
+                    '.CohortCriteriaRow__Criteria__Field--error',
+                    '.CohortCriteriaGroups__matching-group--error',
+                ],
                 fallbackErrorMessage:
+                    firstCohortCriteriaError(values.cohortErrors) ??
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
+                fallbackToastId: 'cohort-save-error',
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
