@@ -29,7 +29,7 @@ import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 
-jest.setTimeout(1000)
+jest.setTimeout(10000)
 
 describe('CdpEventsConsumer', () => {
     let processor: CdpEventsConsumer
@@ -78,7 +78,6 @@ describe('CdpEventsConsumer', () => {
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
         await processor.stop()
         await closeHub(hub)
     })
@@ -579,7 +578,6 @@ describe('hog flow processing', () => {
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
         await processor.stop()
         await closeHub(hub)
     })
