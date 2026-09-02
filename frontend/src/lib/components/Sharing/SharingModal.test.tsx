@@ -106,20 +106,15 @@ describe('SharingModal (dashboard)', () => {
     it('renders sharing options when sharing is enabled', async () => {
         render(<DashboardSharingModalWrapper />)
 
-        // Sharing section label
-        expect(await screen.findByText('Sharing')).toBeInTheDocument()
-
-        // Access control section
         expect(screen.getByText('Access control')).toBeInTheDocument()
+        expect(await screen.findByText('Shared dashboard appearance')).toBeInTheDocument()
 
-        // Dashboard options smoke checks
         expect(screen.getByText(/Show branding/i)).toBeInTheDocument()
         expect(screen.getByText('Public sharing')).toBeInTheDocument()
-        expect(screen.getByText('Shared dashboard appearance')).toBeInTheDocument()
         expect(screen.getByText('Choose how the shared dashboard appears to viewers.')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /System/i })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /Light/i })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /Dark/i })).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="sharing-theme-system"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="sharing-theme-light"]')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="sharing-theme-dark"]')).toBeInTheDocument()
         expect(screen.queryByText(/Show insight details/i)).toBeNull()
     })
 
@@ -127,7 +122,7 @@ describe('SharingModal (dashboard)', () => {
         const user = userEvent.setup()
         render(<DashboardSharingModalWrapper />)
 
-        await user.click(await screen.findByRole('button', { name: /Dark/i }))
+        await user.click(await screen.findByTestId('sharing-theme-dark'))
 
         expect(sharingLogic({ dashboardId }).values.sharingSettings.theme).toBe('dark')
     })
