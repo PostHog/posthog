@@ -2579,11 +2579,19 @@ def _get_table_chunk_size(
         # actually do; the sibling `SQLSourceImplementation.get_chunk_size` already floors it.
         batch_rows = max(1, int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes))
         chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, wide_row_bytes))
-        logger.debug(
+        measurements = (
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. wide_row_bytes={wide_row_bytes}. "
             f"largest_row_bytes={largest_row_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. "
             f"Using CHUNK_SIZE={chunking.batch_rows}, FETCH_ROWS={chunking.fetch_rows}"
         )
+        # The page cap sits fractionally below the chunk on any table whose p99 exceeds its p95,
+        # which is most of them, so a bare comparison would report nearly every sync. An order of
+        # magnitude is the point where the cap starts to matter: the read issues about ten times
+        # the `FETCH` calls per batch, and byte-bounded extraction changes how the table is read.
+        if chunking.fetch_rows * 10 <= chunking.batch_rows:
+            logger.info(measurements)
+        else:
+            logger.debug(measurements)
         return chunking
     except Exception as e:
         # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
