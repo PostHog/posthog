@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -48,6 +52,19 @@ describe('profilePictureLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['checkGravatar', 'setGravatarStatus'])
             .toMatchValues({ gravatarStatus: status, gravatarChecking: false })
+    })
+
+    it('probes again when the email changes', async () => {
+        imageOutcome = 'load'
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setGravatarStatus']).toMatchValues({ gravatarStatus: 'found' })
+
+        imageOutcome = 'error'
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, email: 'someone.else@example.com' })
+
+        await expectLogic(logic)
+            .toDispatchActions(['checkGravatar', 'setGravatarStatus'])
+            .toMatchValues({ gravatarStatus: 'missing' })
     })
 
     it('keeps the current status while checking again', async () => {
