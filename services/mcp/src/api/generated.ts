@@ -17678,12 +17678,15 @@ export namespace Schemas {
       event_filters: ClusteringConfigSetEventFiltersEventFiltersItem[];
     }
 
+    export type ClusteringJobEventFiltersItem = { [key: string]: unknown };
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
       analysis_level: AnalysisLevelEnum;
-      event_filters?: unknown;
+      /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+      event_filters?: ClusteringJobEventFiltersItem[];
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
@@ -60597,12 +60600,15 @@ export namespace Schemas {
       auto_archive_after_days?: number | null;
     }
 
+    export type PatchedClusteringJobEventFiltersItem = { [key: string]: unknown };
+
     export interface PatchedClusteringJob {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
       analysis_level?: AnalysisLevelEnum;
-      event_filters?: unknown;
+      /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+      event_filters?: PatchedClusteringJobEventFiltersItem[];
       enabled?: boolean;
       readonly created_at?: string;
       readonly updated_at?: string;
