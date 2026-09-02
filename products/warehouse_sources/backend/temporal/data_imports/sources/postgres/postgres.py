@@ -661,13 +661,13 @@ def _recovery_conflict_abort_error(retries: int) -> Exception:
 
 def _unorderable_read_abort_error(schema: str, table_name: str) -> Exception:
     # Non-retryable (see source.py): a full-table read orders nothing, so a re-read can only be paged
-    # by seeking on a unique key. Without one there is no safe page order at all, and every
-    # whole-activity retry re-reads into the same wall.
+    # by seeking on a key that is unique and never NULL. Without one there is no safe page order at
+    # all, and every whole-activity retry re-reads into the same wall.
     return Exception(
         f"Read replica canceled the read of {schema}.{table_name} due to conflict with recovery, and "
-        f"the table has no unique key to resume a canceled read from. Add a primary key to the table, "
-        f"increase max_standby_streaming_delay or enable hot_standby_feedback on the replica, or sync "
-        f"from the primary database instead of the read replica."
+        f"the table has no key that can resume a canceled read. Resuming needs a key that is unique "
+        f"and never NULL. Add a primary key to the table, increase max_standby_streaming_delay or "
+        f"enable hot_standby_feedback on the replica, or sync from the primary database instead."
     )
 
 
@@ -3981,13 +3981,18 @@ def postgres_source(
                 )
                 return
 
-            # Seeking is only safe on a unique key, because a page boundary inside a run of equal
-            # keys drops the rest of that run. A declared primary key is unique. The assumed `id`
-            # is unique only once probed for duplicates, and a partitioned parent's key is unique
-            # only within each child.
+            # Seeking needs a key that is unique and never NULL. A page boundary inside a run of
+            # equal keys drops the rest of that run, and `key > last` never matches NULL, so a NULL
+            # row is dropped unless it lands on the first page. A declared primary key is both. The
+            # assumed `id` is neither until checked, and its duplicate probe groups NULLs together,
+            # so a single NULL row passes it. A partitioned parent's key is unique only per child.
+            not_null_columns = {column.name for column in full_table.columns if not column.nullable}
             keyset_primary_keys = (
                 primary_keys
-                if primary_keys and not is_partitioned and not (used_id_pk_fallback and has_duplicate_primary_keys)
+                if primary_keys
+                and not is_partitioned
+                and not (used_id_pk_fallback and has_duplicate_primary_keys)
+                and all(key in not_null_columns for key in primary_keys)
                 else None
             )
 

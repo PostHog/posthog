@@ -3160,7 +3160,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         connection = self._Connection()
@@ -3224,7 +3224,7 @@ class TestOffsetChunkingConnectTimeout:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         # Reuse the connect-conflict scaffolding: the named server cursor raises a recovery conflict
@@ -3354,7 +3354,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
@@ -3504,6 +3504,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         should_use_incremental_field: bool,
         rows_before_conflict: int,
         primary_keys: list[str] | None = None,
+        key_is_nullable: bool = False,
     ) -> list[int]:
         @contextmanager
         def fake_tunnel():
@@ -3512,7 +3513,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         fake_table = mock.Mock()
         fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
-        fake_table.columns = []
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=key_is_nullable)]
         fake_table.__contains__ = mock.Mock(return_value=False)
 
         scan = self._Scan(list(self._ROWS))
@@ -3568,17 +3569,24 @@ class TestChunkedRereadAfterRecoveryConflict:
         with pytest.raises(psycopg.errors.SerializationFailure):
             self._read_ids(should_use_incremental_field=False, rows_before_conflict=2, primary_keys=["id"])
 
-    @pytest.mark.parametrize("rows_before_conflict", [0, 2])
-    def test_full_refresh_without_a_unique_key_fails_non_retryably(self, rows_before_conflict):
+    @pytest.mark.parametrize(
+        "rows_before_conflict,primary_keys,key_is_nullable",
+        [(0, None, False), (2, None, False), (0, ["id"], True)],
+        ids=["no_key_at_all", "no_key_at_all_after_rows_written", "key_column_is_nullable"],
+    )
+    def test_full_refresh_without_a_seekable_key_fails_non_retryably(
+        self, rows_before_conflict, primary_keys, key_is_nullable
+    ):
         with pytest.raises(Exception) as exc_info:
             self._read_ids(
                 should_use_incremental_field=False,
                 rows_before_conflict=rows_before_conflict,
-                primary_keys=None,
+                primary_keys=primary_keys,
+                key_is_nullable=key_is_nullable,
             )
 
         message = str(exc_info.value)
-        assert "no unique key to resume a canceled read" in message
+        assert "no key that can resume a canceled read" in message
         assert any(fragment in message for fragment in PostgresSource().get_non_retryable_errors())
 
 
