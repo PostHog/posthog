@@ -620,6 +620,22 @@ export function MetricRowGroup({
         }
     }, [])
 
+    // The tooltip is fixed-positioned from coordinates captured on hover, so it
+    // doesn't track the page on scroll — dismiss it instead, like native tooltips.
+    useEffect(() => {
+        if (!tooltipState.isVisible) {
+            return
+        }
+        const handleScroll = (): void => {
+            clearTooltipCloseTimer()
+            hideTooltipState()
+        }
+        // Capture phase so scrolls of any ancestor scroll container are caught, not just the window
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', handleScroll, { capture: true })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tooltipState.isVisible])
+
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
