@@ -4,16 +4,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from llm_gateway.services.openai_credentials import OpenAICredentialError, verify_openai_credentials
+from llm_gateway.openai_credentials import OpenAICredentialError, verify_openai_credentials
 
 
 def _make_settings(**overrides: Any) -> MagicMock:
-    settings = MagicMock()
-    settings.openai_credential_check_enabled = overrides.get("openai_credential_check_enabled", True)
-    settings.openai_api_key = overrides.get("openai_api_key", "sk-test")
-    settings.openai_api_base_url = overrides.get("openai_api_base_url", None)
-    settings.openai_organization = overrides.get("openai_organization", "org-test")
-    return settings
+    return MagicMock(
+        **{
+            "openai_credential_check_enabled": True,
+            "openai_api_key": "sk-test",
+            "openai_api_base_url": None,
+            "openai_organization": "org-test",
+            **overrides,
+        }
+    )
 
 
 def _patch_client(answer: httpx.Response | Exception) -> tuple[Any, AsyncMock]:
@@ -45,7 +48,7 @@ class TestVerifyOpenAICredentials:
 
     @pytest.mark.parametrize(
         "answer",
-        [httpx.ConnectError("unreachable"), httpx.Response(404), httpx.Response(500)],
+        [httpx.ConnectError("unreachable"), httpx.Response(403), httpx.Response(404), httpx.Response(500)],
     )
     async def test_starts_when_the_check_cannot_conclude(self, answer: httpx.Response | Exception) -> None:
         client_patch, _ = _patch_client(answer)

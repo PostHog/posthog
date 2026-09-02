@@ -164,8 +164,9 @@ class Settings(BaseSettings):
     # OpenAI organization ID. When set, forwarded to OpenAI on every request so
     # traffic is attributed to the HIPAA-covered organization. Omitted when unset.
     openai_organization: str | None = None
-    # Checks at startup that the key and the organization pair. Set to false to
-    # start a pod that OpenAI rejects, for example to debug the rejection.
+    # Asks OpenAI at startup whether the key and the organization pair. The
+    # integration tests turn it off, and so can an operator who must start a pod
+    # that OpenAI rejects.
     openai_credential_check_enabled: bool = True
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None

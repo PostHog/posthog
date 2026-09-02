@@ -28,6 +28,7 @@ from llm_gateway.circuit_breaker import build_anthropic_circuit_breaker, publish
 from llm_gateway.config import Settings, get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
+from llm_gateway.openai_credentials import verify_openai_credentials
 from llm_gateway.rate_limiting.billable_credits_throttle import BillableCreditThrottle
 from llm_gateway.rate_limiting.cost_gauge_publisher import publish_product_cost_gauges_loop
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
@@ -42,7 +43,6 @@ from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
-from llm_gateway.services.openai_credentials import verify_openai_credentials
 from llm_gateway.services.plan_resolver import PlanResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
 

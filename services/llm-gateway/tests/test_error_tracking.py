@@ -103,10 +103,15 @@ class TestCaptureException:
 
         assert len(_fingerprint(error, "openai")) < 200
 
-    def test_leaves_grouping_alone_without_a_provider_status(self):
-        properties = _capture_properties(ValueError("test"), {"callback": "posthog"})
-
-        assert "$exception_fingerprint" not in properties
+    @pytest.mark.parametrize(
+        "error,properties",
+        [
+            (ValueError("test"), {"provider": "openai"}),
+            (_ProviderError(500), {"callback": "posthog", "event": "failure"}),
+        ],
+    )
+    def test_leaves_grouping_alone_for_a_failure_outside_a_provider_call(self, error, properties):
+        assert "$exception_fingerprint" not in _capture_properties(error, properties)
 
     def test_passes_properties(self):
         with (
