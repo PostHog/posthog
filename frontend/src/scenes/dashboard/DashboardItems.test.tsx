@@ -244,16 +244,26 @@ const mockTriggerDashboardRefresh = jest.fn()
 const mockInsightCard = jest.fn()
 const mockRouterPush = router.actions.push as jest.Mock
 const mockSetAiHighlightedTileIds = jest.fn()
-const requestAnimationFrameCallbacks: FrameRequestCallback[] = []
+const requestAnimationFrameCallbacks = new Map<number, FrameRequestCallback>()
+let requestAnimationFrameId = 0
 const requestAnimationFrameMock = jest.fn((callback: FrameRequestCallback): number => {
-    requestAnimationFrameCallbacks.push(callback)
-    return requestAnimationFrameCallbacks.length
+    const id = ++requestAnimationFrameId
+    requestAnimationFrameCallbacks.set(id, callback)
+    return id
 })
 
 function flushAnimationFrames(): void {
-    while (requestAnimationFrameCallbacks.length) {
-        requestAnimationFrameCallbacks.shift()?.(0)
+    while (requestAnimationFrameCallbacks.size) {
+        const [id, callback] = requestAnimationFrameCallbacks.entries().next().value as [number, FrameRequestCallback]
+        requestAnimationFrameCallbacks.delete(id)
+        callback(0)
     }
+}
+
+function flushNextAnimationFrame(): void {
+    const [id, callback] = requestAnimationFrameCallbacks.entries().next().value as [number, FrameRequestCallback]
+    requestAnimationFrameCallbacks.delete(id)
+    callback(0)
 }
 
 let mockAiHighlightedTileIds: number[] = []
@@ -271,9 +281,10 @@ describe('DashboardItems', () => {
         mockAiHighlightedTileIds = []
         mockHighlightedInsightId = null
         mockHighlightedTileId = null
-        requestAnimationFrameCallbacks.length = 0
+        requestAnimationFrameCallbacks.clear()
+        requestAnimationFrameId = 0
         global.requestAnimationFrame = requestAnimationFrameMock
-        global.cancelAnimationFrame = jest.fn()
+        global.cancelAnimationFrame = jest.fn((id: number) => requestAnimationFrameCallbacks.delete(id))
         Object.defineProperty(window, 'matchMedia', {
             configurable: true,
             value: jest.fn().mockReturnValue({ matches: false }),
@@ -514,6 +525,171 @@ describe('DashboardItems', () => {
         flushAnimationFrames()
 
         expect(target.scrollIntoView).not.toHaveBeenCalled()
+    })
+
+    it('reveals a direct tile URL once the tile arrives after the URL change', () => {
+        const tile = { id: 42, insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } } }
+        let tiles: (typeof tile)[] = []
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles,
+                    layouts: { sm: [] },
+                    dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: mockHighlightedInsightId,
+                    highlightedTileId: mockHighlightedTileId,
+                    refreshStatus: {},
+                    itemsLoading: false,
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                }
+            }
+            if ((logic as { __mock?: string }).__mock === 'dashboardAiSyncLogic') {
+                return { aiHighlightedTileIds: mockAiHighlightedTileIds }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+
+        const { container, rerender } = render(<DashboardItems />)
+        router.actions.push('/dashboard/5?highlightTileId=42')
+        rerender(<DashboardItems />)
+        flushAnimationFrames()
+
+        expect(mockSetAiHighlightedTileIds).not.toHaveBeenCalled()
+
+        tiles = [tile]
+        rerender(<DashboardItems />)
+        const target = container.querySelector('[data-dashboard-tile-id="42"]') as HTMLElement
+        target.scrollIntoView = jest.fn()
+        target.focus = jest.fn()
+        flushAnimationFrames()
+
+        expect(mockSetAiHighlightedTileIds).toHaveBeenCalledTimes(1)
+        expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+        expect(target.focus).toHaveBeenCalledWith({ preventScroll: true })
+    })
+
+    it('uses non-animated scrolling when reduced motion is requested', () => {
+        const tile = { id: 42, insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } } }
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles: [tile],
+                    layouts: { sm: [{ i: '42', x: 0, y: 0, w: 6, h: 5 }] },
+                    dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: mockHighlightedInsightId,
+                    highlightedTileId: mockHighlightedTileId,
+                    refreshStatus: {},
+                    itemsLoading: false,
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                }
+            }
+            if ((logic as { __mock?: string }).__mock === 'dashboardAiSyncLogic') {
+                return { aiHighlightedTileIds: mockAiHighlightedTileIds }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+        Object.defineProperty(window, 'matchMedia', {
+            configurable: true,
+            value: jest.fn().mockReturnValue({ matches: true }),
+        })
+
+        const { container, rerender } = render(<DashboardItems />)
+        const target = container.querySelector('[data-dashboard-tile-id="42"]') as HTMLElement
+        target.scrollIntoView = jest.fn()
+        target.focus = jest.fn()
+        router.actions.push('/dashboard/5?highlightTileId=42')
+        rerender(<DashboardItems />)
+        flushAnimationFrames()
+
+        expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' })
+        expect(target.focus).toHaveBeenCalledWith({ preventScroll: true })
+    })
+
+    it('cancels a stale reveal frame when the URL changes again', () => {
+        const tiles = [
+            { id: 42, insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } } },
+            { id: 43, insight: { id: 102, short_id: 'def456', query: { kind: 'InsightVizNode' } } },
+        ]
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles,
+                    layouts: { sm: [] },
+                    dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: mockHighlightedInsightId,
+                    highlightedTileId: mockHighlightedTileId,
+                    refreshStatus: {},
+                    itemsLoading: false,
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                }
+            }
+            if ((logic as { __mock?: string }).__mock === 'dashboardAiSyncLogic') {
+                return { aiHighlightedTileIds: mockAiHighlightedTileIds }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+
+        const { container, rerender } = render(<DashboardItems />)
+        const firstTarget = container.querySelector('[data-dashboard-tile-id="42"]') as HTMLElement
+        const secondTarget = container.querySelector('[data-dashboard-tile-id="43"]') as HTMLElement
+        firstTarget.scrollIntoView = jest.fn()
+        firstTarget.focus = jest.fn()
+        secondTarget.scrollIntoView = jest.fn()
+        secondTarget.focus = jest.fn()
+
+        router.actions.push('/dashboard/5?highlightTileId=42')
+        rerender(<DashboardItems />)
+        flushNextAnimationFrame()
+        router.actions.push('/dashboard/5?highlightTileId=43')
+        rerender(<DashboardItems />)
+        flushAnimationFrames()
+
+        expect(firstTarget.scrollIntoView).not.toHaveBeenCalled()
+        expect(firstTarget.focus).not.toHaveBeenCalled()
+        expect(secondTarget.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+        expect(secondTarget.focus).toHaveBeenCalledWith({ preventScroll: true })
     })
 
     it.each([

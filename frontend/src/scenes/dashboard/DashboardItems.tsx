@@ -146,7 +146,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         : () => loadDashboard({ action: DashboardLoadAction.Update })
     const refreshDashboardTile = isSharedView() ? undefined : refreshDashboardItem
     const revealTileId =
-        highlightedTileId ?? tiles.find((tile) => tile.insight?.short_id === highlightedInsightId)?.id ?? null
+        highlightedTileId !== null
+            ? (tiles.find((tile) => tile.id === highlightedTileId)?.id ?? null)
+            : (tiles.find((tile) => tile.insight?.short_id === highlightedInsightId)?.id ?? null)
 
     // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
