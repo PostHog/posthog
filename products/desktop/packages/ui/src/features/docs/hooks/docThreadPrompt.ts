@@ -51,43 +51,10 @@ export function threadTaskInput(input: {
 }
 
 /**
- * What a data point run must end with. The adapter holds the model to this
- * shape, so even a run that never touches the tool ends as the answer.
- */
-export const DOC_DATA_RESULT_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  required: ["status", "query", "label", "note"],
-  properties: {
-    status: {
-      type: "string",
-      enum: ["ok", "none"],
-      description:
-        "ok: the query answers the question. none: this project's data cannot answer it.",
-    },
-    query: {
-      type: "string",
-      description:
-        "One HogQL SELECT. One cell for a number, a date column and a number column for a trend, anything else for a table. Empty when status is none.",
-    },
-    label: {
-      type: "string",
-      description: "What it shows, in a few words. The reader sees this on it.",
-    },
-    note: {
-      type: "string",
-      description:
-        "One short line for the reader: a caveat, or with status none, why there is no answer. Empty otherwise.",
-    },
-  },
-};
-
-/**
  * The task behind a data point.
  *
  * The contract comes first and the question after it, so a small model reads
- * the job before the subject. Two ways in reach the page: the tool during the
- * run, and the schema-shaped final answer at its end.
+ * the job before the subject. The tool is the only way the answer reaches the page.
  */
 export function dataPointTaskInput(input: {
   question: string;
@@ -104,7 +71,7 @@ export function dataPointTaskInput(input: {
       "Write one HogQL SELECT and run it once with the PostHog SQL query tool. The page draws the result by its shape: one cell as a number in the sentence, a date column with a number column as a sparkline, anything else as a chart block. Do not browse recordings, insights, or dashboards; do not build or save anything.",
       `Hand the query in through the PostHog MCP \`exec\` tool: \`${call}\`. Run \`info doc-data-point-submit\` first if you need the schema. If it answers ok: false, fix the query and call it again.`,
       `request_id: ${input.requestId}`,
-      'End your reply as the JSON object {"status", "query", "label", "note"}: status "ok" with the query, or status "none" with a note when the project\'s data cannot answer. Nothing else in the reply.',
+      "When the project's data cannot answer, call it with status none and a note that says why. Reply with one short line for the people on the page. Do not put the query in the reply.",
       "",
       `Asked from the page "${input.docTitle}".`,
     ].join("\n"),
@@ -112,59 +79,10 @@ export function dataPointTaskInput(input: {
 }
 
 /**
- * What a watch run must end with. The adapter holds the model to this shape,
- * so even a run that never touches the tool ends as the brief.
- */
-export const DOC_WATCH_RESULT_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  required: ["claim", "confirms", "refutes", "evidence", "signals"],
-  properties: {
-    claim: {
-      type: "string",
-      description: "The hypothesis in one sentence, as the page states it.",
-    },
-    confirms: {
-      type: "string",
-      description: "What in the data would confirm it, in one line.",
-    },
-    refutes: {
-      type: "string",
-      description: "What in the data would refute it, in one line.",
-    },
-    evidence: {
-      type: "array",
-      maxItems: 4,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["label", "query"],
-        properties: {
-          label: { type: "string", description: "What the number counts." },
-          query: {
-            type: "string",
-            description:
-              "One HogQL SELECT that returns one number, or a date and a number per row.",
-          },
-        },
-      },
-    },
-    signals: {
-      type: "array",
-      maxItems: 6,
-      items: { type: "string" },
-      description:
-        "Short lines naming what a scout should follow: events, flags, experiments, error issues, replay filters.",
-    },
-  },
-};
-
-/**
  * The task that compiles a hypothesis into a watch brief.
  *
  * The contract comes first and the claim after it, so a small model reads the
- * job before the subject. Two ways in reach the page: the tool during the run,
- * and the schema-shaped final answer at its end.
+ * job before the subject. The tool is the only way the brief reaches the page.
  */
 export function watchTaskInput(input: {
   anchorText: string;
@@ -181,7 +99,7 @@ export function watchTaskInput(input: {
       "Use the watching-doc-hypotheses skill. Compile the claim into a brief: the claim in one sentence, what confirms it, what refutes it, up to four evidence queries (each one HogQL SELECT returning one number, or a date and a number per row; run each once with the PostHog SQL query tool), and up to six short lines on what in this project you think is related to the claim (context for a scout, which decides on its own where to look). Do not build or save anything.",
       `Hand the brief in through the PostHog MCP \`exec\` tool: \`${call}\`. Run \`info doc-watch-brief-submit\` first if you need the schema. If it answers ok: false, fix the failing evidence query and call it again.`,
       `request_id: ${input.requestId}`,
-      'End your reply as the JSON object {"claim", "confirms", "refutes", "evidence", "signals"}. Nothing else in the reply.',
+      "Reply with one short line for the people on the page. Do not put the brief in the reply.",
       "",
       `Asked from the page "${input.docTitle}".`,
     ].join("\n"),

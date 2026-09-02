@@ -4,6 +4,7 @@
  * A pasted link to a task, an insight, a dashboard, a replay, or any other
  * object becomes the chip for it, so the page shows what it is instead of an
  * address. Only the path is read: the host differs per region and per dev setup.
+ * A desktop route or a deep link to a task reads the same as its web address.
  */
 
 export type PastedRef =
@@ -38,6 +39,16 @@ const TASK_PATH = new RegExp(`^/code/channel/[^/]+/tasks/${ID}$`);
 /** Words that sit where an id would, and are not one. */
 const NOT_IDS = new Set(["new", "edit", "settings"]);
 
+/** The web path an address means. A desktop route and a deep link read as the web route. */
+function appPath(url: URL): string | null {
+  if (url.protocol === "posthog-code:")
+    return `/code/${url.host}${url.pathname}`;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (url.hash.startsWith("#/spaces/"))
+    return `/code/channel${url.hash.slice("#/spaces".length)}`;
+  return url.pathname.replace(/^\/project\/\d+/, "").replace(/\/$/, "");
+}
+
 export function refFromUrl(text: string): PastedRef | null {
   const raw = text.trim();
   if (!raw || /\s/.test(raw)) return null;
@@ -47,8 +58,8 @@ export function refFromUrl(text: string): PastedRef | null {
   } catch {
     return null;
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  const path = url.pathname.replace(/^\/project\/\d+/, "").replace(/\/$/, "");
+  const path = appPath(url);
+  if (path === null) return null;
 
   const task = TASK_PATH.exec(path);
   if (task) return { type: "taskChip", attrs: { taskId: task[1], label: "" } };

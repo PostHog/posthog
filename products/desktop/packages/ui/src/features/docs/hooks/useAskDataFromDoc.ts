@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { useMutation } from "@tanstack/react-query";
-import { DOC_DATA_RESULT_SCHEMA, dataPointTaskInput } from "./docThreadPrompt";
+import { dataPointTaskInput } from "./docThreadPrompt";
 import { useDocAgentRun } from "./useDocAgentRun";
 
 /**
@@ -30,7 +30,6 @@ export function useAskDataFromDoc(options: {
         question: input.question,
         titleFallback: "Data for a page",
         description: input.description,
-        outputSchema: DOC_DATA_RESULT_SCHEMA,
       });
     },
   });

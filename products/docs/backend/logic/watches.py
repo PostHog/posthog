@@ -2,7 +2,6 @@
 follows the signals around it. The thread keeps the brief, the checks, and the verdict."""
 
 import re
-import json
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -234,33 +233,6 @@ def anchor_keys(content: object) -> set[str]:
 
     walk(content)
     return found
-
-
-def extract_structured_brief(text: str) -> dict[str, Any] | None:
-    """A turn that ended as the brief JSON: ``{claim, confirms, refutes, evidence, signals}``."""
-    body = (text or "").strip()
-    if body.startswith("```"):
-        body = body.strip("`").split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    if not body.startswith("{"):
-        return None
-    try:
-        data = json.loads(body)
-    except ValueError:
-        return None
-    if not isinstance(data, dict) or not str(data.get("claim") or "").strip():
-        return None
-    evidence = [
-        {"label": str(entry.get("label") or ""), "query": str(entry.get("query") or "")}
-        for entry in data.get("evidence") or []
-        if isinstance(entry, dict) and entry.get("query")
-    ]
-    return {
-        "claim": str(data["claim"]).strip(),
-        "confirms": str(data.get("confirms") or "").strip(),
-        "refutes": str(data.get("refutes") or "").strip(),
-        "evidence": evidence[:MAX_EVIDENCE],
-        "signals": [str(entry).strip() for entry in data.get("signals") or [] if str(entry).strip()][:MAX_SIGNALS],
-    }
 
 
 def reminder_text(request_id: str) -> str:

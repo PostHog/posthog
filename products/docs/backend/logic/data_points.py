@@ -1,7 +1,6 @@
 """The query behind a data point: what the page accepts, and one check that it runs."""
 
 import re
-import json
 from datetime import date, datetime
 from typing import Any
 
@@ -98,22 +97,6 @@ def run_once(team: Team, query: str) -> DataPointRun:
             error=message.splitlines()[0][:300] if message else "The query did not run.",
         )
     return classify([list(row) for row in (response.results or [])])
-
-
-def extract_structured(text: str) -> dict[str, str] | None:
-    """A turn that ended as the JSON the task's schema asked for: ``{status, query, label, note}``."""
-    body = (text or "").strip()
-    if body.startswith("```"):
-        body = body.strip("`").split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    if not body.startswith("{"):
-        return None
-    try:
-        data = json.loads(body)
-    except ValueError:
-        return None
-    if not isinstance(data, dict) or data.get("status") not in ("ok", "none"):
-        return None
-    return {key: str(data.get(key) or "") for key in ("status", "query", "label", "note")}
 
 
 def reminder_text(request_id: str) -> str:

@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from products.docs.backend.facade.enums import DataShape
 from products.docs.backend.logic import data_points
-from products.docs.backend.logic.data_points import extract_query, extract_structured, is_read_query
+from products.docs.backend.logic.data_points import extract_query, is_read_query
 
 
 class TestDataPointQueries(SimpleTestCase):
@@ -38,23 +38,6 @@ class TestDataPointQueries(SimpleTestCase):
     )
     def test_is_read_query(self, query, expected):
         assert is_read_query(query) is expected
-
-    @parameterized.expand(
-        [
-            (
-                '{"status": "ok", "query": "SELECT 1", "label": "one"}',
-                {"status": "ok", "query": "SELECT 1", "label": "one", "note": ""},
-            ),
-            (
-                '```json\n{"status": "none", "note": "no data"}\n```',
-                {"status": "none", "query": "", "label": "", "note": "no data"},
-            ),
-            ("Sure, here it is: SELECT 1", None),
-            ('{"status": "maybe"}', None),
-        ]
-    )
-    def test_extract_structured_reads_the_schema_shaped_turn(self, text, expected):
-        assert extract_structured(text) == expected
 
 
 class TestClassify(SimpleTestCase):

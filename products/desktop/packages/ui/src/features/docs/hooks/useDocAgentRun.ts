@@ -28,7 +28,6 @@ export function useDocAgentRun(options: { channelId: string }) {
       question: string;
       description: string;
       titleFallback: string;
-      outputSchema?: Record<string, unknown>;
     }): Promise<Task> => {
       const result = await taskService.createTask({
         content: input.question,
@@ -40,7 +39,6 @@ export function useDocAgentRun(options: { channelId: string }) {
         model: DOC_AGENT_MODEL,
         reasoningLevel: DOC_AGENT_REASONING_EFFORT,
         executionMode: DOC_AGENT_EXECUTION_MODE,
-        outputSchema: input.outputSchema,
         allowNoRepo: true,
         originProduct: "docs",
       });

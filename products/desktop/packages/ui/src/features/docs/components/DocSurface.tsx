@@ -16,10 +16,7 @@ import {
 import type { RemoteCaret } from "../collab/remoteCarets";
 import type { DocConnectionStatus } from "../collab/useDocCollab";
 import { WATCH_NUMBER_EVENT } from "../extensions/DataValue";
-import {
-  DOC_WATCH_RESULT_SCHEMA,
-  watchTaskInput,
-} from "../hooks/docThreadPrompt";
+import { watchTaskInput } from "../hooks/docThreadPrompt";
 import { useDocAgentRun } from "../hooks/useDocAgentRun";
 import {
   useDiscussionMutations,
@@ -211,7 +208,6 @@ export const DocSurface = forwardRef<
           question: input.question,
           description: input.description,
           titleFallback: "Watch a hypothesis",
-          outputSchema: DOC_WATCH_RESULT_SCHEMA,
         });
         await discussionActions.start.mutateAsync({
           content: "Watch this.",

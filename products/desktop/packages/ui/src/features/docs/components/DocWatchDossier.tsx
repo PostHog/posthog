@@ -81,6 +81,11 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
+/** A signal reads as words: object tags keep their name, the trailing period goes. */
+function plainSignal(signal: string): string {
+  return signal.replace(/<(\w+)[^>]*>(.*?)<\/\1>/g, "$2").replace(/\.$/, "");
+}
+
 function lowerFirst(text: string): string {
   return text ? text.charAt(0).toLowerCase() + text.slice(1) : text;
 }
@@ -364,7 +369,7 @@ export function DocWatchDossier({
                     <div className="doc-ledger-chips">
                       {brief.signals.map((signal) => (
                         <span key={signal} className="doc-ledger-chip">
-                          {signal.replace(/\.$/, "")}
+                          {plainSignal(signal)}
                         </span>
                       ))}
                     </div>

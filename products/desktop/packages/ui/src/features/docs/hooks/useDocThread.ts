@@ -7,7 +7,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { personName } from "../components/DocPostRow";
 import {
-  DOC_WATCH_RESULT_SCHEMA,
   dataPointTaskInput,
   stripAgentMention,
   threadTaskInput,
@@ -144,7 +143,6 @@ export function useDocThread(options: {
             question: input.question,
             description: input.description,
             titleFallback: "Question from a doc",
-            outputSchema: compiles ? DOC_WATCH_RESULT_SCHEMA : undefined,
           });
           startedTaskId = created.id;
           options.onAgentStarted?.();

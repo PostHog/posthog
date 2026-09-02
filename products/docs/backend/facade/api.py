@@ -437,12 +437,12 @@ def set_thread_resolved(
 def record_agent_turn(*, team_id: int, task_id: str, run_id: str, turn_key: str, text: str) -> None:
     """An agent turn ended: it becomes a post on every thread that tagged this task.
 
-    A data thread with no answer yet also reads a query out of the prose, for a run that
-    wrote the tag and never called the tool. A watch thread with no brief yet reads the
-    brief out of a turn shaped by the task's schema.
+    The tool is the way in for a number or a brief. A turn that is only a JSON blob is not a
+    post: people never read it, and the run gets the reminder to call the tool instead.
     """
     if not text.strip():
         return
+    is_blob = _is_json_blob(text)
     for thread in discussions.threads_for_task(team_id, task_id):
         if not thread.item_id:
             continue
@@ -452,24 +452,11 @@ def record_agent_turn(*, team_id: int, task_id: str, run_id: str, turn_key: str,
         context = thread.item_context or {}
         is_data = context.get("kind") == DiscussionKind.DATA.value
         is_watch = context.get("kind") == DiscussionKind.WATCH.value
-        structured = data_points.extract_structured(text) if is_data else None
-        if structured is not None:
-            _apply_structured_answer(doc, thread, run_id=run_id, turn_key=turn_key, structured=structured)
-            collab.publish_discussion_change(doc, thread_id=str(thread.id))
-            continue
-        brief_json = watches.extract_structured_brief(text) if is_watch else None
-        if brief_json is not None and not discussions.watch_of(thread).get("brief"):
-            if (
-                not discussions.doc_comments(doc)
-                .filter(source_comment=thread, item_context__turn_key=turn_key)
-                .exists()
-            ):
-                _apply_brief(doc, thread, brief_json, run_id=run_id, request=None, turn_key=turn_key)
-            continue
-        posted = discussions.append_agent_turn(doc, thread, run_id=run_id, turn_key=turn_key, text=text)
-        if posted is None:
-            continue
-        _tell_people(doc, posted)
+        if not is_blob:
+            posted = discussions.append_agent_turn(doc, thread, run_id=run_id, turn_key=turn_key, text=text)
+            if posted is None:
+                continue
+            _tell_people(doc, posted)
         if is_watch and not discussions.watch_of(thread).get("brief"):
             _remind(
                 doc,
@@ -490,6 +477,11 @@ def record_agent_turn(*, team_id: int, task_id: str, run_id: str, turn_key: str,
             else:
                 _remind_data_point(doc, thread, team_id=team_id, task_id=task_id)
         collab.publish_discussion_change(doc, thread_id=str(thread.id))
+
+
+def _is_json_blob(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.startswith(("{", "[")) and stripped.endswith(("}", "]"))
 
 
 def _remind_data_point(doc: Doc, thread: Comment, *, team_id: int, task_id: str) -> None:
@@ -513,50 +505,6 @@ def _remind(doc: Doc, thread: Comment, *, team_id: int, task_id: str, text: str,
     discussions.set_reminders(thread, asks)
     discussions.add_post(doc, thread, content=line, user_id=None, author_kind=PostAuthorKind.SYSTEM, sent_to_agent=True)
     tasks_facade.forward_message_to_run(task_id, team_id, content=text, actor_user_id=None)
-
-
-def _apply_structured_answer(
-    doc: Doc, thread: Comment, *, run_id: str, turn_key: str, structured: dict[str, str]
-) -> None:
-    """The run ended as the JSON its schema asked for. The reader sees a line, never the JSON."""
-    if discussions.doc_comments(doc).filter(source_comment=thread, item_context__turn_key=turn_key).exists():
-        return
-    if structured["status"] == "none":
-        discussions.add_post(
-            doc,
-            thread,
-            content=structured["note"] or "The project's data cannot answer this.",
-            user_id=None,
-            author_kind=PostAuthorKind.AGENT,
-            run_id=run_id,
-            turn_key=turn_key,
-        )
-        return
-    query = data_points.clean_query(structured["query"])
-    run = data_points.DataPointRun(shape=None, value=None, rows=0, columns=0, error="Only one SELECT is accepted.")
-    if data_points.is_read_query(query):
-        run = data_points.run_once(Team.objects.get(id=doc.team_id), query)
-    if run.error or run.shape is None:
-        discussions.add_post(
-            doc,
-            thread,
-            content=f"The query the agent wrote did not run: {run.error}",
-            user_id=None,
-            author_kind=PostAuthorKind.SYSTEM,
-            run_id=run_id,
-            turn_key=turn_key,
-        )
-        return
-    had_answer = bool((thread.item_context or {}).get("answer"))
-    discussions.set_thread_answer(
-        thread, query=query, label=structured["label"], note=structured["note"], shape=run.shape.value, run_id=run_id
-    )
-    line = _placed_line(run.shape, updated=had_answer)
-    if structured["note"]:
-        line = f"{line} {structured['note']}"
-    discussions.add_post(
-        doc, thread, content=line, user_id=None, author_kind=PostAuthorKind.SYSTEM, run_id=run_id, turn_key=turn_key
-    )
 
 
 def submit_data_point(payload: contracts.SubmitDataPointInput) -> contracts.SubmitDataPointResultDTO | None:
@@ -734,6 +682,12 @@ def submit_watch_brief(
     }
     if not brief_json["claim"]:
         return contracts.SubmitWatchBriefResultDTO(ok=False, evidence=[], error="The claim is missing.")
+    if not brief_json["evidence"]:
+        return contracts.SubmitWatchBriefResultDTO(
+            ok=False,
+            evidence=[],
+            error="Add at least one evidence query: one SELECT that returns one number, or a date and a number per row. Run it once first.",
+        )
     return _apply_brief(
         doc, thread, brief_json, run_id=_latest_run_id(payload.task_id, payload.team_id), request=request
     )
