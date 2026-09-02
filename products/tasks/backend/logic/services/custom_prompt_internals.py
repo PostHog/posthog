@@ -195,12 +195,18 @@ def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> s
 
 
 class EmptyAgentTurnError(RuntimeError):
-    """Raised when the agent emitted end_turn but no agent_message (Claude Agent SDK short-circuits)."""
+    """Raised when the agent emitted end_turn but no agent_message (Claude Agent SDK short-circuits).
 
-    def __init__(self, message: str, *, total_lines: int, printed_lines: int):
+    `run_terminal` marks the variant where the TaskRun row already reached a terminal status, so the
+    sandbox agent has stopped and cannot receive a retry prompt. The caller must re-read the log
+    instead of sending one.
+    """
+
+    def __init__(self, message: str, *, total_lines: int, printed_lines: int, run_terminal: bool = False):
         super().__init__(message)
         self.total_lines = total_lines
         self.printed_lines = printed_lines
+        self.run_terminal = run_terminal
 
 
 async def create_task_and_trigger(
@@ -674,9 +680,19 @@ async def _drain_final_log(
             )
     reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
-    )
+    message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
+    # A COMPLETED run with no message is the empty-turn path, reached by a race: the row flipped
+    # terminal before the final message landed in S3. Raise the retryable error so the caller gets
+    # the same second chance as an empty end_turn seen while polling. FAILED and CANCELLED carry a
+    # real cause and stay fatal.
+    if refreshed_status == TaskRun.Status.COMPLETED:
+        raise EmptyAgentTurnError(
+            message,
+            total_lines=final_state.total_lines,
+            printed_lines=printed_lines,
+            run_terminal=True,
+        )
+    raise RuntimeError(message)
 
 
 def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:
