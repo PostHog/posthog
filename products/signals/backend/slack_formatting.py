@@ -191,8 +191,15 @@ def _markdown_seams(text: str) -> list[_MarkdownSeam]:
         # block, so the line after either opens a paragraph, where a bold label counts as a seam.
         opens_next_paragraph = not line.strip()
         if fence is not None:
-            # Close only on the same fence character, at least as long as the opener (CommonMark).
-            if fence_match and fence_match.group(1)[0] == fence[0] and len(fence_match.group(1)) >= len(fence):
+            # Close only on a fence line of the same character, at least as long as the opener, and
+            # with nothing after the marker but whitespace. CommonMark forbids an info string on a
+            # closer, so an inner `` ```python `` inside an outer fence stays code, not a close.
+            if (
+                fence_match
+                and fence_match.group(1)[0] == fence[0]
+                and len(fence_match.group(1)) >= len(fence)
+                and not line[fence_match.end() :].strip()
+            ):
                 fence = None
                 opens_next_paragraph = True
         elif fence_match:

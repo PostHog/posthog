@@ -218,6 +218,19 @@ class TestSplitMarkdownBySections(SimpleTestCase):
 
         assert split_markdown_by_sections(summary) == [summary]
 
+    def test_inner_fence_with_an_info_string_does_not_close_the_block(self) -> None:
+        # CommonMark forbids an info string on a closing fence, so an inner ```python inside an outer
+        # same-length fence stays code. The whole snippet rides the lead and the sections under it
+        # still split, instead of the fence closing early and swallowing them.
+        summary = "Lead.\n\n```\nexample:\n```python\nprint(1)\n```\n\n**Evidence**\none\n\n**Impact**\ntwo"
+        segments = split_markdown_by_sections(summary)
+
+        assert segments[0].strip().startswith("Lead.")
+        assert "```python" in segments[0]
+        assert segments[1].startswith("**Evidence**")
+        assert segments[2].startswith("**Impact**")
+        assert len(segments) == 3
+
     @parameterized.expand(
         [
             (
