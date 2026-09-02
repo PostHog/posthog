@@ -1314,8 +1314,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         objects = Insight.objects.all()
         self.assertEqual(objects.count(), 1)
-        self.assertEqual(objects[0].query["source"]["series"][0]["event"], "$pageview")
-        self.assertEqual(objects[0].query["source"]["dateRange"]["date_from"], "-90d")
+        source = objects[0].query["source"] if objects[0].query else None
+        assert source is not None
+        self.assertEqual(source["series"][0]["event"], "$pageview")
+        self.assertEqual(source["dateRange"]["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
 
         self.assert_insight_activity(
@@ -1985,7 +1987,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         objects = Insight.objects.all()
         self.assertEqual(objects.count(), 1)
-        source = objects[0].query["source"]
+        source = objects[0].query["source"] if objects[0].query else None
+        assert source is not None
         self.assertEqual(source["kind"], "FunnelsQuery")
         self.assertEqual(source["series"][1]["event"], "$rageclick")
         self.assertEqual(source["interval"], "day")
