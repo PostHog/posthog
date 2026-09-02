@@ -53,14 +53,6 @@ WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
 WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
 
 
-class _LoginRejected(Exception):
-    """Carries the response that ends a passkey login attempt short of a session."""
-
-    def __init__(self, response: Response | JsonResponse) -> None:
-        super().__init__()
-        self.response = response
-
-
 def _login_error(message: str) -> Response:
     return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -283,7 +275,10 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             verified_user = self._verify_login_assertion(
                 request, credential_id=credential_id, challenge=challenge, typed_response=typed_response
             )
-            self._enforce_login_policy(request, verified_user)
+            if not isinstance(verified_user, User):
+                return verified_user
+            if policy_response := self._enforce_login_policy(request, verified_user):
+                return policy_response
 
             # Login the user with the WebauthnBackend
             login(request, verified_user, backend="posthog.auth.WebauthnBackend")
@@ -298,8 +293,6 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
             return Response({"success": True})
 
-        except _LoginRejected as rejected:
-            return rejected.response
         except AxesBackendPermissionDenied:
             return axes_locked_out(request)
         except EmailVerificationPending:
@@ -333,10 +326,10 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         credential_id: str,
         challenge: str,
         typed_response: WebAuthnAuthenticationResponse,
-    ) -> User:
+    ) -> User | Response | JsonResponse:
         """Return the user the assertion cryptographically proves.
 
-        Raises `_LoginRejected` carrying the response to send when it proves no one.
+        Returns the response to send instead when it proves no one.
         """
         # Perform cryptographic verification first — this is the only trustworthy
         # source of user identity. The client-provided userHandle is NOT part of the
@@ -355,9 +348,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             # This is best-effort — the userHandle may be spoofed, but recording
             # failures against the claimed identity is acceptable for rate limiting.
             claimed_user = self._extract_user_from_user_handle(user_handle_b64)
-            raise _LoginRejected(
-                self._handle_authentication_failure(request, claimed_user)
-                or _login_error("Authentication failed. Please check your passkey and try again.")
+            return self._handle_authentication_failure(request, claimed_user) or _login_error(
+                "Authentication failed. Please check your passkey and try again."
             )
 
         # Cast to our User model — WebauthnBackend.authenticate() always returns
@@ -376,16 +368,16 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             )
             # Record failure against the verified user so repeated
             # mismatch attempts trigger axes rate limiting.
-            raise _LoginRejected(
-                self._handle_authentication_failure(request, verified_user) or _login_error("Authentication failed.")
-            )
+            return self._handle_authentication_failure(request, verified_user) or _login_error("Authentication failed.")
 
         return verified_user
 
-    def _enforce_login_policy(self, request: Request, verified_user: User) -> None:
+    def _enforce_login_policy(self, request: Request, verified_user: User) -> Response | JsonResponse | None:
         """Run the policy checks that gate a session, all against the verified user.
 
-        Raises `_LoginRejected` carrying the response to send when one refuses the login.
+        Returns the response to send when a check refuses the login, or None when all of them
+        pass. Email verification is the exception: it raises, so the DRF handler formats the 401
+        the password path also returns.
         """
         evaluate_auth_attempt(
             request=request._request,
@@ -397,21 +389,23 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         # Check axes lockout against the verified user
         if lockout_response := self._check_axes_lockout(request, verified_user):
-            raise _LoginRejected(lockout_response)
+            return lockout_response
 
         # Check SSO enforcement against the verified user
         if sso_enforcement_response := self._check_sso_enforcement(verified_user):
-            raise _LoginRejected(sso_enforcement_response)
+            return sso_enforcement_response
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(verified_user):
-            raise _LoginRejected(_login_error(VERIFIED_DOMAIN_REQUIRED_ERROR))
+            return _login_error(VERIFIED_DOMAIN_REQUIRED_ERROR)
 
         if not is_email_verified_for_login(verified_user):
             # The passkey assertion is verified at this point, so the uuid is safe to return:
             # the password path returns the same uuid after a correct password. The frontend
             # uses the uuid to route to /verify_email/<uuid>.
             raise EmailVerificationPending(str(verified_user.uuid))
+
+        return None
 
     def _extract_user_from_user_handle(self, user_handle_b64: str) -> User | None:
         """Extract user from base64url-encoded userHandle (UUID bytes)."""
