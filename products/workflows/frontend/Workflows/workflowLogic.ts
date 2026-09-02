@@ -4079,6 +4079,10 @@ export const workflowLogic = kea<workflowLogicType>([
                     // doesn't see the create yet doesn't leave the user staring at a list without
                     // the workflow they just made.
                     actions.workflowCreated(originalWorkflow)
+                    // The form is still dirty here: it is rebaselined further down this listener,
+                    // after the redirect. Without this the create scene's own leave prompt would
+                    // fire on the navigation that completes the save.
+                    cache.disabledBeforeUnload = true
                     router.actions.replace(
                         urls.workflow(
                             originalWorkflow.id,
@@ -4318,7 +4322,13 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {
-            if (!logic.props.id || logic.props.id === 'new') {
+            if (!logic.props.id) {
+                return false
+            }
+            // A workflow that has never been created has no row to auto-save into, so leaving the
+            // create scene discards the whole canvas. That scene needs the prompt more than a saved
+            // one does, not less. Its own redirect to the saved workflow opts out through this flag.
+            if (logic.cache.disabledBeforeUnload) {
                 return false
             }
             if (logic.props.editTemplateId) {
