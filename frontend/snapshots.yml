@@ -5376,6 +5376,26 @@ snapshots:
         hash: v1.k794b7964.15506e7ebede7d15231f8d94aaacf5476dc036a9813d0e27659f408dc1d6ad1d.IJN2vnAPYA2fmYKhLlvF1-iqrHCinD36ji0trpAgbps
     products-dashboards-templates-dashboardtemplatemodal--full-json-editor--light:
         hash: v1.k794b7964.34123ac547729bed64d24fc376be3136665bdbc176b2bfca1e72084534c89be8._KQHMBnLrhlHtCxzJdCShfU-fbmlZCtiXDRilu_ARss
+    products-dashboards-tiles-dashboard-image-tile--default--dark:
+        hash: v1.k794b7964.cf718e541ea2226a737073e84b44dc3104b03b8cbff226cb6d12255a6250a272.IWY_qAWP3JmmxhHU7siNrNEASqFQ5ffHr5Il_JiWioA
+    products-dashboards-tiles-dashboard-image-tile--default--light:
+        hash: v1.k794b7964.859f64dd437ad3103df066cb519919222b862589741dc97ff74bac86fe5c45ff.mFMuarxWJkWSugcRsfGIqg3IvTdMm64pRXTtZqqhtbg
+    products-dashboards-tiles-dashboard-image-tile--opaque-card--dark:
+        hash: v1.k794b7964.de3e292d4aa1534245054a441555c55c3c5fb3c9af5656e15b1a70d36c4b3522.cBRMoSa4yIIAy3X4OgiLErcgrv-QNEloPmOsZX03mzo
+    products-dashboards-tiles-dashboard-image-tile--opaque-card--light:
+        hash: v1.k794b7964.397b1c7903a22443b21d8660f81ce443234ec649bb775748c47fa47956c1a1c9.4r3zU_g75ZV9zATLQwt2uYtvGXrsmux--P7Lzov8UL8
+    products-dashboards-tiles-image-tile-modal--empty--dark:
+        hash: v1.k794b7964.5c49cf9eb7062c6dd77a03d7f7d7f552a51cd7d2d698c8a1f85def1d8395036c.B95sgLhXl5mTGCGEAD50-8NV289Wy6q-3-DEycNutD4
+    products-dashboards-tiles-image-tile-modal--empty--light:
+        hash: v1.k794b7964.26d5ac6151f28654e3ff448e8a5d869cf6d3edf7b97578a3497958547b0ed710.6hdq3gE-KlJ1wsVwKdzBPwBNyKzpwvDbcjjq6Ez9IyM
+    products-dashboards-tiles-image-tile-modal--existing-cover--dark:
+        hash: v1.k794b7964.0bc10d5c8131ebe8e5f8d68c17e55b7b8ca2370de4ca8f36c5ffd751d321017a.QVAeu6EpZspGSAQ8qy4fIBq5Ek-SvFAZhCUe6JgccvE
+    products-dashboards-tiles-image-tile-modal--existing-cover--light:
+        hash: v1.k794b7964.cac0ff14bd628afd54ff06b7e923d2b488113a21093f9b2449f14d9d86daecac.PBLJqdHZ37SZgOA9E-V2PX0FfoGKYmqAB5yzccDjGsA
+    products-dashboards-tiles-image-tile-modal--existing-image--dark:
+        hash: v1.k794b7964.20c015c66f2a8df4b13180fe46f6ad7d23c008014120d2333305338bfd473eaa.jN29SgNagj6AhlrI5b50krX4pQlMrOA5O7iYLuVMai4
+    products-dashboards-tiles-image-tile-modal--existing-image--light:
+        hash: v1.k794b7964.a6f0232a7044b1a581e4beb9105ee9c00bbed9748fdfcd1c3c1a232acfa0333c.D40_QysPPcg1v2fjLF3-6qPyFXkBZ9rrdYat6l6djGU
     products-data-modeling-lineage-graph--canvas--dark:
         hash: v1.k794b7964.cb415b8a2cb9697e353db5cd11808642c38d589431a0cb95cb1ddf632160eed8.ND20cRcJ3o2QK0K6DSbHBN66H2HwvcsKMd8tgfSITaY
     products-data-modeling-lineage-graph--canvas--light:

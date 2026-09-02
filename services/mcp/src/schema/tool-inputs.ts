@@ -11,6 +11,35 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+const DashboardTileLayoutSchema = z.object({
+    x: z.number().int().min(0).optional(),
+    y: z.number().int().min(0).optional(),
+    w: z.number().int().min(1).optional(),
+    h: z.number().int().min(1).optional(),
+})
+
+export const DashboardTileCreateSchema = z.object({
+    id: z.number().int().positive().describe('Dashboard ID. Use dashboard-get or dashboards-get-all to find it.'),
+    type: z
+        .enum(['text', 'image'])
+        .describe('Tile type. Use text for Markdown content. Use image for a body with exactly one Markdown image.'),
+    body: z
+        .string()
+        .min(1)
+        .max(4000)
+        .describe(
+            'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
+        ),
+    layouts: z
+        .object({
+            sm: DashboardTileLayoutSchema.optional(),
+            xs: DashboardTileLayoutSchema.optional(),
+        })
+        .optional()
+        .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
+    color: z.string().max(400).nullable().optional().describe('Optional tile accent color.'),
+})
+
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
         .string()

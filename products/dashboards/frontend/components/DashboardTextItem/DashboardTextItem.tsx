@@ -4,10 +4,14 @@ import React from 'react'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+
+import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
+import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -46,39 +50,56 @@ function DashboardTextItemInternal(
         })
     )
 
+    const image = tile.text ? getImageOnlyTextCardImage(textCardConverter, tile.text.body) : null
+    const tileType = image ? 'image' : 'text'
+    const moreButtonOverlay = (
+        <>
+            <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
+                Edit {tileType}
+            </LemonButton>
+
+            <DashboardWidgetPlacementMenus
+                placementDestinations={copyToDestinations}
+                onMoveToDashboard={onMoveToDashboard}
+                onCopyToDashboard={onCopyToDashboard}
+            />
+
+            <LemonButton onClick={onDuplicate} fullWidth data-attr={`duplicate-${tileType}-from-dashboard`}>
+                Duplicate
+            </LemonButton>
+            <LemonDivider />
+            {onRemove && (
+                <LemonButton
+                    status="danger"
+                    onClick={() => onRemove()}
+                    fullWidth
+                    data-attr={`remove-${tileType}-tile-from-dashboard`}
+                >
+                    Delete
+                </LemonButton>
+            )}
+        </>
+    )
+
+    if (image) {
+        return (
+            <DashboardImageTile
+                ref={ref}
+                tile={tile}
+                image={image}
+                placement={placement}
+                moreButtonOverlay={moreButtonOverlay}
+                {...textCardProps}
+            />
+        )
+    }
+
     return (
         <TextCard
             ref={ref}
             textTile={tile}
             placement={placement}
-            moreButtonOverlay={
-                <>
-                    <LemonButton fullWidth onClick={onEdit} data-attr="edit-text">
-                        Edit text
-                    </LemonButton>
-
-                    <DashboardWidgetPlacementMenus
-                        placementDestinations={copyToDestinations}
-                        onMoveToDashboard={onMoveToDashboard}
-                        onCopyToDashboard={onCopyToDashboard}
-                    />
-
-                    <LemonButton onClick={onDuplicate} fullWidth data-attr="duplicate-text-from-dashboard">
-                        Duplicate
-                    </LemonButton>
-                    <LemonDivider />
-                    {onRemove && (
-                        <LemonButton
-                            status="danger"
-                            onClick={() => onRemove()}
-                            fullWidth
-                            data-attr="remove-text-tile-from-dashboard"
-                        >
-                            Delete
-                        </LemonButton>
-                    )}
-                </>
-            }
+            moreButtonOverlay={moreButtonOverlay}
             {...textCardProps}
         />
     )
