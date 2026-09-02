@@ -319,8 +319,9 @@ class WatchEmptyReason(StrEnum):
     NO_SEPARATION = "no_separation"
     # Events told the variants apart, but no recording behind them can be opened.
     NO_RECORDINGS = "no_recordings"
-    # Exposures landed and none carried a session. Waiting cannot fix it: more traffic captured
-    # the same way produces more exposures with no session.
+    # Exposures landed in the window and none carried a session. Checked over the window only, so
+    # the copy must date the claim. More time alone cannot fix it: more traffic captured the same
+    # way produces more exposures with no session.
     NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures"
 
 

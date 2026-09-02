@@ -2094,8 +2094,8 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and "
             "cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would "
             "read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: "
-            "this is also true when the variants are empty because the exposures never carried a session, which "
-            "empty_reason reports as 'no_session_linked_exposures' and which waiting does not fix."
+            "this is also true when the variants are empty because no exposure in the window carried a session, "
+            "which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own."
         )
     )
     empty_reason = serializers.ChoiceField(
@@ -2109,11 +2109,12 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants "
             "apart, but no recording behind them can be opened, so the project's session replay sampling and "
             "retention are what decide whether this surface can ever show anything. "
-            "'no_session_linked_exposures': this experiment's exposures landed but not one carried a session id, "
-            "so there was never a session to compare. That is a setup fact rather than a wait, and telling the "
-            "reader to check back is wrong: exposures captured server-side, or by an SDK with no session "
-            "concept, never carry one however long the experiment runs, so point at capturing exposure from a "
-            "client-side SDK instead. Never fill an empty shelf with the experiment's metrics: shortcut cards to "
-            "those metrics' events are withheld here for exactly that reason."
+            "'no_session_linked_exposures': people were exposed between date_from and date_to, and not one exposure "
+            "carried a session id, so there was nothing to compare. Only that window was checked, so say so. It is "
+            "how exposure is captured rather than a wait: exposures captured from a client-side SDK carry a session "
+            "and exposures captured server-side do not, so more of the same capture yields more of the same. Point "
+            "at capturing exposure from a client-side SDK before telling anyone to check back. Never fill an empty "
+            "shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for "
+            "exactly that reason."
         ),
     )

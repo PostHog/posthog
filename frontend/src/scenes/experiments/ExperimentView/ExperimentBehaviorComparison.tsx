@@ -466,10 +466,12 @@ export function ExperimentBehaviorComparison({
 
 /** Empty states that point at what decides them: the result itself, replay settings, or how exposure is captured. */
 function EmptyShelf({
+    deltas,
     reason,
     ended,
     onAction,
 }: {
+    deltas: ExperimentSessionEventDeltaResponseApi
     reason:
         | typeof ExperimentWatchEmptyReasonEnumApi.NoSeparation
         | typeof ExperimentWatchEmptyReasonEnumApi.NoRecordings
@@ -478,6 +480,9 @@ function EmptyShelf({
     onAction: (action: ExperimentWatchEmptyAction) => void
 }): JSX.Element {
     if (reason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
+        // Dated, because only the window was checked: an experiment that once captured exposure
+        // from the browser and no longer does reads the same as one that never did.
+        const covered = coveredWindow(deltas)
         return (
             <LemonBanner
                 type="info"
@@ -488,9 +493,9 @@ function EmptyShelf({
                     onClick: () => onAction('exposure_docs'),
                 }}
             >
-                Nothing to watch here. None of this experiment's exposures arrived with a session, so there was never a
-                session to compare. Waiting won't change that, since exposures captured from a backend SDK have no
-                session to record.
+                Nothing to watch here. Between {covered.from} and {covered.to}, people were exposed but no exposure
+                carried a session, so there was nothing to compare. Exposures captured from a client-side SDK carry a
+                session, and exposures captured from a backend SDK don't.
             </LemonBanner>
         )
     }
@@ -557,7 +562,7 @@ function WatchShelves({
 
     // No caption for the same reason: no session was read.
     if (emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
-        return <EmptyShelf reason={emptyReason} ended={ended} onAction={onEmptyAction} />
+        return <EmptyShelf deltas={deltas} reason={emptyReason} ended={ended} onAction={onEmptyAction} />
     }
 
     // Matched by name rather than `!= null`, so a reason this build does not know falls through to
@@ -569,7 +574,7 @@ function WatchShelves({
         return (
             <div className="flex flex-col gap-3">
                 <ShelfCaption deltas={deltas} hasCards={false} />
-                <EmptyShelf reason={emptyReason} ended={ended} onAction={onEmptyAction} />
+                <EmptyShelf deltas={deltas} reason={emptyReason} ended={ended} onAction={onEmptyAction} />
             </div>
         )
     }
@@ -663,6 +668,22 @@ function WatchShelves({
     )
 }
 
+/** The window a response covered, worded for the caption and the dated empty state. */
+function coveredWindow(deltas: ExperimentSessionEventDeltaResponseApi): { span: string; from: string; to: string } {
+    // A window that ran out inside a single day reads wrong as two identical dates, and "Aug 3 to
+    // Aug 3" hides that only a few hours were covered.
+    const sameDay = dayjs(deltas.date_from).isSame(dayjs(deltas.date_to), 'day')
+    const format = sameDay ? 'MMM D, HH:mm' : 'MMM D'
+    return {
+        // Named as a length and not only as two dates: the session ceiling can shrink the window to
+        // hours on a busy experiment, and "between Aug 8 and Aug 10" reads as the whole run to anyone
+        // who doesn't do the subtraction.
+        span: dayjs(deltas.date_from).from(dayjs(deltas.date_to), true),
+        from: dayjs(deltas.date_from).format(format),
+        to: dayjs(deltas.date_to).format(format),
+    }
+}
+
 /**
  * Read before the cards, not after them: what a reader has to know to interpret a shelf is that it
  * points at recordings rather than measuring anything, and the window it actually covered. The
@@ -676,14 +697,7 @@ function ShelfCaption({
     deltas: ExperimentSessionEventDeltaResponseApi
     hasCards: boolean
 }): JSX.Element {
-    // A window that ran out inside a single day reads wrong as two identical dates, and "Aug 3 to
-    // Aug 3" hides that only a few hours were covered.
-    const sameDay = dayjs(deltas.date_from).isSame(dayjs(deltas.date_to), 'day')
-    const format = sameDay ? 'MMM D, HH:mm' : 'MMM D'
-    // Named as a length and not only as two dates: the session ceiling can shrink the window to
-    // hours on a busy experiment, and "between Aug 8 and Aug 10" reads as the whole run to anyone
-    // who doesn't do the subtraction.
-    const span = dayjs(deltas.date_from).from(dayjs(deltas.date_to), true)
+    const covered = coveredWindow(deltas)
     const details = [
         'Each variant is compared against the others on which events people did, counting each person once, in the first session they were exposed in. Cards only appear where the difference is too big to be chance, and only with recordings that actually exist.',
         'Page views, autocaptures and the exposure event are never compared, since their names describe a mechanism rather than something a person did.',
@@ -710,8 +724,7 @@ function ShelfCaption({
             <span>
                 {hasCards &&
                     "These highlight which recordings might be worth watching. They don't say which variant is doing better, the way metrics do. "}
-                From about {span} of recorded sessions, between {dayjs(deltas.date_from).format(format)} and{' '}
-                {dayjs(deltas.date_to).format(format)}.
+                From about {covered.span} of recorded sessions, between {covered.from} and {covered.to}.
             </span>
             <Tooltip
                 title={
