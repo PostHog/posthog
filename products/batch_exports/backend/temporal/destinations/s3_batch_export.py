@@ -217,6 +217,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     prefix: str
     # Optional only so payloads written before it still deserialize. The activity fails without
     # retrying when it has no integration to authenticate with.
+    # TODO: maybe we can make this required in future?
     integration_id: int | None = None
     compression: str | None = None
     encryption: str | None = None
