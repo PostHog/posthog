@@ -1,6 +1,8 @@
 import re
+import uuid
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from products.workflows.backend.api.hog_flow import MAX_LEGACY_WINDOW_MINUTES, duration_to_minutes
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -48,23 +50,55 @@ class Command(BaseCommand):
                 needs_review.append((flow, minutes))
                 continue
 
-            window = duration_string(minutes)
-            new_conversion = {k: v for k, v in conversion.items() if k != "window_minutes"}
-            new_conversion["window"] = window
+            if not live_run:
+                self.stdout.write(
+                    f"  Would convert flow id={flow.id} team_id={flow.team_id} status={flow.status}: "
+                    f"window_minutes={minutes} -> window={duration_string(minutes)}"
+                )
+                converted += 1
+                continue
 
+            result = self.convert_locked(flow.pk)
+            if result is None:
+                self.stdout.write(
+                    f"  Skipped flow id={flow.id} team_id={flow.team_id}: conversion changed since the "
+                    "scan, leaving it for a rerun"
+                )
+                continue
+
+            locked_minutes, window = result
             self.stdout.write(
-                f"  {'Converting' if live_run else 'Would convert'} flow id={flow.id} team_id={flow.team_id} "
-                f"status={flow.status}: window_minutes={minutes} -> window={window}"
+                f"  Converting flow id={flow.id} team_id={flow.team_id} status={flow.status}: "
+                f"window_minutes={locked_minutes} -> window={window}"
             )
-            if live_run:
-                # .update() avoids bumping updated_at / firing save signals for a backfill.
-                HogFlow.objects.filter(pk=flow.pk).update(conversion=new_conversion)
             converted += 1
 
         self.report_needs_review(needs_review)
 
         verb = "converted" if live_run else "to convert"
         self.stdout.write(self.style.SUCCESS(f"Completed ({mode}): {converted} flow(s) {verb}"))
+
+    def convert_locked(self, pk: uuid.UUID) -> tuple[int, str] | None:
+        # Re-read the row under a lock and convert the value it holds now, not the one the scan read.
+        # A customer saving the workflow between the scan and this write would otherwise lose that edit
+        # to the stale conversion this command is holding, the lost write the API save path and the
+        # sibling backfills guard against. A locked row that no longer qualifies (a save added a window
+        # or pushed the value above the ceiling) is left for a rerun. .update() keeps updated_at
+        # untouched: this is a representation change, not a user edit, so it must not fail an open
+        # editor's next save or re-sort untouched flows to the top.
+        with transaction.atomic():
+            locked = HogFlow.objects.select_for_update().get(pk=pk)
+            conversion = locked.conversion or {}
+            minutes = conversion.get("window_minutes")
+            if conversion.get("window") or not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
+                return None
+            if minutes > MAX_LEGACY_WINDOW_MINUTES:
+                return None
+            window = duration_string(minutes)
+            new_conversion = {k: v for k, v in conversion.items() if k != "window_minutes"}
+            new_conversion["window"] = window
+            HogFlow.objects.filter(pk=pk).update(conversion=new_conversion)
+        return minutes, window
 
     def report_needs_review(self, needs_review):
         if not needs_review:
