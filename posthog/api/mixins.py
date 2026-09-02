@@ -239,7 +239,25 @@ def validated_request(
                     serializer_class = response_serializer
                     serialized = response_serializer(data=data, context=context)
 
-                if not serialized.is_valid(raise_exception=strict_response_validation):
+                try:
+                    response_matches_serializer = serialized.is_valid(raise_exception=strict_response_validation)
+                except Exception as exc:
+                    # `is_valid` only handles DRF's ValidationError. A DataclassSerializer can raise other
+                    # errors for a valid response, and this check is advisory under DEBUG, so warn instead.
+                    if strict_response_validation:
+                        raise
+                    logger.warning(
+                        "Response serializer could not parse the response it declared for status code "
+                        f"{status_code} in the responses parameter of the @validated_request decorator. "
+                        "The response was returned unchanged; check the declared serializer.",
+                        view_func=view_func.__name__,
+                        status_code=status_code,
+                        serializer_class=serializer_class.__name__,
+                        error=str(exc),
+                    )
+                    return result
+
+                if not response_matches_serializer:
                     logger.warning(
                         f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date",
                         view_func=view_func.__name__,
