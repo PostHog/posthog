@@ -204,6 +204,22 @@ def _invalidate_team_behavioral_cohort_cache(team_id: int) -> None:
 invalidate_team_behavioral_cohort_cache = _invalidate_team_behavioral_cohort_cache
 
 
+def _on_cohort_behavioral_cache_invalidated(team_id: int) -> None:
+    # Runs synchronously inside Cohort.save()/delete() under autocommit, so an unguarded Redis error
+    # here would escape the save, the same failure the _on_cohort_changed guard prevents. The
+    # behavioral-cohort cache is best-effort with a TTL and rebuilds on the next read, so a failed
+    # invalidation is safe to log and continue past. The public alias stays unguarded on purpose: the
+    # backfill finalizer wraps its own call and accounts for the failure.
+    try:
+        _invalidate_team_behavioral_cohort_cache(team_id)
+    except Exception as error:
+        logger.exception(
+            "failed_to_invalidate_team_behavioral_cohort_cache",
+            team_id=team_id,
+            error=str(error),
+        )
+
+
 def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     """
     Extract cohort dependencies from the given cohort.
@@ -315,22 +331,33 @@ def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
 
 
 def _on_cohort_changed(cohort: Cohort, always_invalidate: bool = False):
-    new_dependencies = extract_cohort_dependencies(cohort)
-    existing_dependencies = cache.get(_cohort_dependencies_key(cohort.id))
-    dependencies_changed = existing_dependencies is None or set(existing_dependencies) != new_dependencies
+    # Under autocommit this runs synchronously inside Cohort.save(), so a Redis error here escapes the
+    # save and can leave the cohort stuck with is_calculating=True. The dependency caches rebuild on the
+    # next change or warm pass, so a failed refresh is safe to log and continue past.
+    try:
+        new_dependencies = extract_cohort_dependencies(cohort)
+        existing_dependencies = cache.get(_cohort_dependencies_key(cohort.id))
+        dependencies_changed = existing_dependencies is None or set(existing_dependencies) != new_dependencies
 
-    # If the dependencies haven't changed, no need to refresh the cache
-    if not always_invalidate and not cohort.deleted and not dependencies_changed:
-        return
+        # If the dependencies haven't changed, no need to refresh the cache
+        if not always_invalidate and not cohort.deleted and not dependencies_changed:
+            return
 
-    cache.delete(_cohort_dependencies_key(cohort.id))
-    cache.delete(_cohort_dependents_key(cohort.id))
+        cache.delete(_cohort_dependencies_key(cohort.id))
+        cache.delete(_cohort_dependents_key(cohort.id))
 
-    if existing_dependencies:
-        for dep_id in existing_dependencies:
-            cache.delete(_cohort_dependents_key(dep_id))
+        if existing_dependencies:
+            for dep_id in existing_dependencies:
+                cache.delete(_cohort_dependents_key(dep_id))
 
-    warm_team_cohort_dependency_cache(cohort.team_id)
+        warm_team_cohort_dependency_cache(cohort.team_id)
+    except Exception as error:
+        logger.exception(
+            "failed_to_refresh_cohort_dependency_cache",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
+            error=str(error),
+        )
 
 
 def _has_backfillable_filters(cohort: Cohort, kind: CohortBackfillKind) -> bool:
@@ -443,7 +470,7 @@ def cohort_changed(sender, instance, **kwargs):
         return
 
     transaction.on_commit(lambda: _on_cohort_changed(instance))
-    transaction.on_commit(lambda: _invalidate_team_behavioral_cohort_cache(instance.team_id))
+    transaction.on_commit(lambda: _on_cohort_behavioral_cache_invalidated(instance.team_id))
 
 
 @receiver(post_save, sender=Cohort)
@@ -561,7 +588,7 @@ def cohort_deleted(sender, instance, **kwargs):
     Clear and rebuild dependency caches when cohort is deleted.
     """
     transaction.on_commit(lambda: _on_cohort_changed(instance, always_invalidate=True))
-    transaction.on_commit(lambda: _invalidate_team_behavioral_cohort_cache(instance.team_id))
+    transaction.on_commit(lambda: _on_cohort_behavioral_cache_invalidated(instance.team_id))
 
 
 @receiver(post_delete, sender=Team)

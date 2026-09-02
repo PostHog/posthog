@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.conf import settings
-from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connections
+from django.db import DEFAULT_DB_ALIAS, connections
 from django.utils import timezone
 
 import structlog
@@ -150,15 +150,16 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
     """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
 
     A long recalculation can outlive its connection (the server closes it unexpectedly); the first
-    write afterwards then raises a connection error. Left unguarded on the error/finally recovery
-    path, that cascades into "the connection is closed" - burying the real root-cause error and
-    leaving the cohort stuck with is_calculating=True. Reconnect and retry once so the bookkeeping
-    still lands and the original error is what propagates; if the retry fails too, swallow it (a
-    recovery write must never mask the failure it is recording).
+    write afterwards then raises a connection error. The save also fires post_save signal handlers
+    that touch Redis, so a Redis blip can escape here too. Left unguarded on the error/finally
+    recovery path, either failure buries the real root-cause error and leaves the cohort stuck with
+    is_calculating=True. Reconnect and retry once so the bookkeeping still lands and the original
+    error is what propagates; if the retry fails too, swallow it (a recovery write must never mask
+    the failure it is recording).
     """
     try:
         save_fn()
-    except (InterfaceError, OperationalError):
+    except Exception:
         connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
         try:
             save_fn()
@@ -206,10 +207,16 @@ def run_cohort_query(
         # Schedule delayed task to collect stats after query_log_archive is synced
         # Only if we have a history record to update and not in test mode
         if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
-            delayed_task = collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
-            )
+            # Best-effort stats telemetry scheduled before the query runs, so a broker blip here must
+            # not abort the recalculation before any ClickHouse work happens. Log and continue with no
+            # delayed task, matching the guard on the reschedule below.
+            try:
+                delayed_task = collect_cohort_query_stats.apply_async(
+                    args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                    countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                )
+            except Exception as error:
+                logger.warning("cohort_stats_collection_scheduling_failed", cohort_id=cohort_id, error=str(error))
 
     try:
         result = fn(*args, **kwargs)
@@ -218,14 +225,20 @@ def run_cohort_query(
         # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
         # This avoids waiting the full timeout when the query completed quickly
         if delayed_task and history and query and not settings.TEST:
-            if delayed_task.state in ["PENDING", "RECEIVED"]:
-                delayed_task.revoke()  # Cancel the delayed task
+            # The recalculation result is already computed. This rescheduling is best-effort stats
+            # bookkeeping that talks to the Celery result backend and broker, so a Redis blip must
+            # not discard the result. The delayed task still runs after its original countdown.
+            try:
+                if delayed_task.state in ["PENDING", "RECEIVED"]:
+                    delayed_task.revoke()  # Cancel the delayed task
 
-            # Run immediately since the query already completed
-            collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
-                countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
-            )
+                # Run immediately since the query already completed
+                collect_cohort_query_stats.apply_async(
+                    args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                    countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                )
+            except Exception as error:
+                logger.warning("cohort_stats_collection_scheduling_failed", cohort_id=cohort_id, error=str(error))
 
         return result, end_time
 
