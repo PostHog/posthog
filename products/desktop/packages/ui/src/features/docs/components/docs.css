@@ -258,14 +258,19 @@
 .doc-discussion-anchor[data-kind="watch"]::after {
   content: "";
   display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-left: 3px;
-  vertical-align: -1px;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  vertical-align: -3px;
   background-color: var(--amber-11);
   mask:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath d='M247.31 124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57 61.26 162.88 48 128 48S61.43 61.26 36.34 86.35C17.51 105.18 9 124 8.69 124.76a8 8 0 0 0 0 6.5c.35.79 8.82 19.57 27.65 38.4C61.43 194.74 93.12 208 128 208s66.57-13.26 91.66-38.34c18.83-18.83 27.3-37.61 27.65-38.4a8 8 0 0 0 0-6.5ZM128 192c-30.78 0-57.67-11.19-79.93-33.25A133.47 133.47 0 0 1 25 128a133.33 133.33 0 0 1 23.07-30.75C70.33 75.19 97.22 64 128 64s57.67 11.19 79.93 33.25A133.46 133.46 0 0 1 231.05 128C223.84 141.46 192.43 192 128 192Zm0-112a48 48 0 1 0 48 48 48.05 48.05 0 0 0-48-48Zm0 80a32 32 0 1 1 32-32 32 32 0 0 1-32 32Z'/%3E%3C/svg%3E")
-    center / contain no-repeat;
+    center / 12px no-repeat;
+  transition: background-color 120ms;
+}
+
+.doc-discussion-anchor[data-kind="watch"]:hover::after {
+  background-color: var(--amber-12);
 }
 
 .doc-discussion-anchor[data-kind="watch"][data-watch="moved"] {
@@ -407,10 +412,10 @@
   color: var(--gray-10);
 }
 
-/* The dossier: the record of a watch, with room to read. Two columns, one
-   when the window is narrow. */
+/* The dossier: the record of a watch, with room to read. The case on the
+   left, the history in a rail on the right; one column when narrow. */
 .doc-dossier {
-  max-width: min(56rem, calc(100vw - 3rem));
+  max-width: min(58rem, calc(100vw - 3rem));
 }
 
 .doc-dossier-title {
@@ -422,103 +427,341 @@
 
 .doc-dossier-body {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: 0 28px;
 }
 
-@media (max-width: 40rem) {
+@media (max-width: 44rem) {
   .doc-dossier-body {
     grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
   }
 }
 
-.doc-dossier-column {
+.doc-dossier-main {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 22px;
   min-width: 0;
 }
 
+.doc-dossier-rail {
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--gray-4);
+}
+
+@media (max-width: 44rem) {
+  .doc-dossier-rail {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
 .doc-dossier-heading {
-  margin: 0 0 6px 0;
+  margin: 0 0 8px 0;
   font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--gray-9);
 }
 
-.doc-dossier-evidence {
-  padding: 10px 12px;
+.doc-dossier-heading-note {
+  margin-left: 8px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--amber-11);
+}
+
+/* The hero: the pill, large, and one sentence on where the claim stands. */
+.doc-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-3);
+  background: var(--gray-2);
+}
+
+.doc-verdict-lg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  padding: 2px 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.doc-hero-line {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--gray-12);
+}
+
+.doc-hero-meta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--gray-10);
+}
+
+/* The two doors: how the claim settles. The chosen one lights up. */
+.doc-doors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.doc-door {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-4);
+  border-radius: var(--radius-3);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  --door: var(--green-9);
+  --door-text: var(--green-11);
+}
+
+.doc-door[data-side="refuted"] {
+  --door: var(--red-9);
+  --door-text: var(--red-11);
+}
+
+button.doc-door {
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+button.doc-door:hover {
+  border-color: color-mix(in srgb, var(--door) 45%, transparent);
+  background: color-mix(in srgb, var(--door) 5%, transparent);
+}
+
+.doc-door[data-lit="true"] {
+  border-color: color-mix(in srgb, var(--door) 40%, transparent);
+  background: color-mix(in srgb, var(--door) 9%, transparent);
+}
+
+.doc-door[data-lit="false"] {
+  opacity: 0.45;
+}
+
+.doc-door-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-door-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--door) 16%, transparent);
+  color: var(--door-text);
+}
+
+.doc-door-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--door-text);
+}
+
+.doc-door-if {
+  font-weight: 400;
+  color: var(--gray-10);
+}
+
+.doc-door-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--gray-11);
+}
+
+.doc-door-foot {
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--door-text);
+}
+
+.doc-door-cta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--door-text);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+button.doc-door:hover .doc-door-cta,
+button.doc-door:focus-visible .doc-door-cta {
+  opacity: 1;
+}
+
+/* The numbers as tiles: figure, change, and the line of checks. */
+.doc-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  gap: 10px;
+}
+
+.doc-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
   border: 1px solid var(--gray-4);
   border-radius: var(--radius-3);
   background: var(--gray-2);
 }
 
-.doc-dossier-figure {
-  font-variant-numeric: tabular-nums;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--gray-12);
+.doc-tile-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.doc-dossier-delta {
-  font-variant-numeric: tabular-nums;
+.doc-tile-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
   color: var(--gray-10);
 }
 
-.doc-dossier-evidence[data-moved="true"] .doc-dossier-figure,
-.doc-dossier-evidence[data-moved="true"] .doc-dossier-delta {
-  color: var(--amber-11);
+.doc-tile-sql {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--gray-8);
+  cursor: pointer;
 }
 
-.doc-dossier-evidence .doc-card-chart {
-  width: 100%;
-  height: 72px;
-  stroke: var(--gray-9);
-}
-
-.doc-dossier-evidence[data-moved="true"] .doc-card-chart {
-  stroke: var(--amber-9);
-}
-
-.doc-dossier-rules {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.doc-dossier-rule {
-  margin: 0;
-  font-size: 12.5px;
+.doc-tile-sql:hover {
   color: var(--gray-11);
 }
 
+.doc-tile-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.doc-tile-figure {
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--gray-12);
+}
+
+.doc-tile-change {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gray-10);
+}
+
+.doc-tile[data-moved="true"] .doc-tile-change {
+  color: var(--amber-11);
+}
+
+.doc-tile-chart {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin-top: 6px;
+  stroke: var(--gray-8);
+  overflow: visible;
+}
+
+.doc-tile[data-moved="true"] .doc-tile-chart {
+  stroke: var(--amber-9);
+}
+
+.doc-tile-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--gray-9);
+}
+
+.doc-tile-code {
+  max-height: 7rem;
+  margin-top: 6px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* The rail: everything that happened, newest first, one dot per kind. */
 .doc-timeline {
+  position: relative;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.doc-timeline::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 4px;
+  width: 1px;
+  background: var(--gray-4);
+}
+
 .doc-timeline-row {
   position: relative;
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
-  gap: 10px;
-  padding: 7px 0 9px 0;
+  grid-template-columns: 9px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 0 16px 0;
 }
 
-.doc-timeline-row + .doc-timeline-row {
-  border-top: 1px solid var(--gray-3);
+.doc-timeline-row:last-child {
+  padding-bottom: 0;
 }
 
 .doc-timeline-dot {
-  margin-top: 5px;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
   border-radius: 999px;
-  background: var(--gray-6);
+  border: 2px solid var(--gray-2);
+  box-shadow: 0 0 0 1px var(--gray-4);
+  background: var(--gray-7);
+}
+
+.doc-timeline-row[data-kind="next"] .doc-timeline-dot {
+  background: transparent;
+  box-shadow: 0 0 0 1px var(--gray-7);
+}
+
+.doc-timeline-row[data-kind="next"] .doc-timeline-text {
+  color: var(--gray-10);
 }
 
 .doc-timeline-row[data-kind="moved"] .doc-timeline-dot,
@@ -532,38 +775,75 @@
   background: var(--primary);
 }
 
-.doc-timeline-row[data-kind="verdict"] .doc-timeline-dot,
 .doc-timeline-row[data-kind="stopped"] .doc-timeline-dot {
   background: var(--gray-11);
 }
 
-.doc-timeline-kind {
-  font-weight: 600;
-  color: var(--gray-10);
+.doc-timeline[data-verdict="confirmed"]
+  .doc-timeline-row[data-kind="verdict"]
+  .doc-timeline-dot {
+  background: var(--green-9);
 }
 
+.doc-timeline[data-verdict="refuted"]
+  .doc-timeline-row[data-kind="verdict"]
+  .doc-timeline-dot {
+  background: var(--red-9);
+}
+
+.doc-timeline-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--gray-12);
+}
+
+.doc-timeline-more {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 11px;
+  color: var(--gray-10);
+  cursor: pointer;
+}
+
+.doc-timeline-more:hover {
+  color: var(--gray-12);
+}
+
+.doc-timeline-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--gray-9);
+}
+
+/* What the scout follows: a compact, quiet list. */
 .doc-watch-signals {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
   font-size: 12.5px;
+  line-height: 1.45;
   color: var(--gray-11);
 }
 
 .doc-watch-signal {
   position: relative;
-  padding-left: 10px;
+  padding-left: 14px;
 }
 
 .doc-watch-signal::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 8px;
-  width: 3px;
-  height: 3px;
+  left: 2px;
+  top: 7px;
+  width: 4px;
+  height: 4px;
   border-radius: 999px;
-  background: var(--gray-8);
+  background: var(--gray-7);
 }
 
 /* A SQL block: the query above, coloured like code, and the result under it.
