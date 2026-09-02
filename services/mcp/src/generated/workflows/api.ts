@@ -23,6 +23,10 @@ export const HogFlowsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimisation_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
+    origin_product: zod
+        .enum(['loops'])
+        .optional()
+        .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod.string().optional().describe('Case-insensitive search across workflow name and description.'),
     status: zod
         .enum(['active', 'archived', 'draft'])
@@ -79,6 +83,12 @@ export const HogFlowsCreateBody = () => zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        origin_product: zod
+            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
             ),
         trigger_masking: zod
             .union([
@@ -888,7 +898,9 @@ export const HogFlowsInvocationsCreateBody = () => zod.object({
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe('Test trigger payload, typically {event, person, groups}.'),
+        .describe(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person."
+        ),
     mock_async_functions: zod
         .boolean()
         .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
