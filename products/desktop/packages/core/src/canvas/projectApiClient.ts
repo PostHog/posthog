@@ -19,11 +19,6 @@ export class ProjectApiError extends Error {
   }
 }
 
-/** The status code of a ProjectApiError, or null for a non-API error. */
-export function apiErrorStatus(error: unknown): number | null {
-  return error instanceof ProjectApiError ? error.status : null;
-}
-
 // A DRF error body carries the actual cause ("detail", plus canvas validation
 // "diagnostics"); without it a 400 is undiagnosable from the client. Cap the
 // diagnostics so one broken layout doesn't produce a screen-length message.

@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterator
 from typing import Literal, NotRequired, TypedDict
 
 STALE_EVENT_DAYS = 30
@@ -18,6 +19,18 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+
+
+def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
+    """Whether an LLM prompt must leave this entry out."""
+    return bool(definition.get("system") or definition.get("ignored_in_assistant"))
+
+
+def visible_definitions(group: str) -> Iterator[tuple[str, CoreFilterDefinition]]:
+    """The entries of a taxonomy group that an LLM prompt may show."""
+    for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items():
+        if not is_hidden_from_assistant(definition):
+            yield name, definition
 
 
 """
@@ -234,7 +247,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
-            "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the input, output, and output_choices columns of the posthog.ai_events table in HogQL. That content is only available within its retention window.",
             "primary_property": "$ai_model",
         },
         "$ai_evaluation": {
@@ -819,12 +832,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$pageview_id": {
@@ -2329,6 +2342,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Where the cost data for this model was sourced from.",
             "examples": ["openrouter", "manual", "custom", "passthrough"],
         },
+        "$ai_cost_passthrough": {
+            "label": "AI cost passthrough (LLM)",
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [True],
+        },
         "$ai_cost_model_provider": {
             "label": "AI cost model provider (LLM)",
             "description": "The provider used to look up the cost for this model.",
@@ -2926,6 +2944,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The PostHog cloud region the MCP server routed the request to.",
             "examples": ["us", "eu"],
         },
+        "$mcp_scope_preset": {
+            "label": "MCP scope preset",
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": ["scout", "research", "implementation", "sandbox", "user"],
+        },
         "$mcp_oauth_client_name": {
             "label": "MCP OAuth client name",
             "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
@@ -3397,6 +3420,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$issue_description": {
             "label": "Issue description",
             "description": "The description of the error tracking issue this exception belongs to.",
+            "type": "String",
+        },
+        "$issue_severity": {
+            "label": "Issue severity",
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": ["low", "medium", "high", "critical"],
             "type": "String",
         },
         "$exception_release": {
@@ -3998,10 +4027,13 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
 
+# Event properties that only carry person property updates for ingestion to apply. Querying them
+# is deprecated, so every place that offers properties to pick from — the taxonomic filter, the
+# property definitions API, HogQL and Hog autocomplete, the AI taxonomy — leaves them out.
+QUERY_DEPRECATED_EVENT_PROPERTIES: set[str] = {"$set", "$set_once"}
+
 IGNORED_EVENT_NAMES: list[str] = [
-    name
-    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
-    if defn.get("system") or defn.get("ignored_in_assistant")
+    name for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items() if is_hidden_from_assistant(defn)
 ]
 
 # Core PostHog events, derived from the taxonomy. Used to determine which events

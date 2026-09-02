@@ -21,10 +21,13 @@ from nanoid import generate
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -5409,6 +5412,24 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data, expected_counts)
 
     @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_returns_more_surveys_than_the_hogql_default_limit(self):
+        Survey.objects.create(team_id=self.team.id, start_date=datetime.now() - timedelta(days=1))
+        survey_ids = [str(uuid.uuid4()) for _ in range(DEFAULT_RETURNED_ROWS + 1)]
+        for survey_id in survey_ids:
+            _create_event(
+                event="survey sent",
+                team=self.team,
+                distinct_id=self.user.id,
+                properties={"$survey_id": survey_id},
+                timestamp=datetime.now(),
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), dict.fromkeys(survey_ids, 1))
+
+    @freeze_time("2024-05-01 14:40:09")
     def test_responses_count_excludes_archived_responses(self):
         survey_id = str(uuid.uuid4())
         response_uuid = str(uuid.uuid4())
@@ -7269,6 +7290,64 @@ class TestSurveyListTypeFilter(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
+
+    def test_filter_by_creator_before_paginating(self):
+        own_survey = Survey.objects.create(
+            team=self.team,
+            name="my survey",
+            type="popover",
+            questions=[],
+            created_by=self.user,
+        )
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        Survey.objects.create(
+            team=self.team,
+            name="someone else's survey",
+            type="popover",
+            questions=[],
+            created_by=other_user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?created_by={self.user.id}&limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertIsNone(data["next"])
+        self.assertEqual([survey["id"] for survey in data["results"]], [str(own_survey.id)])
+
+    @parameterized.expand(
+        [
+            ("draft", "draft survey"),
+            ("running", "running survey"),
+            ("complete", "complete survey"),
+        ]
+    )
+    def test_filter_by_status(self, survey_status: str, expected_name: str):
+        now = datetime.now(UTC)
+        Survey.objects.create(team=self.team, name="draft survey", type="popover", questions=[])
+        Survey.objects.create(
+            team=self.team,
+            name="running survey",
+            type="popover",
+            questions=[],
+            start_date=now,
+        )
+        Survey.objects.create(
+            team=self.team,
+            name="complete survey",
+            type="popover",
+            questions=[],
+            start_date=now - timedelta(days=1),
+            end_date=now,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?status={survey_status}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["name"], expected_name)
 
     def test_filter_by_ids(self):
         first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])

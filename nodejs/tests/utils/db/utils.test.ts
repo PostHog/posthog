@@ -101,21 +101,26 @@ describe('personInitialAndUTMProperties()', () => {
             $set: { $current_url: 'https://test.com' },
         })
     })
-    it('treats $os_name as fallback for $os', () => {
-        const propertiesOsNameOnly = { $os_name: 'Android' }
-        expect(personInitialAndUTMProperties(propertiesOsNameOnly)).toEqual({
-            $os: 'Android',
-            $os_name: 'Android',
-            $set_once: { $initial_os: 'Android' },
-            $set: { $os: 'Android' },
-        })
-        // Test that $os takes precedence, with $os_name preserved (although this should not happen in the wild)
-        const propertiesBothOsKeys = { $os: 'Windows', $os_name: 'Android' }
-        expect(personInitialAndUTMProperties(propertiesBothOsKeys)).toEqual({
+    it('keeps $os over $os_name and drops the alias from person properties', () => {
+        // normalizeOsAlias fills the event's own $os upstream, so this function always sees $os
+        // alongside $os_name; the divergent values here never occur in the wild.
+        const properties = { $os: 'Windows', $os_name: 'Android' }
+        expect(personInitialAndUTMProperties(properties)).toEqual({
             $os: 'Windows',
             $os_name: 'Android',
             $set_once: { $initial_os: 'Windows' },
             $set: { $os: 'Windows' },
+        })
+    })
+    it('falls back to $os_name for $initial_os when the event carries a null $os', () => {
+        // The never-write-null rule skips $initial_os for a null $os, leaving $os_name as the only
+        // first-touch value available.
+        const properties = { $os: null, $os_name: 'Android' }
+        expect(personInitialAndUTMProperties(properties)).toEqual({
+            $os: null,
+            $os_name: 'Android',
+            $set_once: { $initial_os: 'Android' },
+            $set: { $os: null },
         })
     })
     it('does not lift device context from an $is_server event, but keeps campaign params', () => {
@@ -156,7 +161,7 @@ describe('personInitialAndUTMProperties()', () => {
             { gclid: null, msclkid: null },
             {},
         ],
-        ['a null $os_name does not claim $initial_os', { $os_name: null }, { $os: null }, {}],
+        ['a null $os_name does not claim $initial_os', { $os: null, $os_name: null }, { $os: null }, {}],
     ])('never writes null first-touch values: %s', (_desc, input, expectedSet, expectedSetOnce) => {
         const result = personInitialAndUTMProperties({ ...input })
         expect(result.$set).toEqual(expectedSet)
@@ -165,7 +170,6 @@ describe('personInitialAndUTMProperties()', () => {
 
     it.each([
         ['client event maps $os', { $lib: 'web', $os: 'Linux' }, 'Linux'],
-        ['client mobile via $os_name', { $lib: 'posthog-ios', $os_name: 'iOS' }, 'iOS'],
         ['no $is_server is treated as client', { $os: 'Linux' }, 'Linux'],
         ['$is_server false is treated as client', { $os: 'Linux', $is_server: false }, 'Linux'],
         ['$is_server true skips $os', { $os: 'Linux', $is_server: true }, undefined],

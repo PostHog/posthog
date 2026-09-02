@@ -191,16 +191,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         verbose_name="Is CIMD client",
         help_text="True if this client was registered via Client ID Metadata Document (CIMD)",
     )
-    # Superseded by client_id, which now holds this same URL. Nothing resolves a client
-    # through it any more; it stays written on create so a rollback to code that does keeps
-    # working, and is dropped once that window closes.
-    cimd_metadata_url: models.URLField = models.URLField(
-        max_length=2048,
-        null=True,
-        blank=True,
-        unique=True,
-        help_text="The URL used as client_id for CIMD clients. Must match the client_id in the metadata document.",
-    )
     cimd_metadata_last_fetched: models.DateTimeField = models.DateTimeField(
         null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
     )

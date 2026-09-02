@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { isPiTaskRuntime, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
@@ -221,7 +221,7 @@ export function OpenTaskButton({
 }: {
     taskId: string
     runStatus?: TaskRunStatus
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
 }): JSX.Element | null {
     const { openSidePanelMaxWithTaskBind } = useActions(maxGlobalLogic)
     const isTerminal = isTerminalRunStatus(runStatus)

@@ -11,10 +11,9 @@
  * * `schedule` - Schedule
  * * `threshold` - Threshold
  */
-export type VisionActionTriggerTypeEnumApi =
-    (typeof VisionActionTriggerTypeEnumApi)[keyof typeof VisionActionTriggerTypeEnumApi]
+export type TriggerTypeEnumApi = (typeof TriggerTypeEnumApi)[keyof typeof TriggerTypeEnumApi]
 
-export const VisionActionTriggerTypeEnumApi = {
+export const TriggerTypeEnumApi = {
     Schedule: 'schedule',
     Threshold: 'threshold',
 } as const
@@ -24,9 +23,9 @@ export const VisionActionTriggerTypeEnumApi = {
  * * `alert` - Alert
  * * `per_observation` - Per observation
  */
-export type VisionActionModeEnumApi = (typeof VisionActionModeEnumApi)[keyof typeof VisionActionModeEnumApi]
+export type ActionModeEnumApi = (typeof ActionModeEnumApi)[keyof typeof ActionModeEnumApi]
 
-export const VisionActionModeEnumApi = {
+export const ActionModeEnumApi = {
     GroupSummary: 'group_summary',
     Alert: 'alert',
     PerObservation: 'per_observation',
@@ -87,9 +86,9 @@ export interface SynthesisConfigApi {
  * * `every_match` - Every new match
  * * `on_breach` - When a threshold is crossed
  */
-export type AlertConfigFrequencyEnumApi = (typeof AlertConfigFrequencyEnumApi)[keyof typeof AlertConfigFrequencyEnumApi]
+export type AlertFrequencyEnumApi = (typeof AlertFrequencyEnumApi)[keyof typeof AlertFrequencyEnumApi]
 
-export const AlertConfigFrequencyEnumApi = {
+export const AlertFrequencyEnumApi = {
     EveryMatch: 'every_match',
     OnBreach: 'on_breach',
 } as const
@@ -98,9 +97,10 @@ export const AlertConfigFrequencyEnumApi = {
  * * `count` - Count of matching observations
  * * `avg_score` - Average score
  */
-export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
+export type VisionActionAlertMetricEnumApi =
+    (typeof VisionActionAlertMetricEnumApi)[keyof typeof VisionActionAlertMetricEnumApi]
 
-export const VisionAlertMetricEnumApi = {
+export const VisionActionAlertMetricEnumApi = {
     Count: 'count',
     AvgScore: 'avg_score',
 } as const
@@ -143,12 +143,12 @@ export interface AlertConfigApi {
      *
      * * `every_match` - Every new match
      * * `on_breach` - When a threshold is crossed */
-    frequency?: AlertConfigFrequencyEnumApi
+    frequency?: AlertFrequencyEnumApi
     /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
      *
      * * `count` - Count of matching observations
      * * `avg_score` - Average score */
-    metric?: VisionAlertMetricEnumApi
+    metric?: VisionActionAlertMetricEnumApi
     /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
     threshold?: number
     /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
@@ -273,13 +273,13 @@ export interface VisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: VisionActionTriggerTypeEnumApi
+    trigger_type?: TriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
      * * `alert` - Alert
      * * `per_observation` - Per observation */
-    mode?: VisionActionModeEnumApi
+    mode?: ActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
     /** Targeting predicate: which of the scanner's observations this action runs on. */
@@ -340,13 +340,13 @@ export interface PatchedVisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: VisionActionTriggerTypeEnumApi
+    trigger_type?: TriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
      * * `alert` - Alert
      * * `per_observation` - Per observation */
-    mode?: VisionActionModeEnumApi
+    mode?: ActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
     /** Targeting predicate: which of the scanner's observations this action runs on. */
@@ -513,10 +513,9 @@ export interface VisionActionRunApi {
  * * `metric` - Metric
  * * `match` - Match
  */
-export type VisionAlertConfigurationKindEnumApi =
-    (typeof VisionAlertConfigurationKindEnumApi)[keyof typeof VisionAlertConfigurationKindEnumApi]
+export type VisionAlertKindEnumApi = (typeof VisionAlertKindEnumApi)[keyof typeof VisionAlertKindEnumApi]
 
-export const VisionAlertConfigurationKindEnumApi = {
+export const VisionAlertKindEnumApi = {
     Metric: 'metric',
     Match: 'match',
 } as const
@@ -544,10 +543,9 @@ export interface VisionAlertSelectionApi {
  * * `count` - Count matching observations
  * * `avg_score` - Average score
  */
-export type VisionAlertConfigurationMetricEnumApi =
-    (typeof VisionAlertConfigurationMetricEnumApi)[keyof typeof VisionAlertConfigurationMetricEnumApi]
+export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
 
-export const VisionAlertConfigurationMetricEnumApi = {
+export const VisionAlertMetricEnumApi = {
     Count: 'count',
     AvgScore: 'avg_score',
 } as const
@@ -600,14 +598,14 @@ export interface VisionAlertConfigurationApi {
      *
      * * `metric` - Metric
      * * `match` - Match */
-    kind: VisionAlertConfigurationKindEnumApi
+    kind: VisionAlertKindEnumApi
     /** Which observations count. Empty matches every observation of the scanner. */
     selection?: VisionAlertSelectionApi
     /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
      *
      * * `count` - Count matching observations
      * * `avg_score` - Average score */
-    metric?: VisionAlertConfigurationMetricEnumApi
+    metric?: VisionAlertMetricEnumApi
     /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
      *
      * * `above` - At or above
@@ -715,14 +713,14 @@ export interface PatchedVisionAlertConfigurationApi {
      *
      * * `metric` - Metric
      * * `match` - Match */
-    kind?: VisionAlertConfigurationKindEnumApi
+    kind?: VisionAlertKindEnumApi
     /** Which observations count. Empty matches every observation of the scanner. */
     selection?: VisionAlertSelectionApi
     /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
      *
      * * `count` - Count matching observations
      * * `avg_score` - Average score */
-    metric?: VisionAlertConfigurationMetricEnumApi
+    metric?: VisionAlertMetricEnumApi
     /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
      *
      * * `above` - At or above
@@ -1873,10 +1871,10 @@ export interface ObservationStatsApi {
  * * `superseded` - Superseded
  * * `no_change` - No change
  */
-export type ReplayScannerPromptSuggestionStatusEnumApi =
-    (typeof ReplayScannerPromptSuggestionStatusEnumApi)[keyof typeof ReplayScannerPromptSuggestionStatusEnumApi]
+export type PromptSuggestionStatusEnumApi =
+    (typeof PromptSuggestionStatusEnumApi)[keyof typeof PromptSuggestionStatusEnumApi]
 
-export const ReplayScannerPromptSuggestionStatusEnumApi = {
+export const PromptSuggestionStatusEnumApi = {
     Pending: 'pending',
     Applied: 'applied',
     Dismissed: 'dismissed',
@@ -1952,7 +1950,7 @@ export interface ReplayScannerPromptSuggestionApi {
      * * `dismissed` - Dismissed
      * * `superseded` - Superseded
      * * `no_change` - No change */
-    readonly status: ReplayScannerPromptSuggestionStatusEnumApi
+    readonly status: PromptSuggestionStatusEnumApi
     /** The full rewritten prompt, ready to apply to the scanner. */
     readonly suggested_prompt: string
     /** The scanner prompt this suggestion was generated against, for diffing. */
@@ -2087,11 +2085,20 @@ export interface SignalScoutSlackDestinationApi {
      */
     integration_id: number
     /**
-     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set.
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
      * @maxLength 255
      * @nullable
      */
     channel?: string | null
+    /**
+     * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+     * @minItems 1
+     * @maxItems 5
+     * @nullable
+     * @items.maxLength 255
+     * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+     */
+    users?: string[] | null
     /** When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
     thread_reports?: boolean
 }
@@ -2112,10 +2119,10 @@ export interface SignalScoutOutputDestinationsApi {
  * * `trusted` - Trusted domains only
  * * `full` - Full
  */
-export type ScoutConfigNetworkAccessEnumApi =
-    (typeof ScoutConfigNetworkAccessEnumApi)[keyof typeof ScoutConfigNetworkAccessEnumApi]
+export type SignalScoutConfigNetworkAccessEnumApi =
+    (typeof SignalScoutConfigNetworkAccessEnumApi)[keyof typeof SignalScoutConfigNetworkAccessEnumApi]
 
-export const ScoutConfigNetworkAccessEnumApi = {
+export const SignalScoutConfigNetworkAccessEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
 } as const
@@ -2146,7 +2153,7 @@ export interface SignalScoutConfigOptionsApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -2193,7 +2200,7 @@ export interface ScannerScoutCreateApi {
     name: string
     /**
      * Short description of the signal or behavior this scout investigates.
-     * @maxLength 4096
+     * @maxLength 1024
      */
     description: string
     /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
@@ -2202,6 +2209,10 @@ export interface ScannerScoutCreateApi {
     config?: SignalScoutConfigOptionsApi
 }
 
+/**
+ * * `canonical` - canonical
+ * * `custom` - custom
+ */
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
 
 export const ScoutOriginEnumApi = {
@@ -2215,9 +2226,10 @@ export const ScoutOriginEnumApi = {
  * * `paused_by_system` - Paused by system
  * * `paused_by_user` - Paused by user
  */
-export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+export type SignalScoutConfigStatusEnumApi =
+    (typeof SignalScoutConfigStatusEnumApi)[keyof typeof SignalScoutConfigStatusEnumApi]
 
-export const ScoutConfigStatusEnumApi = {
+export const SignalScoutConfigStatusEnumApi = {
     Active: 'active',
     PendingPause: 'pending_pause',
     PausedBySystem: 'paused_by_system',
@@ -2229,10 +2241,10 @@ export const ScoutConfigStatusEnumApi = {
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
  */
-export type ScoutConfigPauseReasonEnumApi =
-    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+export type SignalScoutConfigPauseReasonEnumApi =
+    (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
 
-export const ScoutConfigPauseReasonEnumApi = {
+export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
@@ -2268,13 +2280,13 @@ export interface SignalScoutConfigApi {
      * * `pending_pause` - Pending pause
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
-    readonly status: ScoutConfigStatusEnumApi
+    readonly status: SignalScoutConfigStatusEnumApi
     /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures */
-    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
+    readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -2299,7 +2311,7 @@ export interface SignalScoutConfigApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    readonly network_access: ScoutConfigNetworkAccessEnumApi
+    readonly network_access: SignalScoutConfigNetworkAccessEnumApi
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable
