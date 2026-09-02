@@ -69,6 +69,16 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
             ),
+            # Serves the billing-period row sum, which runs before every extraction:
+            # `team IN (org teams)` with `status` equality and a `finished_at` range. The
+            # indexes above name a pipeline first, which this query does not, so it read
+            # the whole status history of each team and discarded most of it. Partial on
+            # `billable`, which the query also requires, to keep non-billable runs out.
+            models.Index(
+                fields=["team", "status", "finished_at"],
+                name="idx_extdatajob_team_stat_fin",
+                condition=models.Q(billable=True),
+            ),
         ]
 
     def folder_path(self) -> str:
