@@ -115,6 +115,27 @@ describe('aiOnboardingLogic', () => {
         expect(seenWrites).toEqual([{ product_key: POSTHOG_AI_ONBOARDING_SEEN_KEY, seen: true }])
     })
 
+    // A replay opens the takeover on a surface that never showed it, so it has to write nothing on the way
+    // out as well as on open. Otherwise dismissing, finishing, or answering a prompt after a replay persists
+    // the flag and swallows the user's one real first-run showing on the new surface.
+    it.each([
+        ['dismissed', () => logic.actions.closeOnboarding()],
+        ['finished', () => logic.actions.finishOnboarding()],
+        ['answered with a starter prompt', () => logic.actions.selectStarterPrompt('Audit my event tracking.')],
+    ])('writes nothing when a replay is %s', async (_name, exit) => {
+        mountLogic()
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
+
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding(true)
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            exit()
+        }).toFinishAllListeners()
+
+        expect(seenWrites).toHaveLength(0)
+    })
+
     // `/api/users/` rejects writes from an impersonated session, so persisting the flag can only
     // fail. The takeover still has to close, or every dismissal re-opens it over the composer.
     it('closes without writing the seen flag while impersonating', async () => {

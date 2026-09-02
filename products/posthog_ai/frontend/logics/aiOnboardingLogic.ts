@@ -278,11 +278,18 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             // skip event carries the step it happened on rather than only reporting that a dismissal occurred.
             posthog.capture('posthog ai onboarding step skipped', values.reportProperties)
             posthog.capture('posthog ai onboarding dismissed', values.reportProperties)
-            actions.markOnboardingSeen()
+            // A replay writes nothing on the way out either, matching the open carve-out above, because it
+            // re-opened the takeover on a surface that never showed it and persisting here would swallow the
+            // one real showing.
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         finishOnboarding: () => {
             posthog.capture('posthog ai onboarding completed', values.reportProperties)
-            actions.markOnboardingSeen()
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         selectStarterPrompt: ({ prompt }) => {
             posthog.capture('posthog ai onboarding starter prompt clicked', {
@@ -293,7 +300,9 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             // prompt only prefills, so the consent popover never fires on top of the onboarding. The user's
             // own send then goes through the composer's normal consent flow.
             actions.setSeed({ prompt, autoSubmit: values.dataProcessingAccepted })
-            actions.markOnboardingSeen()
+            if (!values.isReplay) {
+                actions.markOnboardingSeen()
+            }
         },
         clickGithubCta: () => {
             posthog.capture('posthog ai onboarding github cta clicked', {
