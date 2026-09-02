@@ -3852,6 +3852,7 @@ class HogFlowViewSet(
 
         if not route_to_draft:
             self._maybe_reschedule_timing_edits(before_update, serializer.instance)
+            self._pause_schedules_on_audience_change(before_update, serializer.instance)
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
@@ -4019,6 +4020,7 @@ class HogFlowViewSet(
 
         if not route_to_draft:
             self._maybe_reschedule_timing_edits(before_update, locked)
+            self._pause_schedules_on_audience_change(before_update, locked)
         # Explicit "updated" (the action name "graph" isn't in ACTIVITY_TYPES, which would fall back to
         # the indistinct "changed" and miss the describer's per-field rendering).
         log_activity_from_viewset(self, locked, activity="updated", name=locked.name, previous=before_update)
@@ -4154,6 +4156,30 @@ class HogFlowViewSet(
         transaction.on_commit(
             lambda: reschedule_hog_flow_timing.delay(team_id=team_id, hog_flow_id=hog_flow_id, action_ids=action_ids)
         )
+
+    def _pause_schedules_on_audience_change(self, before: Optional[HogFlow], after: HogFlow) -> None:
+        """Pause every active schedule when the audience a batch dispatch fans out to changes.
+
+        The scheduler reads the live trigger at fire time, so each firing broadcasts to whatever
+        the trigger says then, not to what someone confirmed when the schedule was created. Two
+        edits break that confirmation: a person-less trigger becoming `batch`, and a batch
+        trigger's filters being widened. Both leave a recurring send whose recipient count nobody
+        was shown, so the cadence stops until it is created again through the audience preview.
+
+        Called wherever the LIVE trigger changes (direct save, graph edit, publish), never for
+        draft writes, which don't change what the scheduler reads.
+        """
+        if not before or not _trigger_has_audience(after):
+            return
+        if _trigger_has_audience(before) and (before.trigger or {}).get("filters") == (after.trigger or {}).get(
+            "filters"
+        ):
+            return
+        paused = after.schedules.filter(status=HogFlowSchedule.Status.ACTIVE).update(
+            status=HogFlowSchedule.Status.PAUSED, next_run_at=None, updated_at=timezone.now()
+        )
+        if paused:
+            self._report_workflow_action("hog_flow_schedules_paused_on_audience_change", after, {"paused": paused})
 
     def _require_audience_confirm_token(self, request: Request, hog_flow: HogFlow) -> None:
         """Only meaningful for triggers that fan out to a person audience; see _trigger_has_audience."""
@@ -4319,6 +4345,7 @@ class HogFlowViewSet(
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
         self._maybe_reschedule_timing_edits(before_update, locked)
+        self._pause_schedules_on_audience_change(before_update, locked)
         log_activity_from_viewset(self, locked, activity="published", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_draft_published", locked)

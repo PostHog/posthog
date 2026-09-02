@@ -754,7 +754,7 @@
         }
     },
     "workflows-blast-radius": {
-        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch, and before schedule-create on a workflow with a 'batch' trigger. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed until they say yes. A 'schedule' trigger has no audience, so skip this and call schedule-create directly. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Size workflow audience",

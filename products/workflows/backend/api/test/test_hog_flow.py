@@ -38,6 +38,10 @@ from products.workflows.backend.api.hog_flow import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+
+_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
+_WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -3691,6 +3695,58 @@ class TestHogFlowAPI(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert scheduled.status_code == 201, scheduled.json()
+
+    @parameterized.expand(
+        [
+            (
+                "trigger_converted_to_batch",
+                {"type": "schedule"},
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                HogFlowSchedule.Status.PAUSED,
+            ),
+            (
+                "batch_audience_edited",
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                {"type": "batch", "filters": {"properties": [_WIDER_AUDIENCE_CONDITION]}},
+                HogFlowSchedule.Status.PAUSED,
+            ),
+            (
+                "batch_audience_unchanged",
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                {"type": "batch", "filters": {"properties": [_AUDIENCE_CONDITION]}},
+                HogFlowSchedule.Status.ACTIVE,
+            ),
+        ]
+    )
+    def test_live_audience_change_pauses_schedules(self, _name, before_config, after_config, expected_status):
+        # Each firing broadcasts to whatever the trigger says at fire time, not to what was confirmed
+        # when the schedule was created, so an edit that moves the audience stops the cadence. A save
+        # that leaves the audience alone must not, or every resave would silently kill the schedule.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = before_config
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/schedules",
+            {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO", "starts_at": "2026-08-03T09:00:00Z"},
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
+        hog_flow["actions"][0]["config"] = after_config
+        edited = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}",
+            {"actions": hog_flow["actions"]},
+        )
+        assert edited.status_code == 200, edited.json()
+
+        schedule = HogFlowSchedule.objects.get(id=scheduled.json()["id"])
+        assert schedule.status == expected_status
+        if expected_status == HogFlowSchedule.Status.PAUSED:
+            assert schedule.next_run_at is None
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
