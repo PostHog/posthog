@@ -534,6 +534,22 @@ class TestSurvey(APIBaseTest):
             ]
         ]
 
+    def test_sdk_payload_sanitizes_stored_appearance_html(self) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Survey with formatted intro",
+            type="popover",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+            appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
+        )
+
+        payload = get_surveys_response(self.team)
+        serialized_survey = next(item for item in payload["surveys"] if str(item["id"]) == str(survey.id))
+
+        assert "<strong>Welcome</strong>" in serialized_survey["appearance"]["introScreenDescription"]
+        assert "onerror" not in serialized_survey["appearance"]["introScreenDescription"]
+
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
         self.team.save(update_fields=["survey_config"])
@@ -4267,6 +4283,34 @@ class TestSurveyQuestionValidation(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["questions"][0]["branching"]["type"] == "end"
+
+    def test_create_survey_sanitizes_html_in_appearance_text(self):
+        appearance_fields = [
+            "thankYouMessageHeader",
+            "thankYouMessageDescription",
+            "thankYouMessageCloseButtonText",
+            "introScreenHeader",
+            "introScreenDescription",
+            "introScreenButtonText",
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with formatted appearance text",
+                "type": "popover",
+                "appearance": {
+                    field: f'<strong>{field}</strong><img src="invalid" onerror="void 0">'
+                    for field in appearance_fields
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        for field in appearance_fields:
+            sanitized_value = response.json()["appearance"][field]
+            assert f"<strong>{field}</strong>" in sanitized_value
+            assert "onerror" not in sanitized_value
 
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):

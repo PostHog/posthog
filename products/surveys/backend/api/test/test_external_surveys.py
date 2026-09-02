@@ -175,10 +175,36 @@ class TestExternalSurveys(APIBaseTest):
         response = self.client.get(f"/external_surveys/{survey.id}/")
         assert response.status_code == 200
 
+        csp = response["Content-Security-Policy"]
+        csp_directives = csp.split("; ")
+        sandbox_tokens = csp_directives[0].split()
+        assert sandbox_tokens[0] == "sandbox"
+        assert "allow-scripts" in sandbox_tokens
+        assert "allow-same-origin" not in sandbox_tokens
+        assert "allow-popups-to-escape-sandbox" not in sandbox_tokens
+        assert "allow-top-navigation" not in sandbox_tokens
+        assert "script-src-attr 'none'" in csp_directives
+        assert "unsafe-inline" not in csp
+        assert response["Referrer-Policy"] == "no-referrer"
+
         # Check security headers - iframe embedding disabled by default
         assert response["X-Frame-Options"] == "DENY"
         assert "Cache-Control" in response
         assert "Vary" in response
+
+    @parameterized.expand(
+        [
+            ("invalid_id", "not-a-uuid", 400),
+            ("missing_survey", str(uuid.uuid4()), 404),
+        ]
+    )
+    def test_error_responses_are_sandboxed(self, _name: str, survey_id: str, expected_status: int):
+        response = self.client.get(f"/external_surveys/{survey_id}/")
+
+        assert response.status_code == expected_status
+        sandbox_tokens = response["Content-Security-Policy"].split("; ", 1)[0].split()
+        assert sandbox_tokens[0] == "sandbox"
+        assert "allow-same-origin" not in sandbox_tokens
 
     def test_iframe_embedding_enabled_removes_x_frame_options(self):
         """Test that X-Frame-Options is removed when iframe embedding is enabled"""

@@ -113,11 +113,28 @@ DEFAULT_BASE_LANGUAGE = "en"
 # Sentinel keys we explicitly reject — these used to appear in customer data and never
 # resolved to anything in the SDK. Block them at the API so they don't keep accumulating.
 REJECTED_TRANSLATION_KEYS = frozenset({"default", "original", "base"})
+SURVEY_APPEARANCE_HTML_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+    "introScreenHeader",
+    "introScreenDescription",
+    "introScreenButtonText",
+)
 
 
 def _normalize_language_code(raw: str) -> str:
     """Lowercase + underscore-to-hyphen. Matches what the SDK does before lookup."""
     return raw.strip().lower().replace("_", "-")
+
+
+def sanitize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
+    sanitized_appearance = dict(appearance)
+    for field in SURVEY_APPEARANCE_HTML_FIELDS:
+        field_value = sanitized_appearance.get(field)
+        if isinstance(field_value, str) and nh3.is_html(field_value):
+            sanitized_appearance[field] = nh3_clean_with_allow_list(field_value)
+    return sanitized_appearance
 
 
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
@@ -995,17 +1012,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Appearance must be an object")
 
-        thank_you_message = value.get("thankYouMessageHeader")
-        if thank_you_message and nh3.is_html(thank_you_message):
-            value["thankYouMessageHeader"] = nh3_clean_with_allow_list(thank_you_message)
-
-        thank_you_description = value.get("thankYouMessageDescription")
-        if thank_you_description and nh3.is_html(thank_you_description):
-            value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
-
-        thank_you_close_button = value.get("thankYouMessageCloseButtonText")
-        if thank_you_close_button and nh3.is_html(thank_you_close_button):
-            value["thankYouMessageCloseButtonText"] = nh3_clean_with_allow_list(thank_you_close_button)
+        value = sanitize_survey_appearance(value)
 
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
@@ -3465,6 +3472,9 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
+        appearance = data.get("appearance")
+        if isinstance(appearance, dict):
+            data["appearance"] = sanitize_survey_appearance(appearance)
         if data.get("translations") is None:
             data.pop("translations", None)
         return data
@@ -3526,6 +3536,34 @@ def _survey_page_site_url() -> str:
     return settings.SITE_URL
 
 
+def _public_survey_csp(request: HttpRequest) -> str:
+    nonce = getattr(request, "csp_nonce", "")
+    script_sources = ["'self'", f"'nonce-{nonce}'", "'strict-dynamic'"]
+    if settings.DEBUG or settings.TEST:
+        script_sources.append("http://localhost:8234")
+    elif settings.SITE_URL.endswith(".dev.posthog.dev"):
+        script_sources.append("https://*.dev.posthog.dev")
+    else:
+        script_sources.extend(["https://*.posthog.com", "https://*.i.posthog.com"])
+
+    return "; ".join(
+        [
+            "sandbox allow-scripts allow-forms allow-popups",
+            f"script-src {' '.join(script_sources)}",
+            "script-src-attr 'none'",
+            "object-src 'none'",
+            "base-uri 'none'",
+        ]
+    )
+
+
+def _isolate_public_survey_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
+    # This must omit allow-same-origin because hosted survey content shares a host with authenticated app sessions.
+    response["Content-Security-Policy"] = _public_survey_csp(request)
+    response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 def _survey_error_response(
     request: HttpRequest,
     *,
@@ -3541,17 +3579,17 @@ def _survey_error_response(
     }
     if appearance is not None:
         context["appearance"] = appearance
-    return render(request, "surveys/error.html", context, status=status)
+    return _isolate_public_survey_response(request, render(request, "surveys/error.html", context, status=status))
 
 
 @csrf_exempt
 @axes_dispatch
-def public_survey_page(request, survey_id: str):
+def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
     """
     Server-side rendered public survey page with security and performance optimizations
     """
     if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
+        return _isolate_public_survey_response(request, cors_response(request, HttpResponse("")))
 
     # Input validation
     if not UUIDT.is_valid_uuid(survey_id):
@@ -3643,7 +3681,7 @@ def public_survey_page(request, survey_id: str):
     response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
     response["Vary"] = "Accept-Encoding"  # Enable compression caching
 
-    return response
+    return _isolate_public_survey_response(request, response)
 
 
 @contextmanager
