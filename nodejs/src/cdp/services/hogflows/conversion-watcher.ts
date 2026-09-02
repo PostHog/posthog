@@ -68,8 +68,10 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
 export const DEFAULT_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
 
 // The ceiling on an explicitly configured window. It exists only to bound the table: a row that never
-// expires is a row the sweep can never reclaim.
-export const MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
+// expires is a row the sweep can never reclaim. It cannot sit below the default, or a workflow could
+// ask for less than it gets by asking for nothing. Raising it further waits on an unambiguous way to
+// express the window, since today's out-of-range values are minutes fields holding second counts.
+export const MAX_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
 
 // Substituting our window for the configured one changes what the workflow's conversion rate measures,
 // so it must not be silent: a clamped run reports over the cap, not over the window it asked for.
