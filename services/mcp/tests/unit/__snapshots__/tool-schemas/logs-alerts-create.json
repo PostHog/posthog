@@ -2924,7 +2924,7 @@
         },
         "threshold_count": {
             "default": 100,
-            "description": "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+            "description": "Number of matching log entries (or, for a pattern trigger, occurrences of one error shape) that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any match.",
             "minimum": 0,
             "type": "number"
         },
@@ -2934,9 +2934,35 @@
             "enum": ["above", "below"],
             "type": "string"
         },
+        "trigger_config": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "seed_lookback_days": {
+                            "default": 7,
+                            "description": "Only used with trigger_type=new_pattern. Days of history the alert's first check scans to seed its seen-set before it starts alerting, so pre-existing error shapes never fire.",
+                            "maximum": 30,
+                            "minimum": 1,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Trigger-specific settings. Only used with trigger_type=new_pattern."
+        },
+        "trigger_type": {
+            "default": "count",
+            "description": "What the alert evaluates. 'count': threshold_count matching logs in the window (the default). 'new_pattern': the first time a distinct (service, pattern) error shape appears. 'pattern_threshold': a single error shape reaching threshold_count occurrences in the window. The pattern trigger types require log pattern stamping to be enabled for this team, and force evaluation_periods and datapoints_to_alarm to 1.\n\n* `count` - Count threshold\n* `new_pattern` - New pattern\n* `pattern_threshold` - Pattern threshold",
+            "enum": ["count", "new_pattern", "pattern_threshold"],
+            "type": "string"
+        },
         "window_minutes": {
             "default": 5,
-            "description": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+            "description": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60, and, only with threshold_operator=below, also 120, 360, 720, 1440 (for detecting a service gone silent).",
             "type": "number"
         }
     },
