@@ -54,6 +54,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         titlePlaceholder,
         defaultView,
         views,
+        unmountWhenOutOfView = false,
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
@@ -97,7 +98,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         runHogqlSqlNodeWithMode,
     } = useActions(nodeLogic)
 
-    const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
+    const { ref: inViewRef, inView } = useInView({ triggerOnce: !unmountWhenOutOfView })
 
     const setRefs = useCallback(
         (node: HTMLDivElement | null) => {
@@ -318,7 +319,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             <LemonSkeleton className="w-20" />
                                         </div>
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
-                                        <div className="flex items-center p-2" style={{ height: heightEstimate }}>
+                                        <div
+                                            className="flex items-center p-2"
+                                            style={isResizeable ? { height, minHeight } : { height: heightEstimate }}
+                                        >
                                             <LemonSkeleton className="w-full h-full" />
                                         </div>
                                     </>
