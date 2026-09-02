@@ -506,6 +506,25 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert runner.requires_fresh_calculation() is expected
 
+    def test_complete_email_search_cache_is_partitioned_by_principal(self) -> None:
+        query = AccountsTableQuery(
+            columns=[],
+            filters=[AccountsTableSearchFilter(query="member@acme.example")],
+        )
+        self.user.is_staff = False
+        viewer_runner = AccountsTableQueryRunner(query=query, team=self.team, user=self.user)
+        viewer_cache_key = viewer_runner.get_cache_key()
+
+        self.user.is_staff = True
+        staff_runner = AccountsTableQueryRunner(query=query, team=self.team, user=self.user)
+        staff_cache_key = staff_runner.get_cache_key()
+
+        assert viewer_cache_key != staff_cache_key
+        assert staff_runner.get_cache_payload()["account_member_search_principal"] == {
+            "user_id": self.user.id,
+            "is_staff": True,
+        }
+
     @patch("products.customer_analytics.backend.logic.account_member_search.list_account_external_ids_by_member_email")
     def test_non_email_search_skips_account_member_lookup(self, mock_member_lookup) -> None:
         account = create_account(team_id=self.team.id, name="Acme")

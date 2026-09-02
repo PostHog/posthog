@@ -50,11 +50,24 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
     query: AccountsTableQuery
     cached_response: CachedAccountsTableQueryResponse
 
-    def requires_fresh_calculation(self) -> bool:
+    def _has_complete_email_search(self) -> bool:
         return any(
             isinstance(filter_, AccountsTableSearchFilter) and parse_email_search(filter_.query) is not None
             for filter_ in self.query.filters or []
         )
+
+    def requires_fresh_calculation(self) -> bool:
+        return self._has_complete_email_search()
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        if self._has_complete_email_search():
+            user = self.user
+            payload["account_member_search_principal"] = {
+                "user_id": user.id if isinstance(user, User) else None,
+                "is_staff": user.is_staff if isinstance(user, User) else False,
+            }
+        return payload
 
     def validate_query_runner_access(self, user: User) -> bool:
         return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("account", "viewer")
