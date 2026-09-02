@@ -786,12 +786,11 @@ def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
         if lookup_attempt:
             time.sleep(_QUERY_LOG_LOOKUP_INTERVAL_SECONDS)
         try:
-            # Deliberately the default CH principal, not the notebooks user: recovery must
-            # not share fate with the failing subject (a quota/grant condition that killed
-            # the query would reject its own diagnosis too, silently turning terminal
-            # failures into whale re-executions). Batch exports run this exact lookup as
-            # the default user against offline-executed queries, so both the grants and
-            # the clusterAllReplicas topology are production-proven. It's three LIMIT 1
+            # Deliberately not the notebooks user: recovery must not share fate with the
+            # failing subject (a quota/grant condition that killed the query would reject
+            # its own diagnosis too, silently turning terminal failures into whale
+            # re-executions). The shared background principal keeps that separation while
+            # staying off the slots customer-facing queries need. It's three LIMIT 1
             # metadata reads on the failure path — pool placement is irrelevant.
             rows = sync_execute(
                 """
@@ -804,6 +803,7 @@ def _fetch_query_log_exception(ch_query_id: str) -> tuple[int, str] | None:
                 LIMIT 1
                 """,
                 {"cluster": settings.CLICKHOUSE_CLUSTER, "query_id": ch_query_id},
+                ch_user=ClickHouseUser.BACKGROUND,
             )
         except Exception as exc:
             # A broken lookup silently downgrades error classification (deterministic

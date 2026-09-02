@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 
@@ -169,6 +169,7 @@ def preview_rollup(
             _rollup_parameters(team_ids, start, end),
             workload=Workload.LOGS,
             settings=_ROLLUP_QUERY_SETTINGS,
+            ch_user=ClickHouseUser.LOGS,
         )
     row = rows[0]
     return RollupPreview(

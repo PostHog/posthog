@@ -25,6 +25,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
     CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
@@ -128,6 +129,7 @@ def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
                 "max_execution_time": CH_EXPORT_QUERY_TIMEOUT_S,
                 "max_memory_usage": CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
             },
+            ch_user=ClickHouseUser.SURFACING_SCORING,
         ),
     )
 

@@ -75,7 +75,11 @@ def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_wor
     [
         (Product.LLM_ANALYTICS, "temporal", "llma-eval-reports", ClickHouseUser.DEFAULT, ClickHouseUser.LLM_ANALYTICS),
         (Product.LLM_ANALYTICS, "request", "api/projects/2/llm_analytics", ClickHouseUser.DEFAULT, ClickHouseUser.APP),
-        (Product.WAREHOUSE, "temporal", "data-imports", ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (Product.EXPERIMENTS, "temporal", "experiment-recalc", ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
+        # A background job with no dedicated user still has to stay off DEFAULT, whose slots
+        # customer-facing queries need.
+        (Product.WAREHOUSE, "temporal", "data-imports", ClickHouseUser.DEFAULT, ClickHouseUser.BACKGROUND),
+        (None, "temporal", "some-sweep", ClickHouseUser.DEFAULT, ClickHouseUser.BACKGROUND),
         # The AI observability usage reports carry this product tag from Celery. The budget is sized
         # for the per-team Temporal fan-out, so they stay off it.
         (Product.LLM_ANALYTICS, "celery", "posthog.tasks.usage_report", ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
@@ -85,7 +89,7 @@ def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_wor
         (Product.LLM_ANALYTICS, "temporal", "llma-eval-reports", ClickHouseUser.META, ClickHouseUser.META),
     ],
 )
-def test_llm_analytics_ch_user_routing(client_from_pool, product, kind, tag_id, requested_ch_user, expected_ch_user):
+def test_background_ch_user_routing(client_from_pool, product, kind, tag_id, requested_ch_user, expected_ch_user):
     with tags_context(product=product, kind=kind, id=tag_id):
         sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
 

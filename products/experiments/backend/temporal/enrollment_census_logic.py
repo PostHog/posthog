@@ -11,6 +11,7 @@ from django.db.models import Count
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.models.experiment import Experiment
@@ -140,6 +141,7 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
             "hard_failure_codes": HARD_FAILURE_CODES,
             "min_direct_reads": MIN_DIRECT_READS,
         },
+        ch_user=ClickHouseUser.EXPERIMENTS,
     )
     return [
         TeamDirectScanStats(

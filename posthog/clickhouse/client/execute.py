@@ -56,6 +56,12 @@ QUERY_FINISHED_COUNTER = Counter(
     labelnames=["team_id", "access_method", "chargeable"],
 )
 
+BACKGROUND_QUERY_WITHOUT_USER_COUNTER = Counter(
+    "posthog_clickhouse_background_query_without_user",
+    "Number of ClickHouse queries a Temporal activity ran without naming a ClickHouse user.",
+    labelnames=["product", "activity_type"],
+)
+
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
@@ -280,6 +286,16 @@ class ClickHouseExternalTable(TypedDict):
     data: list[dict[str, Any]]
 
 
+# Background workflows that reach ClickHouse through shared query helpers, so no call site can name
+# a user for them. Temporal only, because the interactive APIs share these product tags and belong
+# on APP rather than behind a batch budget. A caller that named a user keeps it, so HogQL's own
+# metadata lookups don't spend the budget meant for real queries.
+_TEMPORAL_PRODUCT_CH_USERS: dict[str, ClickHouseUser] = {
+    Product.LLM_ANALYTICS: ClickHouseUser.LLM_ANALYTICS,
+    Product.EXPERIMENTS: ClickHouseUser.EXPERIMENTS,
+}
+
+
 @contextmanager
 def _llm_analytics_concurrency_slot(ch_user: ClickHouseUser, team_id: Optional[int]) -> Iterator[None]:
     """Hold one of AI observability's ClickHouse slots, and nothing for every other user.
@@ -346,7 +362,8 @@ def sync_execute(
     readonly (bool): Specifies whether the query intends to modify data. Default is False.
     sync_client (Optional[SyncClient]): A specific ClickHouse client to use for the query.
     ch_user (ClickHouseUser): The user context for the query execution. Defaults to
-        ClickHouseUser.DEFAULT.
+        ClickHouseUser.DEFAULT, which the tags then refine. A background job left on DEFAULT runs
+        as ClickHouseUser.BACKGROUND, so it cannot compete with customer-facing queries.
     external_tables (Optional[list[ClickHouseExternalTable]]): Query-scoped external data tables
         sent alongside the query instead of inlined.
 
@@ -443,11 +460,23 @@ def sync_execute(
         ch_user = ClickHouseUser.ENDPOINTS
     elif tags.product == Product.BILLING:
         ch_user = ClickHouseUser.BILLING
-    elif tags.product == Product.LLM_ANALYTICS and tags.kind == "temporal" and ch_user == ClickHouseUser.DEFAULT:
-        # Temporal only, because the interactive AI observability API shares this product tag and
-        # belongs on APP rather than behind a batch concurrency budget. Callers that named a user
-        # keep it, so HogQL's own metadata lookups don't spend the budget meant for real queries.
-        ch_user = ClickHouseUser.LLM_ANALYTICS
+
+    # A background job must never share DEFAULT's ClickHouse slots with customer-facing queries.
+    # Callers name a user, and the map covers the ones that reach ClickHouse through shared helpers.
+    # BACKGROUND is the fail-safe for the rest; the counter names who still has to move.
+    if ch_user == ClickHouseUser.DEFAULT and tags.kind == "temporal":
+        ch_user = _TEMPORAL_PRODUCT_CH_USERS.get(tags.product or "", ClickHouseUser.BACKGROUND)
+        if ch_user == ClickHouseUser.BACKGROUND:
+            activity_type = tags.temporal.activity_type if tags.temporal else None
+            BACKGROUND_QUERY_WITHOUT_USER_COUNTER.labels(
+                product=tags.product or "unknown", activity_type=activity_type or "unknown"
+            ).inc()
+            logger.warning(
+                "background clickhouse query has no dedicated user",
+                product=tags.product,
+                activity_type=activity_type,
+                stacktrace="".join(traceback.format_stack()),
+            )
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries
