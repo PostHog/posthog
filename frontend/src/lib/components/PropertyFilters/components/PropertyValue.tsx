@@ -19,7 +19,11 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
-import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import {
+    isGroupCardFilterKey,
+    labelWithGroupName,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -345,10 +349,11 @@ export function PropertyValue({
     const formattedValues = selectedValues.map((label) =>
         String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
-    // `groupKeyNames` is keyed by the raw group key, so a name is looked up by the raw value.
-    // A value that resolves to no group falls back to the formatted one, which keeps
-    // `formatPropertyValueForDisplay` for everything the caller did not resolve.
-    const displayValues = formattedValues.map((formatted, index) => groupKeyNames?.[selectedValues[index]] ?? formatted)
+    // `groupKeyNames` is keyed by the raw group key, so a name is looked up by the raw value while
+    // the formatted value is what gets shown next to it.
+    const displayValues = formattedValues.map((formatted, index) =>
+        labelWithGroupName(selectedValues[index], groupKeyNames, formatted)
+    )
 
     if (!editable) {
         return <>{displayValues.join(' or ')}</>
@@ -527,11 +532,14 @@ export function PropertyValue({
                                     key={name}
                                     data-attr={'prop-val-' + index}
                                     className="ph-no-capture flex items-center gap-1.5"
-                                    title={groupName ?? name}
+                                    title={labelWithGroupName(name, groupKeyNames)}
                                 >
-                                    {/* A resolved key is always a real group id, so the name never
-                                        costs a value its `(empty string)` or boolean rendering. */}
-                                    {groupName ?? formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                    {/* A resolved key is always a real group id, so prefixing the
+                                        name never costs a value its `(empty string)` or boolean
+                                        rendering. */}
+                                    {groupName
+                                        ? labelWithGroupName(name, groupKeyNames)
+                                        : formatLabelContent(isFlagDependencyProperty ? _name : name)}
                                 </span>
                             ),
                         }
@@ -545,7 +553,7 @@ export function PropertyValue({
                               .map(([raw, formatted]) => ({
                                   key: formatted,
                                   label: formatted,
-                                  labelComponent: groupKeyNames?.[raw] ?? formatted,
+                                  labelComponent: labelWithGroupName(raw, groupKeyNames, formatted),
                                   tooltip: showGroupCardOnValue ? groupCardTooltip(raw) : undefined,
                               }))
                         : []),

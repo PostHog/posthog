@@ -4,7 +4,7 @@ import { IconFlag } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -67,7 +67,7 @@ function PropertyValueDisplay({
         <>
             {propertyValues.map((val, idx) => {
                 const strVal = String(val)
-                const display = isDistinctId ? getDistinctIdName(strVal) : groupKeyNames[strVal] || strVal
+                const display = isDistinctId ? getDistinctIdName(strVal) : labelWithGroupName(strVal, groupKeyNames)
                 return <LemonSnack key={idx}>{display}</LemonSnack>
             })}
         </>

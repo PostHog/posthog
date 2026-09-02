@@ -325,6 +325,19 @@ function formatBehavioralPropertyLabel(
 export function isGroupCardFilterKey(key: string | number | undefined, type: PropertyFilterType | undefined): boolean {
     return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
 }
+
+// A resolved group key is shown as "(Name) key" rather than the name alone. A person reading a
+// list of keys needs the name to tell the rows apart, and the key itself to copy it or to compare
+// it against another system. `fallback` carries the already-formatted value, so a key that
+// resolves to no group keeps whatever formatting its caller applied.
+export function labelWithGroupName(
+    groupKey: string,
+    groupKeyNames: Record<string, string> | undefined,
+    fallback: string = groupKey
+): string {
+    const name = groupKeyNames?.[groupKey]
+    return name ? `(${name}) ${fallback}` : fallback
+}
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }

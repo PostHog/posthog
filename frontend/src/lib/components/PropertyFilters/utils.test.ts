@@ -6,6 +6,7 @@ import {
     formatPropertyLabel,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
+    labelWithGroupName,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
@@ -49,6 +50,30 @@ describe('isGroupCardFilterKey()', () => {
         { key: undefined, type: PropertyFilterType.Group, expected: false },
     ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
         expect(isGroupCardFilterKey(key, type)).toBe(expected)
+    })
+})
+
+describe('labelWithGroupName()', () => {
+    const groupKeyNames = { 'org-abc-123': 'Fjellride AB' }
+
+    it.each([
+        // The id is kept alongside the name so it stays available to copy or to compare.
+        { groupKey: 'org-abc-123', fallback: undefined, expected: '(Fjellride AB) org-abc-123' },
+        // An unresolved key must not gain empty parentheses.
+        { groupKey: 'org-unresolved', fallback: undefined, expected: 'org-unresolved' },
+        // A caller that already formatted the value keeps its formatting on both paths.
+        {
+            groupKey: 'org-abc-123',
+            fallback: 'org-abc-123 (formatted)',
+            expected: '(Fjellride AB) org-abc-123 (formatted)',
+        },
+        { groupKey: 'org-unresolved', fallback: 'org-unresolved (formatted)', expected: 'org-unresolved (formatted)' },
+    ])('renders $expected for $groupKey', ({ groupKey, fallback, expected }) => {
+        expect(labelWithGroupName(groupKey, groupKeyNames, fallback)).toBe(expected)
+    })
+
+    it('returns the value unchanged when no names were resolved', () => {
+        expect(labelWithGroupName('org-abc-123', undefined)).toBe('org-abc-123')
     })
 })
 
