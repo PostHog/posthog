@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -46,6 +47,44 @@ const dashboardResponse = (dashboardId: number, tiles: DashboardTile<QueryBasedI
     new Response(JSON.stringify(dashboardResult(dashboardId, tiles)), {
         headers: { 'Content-Type': 'application/json' },
     })
+
+const dashboardResponseWithQueuedCommitRace = (
+    dashboardId: number,
+    tiles: DashboardTile<QueryBasedInsightModel>[],
+    onCommitWindow: () => void
+): Response => {
+    const response = dashboardResponse(dashboardId, tiles)
+    const getHeader = response.headers.get.bind(response.headers)
+    let actionQueued = false
+    jest.spyOn(response.headers, 'get').mockImplementation((name) => {
+        if (!actionQueued && name.toLowerCase() === 'content-length') {
+            actionQueued = true
+            queueMicrotask(onCommitWindow)
+        }
+        return getHeader(name)
+    })
+    return response
+}
+
+const dashboardErrorWithQueuedCommitRace = (
+    status: number,
+    code: string | null,
+    onCommitWindow: () => void
+): ApiError => {
+    const error = new ApiError(`Dashboard request failed with status ${status}`, status, undefined, { code })
+    let actionQueued = false
+    Object.defineProperty(error, 'status', {
+        configurable: true,
+        get: () => {
+            if (!actionQueued) {
+                actionQueued = true
+                queueMicrotask(onCommitWindow)
+            }
+            return status
+        },
+    })
+    return error
+}
 
 const dashboardRequests = (getResponse: jest.SpyInstance, dashboardId: number): unknown[][] =>
     getResponse.mock.calls.filter(([url]) => String(url).includes(`/dashboards/${dashboardId}/`))
@@ -195,6 +234,7 @@ describe('dashboardAiSyncLogic', () => {
             .toMatchValues({
                 activeReload: {
                     generation: 1,
+                    requestToken: expect.anything(),
                     change: {
                         baselineTileIds: [10, 11],
                         candidateTileIds: [10],
@@ -207,7 +247,10 @@ describe('dashboardAiSyncLogic', () => {
         const generation = logic.values.activeReload!.generation
         const loadPayload = {
             action: DashboardLoadAction.Update,
-            dashboardAiSyncGeneration: generation,
+            dashboardAiSync: {
+                generation,
+                requestToken: logic.values.activeReload!.requestToken,
+            },
         }
         expect(generation).toBe(1)
         await expectLogic(logic, () => {
@@ -248,10 +291,11 @@ describe('dashboardAiSyncLogic', () => {
         getResponse.mockRestore()
     })
 
-    it('keeps a newer manual dashboard response when an older AI reload resolves last', async () => {
+    it('keeps a newer manual response and promotes one queued AI snapshot after the older AI reload settles', async () => {
         const aiReload = deferred<Response>()
         const manualReload = deferred<Response>()
-        const getResponse = mockDashboardResponses(5, aiReload.promise, manualReload.promise)
+        const queuedAiReload = deferred<Response>()
+        const getResponse = mockDashboardResponses(5, aiReload.promise, manualReload.promise, queuedAiReload.promise)
 
         logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 10 }] }, baselineTiles)
         await jest.advanceTimersByTimeAsync(200)
@@ -264,17 +308,95 @@ describe('dashboardAiSyncLogic', () => {
         await jest.advanceTimersByTimeAsync(0)
         expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([99])
 
+        logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 11 }] }, [{ tileId: 99 }])
+        expect(logic.values.activeReload?.generation).toBe(1)
+        expect(logic.values.queuedChange).toEqual({
+            baselineTileIds: [99],
+            candidateTileIds: [11],
+            candidateInsightIds: [],
+        })
+
         aiReload.resolve(dashboardResponse(5, [dashboardTile(10)]))
         await jest.advanceTimersByTimeAsync(0)
 
         expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([99])
         expect(logic.values.aiHighlightedTileIds).toEqual([])
-        expect(logic.values.activeReload).toBeNull()
+        expect(logic.values.activeReload?.generation).toBe(2)
         expect(logic.values.queuedChange).toBeNull()
+
+        await jest.advanceTimersByTimeAsync(200)
+        expect(dashboardRequests(getResponse, 5)).toHaveLength(3)
+
+        queuedAiReload.resolve(dashboardResponse(5, [dashboardTile(99), dashboardTile(11)]))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([99, 11])
+        expect(logic.values.aiHighlightedTileIds).toEqual([11])
+        expect(logic.values.activeReload).toBeNull()
         getResponse.mockRestore()
     })
 
-    it('does not let an obsolete mounted lifetime complete a new reload for the same dashboard', async () => {
+    it('keeps a newer dashboard load pending when an older success reaches the generated dispatch window', async () => {
+        const oldReload = deferred<Response>()
+        const newReload = deferred<Response>()
+        const getResponse = mockDashboardResponses(5, oldReload.promise, newReload.promise)
+
+        dashboardSceneLogic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+        await jest.advanceTimersByTimeAsync(200)
+
+        oldReload.resolve(
+            dashboardResponseWithQueuedCommitRace(5, [dashboardTile(10)], () => {
+                dashboardSceneLogic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            })
+        )
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([])
+        expect(dashboardSceneLogic.values.dashboardLoading).toBe(true)
+
+        await jest.advanceTimersByTimeAsync(200)
+        newReload.resolve(dashboardResponse(5, [dashboardTile(99)]))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([99])
+        expect(dashboardSceneLogic.values.dashboardLoading).toBe(false)
+        getResponse.mockRestore()
+    })
+
+    test.each([
+        ['404', 404, null],
+        ['403 access denied', 403, 'permission_denied'],
+    ])('ignores a stale %s in the generated failure dispatch window', async (_label, status, code) => {
+        const oldReload = deferred<Response>()
+        const newReload = deferred<Response>()
+        const getResponse = mockDashboardResponses(5, oldReload.promise, newReload.promise)
+
+        dashboardSceneLogic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+        await jest.advanceTimersByTimeAsync(200)
+
+        oldReload.reject(
+            dashboardErrorWithQueuedCommitRace(status, code, () => {
+                dashboardSceneLogic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            })
+        )
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([])
+        expect(dashboardSceneLogic.values.dashboardLoading).toBe(true)
+        expect(dashboardSceneLogic.values.error404).toBe(false)
+        expect(dashboardSceneLogic.values.accessDeniedToDashboard).toBe(false)
+        expect(dashboardSceneLogic.values.dashboardFailedToLoad).toBe(false)
+
+        await jest.advanceTimersByTimeAsync(200)
+        newReload.resolve(dashboardResponse(5, [dashboardTile(99)]))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([99])
+        expect(dashboardSceneLogic.values.dashboardLoading).toBe(false)
+        getResponse.mockRestore()
+    })
+
+    it('does not let an obsolete mounted lifetime consume success for a new reload with the same generation', async () => {
         const oldReload = deferred<Response>()
         const newReload = deferred<Response>()
         const getResponse = mockDashboardResponses(5, oldReload.promise, newReload.promise)
@@ -283,18 +405,22 @@ describe('dashboardAiSyncLogic', () => {
         await jest.advanceTimersByTimeAsync(200)
         expect(logic.values.activeReload?.generation).toBe(1)
 
-        logic.unmount()
-        logic = dashboardAiSyncLogic({ dashboardId: 5 })
-        logic.mount()
-        logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 20 }] }, baselineTiles)
-        await jest.advanceTimersByTimeAsync(200)
-        expect(logic.values.activeReload?.generation).toBe(1)
-
-        oldReload.resolve(dashboardResponse(5, [dashboardTile(10)]))
+        oldReload.resolve(
+            dashboardResponseWithQueuedCommitRace(5, [dashboardTile(10)], () => {
+                logic.unmount()
+                logic = dashboardAiSyncLogic({ dashboardId: 5 })
+                logic.mount()
+                logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 20 }] }, baselineTiles)
+            })
+        )
         await jest.advanceTimersByTimeAsync(0)
 
         expect(logic.values.activeReload?.generation).toBe(1)
         expect(logic.values.aiHighlightedTileIds).toEqual([])
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([])
+
+        await jest.advanceTimersByTimeAsync(200)
+        expect(dashboardRequests(getResponse, 5)).toHaveLength(2)
 
         newReload.resolve(dashboardResponse(5, [dashboardTile(10), dashboardTile(20)]))
         await jest.advanceTimersByTimeAsync(0)
@@ -303,6 +429,31 @@ describe('dashboardAiSyncLogic', () => {
         expect(logic.values.aiHighlightedTileIds).toEqual([20])
         expect(logic.values.activeReload).toBeNull()
         getResponse.mockRestore()
+    })
+
+    it('requires the AI request token when generations match across mounted lifetimes', () => {
+        logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 10 }] }, baselineTiles)
+        const obsoleteRequest = logic.values.activeReload!
+
+        logic.unmount()
+        logic = dashboardAiSyncLogic({ dashboardId: 5 })
+        logic.mount()
+        logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 20 }] }, baselineTiles)
+        const currentRequest = logic.values.activeReload!
+
+        expect(obsoleteRequest.generation).toBe(currentRequest.generation)
+        expect(obsoleteRequest.requestToken).not.toBe(currentRequest.requestToken)
+
+        dashboardSceneLogic.actions.loadDashboardSuccess({ tiles: [dashboardTile(10)] } as any, {
+            action: DashboardLoadAction.Update,
+            dashboardAiSync: {
+                generation: obsoleteRequest.generation,
+                requestToken: obsoleteRequest.requestToken,
+            },
+        })
+
+        expect(logic.values.activeReload).toBe(currentRequest)
+        expect(logic.values.aiHighlightedTileIds).toEqual([])
     })
 
     it('clears a failed AI generation before an unrelated manual reload succeeds', async () => {
