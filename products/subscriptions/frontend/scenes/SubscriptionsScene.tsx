@@ -1,13 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -23,22 +19,16 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { subscriptionLogic } from '../components/Subscriptions/subscriptionLogic'
-import { SubscriptionWizard } from '../components/Subscriptions/SubscriptionWizard'
-import { requestSubscriptionWizardCancellation } from '../components/Subscriptions/utils'
-import { EditSubscription, SubscriptionFormSkeleton } from '../components/Subscriptions/views/EditSubscription'
-import { NewSubscriptionTarget } from './components/NewSubscriptionTarget'
+import { subscriptionsEmptyState } from '../emptyState/subscriptionsEmptyState'
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
+import { SubscriptionsSceneModal } from './components/SubscriptionsSceneModal'
 import {
     SubscriptionsTable,
     isSubscriptionEnabled,
     subscriptionEditHref,
     subscriptionName,
 } from './components/SubscriptionsTable'
-import { newSubscriptionTargetLogic } from './newSubscriptionTargetLogic'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
-
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function SubscriptionEnabledSwitch({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { setSubscriptionEnabled } = useActions(subscriptionsSceneLogic)
@@ -114,53 +104,12 @@ export function SubscriptionsScene(): JSX.Element {
     const {
         subscriptions,
         subscriptionsLoading,
-        subscriptionsListAwaitingDebouncedFetch,
         pagination,
-        search,
-        createdByUuid,
         currentTab,
         subscriptionsSorting,
-        targetTypeFilter,
-        subscriptionModalId,
         aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
-    const {
-        target: newSubscriptionTarget,
-        dashboard: newSubscriptionDashboard,
-        dashboardLoading: newSubscriptionDashboardLoading,
-    } = useValues(newSubscriptionTargetLogic)
-    const { reset: resetNewSubscriptionTarget } = useActions(newSubscriptionTargetLogic)
-    const subscriptionWizardExperimentEnabled = useFeatureFlag('SUBSCRIPTION_CREATION_WIZARD', 'test')
-    const isWizard = subscriptionModalId === 'new' && subscriptionWizardExperimentEnabled
-    const insightTarget = newSubscriptionTarget?.kind === 'insight' ? newSubscriptionTarget : null
-    const dashboardTargetPending = newSubscriptionTarget?.kind === 'dashboard' && !newSubscriptionDashboard
-    // A dashboard that failed to load leaves nothing to send, so the picker comes back.
-    const isPickingTarget =
-        subscriptionModalId === 'new' &&
-        (newSubscriptionTarget === null || (dashboardTargetPending && !newSubscriptionDashboardLoading))
-    const cancelWizard = (): void => {
-        resetNewSubscriptionTarget()
-        router.actions.push(urls.subscriptions())
-    }
-    const requestWizardCancel = (): void => {
-        const wizardForm = subscriptionLogic.findMounted({ id: 'new', creationSource: 'wizard' })
-        if (!wizardForm) {
-            cancelWizard()
-            return
-        }
-        requestSubscriptionWizardCancellation({
-            onCancel: cancelWizard,
-            resetSubscription: () => wizardForm.actions.resetSubscription(),
-            subscriptionChanged: wizardForm.values.subscriptionChanged,
-        })
-    }
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
-
-    const isFiltered =
-        Boolean(search.trim()) ||
-        createdByUuid !== null ||
-        targetTypeFilter !== null ||
-        currentTab !== SubscriptionsTab.All
 
     const subscriptionTabs: LemonTab<SubscriptionsTab>[] = [
         { key: SubscriptionsTab.All, label: 'All subscriptions' },
@@ -169,21 +118,6 @@ export function SubscriptionsScene(): JSX.Element {
         { key: SubscriptionsTab.Insight, label: 'Insight' },
         ...(aiSubscriptionsAvailable ? [{ key: SubscriptionsTab.AI, label: 'AI prompt' }] : []),
     ]
-    const showProductIntroduction =
-        subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
-    const emptyStateDescription = aiSubscriptionsAvailable
-        ? 'Send scheduled dashboard and insight snapshots, or use an AI prompt to generate a recurring report. Deliver subscriptions to Slack or email.'
-        : 'Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems.'
-    const emptyStateAction = (
-        <LemonButton
-            type="primary"
-            data-attr="new-subscription-button-empty-state"
-            onClick={() => router.actions.push(urls.subscriptionNew())}
-        >
-            New subscription
-        </LemonButton>
-    )
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -207,68 +141,18 @@ export function SubscriptionsScene(): JSX.Element {
                 sceneInset
             />
             <div className="py-8 flex-1 min-h-0 flex flex-col gap-4 max-w-full">
-                {showProductIntroduction ? (
-                    <ProductIntroduction
-                        productName="Subscriptions"
-                        productKey={ProductKey.SUBSCRIPTIONS}
-                        thingName="subscription"
-                        titleOverride="No subscriptions yet"
-                        description={emptyStateDescription}
-                        isEmpty
-                        customHog={HedgehogMagnifyingGlass}
-                        hogLayout="responsive"
-                        useMainContentContainerQueries
-                        docsURL="https://posthog.com/docs/user-guides/subscriptions"
-                        actionElementOverride={emptyStateAction}
-                    />
-                ) : (
-                    <>
-                        <SubscriptionsFiltersBar />
-                        <SubscriptionsTable
-                            dataSource={subscriptions}
-                            loading={subscriptionsLoading}
-                            pagination={pagination}
-                            sorting={subscriptionsSorting}
-                            onSort={setSubscriptionsSorting}
-                            renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
-                            renderEnabledToggle={(sub) => <SubscriptionEnabledSwitch sub={sub} />}
-                        />
-                    </>
-                )}
+                <SubscriptionsFiltersBar />
+                <SubscriptionsTable
+                    dataSource={subscriptions}
+                    loading={subscriptionsLoading}
+                    pagination={pagination}
+                    sorting={subscriptionsSorting}
+                    onSort={setSubscriptionsSorting}
+                    renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
+                    renderEnabledToggle={(sub) => <SubscriptionEnabledSwitch sub={sub} />}
+                />
             </div>
-            {subscriptionModalId !== null && (
-                <LemonModal
-                    isOpen
-                    onClose={isWizard && !isPickingTarget ? requestWizardCancel : cancelWizard}
-                    simple={isWizard && !isPickingTarget}
-                    width={isWizard && !isPickingTarget ? 720 : 650}
-                    title={isPickingTarget ? 'New subscription' : undefined}
-                >
-                    {isPickingTarget ? (
-                        <NewSubscriptionTarget
-                            aiSubscriptionsAvailable={aiSubscriptionsAvailable}
-                            onCancel={cancelWizard}
-                        />
-                    ) : dashboardTargetPending ? (
-                        <SubscriptionFormSkeleton />
-                    ) : isWizard ? (
-                        <SubscriptionWizard
-                            insightShortId={insightTarget?.shortId}
-                            insightName={insightTarget?.name}
-                            dashboard={newSubscriptionDashboard}
-                            onCancel={cancelWizard}
-                        />
-                    ) : (
-                        <EditSubscription
-                            id={subscriptionModalId}
-                            insightShortId={insightTarget?.shortId}
-                            dashboard={newSubscriptionDashboard}
-                            onCancel={cancelWizard}
-                            onDelete={cancelWizard}
-                        />
-                    )}
-                </LemonModal>
-            )}
+            <SubscriptionsSceneModal />
         </SceneContent>
     )
 }
@@ -276,4 +160,6 @@ export function SubscriptionsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: SubscriptionsScene,
     logic: subscriptionsSceneLogic,
+    productKey: ProductKey.SUBSCRIPTIONS,
+    emptyState: subscriptionsEmptyState,
 }

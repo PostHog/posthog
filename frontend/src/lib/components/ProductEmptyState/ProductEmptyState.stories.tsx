@@ -34,6 +34,7 @@ import { productToursEmptyState } from 'products/product_tours/frontend/emptySta
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { subscriptionsEmptyState } from 'products/subscriptions/frontend/emptyState/subscriptionsEmptyState'
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
@@ -356,6 +357,13 @@ export const AlertsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(a
         },
     },
 })
+
+// Subscriptions detection counts subscriptions on mount - answer "none yet".
+export const SubscriptionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    subscriptionsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/subscriptions/': [200, emptyEntityList] } } }
+)
 
 // Data catalog detection counts metrics on mount - answer "none yet".
 export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
