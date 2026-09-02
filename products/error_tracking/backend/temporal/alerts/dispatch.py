@@ -70,6 +70,7 @@ def start_alert_delivery_workflow(
     first_seen: str | None = None,
     event_uuid: str | None = None,
     event_timestamp: str | None = None,
+    lifecycle_timestamp: str | None = None,
     extra: dict[str, str] | None = None,
 ) -> None:
     try:
@@ -95,6 +96,7 @@ def start_alert_delivery_workflow(
             first_seen=first_seen,
             event_uuid=event_uuid,
             event_timestamp=event_timestamp,
+            lifecycle_timestamp=lifecycle_timestamp,
             extra=extra,
         )
         asyncio.run(asyncio.wait_for(_connect_and_start(inputs), timeout=DISPATCH_TIMEOUT.total_seconds()))

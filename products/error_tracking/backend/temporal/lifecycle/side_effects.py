@@ -156,6 +156,7 @@ def produce_issue_lifecycle_internal_event(
         # Paired with event_uuid, so it must be the exception's own time: spiking
         # passes the detection time as exception_timestamp, which can differ.
         event_timestamp=inputs.event_timestamp,
+        lifecycle_timestamp=timestamp.isoformat(),
         extra=extra or None,
     )
 
