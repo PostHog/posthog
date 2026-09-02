@@ -18,6 +18,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
 )
+from posthog.hogql.database.schema.query_log import RawQueryLogTable
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
@@ -494,7 +495,9 @@ class _Printer(Visitor):
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+            if isinstance(table_type.table, FunctionCallTable) and not (
+                isinstance(table_type.table, S3Table) or isinstance(table_type.table, RawQueryLogTable)
+            ):
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
@@ -1157,7 +1160,7 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]

@@ -59,6 +59,7 @@ from posthog.hogql.database.schema.persons import (
     RawPersonsTable,
     join_with_persons_table,
 )
+from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
     SessionReplayEventsTable,
@@ -117,6 +118,7 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
+    query_log: QueryLogTable = QueryLogTable()
     app_metrics: AppMetrics2Table = AppMetrics2Table()
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
@@ -133,6 +135,7 @@ class Database(BaseModel):
         RawErrorTrackingIssueFingerprintOverridesTable()
     )
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
+    raw_query_log: RawQueryLogTable = RawQueryLogTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -150,6 +153,7 @@ class Database(BaseModel):
         "app_metrics",
         "sessions",
         "heatmaps",
+        "query_log",
     ]
 
     _warehouse_table_names: list[str] = []
