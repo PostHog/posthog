@@ -276,7 +276,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     # Last, so a frequency the validation above rejects leaves no seeded targets and
                     # no schedules behind: on_commit fires immediately for the callers that are not
                     # inside an atomic block, and two of the three are not.
-                    bootstrap_dag_to_tiers(dag_to_bootstrap)
+                    bootstrap_dag_to_tiers(dag_to_bootstrap, requested_by=self)
                 # On any v2 flavor the interval must end up NULL: a lingering value would let
                 # a v1 per-query schedule be recreated, and on tiered teams the node target is
                 # the only durable store of frequency intent.
