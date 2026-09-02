@@ -12,7 +12,7 @@ import { insightLogic } from './insightLogic'
 export function InsightAiSync({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element | null {
     const { insight } = useValues(insightLogic(insightLogicProps))
     const logic = insightAiSyncLogic({ insightLogicProps })
-    const { hasPendingAiConflict } = useValues(logic)
+    const { hasPendingAiConflict, isApplyingAiChanges } = useValues(logic)
     const { agentToolCompleted, keepMyChanges, useAiChanges } = useActions(logic)
 
     useMcpToolApplyBack({
@@ -38,10 +38,23 @@ export function InsightAiSync({ insightLogicProps }: { insightLogicProps: Insigh
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <LemonButton type="secondary" size="small" onClick={keepMyChanges}>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        data-attr="insight-ai-keep-changes"
+                        disabled={isApplyingAiChanges}
+                        onClick={keepMyChanges}
+                    >
                         Keep my changes
                     </LemonButton>
-                    <LemonButton type="primary" size="small" onClick={useAiChanges}>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        data-attr="insight-ai-use-ai-changes"
+                        disabled={isApplyingAiChanges}
+                        loading={isApplyingAiChanges}
+                        onClick={useAiChanges}
+                    >
                         Use AI changes
                     </LemonButton>
                 </div>

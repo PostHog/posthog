@@ -9,7 +9,7 @@ import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlerts
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 
 import { urls } from '../urls'
-import { insightAiSyncLogic } from './insightAiSyncLogic'
+import { insightAiSyncLogic, insightToolTargetsCurrentInsight } from './insightAiSyncLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 
@@ -57,6 +57,21 @@ describe('insightAiSyncLogic', () => {
         }).toDispatchActions(['agentToolCompleted', 'useAiChanges', 'loadInsight'])
     })
 
+    test.each(['id', 'insightId', 'insight_id', 'short_id', 'shortId'])(
+        'accepts the generated MCP %s alias when it names the open insight',
+        (alias) => {
+            expect(insightToolTargetsCurrentInsight({ [alias]: 'abc123' }, { id: 42, short_id: 'abc123' })).toBe(true)
+        }
+    )
+
+    it('prefers a numeric primary key and fails closed for an ambiguous numeric short ID', () => {
+        expect(insightToolTargetsCurrentInsight({ shortId: '42' }, { id: 42, short_id: '999' })).toBe(true)
+        expect(insightToolTargetsCurrentInsight({ shortId: '999' }, { id: 42, short_id: '999' })).toBe(false)
+        expect(
+            insightToolTargetsCurrentInsight({ id: 42, short_id: 'another-insight' }, { id: 42, short_id: 'abc123' })
+        ).toBe(false)
+    })
+
     it('keeps a metadata draft when PostHog AI updates the insight', async () => {
         insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Local name' })
 
@@ -87,7 +102,7 @@ describe('insightAiSyncLogic', () => {
         expect(insightSceneLogic.values.insight.name).toBe('Local name')
     })
 
-    it('loads the saved version when the user chooses the AI update', async () => {
+    it('keeps the conflict visible until the AI reload succeeds', async () => {
         insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Local name' })
         logic.actions.agentToolCompleted('insight-update', { id: 42 })
 
@@ -95,7 +110,49 @@ describe('insightAiSyncLogic', () => {
             logic.actions.useAiChanges()
         })
             .toDispatchActions(['useAiChanges', 'loadInsight'])
-            .toMatchValues({ hasPendingAiConflict: false })
+            .toMatchValues({ hasPendingAiConflict: true, isApplyingAiChanges: true })
+
+        insightSceneLogic.actions.loadInsightSuccess({ ...insightLogicProps.cachedInsight, name: 'AI name' } as any)
+
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+    })
+
+    it('keeps the conflict available when the AI reload fails', () => {
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Local name' })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.useAiChanges()
+
+        insightSceneLogic.actions.loadInsightFailure('Failed to load')
+
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: true, isApplyingAiChanges: false })
+    })
+
+    it('restores a new local edit made while the AI reload is in flight', () => {
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Old local name' })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.useAiChanges()
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'New local name' })
+
+        insightSceneLogic.actions.loadInsightSuccess({ ...insightLogicProps.cachedInsight, name: 'AI name' } as any)
+
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: true, isApplyingAiChanges: false })
+        expect(insightSceneLogic.values.insight.name).toBe('New local name')
+    })
+
+    it('restores a new query edit made while the AI reload is in flight', () => {
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Old local name' })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.useAiChanges()
+        const localQuery = { kind: NodeKind.HogQLQuery, query: 'select 2' } as any
+        insightData.actions.setQuery(localQuery)
+
+        insightSceneLogic.actions.loadInsightSuccess({
+            ...insightLogicProps.cachedInsight,
+            query: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        } as any)
+
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: true, isApplyingAiChanges: false })
+        expect(insightData.values.query).toEqual(localQuery)
     })
 
     it('clears a pending conflict after a successful local save', () => {
@@ -129,23 +186,35 @@ describe('insightAiSyncLogic', () => {
     it('refreshes only matching mounted subscription and alert logics', async () => {
         const mountedSubscriptions = subscriptionsLogic({ insightShortId: 'abc123' as InsightShortId })
         const mountedAlerts = insightAlertsLogic({ insightId: 42, insightLogicProps })
+        const unrelatedSubscriptions = subscriptionsLogic({ insightShortId: 'other-insight' as InsightShortId })
+        const unrelatedAlerts = insightAlertsLogic({ insightId: 99, insightLogicProps })
         mountedSubscriptions.mount()
         mountedAlerts.mount()
+        unrelatedSubscriptions.mount()
+        unrelatedAlerts.mount()
         mountedSubscriptions.actions.loadSubscriptionsSuccess([{ id: 10 } as any])
         mountedAlerts.actions.loadAlertsSuccess([{ id: 'alert-1' } as any])
         const loadAllSubscriptions = jest.spyOn(mountedSubscriptions.actions, 'loadAllSubscriptions')
         const loadAlerts = jest.spyOn(mountedAlerts.actions, 'loadAlerts')
+        const loadUnrelatedSubscriptions = jest.spyOn(unrelatedSubscriptions.actions, 'loadAllSubscriptions')
+        const loadUnrelatedAlerts = jest.spyOn(unrelatedAlerts.actions, 'loadAlerts')
 
         logic.actions.agentToolCompleted('subscriptions-create', { insight: 42 })
         logic.actions.agentToolCompleted('subscriptions-delete', { id: 10 })
+        logic.actions.agentToolCompleted('subscriptions-partial-update', { id: 10 })
         logic.actions.agentToolCompleted('alert-create', { insight: 42 })
         logic.actions.agentToolCompleted('alert-delete', { id: 'alert-1' })
+        logic.actions.agentToolCompleted('alert-update', { id: 'alert-1' })
         logic.actions.agentToolCompleted('subscriptions-delete', { id: 11 })
         logic.actions.agentToolCompleted('alert-delete', { id: 'alert-2' })
 
-        expect(loadAllSubscriptions).toHaveBeenCalledTimes(2)
-        expect(loadAlerts).toHaveBeenCalledTimes(2)
+        expect(loadAllSubscriptions).toHaveBeenCalledTimes(3)
+        expect(loadAlerts).toHaveBeenCalledTimes(3)
+        expect(loadUnrelatedSubscriptions).not.toHaveBeenCalled()
+        expect(loadUnrelatedAlerts).not.toHaveBeenCalled()
 
+        unrelatedAlerts.unmount()
+        unrelatedSubscriptions.unmount()
         mountedAlerts.unmount()
         mountedSubscriptions.unmount()
     })

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -44,14 +44,15 @@ describe('InsightAiSync', () => {
         jest.clearAllMocks()
     })
 
-    it('registers completed apply-back for the saved insight and renders the conflict choice', () => {
+    it('registers completed apply-back, forwards its completion, and renders the conflict choice', () => {
         const sceneLogic = insightLogic(insightLogicProps)
         const syncLogic = insightAiSyncLogic({ insightLogicProps })
+        const agentToolCompleted = jest.spyOn(syncLogic.actions, 'agentToolCompleted')
         sceneLogic.mount()
         syncLogic.mount()
-        syncLogic.actions.setPendingAiConflict()
+        act(() => syncLogic.actions.setPendingAiConflict())
 
-        render(
+        const { container } = render(
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <InsightAiSync insightLogicProps={insightLogicProps} />
             </BindLogic>
@@ -64,10 +65,51 @@ describe('InsightAiSync', () => {
             active: true,
             applyOn: 'tool_call_completed',
         })
+        applyBackOptions.onApply({ toolName: 'insight-update' } as never, { innerInput: { id: 99 } })
+        expect(agentToolCompleted).toHaveBeenCalledWith('insight-update', { id: 99 })
         expect(screen.getByText('PostHog AI updated this insight')).toBeInTheDocument()
         expect(screen.getByText(/You have unsaved changes/)).toBeInTheDocument()
         expect(screen.getByText('Keep my changes')).toBeInTheDocument()
         expect(screen.getByText('Use AI changes')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="insight-ai-keep-changes"]')).not.toBeNull()
+        expect(container.querySelector('[data-attr="insight-ai-use-ai-changes"]')).not.toBeNull()
+
+        fireEvent.click(container.querySelector('[data-attr="insight-ai-keep-changes"]')!)
+        expect(syncLogic.values.hasPendingAiConflict).toBe(false)
+
+        act(() => syncLogic.actions.setPendingAiConflict())
+        fireEvent.click(container.querySelector('[data-attr="insight-ai-use-ai-changes"]')!)
+        expect(syncLogic.values.isApplyingAiChanges).toBe(true)
+        expect(container.querySelector('[data-attr="insight-ai-keep-changes"]')).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        expect(container.querySelector('[data-attr="insight-ai-use-ai-changes"]')).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+
+        syncLogic.unmount()
+        sceneLogic.unmount()
+    })
+
+    it('registers an inactive unloaded target without applying it', () => {
+        const unloadedInsightLogicProps: InsightLogicProps = { dashboardItemId: 'new' }
+        const sceneLogic = insightLogic(unloadedInsightLogicProps)
+        const syncLogic = insightAiSyncLogic({ insightLogicProps: unloadedInsightLogicProps })
+        sceneLogic.mount()
+        syncLogic.mount()
+
+        render(
+            <BindLogic logic={insightLogic} props={unloadedInsightLogicProps}>
+                <InsightAiSync insightLogicProps={unloadedInsightLogicProps} />
+            </BindLogic>
+        )
+
+        expect(jest.mocked(useMcpToolApplyBack).mock.calls[0][0]).toMatchObject({
+            targetKey: 'insight:unloaded',
+            active: false,
+        })
 
         syncLogic.unmount()
         sceneLogic.unmount()
