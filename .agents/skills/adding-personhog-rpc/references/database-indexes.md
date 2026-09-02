@@ -42,7 +42,7 @@ Constraints: `check_properties_size` — `pg_column_size(properties) <= 655360` 
 | `posthog_persondistinctid_person_live_covering_idx`   | INDEX  | `(person_id, team_id, id) INCLUDE (distinct_id, version) WHERE is_deleted = false` | Covering (partial): the person to distinct id expansion runs index-only                 |
 | `posthog_persondistinctid_person_id_fkey`             | FK     | `(team_id, person_id)` → `posthog_person(team_id, id)`                             | NOT VALID (added during migration)                                                      |
 
-The validation shadow table `personhog_persondistinctid_tmp` carries the equivalent set: `personhog_persondistinctid_tmp_team_distinct_idx` (unique), `personhog_persondistinctid_tmp_team_distinct_covering_idx`, and `personhog_persondistinctid_tmp_person_live_covering_idx`.
+The validation shadow table `personhog_persondistinctid_tmp` carries the equivalent set, one for one with the rows above: `personhog_persondistinctid_tmp_team_distinct_idx` (unique), `personhog_persondistinctid_tmp_team_distinct_covering_idx`, `personhog_persondistinctid_tmp_person_id_idx` (total, so it also serves tombstones), `personhog_persondistinctid_tmp_person_live_covering_idx` (partial), and the FK `personhog_persondistinctid_tmp_person_id_fkey` on `(team_id, person_id)` to `personhog_person_tmp(team_id, id)`.
 
 **Typical query patterns:**
 

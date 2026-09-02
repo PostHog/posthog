@@ -27,8 +27,16 @@
 -- commits.
 --
 -- Recovery note: an interrupted CONCURRENTLY build leaves the index INVALID
--- and a rerun's IF NOT EXISTS will NOT rebuild it. Nothing reports that state,
--- so check before assuming the index is there:
+-- and a rerun's IF NOT EXISTS will NOT rebuild it. The Django path repairs
+-- that state on every apply (posthog/migration_helpers/concurrent_index.py
+-- reads pg_index.indisvalid, then drops and rebuilds), and this file cannot.
+-- Both runners send a no-transaction file as one statement, which puts a
+-- guard and the build in the same implicit transaction, and CONCURRENTLY
+-- rejects that. A guard in an earlier file does not help either, because a
+-- runner records each file once and never re-runs it. Dropping IF NOT EXISTS
+-- would at least fail loudly, but it also fails on an index built out of band,
+-- which posthog_person shows happening on these tables. So the check stays
+-- manual:
 --   SELECT indisvalid FROM pg_index
 --    WHERE indexrelid = to_regclass('posthog_persondistinctid_person_live_covering_idx');
 -- On `f`, drop it first:
