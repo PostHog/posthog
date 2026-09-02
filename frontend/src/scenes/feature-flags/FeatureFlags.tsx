@@ -600,7 +600,7 @@ export function OverviewTab({
                 nouns={nouns}
                 data-attr="feature-flag-table"
                 emptyState={
-                    hasActiveFilters ? (
+                    hasActiveFilters || filtersChanged ? (
                         <>
                             No feature flags match your filters.{' '}
                             <Link onClick={() => resetFilters()}>Clear filters</Link>

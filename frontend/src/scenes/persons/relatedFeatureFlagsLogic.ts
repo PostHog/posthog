@@ -120,7 +120,12 @@ export interface relatedFeatureFlagsLogicMeta {
             filters: Partial<RelatedFlagsFilters>,
             searchTerm: string
         ) => RelatedFeatureFlag[]
-        pagination: (pagination: PaginationManual, loadError: boolean) => PaginationManual | undefined
+        pagination: (
+            pagination: PaginationManual,
+            loadError: boolean,
+            searchTerm: string,
+            filteredMappedFlags: RelatedFeatureFlag[]
+        ) => PaginationManual | undefined
     }
 }
 
@@ -253,14 +258,28 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 return filteredFlags
             },
         ],
-        // The flags list is server-paginated (100 per page) and this table pages through it via
-        // the `page` URL param (see urlToAction below), so it reuses featureFlagsLogic's
-        // controlled pagination. Suppress it while the evaluation_reasons load has failed —
-        // otherwise the controls advertise the full flags count next to an empty error state.
+        // Local searches only cover the loaded page, so they report the number of matching loaded flags.
         pagination: [
-            () => [featureFlagsLogic.selectors.pagination, selectors.loadError],
-            (pagination: PaginationManual, loadError: boolean): PaginationManual | undefined =>
-                loadError ? undefined : pagination,
+            () => [
+                featureFlagsLogic.selectors.pagination,
+                selectors.loadError,
+                selectors.searchTerm,
+                selectors.filteredMappedFlags,
+            ],
+            (
+                pagination: PaginationManual,
+                loadError: boolean,
+                searchTerm: string,
+                filteredMappedFlags: RelatedFeatureFlag[]
+            ): PaginationManual | undefined => {
+                if (loadError) {
+                    return undefined
+                }
+                if (searchTerm.trim()) {
+                    return { ...pagination, currentPage: 1, entryCount: filteredMappedFlags.length }
+                }
+                return pagination
+            },
         ],
     })),
     listeners(({ values, actions }) => ({

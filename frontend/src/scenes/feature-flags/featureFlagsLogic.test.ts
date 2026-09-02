@@ -298,6 +298,7 @@ describe('the feature flags logic', () => {
 
             expect(logic.values.filters.page).toBeUndefined()
             expect(logic.values.hasActiveFilters).toBe(false)
+            expect(logic.values.shouldShowEmptyState).toBe(true)
         })
 
         it('is false when only a sort order is set', async () => {
@@ -308,12 +309,29 @@ describe('the feature flags logic', () => {
             expect(logic.values.hasActiveFilters).toBe(false)
         })
 
-        it('is true when a real filter is set', async () => {
+        it.each<[string, Partial<FeatureFlagsFilters>]>([
+            ['search', { search: 'checkout' }],
+            ['tags', { tags: ['checkout'] }],
+        ])('is true when %s is set', async (_, filters) => {
             await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagsFilters({ search: 'checkout' })
+                logic.actions.setFeatureFlagsFilters(filters)
             }).toFinishAllListeners()
 
             expect(logic.values.hasActiveFilters).toBe(true)
+        })
+
+        it('clears active filters without changing the sort order', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ search: 'checkout', order: '-created_at' })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.search).toBeUndefined()
+            expect(logic.values.filters.order).toBe('-created_at')
+            expect(logic.values.hasActiveFilters).toBe(false)
         })
     })
 

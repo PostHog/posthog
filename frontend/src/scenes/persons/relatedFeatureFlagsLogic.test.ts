@@ -251,6 +251,9 @@ describe('relatedFeatureFlagsLogic', () => {
 
             const filtered = logic.values.filteredMappedFlags
             expect(filtered.map((f) => f.key)).toEqual(['flag-1'])
+            expect(logic.values.pagination).toEqual(
+                expect.objectContaining({ currentPage: 1, entryCount: filtered.length })
+            )
         })
     })
 

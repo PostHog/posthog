@@ -92,7 +92,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": FeatureFlag,
         "search_fields": {"key": "A", "name": "C"},
         "extra_fields": ["key", "name"],
-        "filters": {"deleted": False},
+        "filters": {"deleted": False, "archived": False},
     },
     "action": {
         "klass": Action,

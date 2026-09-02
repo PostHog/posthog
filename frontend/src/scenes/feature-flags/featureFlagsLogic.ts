@@ -402,7 +402,7 @@ export interface featureFlagsLogicMeta {
         shouldShowEmptyState: (
             featureFlagsLoading: boolean,
             featureFlags: FeatureFlagsResult,
-            filters: FeatureFlagsFilters
+            hasActiveFilters: boolean
         ) => boolean
         pagination: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => PaginationManual
         displayedFlags: (featureFlags: FeatureFlagsResult) => FeatureFlagType[]
@@ -626,13 +626,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     filters.excluded_tags?.length
                 ),
         ],
-        // Check to see if any non-default filters are being used
         shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.featureFlags, s.filters],
-            (featureFlagsLoading: boolean, featureFlags: FeatureFlagsResult, filters: FeatureFlagsFilters): boolean => {
-                return (
-                    !featureFlagsLoading && featureFlags.results.length <= 0 && objectsEqual(filters, DEFAULT_FILTERS)
-                )
+            (s) => [s.featureFlagsLoading, s.featureFlags, s.hasActiveFilters],
+            (featureFlagsLoading: boolean, featureFlags: FeatureFlagsResult, hasActiveFilters: boolean): boolean => {
+                return !featureFlagsLoading && featureFlags.results.length <= 0 && !hasActiveFilters
             },
         ],
         pagination: [
@@ -713,7 +710,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             actions.setFeatureFlagsFilters({ page: 1 }, true)
         },
         resetFilters: () => {
-            actions.setFeatureFlagsFilters(DEFAULT_FILTERS, true)
+            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, order: values.filters.order }, true)
         },
         loadFeatureFlagsSuccess: () => {
             if (values.featureFlags.results.length > 0) {

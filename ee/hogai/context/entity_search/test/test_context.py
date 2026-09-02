@@ -260,6 +260,20 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "deleted_flag" not in result_keys
         assert "deleted flag" not in result_names
 
+    async def test_feature_flag_filters_exclude_archived(self):
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="active_flag", name="active flag", archived=False, created_by=self.user
+        )
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="archived_flag", name="archived flag", archived=True, created_by=self.user
+        )
+
+        results, _ = await self.context.search_entities({"feature_flag"}, "flag")
+
+        result_keys = [r["extra_fields"].get("key", "") for r in results]
+        assert "active_flag" in result_keys
+        assert "archived_flag" not in result_keys
+
     async def test_action_filters_exclude_deleted(self):
         await Action.objects.acreate(team=self.team, name="active action", deleted=False, created_by=self.user)
         await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
