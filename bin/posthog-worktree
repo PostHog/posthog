@@ -267,21 +267,22 @@ setup_worktree_environment() {
     cd "${worktree_path}"
     print_color blue "Initializing Flox environment (this will share packages from cache)…"
     
-    # Check if direnv is installed and set up
+    # Arm direnv for later `cd`s, when it is installed.
     if command_exists direnv; then
         print_color blue "Detected direnv - allowing automatic activation…"
         # Clean up stale environment variables before direnv activation
         env -u VIRTUAL_ENV -u PYTHONPATH -u CONDA_DEFAULT_ENV direnv allow .
-        # direnv will automatically activate flox and run uv sync
-    else
-        # Manual activation if direnv not present. The environment's on-activate
-        # hook installs both the Python and the Node dependencies, so activating
-        # is the whole job.
-        print_color blue "Installing dependencies via flox activate (this may take a minute)…"
-        # Clean up any stale environment variables that might conflict
-        unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
-        flox activate --trust -- true
     fi
+
+    # Activate regardless. `direnv allow` only adds .envrc to the allow list, it
+    # does not evaluate it, and the shell hook may not be configured at all. The
+    # environment's on-activate hook is what installs the Python and Node
+    # dependencies, so without this the worktree would have none and setup would
+    # still report success.
+    print_color blue "Installing dependencies via flox activate (this may take a minute)…"
+    # Clean up any stale environment variables that might conflict
+    unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
+    flox activate --trust -- true
     
     success "✅ Worktree setup complete!"
     echo ""
