@@ -190,6 +190,12 @@ export const MAX_FETCH_RETRY_AFTER_MS = 5 * 60 * 1000
 // rate-limited retries get exponential backoff with a ceiling above the generic fetch backoff cap.
 export const RATE_LIMIT_BACKOFF_MAX_MS = 60 * 1000
 
+// Linear backoff with the default 3 retries finishes every attempt within ~6s - inside the
+// per-minute window that rejected the first one. Rate-limited requests get enough attempts
+// for exponential growth to actually reach past the window. Callers that explicitly pass
+// maxFetchRetries (e.g. backfills) keep their own ceiling.
+export const RATE_LIMIT_MIN_RETRIES = 6
+
 // Retry-After is delta-seconds or an HTTP-date. Return a bounded millisecond delay, or undefined if the
 // header is absent or unparseable so the caller falls back to backoff.
 export function parseRetryAfterMs(response: FetchResponse | null): number | undefined {
