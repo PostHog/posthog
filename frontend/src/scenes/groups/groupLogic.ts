@@ -75,6 +75,7 @@ export interface groupLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
+    groupTypesLoading: boolean // groupsModel
     currentTeamId: number | null // teamLogic
     backNavigation: GroupBackNavigation | null
     backTo: Breadcrumb
@@ -251,7 +252,7 @@ export const groupLogic = kea<groupLogicType>([
             teamLogic,
             ['currentTeamId'],
             groupsModel,
-            ['groupTypes', 'aggregationLabel'],
+            ['groupTypes', 'groupTypesLoading', 'aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
         ],

@@ -192,11 +192,9 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
+        # A group type holds one detail dashboard, so a repeat call already has what it asked for.
         if group_type_mapping.detail_dashboard_id:
-            return response.Response(
-                {"detail": "Dashboard already exists for this group type."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return response.Response(self.get_serializer(group_type_mapping).data)
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
         update_group_type_mapping_fields(
