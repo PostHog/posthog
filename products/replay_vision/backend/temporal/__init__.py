@@ -34,7 +34,6 @@ from products.replay_vision.backend.temporal.activities import (
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
-    reap_stuck_vision_action_runs_activity,
     record_evaluation_result_activity,
     refresh_prompt_suggestion_activity,
     refresh_scanner_estimate_activity,
@@ -52,16 +51,6 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
-from products.replay_vision.backend.temporal.vision_actions import (
-    ProcessVisionActionWorkflow,
-    create_vision_action_run_activity,
-    emit_action_ready_activity,
-    evaluate_alert_activity,
-    evaluate_due_vision_actions_activity,
-    synthesize_group_summary_activity,
-    update_vision_action_run_activity,
-    validate_vision_action_activity,
-)
 from products.replay_vision.backend.temporal.vision_alerts import (
     VisionAlertCheckWorkflow,
     cleanup_vision_alert_history_activity,
@@ -80,7 +69,6 @@ WORKFLOWS = [
     RefreshScannerEstimatesWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
-    ProcessVisionActionWorkflow,
     VisionAlertCheckWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
@@ -126,15 +114,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     meter_scanner_read_bytes_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
-    reap_stuck_vision_action_runs_activity,
     sweep_gemini_files_activity,
-    evaluate_alert_activity,
-    evaluate_due_vision_actions_activity,
-    create_vision_action_run_activity,
-    validate_vision_action_activity,
-    synthesize_group_summary_activity,
-    emit_action_ready_activity,
-    update_vision_action_run_activity,
 ]
 
 __all__ = [
@@ -144,18 +124,10 @@ __all__ = [
     "BackfillScannerWorkflow",
     "EvaluatePromptSuggestionWorkflow",
     "MeterScannerReadsWorkflow",
-    "ProcessVisionActionWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
-    "create_vision_action_run_activity",
-    "emit_action_ready_activity",
-    "evaluate_alert_activity",
-    "evaluate_due_vision_actions_activity",
-    "synthesize_group_summary_activity",
-    "update_vision_action_run_activity",
-    "validate_vision_action_activity",
     "advance_scanner_watermark_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
@@ -182,7 +154,6 @@ __all__ = [
     "mark_observation_succeeded_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
-    "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",

@@ -2,8 +2,6 @@
 
 from django.db import migrations, models
 
-import products.replay_vision.backend.models.vision_action
-
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -15,7 +13,7 @@ class Migration(migrations.Migration):
             model_name="visionaction",
             name="selection",
             field=models.JSONField(
-                default=products.replay_vision.backend.models.vision_action.default_selection,
+                default=dict,
                 help_text="Observation filter applied at synthesis time. Supported keys: scanner_type (string — filters observations by scanner type, independent of the bound `scanner` FK which scopes scheduling), scanner_ids (list[str]), verdict, tags, scores, status, window_days.",
             ),
         ),
