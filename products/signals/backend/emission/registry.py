@@ -58,7 +58,7 @@ class SignalSourceTableConfig(BaseModel):
     fields: tuple[str, ...]
     # Optional filter clause (interpreted by the fetcher — HogQL for data warehouse, ORM for Postgres sources)
     where_clause: str | None = None
-    # Max records to process per sync
+    # Page size for the data warehouse fetcher, which pages through every new record — not a per-sync cap
     max_records: int = 1000
     # Set to True when the source stores datetime values as strings (e.g. GitHub JSON fields)
     partition_field_is_datetime_string: bool = False
