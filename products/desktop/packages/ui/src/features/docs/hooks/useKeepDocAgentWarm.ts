@@ -39,5 +39,7 @@ export function useKeepDocAgentWarm(): void {
     // The warm exists for the page, not for something typed into a composer, so
     // it is armed as soon as the page is open.
     editorIsEmpty: false,
+    // An idle warm is reaped after ten minutes; a page stays open longer than that.
+    renewEveryMs: 8 * 60_000,
   });
 }

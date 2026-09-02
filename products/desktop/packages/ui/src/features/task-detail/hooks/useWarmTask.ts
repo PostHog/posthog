@@ -4,7 +4,7 @@ import {
 } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { logger } from "../../../shell/logger";
 import { buildWarmTaskLeaseKey, rememberWarmTaskLease } from "./warmTaskLease";
 
@@ -29,6 +29,8 @@ interface UseWarmTaskOptions {
   reasoningEffort?: string | null;
   sandboxEnvironmentId?: string | null;
   customImageId?: string | null;
+  /** Warm again on this cadence, for a surface that stays open past the pool's idle timeout. */
+  renewEveryMs?: number;
 }
 
 export function useWarmTask({
@@ -46,6 +48,7 @@ export function useWarmTask({
   reasoningEffort,
   sandboxEnvironmentId,
   customImageId,
+  renewEveryMs,
 }: UseWarmTaskOptions): void {
   const enabled = useFeatureFlag(TASKS_PREWARM_SANDBOX_FLAG);
   const client = useOptionalAuthenticatedClient();
@@ -53,6 +56,15 @@ export function useWarmTask({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastWarmedKeyRef = useRef<string | null>(null);
   const latestKeyRef = useRef<string | null>(null);
+  const [renewal, setRenewal] = useState(0);
+  useEffect(() => {
+    if (!renewEveryMs) return;
+    const timer = setInterval(() => setRenewal((n) => n + 1), renewEveryMs);
+    return () => clearInterval(timer);
+  }, [renewEveryMs]);
+  useEffect(() => {
+    if (renewal > 0) lastWarmedKeyRef.current = null;
+  }, [renewal]);
 
   const isCloud = workspaceMode === "cloud";
   const normalizedBranch = branch ?? null;
