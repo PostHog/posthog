@@ -792,6 +792,24 @@ export enum PredicateScope {
     Unknown = 'unknown',
 }
 
+export enum PredicateFixAction {
+    /** A query edit unblocks an index that already exists. */
+    EditQuery = 'edit_query',
+    /** The property definition declares a type its stored values do not have. */
+    EditPropertyType = 'edit_property_type',
+    /** The property has no dedicated column to index. */
+    Materialize = 'materialize',
+}
+
+export interface PredicateQuickfix {
+    /** Character offset in the query where the replaced range starts. */
+    start: integer
+    /** Character offset in the query where the replaced range ends. */
+    end: integer
+    /** Replacement text, substituted for the range verbatim. */
+    text: string
+}
+
 /** How one property filter in the query reads its data, decided before the query runs. */
 export interface PredicateIndexUsage {
     property_name: string
@@ -809,7 +827,13 @@ export interface PredicateIndexUsage {
     usable_indexes: string[]
     verdict: PredicateIndexVerdict
     message: string
+    /** Prose advice for a reader. */
     fix?: string
+    fix_action?: PredicateFixAction
+    /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+    ai_fix_prompt?: string
+    /** A deterministic query edit that unblocks the index. */
+    quickfix?: PredicateQuickfix
     start?: integer
     end?: integer
 }

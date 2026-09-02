@@ -4,7 +4,7 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { PredicateIndexUsage, PredicateIndexVerdict } from '~/queries/schema/schema-general'
+import { PredicateIndexUsage, PredicateIndexVerdict, PredicateQuickfix } from '~/queries/schema/schema-general'
 
 import { QueryIndexUsageTable } from './QueryIndexUsageTable'
 
@@ -30,9 +30,21 @@ interface QueryIndexUsageBarProps {
     predicates: PredicateIndexUsage[]
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
+    /** The report does not describe the text the editor holds, so its offsets would land elsewhere. */
+    stale?: boolean
+    onApplyQuickfix?: (quickfix: PredicateQuickfix) => void
+    onFixWithAI?: (prompt: string) => void
+    fixWithAILoading?: boolean
 }
 
-export function QueryIndexUsageBar({ predicates, refreshing }: QueryIndexUsageBarProps): JSX.Element | null {
+export function QueryIndexUsageBar({
+    predicates,
+    refreshing,
+    stale,
+    onApplyQuickfix,
+    onFixWithAI,
+    fixWithAILoading,
+}: QueryIndexUsageBarProps): JSX.Element | null {
     if (predicates.length === 0) {
         return null
     }
@@ -58,7 +70,15 @@ export function QueryIndexUsageBar({ predicates, refreshing }: QueryIndexUsageBa
                             {refreshing ? 'Checking filters' : text}
                         </span>
                     ),
-                    content: <QueryIndexUsageTable predicates={predicates} />,
+                    content: (
+                        <QueryIndexUsageTable
+                            predicates={predicates}
+                            stale={stale}
+                            onApplyQuickfix={onApplyQuickfix}
+                            onFixWithAI={onFixWithAI}
+                            fixWithAILoading={fixWithAILoading}
+                        />
+                    ),
                 },
             ]}
         />
