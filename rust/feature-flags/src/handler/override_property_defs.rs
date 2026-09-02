@@ -7,8 +7,11 @@
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use moka::sync::Cache;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -29,6 +32,9 @@ pub const DEBOUNCE_TTL_SECONDS: u64 = 86_400;
 /// Bounds the work a single request can trigger.
 pub const MAX_KEYS_PER_REQUEST: usize = 25;
 
+/// Caps concurrent background inserts so they cannot fill the writer pool.
+const MAX_IN_FLIGHT_SPAWNS: usize = 32;
+
 /// Matches the varchar(400) `name` column on `posthog_propertydefinition`.
 const MAX_PROPERTY_NAME_LEN: usize = 400;
 
@@ -46,6 +52,43 @@ fn seen_override_keys() -> &'static Cache<(i64, String), ()> {
             .time_to_live(Duration::from_secs(DEBOUNCE_TTL_SECONDS))
             .build()
     })
+}
+
+fn in_flight_spawns() -> &'static Semaphore {
+    static SPAWNS: OnceLock<Semaphore> = OnceLock::new();
+    SPAWNS.get_or_init(|| Semaphore::new(MAX_IN_FLIGHT_SPAWNS))
+}
+
+/// Spawn taxonomy writes without waiting for them on the `/flags` response.
+///
+/// Starts before evaluation; the task is detached so the request is not delayed.
+/// `skip_writes` is the process-wide off switch (same gate as PAK last-used).
+pub fn maybe_spawn_register_override_person_properties(
+    skip_writes: bool,
+    redis: Arc<dyn RedisClient + Send + Sync>,
+    pg_writer: Arc<dyn DatabaseClient + Send + Sync>,
+    team_id: i32,
+    project_id: i64,
+    person_properties: Option<&HashMap<String, Value>>,
+) {
+    if skip_writes {
+        return;
+    }
+    let Some(person_properties) = person_properties else {
+        return;
+    };
+    let names = eligible_override_property_names(person_properties.keys());
+    if names.is_empty() {
+        return;
+    }
+    let Ok(permit) = in_flight_spawns().try_acquire_owned() else {
+        warn!("dropping override person property definition spawn; too many in flight");
+        return;
+    };
+    tokio::spawn(async move {
+        let _permit = permit;
+        register_override_person_properties(redis, pg_writer, team_id, project_id, names).await;
+    });
 }
 
 /// Keys that should become person property definitions.
@@ -273,12 +316,13 @@ mod tests {
     #[test]
     fn test_eligible_names_cap_at_max_keys() {
         let names: Vec<String> = (0..(MAX_KEYS_PER_REQUEST + 5))
-            .map(|i| format!("prop_{i}"))
+            .map(|i| format!("prop_{i:02}"))
             .collect();
-        assert_eq!(
-            eligible_override_property_names(names.iter()).len(),
-            MAX_KEYS_PER_REQUEST
-        );
+        let got = eligible_override_property_names(names.iter());
+        let mut expected = names;
+        expected.sort();
+        expected.truncate(MAX_KEYS_PER_REQUEST);
+        assert_eq!(got, expected);
     }
 
     #[tokio::test]
