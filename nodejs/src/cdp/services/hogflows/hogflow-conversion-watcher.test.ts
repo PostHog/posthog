@@ -123,6 +123,28 @@ describe('buildConversionWatcher', () => {
         expect(await clamped()).toBe(before + 1)
     })
 
+    it('counts a run whose stored window string could not be parsed, and only then', async () => {
+        // A stored window the worker cannot parse falls back to the default, changing what the run
+        // measures. The counter is the only signal that happened, so it must fire on the fallback path.
+        const invalidCount = async (): Promise<number> =>
+            ((await register.getSingleMetric('cdp_conversion_window_invalid')?.get())?.values[0]?.value as number) ?? 0
+
+        const before = await invalidCount()
+
+        // An unparseable window (e.g. a non-ASCII digit reaching storage past validation) falls back to
+        // the default window and increments the counter.
+        const fallback = buildConversionWatcher(invocationFor({ ...propertyGoal, window: '٧d' }))
+        const start = Date.now()
+        const minutes = (fallback!.expires_at.getTime() - start) / 60_000
+        expect(minutes).toBeGreaterThanOrEqual(DEFAULT_CONVERSION_WINDOW_MINUTES)
+        expect(minutes).toBeLessThan(DEFAULT_CONVERSION_WINDOW_MINUTES + 1)
+        expect(await invalidCount()).toBe(before + 1)
+
+        // A parseable window does not touch the counter.
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window: '7d' }))
+        expect(await invalidCount()).toBe(before + 1)
+    })
+
     it('does not build a watcher for a run that has already started', () => {
         // A run with several delays would otherwise enroll once per wake, inflating the denominator
         // and the row count together.

@@ -86,15 +86,25 @@ const counterConversionWindowClamped = new Counter({
     help: 'Runs enrolled with a conversion window shortened to the cap because the workflow configured a longer one. Each one measures its conversion rate over a shorter period than the workflow asked for.',
 })
 
+// A window we cannot parse is another silent substitution of the measured period, so it gets the same
+// treatment as the clamp above: a counter, not a quiet fallback. It reads zero while the API and worker
+// share one ASCII grammar, so a non-zero value flags a row that reached storage past validation.
+const counterConversionWindowInvalid = new Counter({
+    name: 'cdp_conversion_window_invalid',
+    help: 'Runs whose stored conversion window string could not be parsed, so the run fell back to the default or legacy window instead of the one the workflow configured.',
+})
+
 function conversionWindowMinutes(hogFlow: HogFlow): number {
     const window = hogFlow.conversion?.window
     if (window) {
         const seconds = durationSeconds(window)
-        // An unparseable string reaches here only if it was stored before the API validated the field.
-        // Falling through to the default beats measuring over a window nobody can read.
         if (seconds !== null && seconds > 0) {
             return clampWindow(seconds / 60, MAX_CONVERSION_WINDOW_MINUTES)
         }
+        // A present window that will not parse means a write reached the row past the API's validation
+        // (the two share one ASCII grammar), such as a direct database write. Record the substitution,
+        // then fall back: measuring over the fallback window beats measuring over a window nobody can read.
+        counterConversionWindowInvalid.inc()
     }
     const legacyMinutes = hogFlow.conversion?.window_minutes
     if (!legacyMinutes || legacyMinutes <= 0) {
