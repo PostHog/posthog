@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/signals/api'
+import { ReportInboxInputSchema } from '@/schema/tool-inputs'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
@@ -205,6 +206,8 @@ const inboxReportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
+                actionability: params.actionability,
+                already_addressed: params.already_addressed,
                 channel_id: params.channel_id,
                 count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
@@ -213,14 +216,19 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                scope: params.scope,
                 scout: params.scout,
                 scout_prefix: params.scout_prefix,
                 search: params.search,
+                sort: params.sort,
                 source_id: params.source_id,
                 source_product: params.source_product,
                 status: params.status,
                 suggested_reviewers: params.suggested_reviewers,
                 task_id: params.task_id,
+                teammate_uuid: params.teammate_uuid,
+                use_priority_preference: params.use_priority_preference,
+                view: params.view,
             },
         })
         const filtered = {
@@ -1326,6 +1334,60 @@ const scoutScratchpadSearch = (): ToolBase<
     },
 })
 
+const SelfDrivingInboxGetSchema = () => ReportInboxInputSchema
+
+const selfDrivingInboxGet = (): ToolBase<
+    ReturnType<typeof SelfDrivingInboxGetSchema>,
+    Schemas.PaginatedSignalReportList
+> => ({
+    name: 'self-driving-inbox-get',
+    schema: SelfDrivingInboxGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingInboxGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = SelfDrivingInboxGetSchema().parse(params)
+        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
+            query: parsedParams,
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'title',
+                    'summary',
+                    'status',
+                    'priority',
+                    'actionability',
+                    'already_addressed',
+                    'dismissal_reason',
+                    'dismissal_note',
+                    'signal_count',
+                    'total_weight',
+                    'source_products',
+                    'scout_name',
+                    'is_suggested_reviewer',
+                    'implementation_pr_url',
+                    'implementation_pr_merged',
+                    'created_at',
+                    'updated_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
+        )
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -1987,6 +2049,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
+    'self-driving-inbox-get': selfDrivingInboxGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,
