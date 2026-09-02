@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from products.growth.backend.enrichment.bridge import ClayBridgeInputs, WizardBridgeInputs
+from products.growth.backend.enrichment.bridge import ClayBridgeInputs, OrganizationBridgeInputs, WizardBridgeInputs
 from products.growth.backend.enrichment.core import _MISS_PAYLOAD, enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
@@ -112,17 +112,23 @@ class TestEnrichmentCore(BaseTest):
         provider=None,
     ):
         person_patch_kwargs = {"side_effect": person} if isinstance(person, Exception) else {"return_value": person}
-        clay_patch_kwargs = (
-            {"side_effect": clay} if isinstance(clay, Exception) else {"return_value": clay or ClayBridgeInputs()}
-        )
-        wizard_patch_kwargs = (
-            {"side_effect": wizard}
-            if isinstance(wizard, Exception)
-            else {"return_value": wizard or WizardBridgeInputs()}
+        bridge_error = None
+        if isinstance(clay, Exception):
+            bridge_error = clay
+        elif isinstance(wizard, Exception):
+            bridge_error = wizard
+        bridge_patch_kwargs = (
+            {"side_effect": bridge_error}
+            if bridge_error is not None
+            else {
+                "return_value": OrganizationBridgeInputs(
+                    clay=clay or ClayBridgeInputs(),
+                    wizard=wizard or WizardBridgeInputs(),
+                )
+            }
         )
         with (
-            patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", **clay_patch_kwargs),
-            patch("products.growth.backend.enrichment.core.read_wizard_bridge_inputs", **wizard_patch_kwargs),
+            patch("products.growth.backend.enrichment.core.read_organization_bridge_inputs", **bridge_patch_kwargs),
             patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", **person_patch_kwargs),
         ):
             return async_to_sync(enrich_organization)(
@@ -319,7 +325,10 @@ class TestEnrichmentCore(BaseTest):
     def test_first_attempt_does_not_look_up_the_person(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
         with (
-            patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", return_value=ClayBridgeInputs()),
+            patch(
+                "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
+                return_value=OrganizationBridgeInputs(),
+            ),
             patch("products.growth.backend.enrichment.core.get_person_by_distinct_id") as person_mock,
         ):
             async_to_sync(enrich_organization)(
@@ -418,7 +427,10 @@ class TestEnrichmentCore(BaseTest):
         pha_client = MagicMock()
         fields = EnrichmentFields(company_type="STARTUP")
         with (
-            patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", return_value=ClayBridgeInputs()),
+            patch(
+                "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
+                return_value=OrganizationBridgeInputs(),
+            ),
             patch("products.growth.backend.enrichment.core.get_person_by_distinct_id") as person_mock,
         ):
             async_to_sync(enrich_organization)(
@@ -558,13 +570,10 @@ class TestEnrichmentCore(BaseTest):
     def test_recheck_reads_the_wizard_bridge(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
         payload = _company(description="We sell shoes", tagsV2=[{"displayValue": "S25", "type": "YC_BATCH"}])
-        with (
-            patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", return_value=ClayBridgeInputs()),
-            patch(
-                "products.growth.backend.enrichment.core.read_wizard_bridge_inputs",
-                return_value=WizardBridgeInputs(ai_sdk_detected=True),
-            ) as wizard_mock,
-        ):
+        with patch(
+            "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
+            return_value=OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
+        ) as bridge_mock:
             outcome = async_to_sync(enrich_organization)(
                 organization_id=str(self.organization.id),
                 domain="acme.com",
@@ -573,17 +582,41 @@ class TestEnrichmentCore(BaseTest):
                 is_recheck=True,
             )
 
-        wizard_mock.assert_called_once_with(organization_id=str(self.organization.id))
+        bridge_mock.assert_called_once_with(organization_id=str(self.organization.id))
         assert outcome.fit is not None
         assert outcome.fit.wizard_ai_sdk is True
         assert outcome.fit.ai_pilled_source == "wizard"
         assert (outcome.fit.components or {}).get("ai_pilled") == 15
 
-    def test_first_attempt_does_not_read_the_wizard_bridge(self):
+    def test_recheck_reads_the_organization_group_once_for_both_scores(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        group = MagicMock(group_properties={"wizard_ai_sdk_detected": True})
         with (
-            patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", return_value=ClayBridgeInputs()),
-            patch("products.growth.backend.enrichment.core.read_wizard_bridge_inputs") as wizard_mock,
+            patch("products.growth.backend.enrichment.bridge.get_instance_region", return_value="US"),
+            patch("products.growth.backend.enrichment.bridge.Team.objects.get", return_value=self.team),
+            patch(
+                "products.growth.backend.enrichment.bridge.get_group_types_for_project",
+                return_value=[{"group_type": "organization", "group_type_index": 3}],
+            ),
+            patch("products.growth.backend.enrichment.bridge.get_group_by_key", return_value=group) as get_group,
+        ):
+            outcome = async_to_sync(enrich_organization)(
+                organization_id=str(self.organization.id),
+                domain="acme.com",
+                provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_company())),
+                pha_client=MagicMock(),
+                is_recheck=True,
+            )
+
+        assert outcome.fit is not None
+        assert outcome.fit.wizard_ai_sdk is True
+        get_group.assert_called_once()
+
+    def test_first_attempt_ignores_the_wizard_bridge_input(self):
+        fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        with patch(
+            "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
+            return_value=OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
         ):
             outcome = async_to_sync(enrich_organization)(
                 organization_id=str(self.organization.id),
@@ -593,17 +626,15 @@ class TestEnrichmentCore(BaseTest):
                 is_recheck=False,
             )
 
-        wizard_mock.assert_not_called()
         assert outcome.fit is not None
         assert outcome.fit.wizard_ai_sdk is False
         assert outcome.fit.ai_pilled_source == "harmonic"
 
-    def test_wizard_bridge_read_failure_degrades_to_no_wizard_evidence(self):
+    def test_wizard_bridge_read_failure_skips_a_fit_score_without_persisted_evidence(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
         with (
-            patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", return_value=ClayBridgeInputs()),
             patch(
-                "products.growth.backend.enrichment.core.read_wizard_bridge_inputs",
+                "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
                 side_effect=RuntimeError("group store down"),
             ),
             patch("products.growth.backend.enrichment.core.capture_exception") as capture_mock,
@@ -617,10 +648,41 @@ class TestEnrichmentCore(BaseTest):
             )
 
         capture_mock.assert_called_once()
+        assert outcome.fit is None
+
+    def test_wizard_bridge_read_failure_preserves_persisted_wizard_evidence(self):
+        record = OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={
+                "icp_fit_score": 15,
+                "icp_fit_flags": {"wizard_ai_sdk": True, "ai_pilled_source": "wizard"},
+                "icp_fit_version": "v0.6",
+            },
+        )
+        fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        payload = _company(description="We sell shoes", tagsV2=[{"displayValue": "S25", "type": "YC_BATCH"}])
+        with (
+            patch(
+                "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
+                side_effect=RuntimeError("group store down"),
+            ),
+            patch("products.growth.backend.enrichment.core.capture_exception"),
+        ):
+            outcome = async_to_sync(enrich_organization)(
+                organization_id=str(self.organization.id),
+                domain="acme.com",
+                provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=payload)),
+                pha_client=MagicMock(),
+                is_recheck=True,
+            )
+
         assert outcome.fit is not None
-        assert outcome.fit.status == "scored"
-        assert outcome.fit.wizard_ai_sdk is False
-        assert outcome.fit.ai_pilled_source == "harmonic"
+        assert outcome.fit.wizard_ai_sdk is True
+        assert outcome.fit.ai_pilled_source == "wizard"
+        assert (outcome.fit.components or {}).get("ai_pilled") == 15
+        record.refresh_from_db()
+        assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True
+        assert record.data["icp_fit_flags"]["ai_pilled_source"] == "wizard"
 
     def test_scoreless_fit_mirrors_status_only(self):
         pha_client = MagicMock()

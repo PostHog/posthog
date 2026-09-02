@@ -23,8 +23,8 @@ from posthog.models.person.util import get_person_by_distinct_id
 
 from products.growth.backend.enrichment.bridge import (
     ClayBridgeInputs,
-    read_clay_bridge_inputs,
-    read_wizard_bridge_inputs,
+    OrganizationBridgeInputs,
+    read_organization_bridge_inputs,
 )
 from products.growth.backend.enrichment.clearbit import ClearbitInputs, clearbit_inputs_from_person_properties
 from products.growth.backend.enrichment.fields import EnrichmentFields
@@ -183,6 +183,7 @@ def _company_type_from_ownership(ownership_status: Optional[str]) -> Optional[st
 def _score_and_mirror(
     *,
     organization_id: str,
+    bridge_inputs: Optional[OrganizationBridgeInputs],
     fields: EnrichmentFields,
     role: Optional[str],
     is_recheck: bool,
@@ -197,66 +198,62 @@ def _score_and_mirror(
     things: the mirror-ownership check and the Clearbit fallback for est_revenue (Clay wins when
     both exist). company_type comes from Harmonic's own ownershipStatus, fetched server-side in
     the same lookup as the other firmographics.
-
-    Wrapped so a bridge-read or score failure degrades to no score rather than taking down the
-    firmographic write below — see enrich_organization's docstring.
     """
     try:
-        clay = read_clay_bridge_inputs(organization_id=organization_id)
-    except Exception as e:
-        # A failed bridge READ is not absent bridge data: the bridge is optional input, so a
-        # read failure (unresolvable internal team, transient store error) degrades to scoring
-        # without it rather than costing the score entirely. Degraded-mode scores only fill a
-        # gap, though — a persisted score may have been computed WITH bridge data, and a
-        # bridge-less recompute would silently downgrade it.
-        capture_exception(e)
-        if _persisted_score_exists(organization_id):
-            return None, None
-        clay = ClayBridgeInputs()
+        if bridge_inputs is None:
+            if _persisted_score_exists(organization_id):
+                return None, None
+            clay = ClayBridgeInputs()
+        else:
+            clay = bridge_inputs.clay
 
-    mirror_ok = False
-    clearbit = ClearbitInputs()
-    if is_recheck and distinct_id:
-        mirror_ok, clearbit = _fetch_recheck_person_inputs(distinct_id)
+        mirror_ok = False
+        clearbit = ClearbitInputs()
+        if is_recheck and distinct_id:
+            mirror_ok, clearbit = _fetch_recheck_person_inputs(distinct_id)
 
-    icp_score = compute_icp_score(
-        IcpScoreInputs(
-            employees=fields.headcount,
-            # A Clay-written 0 is not information the formula can use either (_in_band is false
-            # at 0 same as at None), so it must not shadow a real Clearbit band.
-            est_revenue=clay.est_revenue or clearbit.est_revenue,
-            role=role,
-            # Clay never projects its GitHub column into PostHog, so this input is always
-            # absent here — product-role orgs score 3, not 6, until v-next substitutes the
-            # signup's own GitHub auth. Kept on IcpScoreInputs for formula fidelity.
-            github_profile_url=None,
-            company_type=_company_type_from_ownership(fields.ownership_status),
-            founded_year=fields.founded_year,
-            country=fields.country,
+        icp_score = compute_icp_score(
+            IcpScoreInputs(
+                employees=fields.headcount,
+                # A Clay-written 0 is not information the formula can use either (_in_band is false
+                # at 0 same as at None), so it must not shadow a real Clearbit band.
+                est_revenue=clay.est_revenue or clearbit.est_revenue,
+                role=role,
+                # Clay never projects its GitHub column into PostHog, so this input is always
+                # absent here — product-role orgs score 3, not 6, until v-next substitutes the
+                # signup's own GitHub auth. Kept on IcpScoreInputs for formula fidelity.
+                github_profile_url=None,
+                company_type=_company_type_from_ownership(fields.ownership_status),
+                founded_year=fields.founded_year,
+                country=fields.country,
+            )
         )
-    )
 
-    mirror_distinct_id = distinct_id if mirror_ok else None
-
-    return icp_score, mirror_distinct_id
-
-
-def _read_wizard_ai_sdk(*, organization_id: str) -> bool:
-    """Best-effort recheck-only read of the wizard's AI-SDK stamp.
-
-    Isolated from `_score_fit`'s own try/except: the wizard bridge is optional evidence, so
-    an unreachable store degrades to no wizard input, not to no fit evaluation at all.
-    """
-    try:
-        return read_wizard_bridge_inputs(organization_id=organization_id).ai_sdk_detected
+        mirror_distinct_id = distinct_id if mirror_ok else None
+        return icp_score, mirror_distinct_id
     except Exception as e:
-        capture_exception(e)
-        return False
+        capture_exception(e, {"organization_id": organization_id})
+        return None, None
+
+
+def _read_bridge_inputs(*, organization_id: str) -> Optional[OrganizationBridgeInputs]:
+    try:
+        return read_organization_bridge_inputs(organization_id=organization_id)
+    except Exception as e:
+        capture_exception(e, {"organization_id": organization_id})
+        return None
+
+
+def _persisted_wizard_ai_sdk(*, organization_id: str) -> bool:
+    record = OrganizationEnrichment.objects.filter(organization_id=organization_id).only("data").first()
+    flags = record.data.get("icp_fit_flags") if record else None
+    return isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
 
 
 def _score_fit(
     *,
     organization_id: str,
+    bridge_inputs: Optional[OrganizationBridgeInputs],
     raw_payload: Optional[dict[str, Any]],
     role: Optional[str],
     domain: str,
@@ -270,10 +267,8 @@ def _score_fit(
     active curated-lists row degrades to no evaluation at all (captured, never raised):
     scoring against empty lists would floor three components and look like a real answer.
 
-    The wizard's AI-SDK stamp is read on `is_recheck` only: the wizard runs long after
-    signup, so a first attempt would virtually never see it land in time. Its evidence rides
-    into `score_company` as `wizard_ai_sdk` without changing the score — see that function's
-    docstring.
+    The wizard's AI-SDK stamp affects rechecks only because the wizard usually finishes
+    after the first score.
 
     The fit person mirror needs no ownership guard and no person read: `icp_fit_score` is a
     brand-new person key nothing else writes, so every evaluation mirrors blindly on every
@@ -281,8 +276,15 @@ def _score_fit(
     the ownership check) — including a score-less one, whose status overwrites a stale
     number left by an earlier scored attempt.
     """
-    wizard_ai_sdk = _read_wizard_ai_sdk(organization_id=organization_id) if is_recheck else False
     try:
+        wizard_ai_sdk = False
+        if is_recheck:
+            if bridge_inputs is None:
+                if not _persisted_wizard_ai_sdk(organization_id=organization_id):
+                    return None, None
+                wizard_ai_sdk = True
+            else:
+                wizard_ai_sdk = bridge_inputs.wizard.ai_sdk_detected
         lists = load_active_lists()
         if lists is None:
             capture_exception(RuntimeError("icp_fit_no_active_lists: IcpScoringConfig has no active row"))
@@ -294,7 +296,7 @@ def _score_fit(
 
         result = score_company(payload, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk)
     except Exception as e:
-        capture_exception(e)
+        capture_exception(e, {"organization_id": organization_id})
         return None, None
 
     return result, distinct_id
@@ -369,11 +371,16 @@ async def enrich_organization(
         if fallback_country:
             fields = dataclasses.replace(fields, country=fallback_country)
 
+    bridge_inputs: Optional[OrganizationBridgeInputs] = OrganizationBridgeInputs()
+    if fields is not None or is_recheck:
+        bridge_inputs = await sync_to_async(_read_bridge_inputs)(organization_id=organization_id)
+
     icp_score: Optional[int] = None
     mirror_distinct_id: Optional[str] = None
     if fields is not None:
         icp_score, mirror_distinct_id = await sync_to_async(_score_and_mirror)(
             organization_id=organization_id,
+            bridge_inputs=bridge_inputs,
             fields=fields,
             role=role_at_organization,
             is_recheck=is_recheck,
@@ -382,6 +389,7 @@ async def enrich_organization(
 
     fit, fit_mirror_distinct_id = await sync_to_async(_score_fit)(
         organization_id=organization_id,
+        bridge_inputs=bridge_inputs,
         raw_payload=lookup.raw_payload,
         role=role_at_organization,
         domain=domain,
