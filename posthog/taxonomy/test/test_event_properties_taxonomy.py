@@ -1,6 +1,7 @@
 from posthog.taxonomy.taxonomy import (
     CAMPAIGN_PROPERTIES,
     CORE_FILTER_DEFINITIONS_BY_GROUP,
+    POSTHOG_INTERNAL_ONLY_PROPERTIES,
     SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 )
 
@@ -27,6 +28,14 @@ def test_should_have_every_property_in_session_adopted_from_person() -> None:
     session_props = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].keys()
     for prop in SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS:
         assert f"$entry_{prop.replace('$', '')}" in session_props
+
+
+def test_posthog_internal_only_properties_stay_out_of_the_core_taxonomy() -> None:
+    # A core entry wins the label, the PostHog logo and the example values on every property of
+    # that name in every project, so it relabels a customer's own property of the same name.
+    for group, definitions in CORE_FILTER_DEFINITIONS_BY_GROUP.items():
+        collisions = POSTHOG_INTERNAL_ONLY_PROPERTIES & set(definitions)
+        assert not collisions, f"{group} must not define {sorted(collisions)} — no SDK sets these in customer data"
 
 
 def test_mcp_properties_mirrors_every_mcp_event_property() -> None:

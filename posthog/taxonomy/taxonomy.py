@@ -33,6 +33,19 @@ def visible_definitions(group: str) -> Iterator[tuple[str, CoreFilterDefinition]
             yield name, definition
 
 
+# Property names that only PostHog's own internal analytics sets. No PostHog SDK writes them into
+# a customer's project, so this taxonomy has nothing true to say about a property of that name.
+# The taxonomy is global and has no per-team scoping, so an entry wins the label, the PostHog logo
+# and the example values on every property of that name in every project, even where the team
+# wrote its own description. These names are common in customer schemas, so an entry relabels the
+# team's own property with PostHog's internal meaning.
+# The test is whether a PostHog SDK can put the property in customer data, not whether the name
+# carries a $ prefix: utm_source, gclid, revenue and version are unprefixed and belong here.
+POSTHOG_INTERNAL_ONLY_PROPERTIES: frozenset[str] = frozenset(
+    {"source", "tool_name", "resource_name", "duration_ms", "is_error"}
+)
+
+
 """
 Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
 Ideally this would be imported from one place.
@@ -3007,6 +3020,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         # in-tree trackEvent path). They overlap with the $mcp_*-prefixed core properties above
         # and will be retired once @posthog/mcp reaches general availability — they are not yet
         # deprecated, because @posthog/mcp is still in internal testing.
+        # Only names inside the "mcp_" namespace belong here. A name a customer could plausibly
+        # use for their own data does not, however internal its meaning is to us — see
+        # POSTHOG_INTERNAL_ONLY_PROPERTIES for the names kept out on purpose.
         "mcp_client_name": {
             "label": "MCP client name (unprefixed)",
             "description": "Older unprefixed variant of $mcp_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_name for new dashboards.",
@@ -3048,50 +3064,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP server version (unprefixed, internal)",
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
             "type": "Numeric",
-        },
-        "tool_name": {
-            "label": "Tool name (unprefixed)",
-            "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
-        },
-        "resource_name": {
-            "label": "Resource name (unprefixed)",
-            "description": "Older unprefixed variant of $mcp_resource_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_resource_name for new dashboards.",
-        },
-        "duration_ms": {
-            "label": "Duration (ms, unprefixed)",
-            "description": "Older unprefixed variant of $mcp_duration_ms. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_duration_ms for new dashboards.",
-            "type": "Numeric",
-        },
-        "is_error": {
-            "label": "Is error (unprefixed)",
-            "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
-        },
-        "source": {
-            "label": "Source",
-            "description": (
-                "Which PostHog surface the work came from. The surface values are 'web' (the app in a "
-                "browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog "
-                "mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and "
-                "'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so "
-                "'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server "
-                "instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop "
-                "request can still show as 'mcp' on those. "
-                "'posthog_code' covers the headless coding agents: the cloud agent and the local agent. "
-                "'self_driving' is Signals: scouts, report implementations, and scout chat. "
-                "'wizard' is the setup agent and 'terraform' is the Terraform provider. "
-                "Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and "
-                "'subscription'. "
-                "Two unrelated properties share this name, so filter to a specific event before breaking "
-                "down by it. The app also uses 'source' for which control fired an event, with values "
-                "like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for "
-                "something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' "
-                "on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' "
-                "or 'custom' on 'mcp_store server installed'. Two "
-                "surface values also collide with older control names: on 'switched site mode', "
-                "'desktop' means the device-mode control rather than the app, and on the AI report "
-                "events, 'slack' means the delivery channel."
-            ),
-            "examples": ["web", "posthog_ai", "mcp", "desktop", "api"],
         },
         "mcp_runtime": {
             "label": "MCP runtime",
