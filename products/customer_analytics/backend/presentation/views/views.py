@@ -1690,7 +1690,7 @@ class AccountViewSet(
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
     def email_threads(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if api.get_readable_account_id(self.team_id, self.kwargs["pk"]) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         def fetch(offset: int, limit: int) -> tuple[list[api.AccountEmailThreadSummary], int]:
@@ -1767,7 +1767,7 @@ class AccountViewSet(
     )
     @action(methods=["GET"], detail=True)
     def meetings(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if api.get_readable_account_id(self.team_id, self.kwargs["pk"]) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         search = request.query_params.get("search", "").strip() or None
 
@@ -1890,7 +1890,7 @@ class AccountViewSet(
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountChannelSummarySerializer(many=True)})
     @action(methods=["GET"], detail=True)
     def summaries(self, request: Request, *args, **kwargs) -> Response:
-        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+        if api.get_readable_account_id(self.team_id, self.kwargs["pk"]) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         def fetch(offset: int, limit: int) -> tuple[list[contracts.AccountChannelSummaryView], int]:
@@ -2155,19 +2155,21 @@ class AccountNotesViewSet(
 )
 class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
+    access_control_unrestricted_read = True
     serializer_class = CustomPropertyValueSerializer
     pagination_class = None
 
-    def _accessible_account_id(self) -> str | None:
-        """The parent account's id when the caller has object-level access to it, else ``None``
-        (mapped to 404). Object-access filtering lives behind the facade — the view imports no models."""
-        return api.get_accessible_account_id(
+    def _readable_account_id(self) -> str | None:
+        return api.get_readable_account_id(self.team_id, self.parents_query_dict["account_id"])
+
+    def _writable_account_id(self) -> str | None:
+        return api.get_writable_account_id(
             self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
         )
 
     @extend_schema(responses={200: CustomPropertyValueSerializer(many=True)})
     def list(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = self._readable_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         values = api.list_active_custom_property_values(self.team_id, account_id)
@@ -2175,7 +2177,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 
     @extend_schema(request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer})
     def create(self, request: Request, *args, **kwargs) -> Response:
-        account_id = self._accessible_account_id()
+        account_id = self._writable_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         write = CustomPropertyValueWriteSerializer(data=request.data)
