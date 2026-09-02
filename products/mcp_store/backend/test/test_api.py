@@ -360,7 +360,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert [result["id"] for result in response.json()["results"]] == [str(registered.id)]
         assert not MCPGatewayServer.objects.for_team(self.team.id).filter(url=untouched.url).exists()
 
-    def test_list_exposes_template_auth_type_and_leaves_custom_auth_choice_open(self) -> None:
+    def test_list_exposes_the_auth_type_members_connect_with(self) -> None:
         self._make_admin()
         template = self._template("API key", auth_type="api_key")
         template_server = MCPGatewayServer.objects.for_team(self.team.id).create(
@@ -374,6 +374,13 @@ class TestMCPGatewayServerAPI(APIBaseTest):
             team=self.team,
             name="Custom",
             url="https://mcp.custom-auth.gateway-test.example.com/mcp",
+            auth_type="api_key",
+            created_by=self.user,
+        )
+        legacy_custom = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Legacy custom",
+            url="https://mcp.legacy-auth.gateway-test.example.com/mcp",
             created_by=self.user,
         )
 
@@ -382,7 +389,10 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         by_id = {result["id"]: result for result in response.json()["results"]}
         assert by_id[str(template_server.id)]["template_auth_type"] == "api_key"
+        assert by_id[str(template_server.id)]["auth_type"] == "api_key"
         assert by_id[str(custom.id)]["template_auth_type"] is None
+        assert by_id[str(custom.id)]["auth_type"] == "api_key"
+        assert by_id[str(legacy_custom.id)]["auth_type"] is None
 
     def test_disabled_catalog_server_is_hidden_from_members_but_visible_to_admins(self) -> None:
         self._make_admin()
@@ -2701,6 +2711,40 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["name"] == "My API Server"
         assert response.json()["url"] == "https://mcp.custom.com"
         assert response.json()["auth_type"] == "api_key"
+
+    @ALLOW_URL
+    def test_teammate_connects_to_registered_api_key_server_with_own_key(self, _mock):
+        url = "https://mcp.team-key.com"
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Team key server", "url": url, "auth_type": "api_key", "api_key": "sk-owner"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        server = MCPGatewayServer.objects.for_team(self.team.id).get(url=url)
+        assert server.auth_type == "api_key"
+
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_custom_servers=False)
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        self.client.force_login(teammate)
+
+        blocked = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "New server", "url": "https://mcp.new-server.com", "auth_type": "api_key"},
+            format="json",
+        )
+        assert blocked.status_code == status.HTTP_403_FORBIDDEN
+
+        connected = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Team key server", "url": url, "auth_type": "api_key", "api_key": "sk-teammate"},
+            format="json",
+        )
+        assert connected.status_code == status.HTTP_201_CREATED
+        installation = MCPServerInstallation.objects.get(id=connected.json()["id"])
+        assert installation.user_id == teammate.id
+        assert installation.gateway_server_id == server.id
+        assert installation.sensitive_configuration["api_key"] == "sk-teammate"
 
     @ALLOW_URL
     def test_install_custom_api_key_server_without_key(self, _mock):
