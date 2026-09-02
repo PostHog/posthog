@@ -24,7 +24,7 @@ export const humanizeBytes = (fileSizeInBytes: number | null): string => {
     do {
         convertedBytes = convertedBytes / 1024
         i++
-    } while (convertedBytes > 1024)
+    } while (convertedBytes > 1024 && i < byteUnits.length - 1)
 
     if (convertedBytes < 0.1) {
         return fileSizeInBytes + ' bytes'
@@ -158,7 +158,7 @@ export function compactNumber(value: number | null): string {
 
     value = parseFloat(value.toPrecision(3))
     let magnitude = 0
-    while (Math.abs(value) >= 1000) {
+    while (Math.abs(value) >= 1000 && magnitude < COMPACT_NUMBER_MAGNITUDES.length - 1) {
         magnitude++
         value /= 1000
     }
