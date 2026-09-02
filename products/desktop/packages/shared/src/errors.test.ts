@@ -198,6 +198,7 @@ describe("isFatalSessionError", () => {
     "Internal error: API Error: terminated",
     "Internal error: API Error: Connection error",
     "Internal error: API Error: 529 overloaded_error",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("does not treat the transient upstream failure %j as fatal", (message) => {
     expect(isFatalSessionError(message)).toBe(false);
   });
@@ -241,6 +242,8 @@ describe("isTransientUpstreamError", () => {
     "Internal error: API Error: Connection closed mid-response. The response above may be incomplete.",
     "The socket connection was closed unexpectedly.",
     "socket connection closed",
+    "Internal error: API Error: Content block not found",
+    "Internal error: API Error: Content block is not a thinking block",
   ])("recognises %j", (message) => {
     expect(isTransientUpstreamError(message)).toBe(true);
   });
