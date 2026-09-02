@@ -276,7 +276,7 @@ describe('RequestContext', () => {
                 $mcp_client_name: 'Claude Desktop',
                 $mcp_client_version: '2.0',
                 $mcp_consumer: 'request-consumer',
-                mcp_vendor_client: 'ClaudeAI',
+                $mcp_vendor_client: 'ClaudeAI',
                 mcp_session_client_name: 'claude-code',
                 mcp_session_client_version: '1.0',
                 mcp_session_consumer: 'session-consumer',

@@ -104,7 +104,7 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_mode: 'cli',
             $mcp_region: 'us',
             $mcp_auth_method: 'personal_api_key',
-            mcp_vendor_client: 'ClaudeAI',
+            $mcp_vendor_client: 'ClaudeAI',
             mcp_session_client_name: 'claude-code',
             mcp_session_client_version: '1.0',
             mcp_session_protocol_version: '2025-03-26',
@@ -165,7 +165,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: live value wins when both live and session values are present',
             async (eventProp, contextField) => {
@@ -184,7 +184,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: falls back to the session-pinned value when the live request has none (the tools/call case)',
             async (eventProp, contextField) => {
@@ -203,7 +203,7 @@ describe('Hono MCP analytics contexts', () => {
             ['$mcp_client_version', 'mcpClientVersion'],
             ['$mcp_protocol_version', 'mcpProtocolVersion'],
             ['$mcp_consumer', 'mcpConsumer'],
-            ['mcp_vendor_client', 'mcpVendorClient'],
+            ['$mcp_vendor_client', 'mcpVendorClient'],
         ] as const)(
             '%s: stays undefined (never an empty string) when both live and session values are absent',
             async (eventProp, contextField) => {
@@ -225,7 +225,7 @@ describe('Hono MCP analytics contexts', () => {
                 $mcp_client_version: '2.0',
                 $mcp_protocol_version: '2025-03-26',
                 $mcp_consumer: 'request-consumer',
-                mcp_vendor_client: 'ClaudeAI',
+                $mcp_vendor_client: 'ClaudeAI',
             })
         })
 
