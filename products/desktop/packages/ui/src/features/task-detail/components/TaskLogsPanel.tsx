@@ -1,3 +1,7 @@
+import {
+  GITHUB_CONNECTION_REQUIRED_MESSAGE,
+  isGithubConnectionRequiredError,
+} from "@posthog/core/integrations/connectErrors";
 import { getTaskRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex } from "@radix-ui/themes";
@@ -6,6 +10,7 @@ import { BackgroundWrapper } from "../../../primitives/BackgroundWrapper";
 import { ErrorBoundary } from "../../../primitives/ErrorBoundary";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { useFolders } from "../../folders/useFolders";
+import { GithubConnectionRequiredRecovery } from "../../integrations/components/GithubConnectionRequiredRecovery";
 import { useDraftStore } from "../../message-editor/draftStore";
 import { ProvisioningView } from "../../provisioning/ProvisioningView";
 import { useProvisioningStore } from "../../provisioning/store";
@@ -97,6 +102,8 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     typeof task.latest_run?.state?.slack_thread_url === "string"
       ? task.latest_run.state.slack_thread_url
       : undefined;
+  const githubConnectionRequired =
+    isGithubConnectionRequiredError(errorMessage);
 
   useEffect(() => {
     requestFocus(taskId);
@@ -183,10 +190,14 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               cloudBranch={cloudBranch}
               hasError={hasError}
               errorTitle={errorTitle}
-              errorMessage={errorMessage ?? undefined}
+              errorMessage={
+                githubConnectionRequired
+                  ? GITHUB_CONNECTION_REQUIRED_MESSAGE
+                  : (errorMessage ?? undefined)
+              }
               errorRetryable={errorRetryable}
               hideInput={hideInput}
-              onRetry={handleRetry}
+              onRetry={githubConnectionRequired ? undefined : handleRetry}
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
               isCloud={isCloud}
@@ -198,6 +209,9 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
       </Flex>
 
       {dialogProps && <BranchMismatchDialog {...dialogProps} />}
+      {githubConnectionRequired ? (
+        <GithubConnectionRequiredRecovery task={task} required />
+      ) : null}
     </BackgroundWrapper>
   );
 }

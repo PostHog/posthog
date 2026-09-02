@@ -7978,6 +7978,62 @@ describe("SessionService", () => {
       expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
     });
 
+    it("restarts a GitHub-blocked run after the connection is available", async () => {
+      const service = getSessionService();
+      mockPreBootFailedSession({
+        cloudErrorMessage: "GitHub is not connected for this project",
+        cloudBranch: "main",
+      });
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: "main",
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "GitHub is not connected for this project",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
+        createMockTask({
+          latest_run: {
+            id: "run-456",
+            task: "task-123",
+            team: 123,
+            branch: "main",
+            environment: "cloud",
+            status: "queued",
+            log_url: "https://example.com/logs/run-456",
+            error_message: null,
+            output: {},
+            state: {},
+            created_at: "2026-04-14T00:06:00Z",
+            updated_at: "2026-04-14T00:06:00Z",
+            completed_at: null,
+          },
+        }),
+      );
+
+      await service.retryGithubRequiredCloudRun(
+        "task-123",
+        "Investigate the report",
+      );
+
+      expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
+        "task-123",
+        "main",
+        expect.objectContaining({
+          resumeFromRunId: "run-123",
+          pendingUserMessage: "Investigate the report",
+        }),
+      );
+    });
+
     it("falls back to a generic message when the failed run has no error", async () => {
       const service = getSessionService();
       mockPreBootFailedSession();

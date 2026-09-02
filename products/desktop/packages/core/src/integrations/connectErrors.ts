@@ -11,6 +11,30 @@ export const GITHUB_CONNECT_TIMEOUT_MESSAGE =
 export const GITHUB_INSTALL_PENDING_MESSAGE =
   "GitHub sent your request to your organization owners. Once an owner approves the PostHog app, we'll finish connecting here.";
 
+export const GITHUB_CONNECTION_REQUIRED_MESSAGE =
+  "Connect GitHub to investigate signals with code context.";
+
+export const GITHUB_ADMIN_ACCESS_REQUEST =
+  "PostHog needs read access to diagnose product changes using code context and keep investigations current.";
+
+const GITHUB_CONNECTION_REQUIRED_PATTERNS = [
+  /github_authorization_required/i,
+  /github is not connected/i,
+  /github integration is required/i,
+  /link a github account with repo access/i,
+  /requires (?:an acting user with|a linked) github (?:account with )?repo access/i,
+  /check that github is connected for this project/i,
+];
+
+export function isGithubConnectionRequiredError(
+  message: string | null | undefined,
+): boolean {
+  return (
+    !!message &&
+    GITHUB_CONNECTION_REQUIRED_PATTERNS.some((pattern) => pattern.test(message))
+  );
+}
+
 /**
  * A disconnect that 404s means the row is already gone, usually because the App was
  * uninstalled on GitHub and the webhook cleaned up first. That is the outcome the user
