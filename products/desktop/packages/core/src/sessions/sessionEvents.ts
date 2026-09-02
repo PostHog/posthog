@@ -12,6 +12,7 @@ import type {
   JsonRpcMessage,
   JsonRpcRequest,
   OptimisticItem,
+  PendingFollowupMessage,
   StoredLogEntry,
   UserShellExecuteParams,
 } from "@posthog/shared";
@@ -133,10 +134,7 @@ function promoteImportedUserPrompt(
 /**
  * Create a user message event for display.
  */
-export function createUserPromptEvent(
-  prompt: ContentBlock[],
-  ts: number,
-): AcpMessage {
+function createUserPromptEvent(prompt: ContentBlock[], ts: number): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -151,7 +149,7 @@ export function createUserPromptEvent(
   };
 }
 
-export function createUserMessageEvent(text: string, ts: number): AcpMessage {
+function createUserMessageEvent(text: string, ts: number): AcpMessage {
   return createUserPromptEvent([{ type: "text", text }], ts);
 }
 
@@ -461,7 +459,7 @@ export function normalizePromptToBlocks(
   );
 }
 
-export { isFatalSessionError, isRateLimitError } from "@posthog/shared";
+export { isFatalSessionError } from "@posthog/shared";
 
 /**
  * Whether a list of events already contains a `session/prompt` request.
@@ -538,6 +536,61 @@ export function selectEchoedOptimisticItemIds(
     echoed.push(item.id);
   }
   return echoed;
+}
+
+export function selectUnseededPendingFollowups(
+  pending: PendingFollowupMessage[],
+  events: AcpMessage[],
+  optimisticItems: OptimisticItem[],
+): PendingFollowupMessage[] {
+  if (pending.length === 0) return [];
+
+  const covers: { text: string; ts: number }[] = [];
+  const cover = (text: string, ts: number): void => {
+    const key = text.trim();
+    if (key) covers.push({ text: key, ts });
+  };
+  for (const event of events) {
+    const msg = event.message;
+    if (!isJsonRpcRequest(msg) || msg.method !== "session/prompt") continue;
+    const blocks = (msg.params as { prompt?: ContentBlock[] } | undefined)
+      ?.prompt;
+    if (!blocks?.length) continue;
+    cover(
+      extractPromptDisplayContent(blocks, { filterHidden: true }).text,
+      event.ts,
+    );
+  }
+  for (const item of optimisticItems) {
+    if (item.type !== "user_message") continue;
+    cover(
+      stripTrailingAttachmentSummary(item.content),
+      Number.MAX_SAFE_INTEGER,
+    );
+  }
+
+  const claimed = new Set<number>();
+  const unseeded: PendingFollowupMessage[] = [];
+  for (const message of pending) {
+    const key = stripTrailingAttachmentSummary(message.content).trim();
+    if (!key) continue;
+    const recordedAt = message.ts ? Date.parse(message.ts) : Number.NaN;
+    const floor = Number.isNaN(recordedAt)
+      ? Number.NEGATIVE_INFINITY
+      : recordedAt;
+    const index = covers.findIndex(
+      (candidate, position) =>
+        !claimed.has(position) &&
+        candidate.text === key &&
+        candidate.ts >= floor,
+    );
+    if (index === -1) {
+      unseeded.push(message);
+    } else {
+      claimed.add(index);
+    }
+  }
+  return unseeded;
 }
 
 /**

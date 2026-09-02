@@ -45,5 +45,6 @@ def reconcile_pending_legal_documents() -> None:
         "legal_documents.reconcile_swept",
         newly_signed=result.newly_signed,
         archives_requeued=result.archives_requeued,
+        drafts_resent=result.drafts_resent,
         errors=result.errors,
     )

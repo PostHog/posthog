@@ -7,8 +7,9 @@ import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsC
 
 import { ExperimentStatsMethod } from '~/types'
 
+import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
+
 import { StatsMethodSelector } from '../components/StatsMethodSelector'
-import { CONFIDENCE_LEVEL_OPTIONS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import {

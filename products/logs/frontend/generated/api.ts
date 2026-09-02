@@ -1148,7 +1148,7 @@ export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, i
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (

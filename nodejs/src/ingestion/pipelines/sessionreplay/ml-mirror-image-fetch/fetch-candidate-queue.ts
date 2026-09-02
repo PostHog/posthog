@@ -1,17 +1,7 @@
 import { FetchCandidate } from './collected-urls-record'
 
-export type FetchCandidateQueueAction = 'fetch' | 'republish_low_origin_diversity'
-
-export interface LowOriginDiversitySnapshot {
-    origins: number
-    candidates: number
-    requestSlots: number
-}
-
 export interface FetchCandidateLease {
     candidate: FetchCandidate
-    action: FetchCandidateQueueAction
-    lowOriginDiversityStarted?: LowOriginDiversitySnapshot
     release(): void
 }
 
@@ -142,9 +132,6 @@ class IndexedPriorityQueue<T extends IndexedPriorityQueueItem> {
 export interface FetchCandidateQueueOptions {
     maxConcurrentPerRegistrableDomain: number
     maxInFlightRequests: number
-    lowOriginDiversityMinimumRequestSlots: number
-    lowOriginDiversityRepublishThreshold: number
-    lowOriginDiversityProgress: number
 }
 
 export interface DeduplicatedFetchCandidates {
@@ -171,19 +158,13 @@ export class FetchCandidateQueue {
     private readonly domains = new Map<string, RegistrableDomainQueue>()
     private readonly availableDomains = new IndexedPriorityQueue<RegistrableDomainQueue>(domainQueueHasPriority)
     private waitingCandidates = 0
-    private waitingCandidatesWithoutDiversityDeferral = 0
-    private remainingOrigins = 0
-    private lowOriginDiversityStarted = false
-    private lowOriginDiversityProgressRemaining: number
     private initialSchedulableSlots = 0
-    private remainingSchedulableSlots = 0
     private aborted = false
 
     constructor(
         candidates: FetchCandidate[],
         private readonly options: FetchCandidateQueueOptions
     ) {
-        this.lowOriginDiversityProgressRemaining = options.lowOriginDiversityProgress
         const deduplicated = deduplicateFetchCandidates(candidates)
         let domainSequence = 0
         let originSequence = 0
@@ -216,16 +197,12 @@ export class FetchCandidateQueue {
                     heapIndex: -1,
                 }
                 domain.origins.set(candidate.origin, originQueue)
-                this.remainingOrigins += 1
             }
             originQueue.candidates.push(candidate)
             originQueue.initialCandidateCount += 1
             domain.initialCandidateCount += 1
             domain.waitingCandidateCount += 1
             this.waitingCandidates += 1
-            if (candidate.lowOriginDiversityDeferred !== true) {
-                this.waitingCandidatesWithoutDiversityDeferral += 1
-            }
         }
         allocateConcurrentTargets(
             [...this.domains.values()],
@@ -247,15 +224,10 @@ export class FetchCandidateQueue {
             )
             this.refreshDomainSelection(domain)
         }
-        this.remainingSchedulableSlots = this.initialSchedulableSlots
     }
 
     public get candidateCount(): number {
         return this.waitingCandidates
-    }
-
-    public get originCount(): number {
-        return this.remainingOrigins
     }
 
     public get selectableRegistrableDomainCount(): number {
@@ -286,63 +258,24 @@ export class FetchCandidateQueue {
         if (!selected) {
             return undefined
         }
-        const remainingRequestSlots = Math.min(this.remainingSchedulableSlots, this.options.maxInFlightRequests)
-        const lowOriginDiversity =
-            this.lowOriginDiversityStarted ||
-            (remainingRequestSlots < this.options.lowOriginDiversityMinimumRequestSlots &&
-                this.waitingCandidatesWithoutDiversityDeferral > this.options.lowOriginDiversityRepublishThreshold)
-        const lowOriginDiversityStarted =
-            lowOriginDiversity && !this.lowOriginDiversityStarted
-                ? {
-                      origins: this.remainingOrigins,
-                      candidates: this.waitingCandidates,
-                      requestSlots: remainingRequestSlots,
-                  }
-                : undefined
-        if (lowOriginDiversityStarted) {
-            this.lowOriginDiversityStarted = true
-        }
         const candidate = selected.origin.candidates[selected.origin.head++]!
         selected.domain.waitingCandidateCount -= 1
         this.refreshOriginSelection(selected.domain, selected.origin)
         this.refreshDomainSelection(selected.domain)
-        const candidateCanReceiveDiversityDeferral = candidate.lowOriginDiversityDeferred !== true
-        const action: FetchCandidateQueueAction =
-            lowOriginDiversity && this.lowOriginDiversityProgressRemaining <= 0 && candidateCanReceiveDiversityDeferral
-                ? 'republish_low_origin_diversity'
-                : 'fetch'
-        if (lowOriginDiversity && action === 'fetch' && this.lowOriginDiversityProgressRemaining > 0) {
-            this.lowOriginDiversityProgressRemaining -= 1
-        }
 
         this.waitingCandidates -= 1
-        if (candidateCanReceiveDiversityDeferral) {
-            this.waitingCandidatesWithoutDiversityDeferral -= 1
-        }
         let released = false
         return {
             candidate,
-            action,
-            lowOriginDiversityStarted,
             release: () => {
                 if (released) {
                     return
                 }
                 released = true
-                const requestSlotsBeforeRelease = Math.min(
-                    selected.domain.active + selected.domain.waitingCandidateCount,
-                    this.options.maxConcurrentPerRegistrableDomain
-                )
                 selected.domain.active = Math.max(0, selected.domain.active - 1)
                 selected.origin.active = Math.max(0, selected.origin.active - 1)
-                const requestSlotsAfterRelease = Math.min(
-                    selected.domain.active + selected.domain.waitingCandidateCount,
-                    this.options.maxConcurrentPerRegistrableDomain
-                )
-                this.remainingSchedulableSlots -= requestSlotsBeforeRelease - requestSlotsAfterRelease
                 if (originCandidateCount(selected.origin) === 0 && selected.origin.active === 0) {
                     selected.domain.origins.delete(selected.origin.origin)
-                    this.remainingOrigins -= 1
                 } else {
                     this.refreshOriginSelection(selected.domain, selected.origin)
                 }
@@ -471,6 +404,9 @@ export function mergeDuplicateFetchCandidates(left: FetchCandidate, right: Fetch
         preferredRoute = right
     }
     const latestState = left.republishCount >= right.republishCount ? left : right
+    const sourcePartitions = [...new Set([...(left.sourcePartitions ?? []), ...(right.sourcePartitions ?? [])])].sort(
+        (leftPartition, rightPartition) => leftPartition - rightPartition
+    )
     return {
         ...preferredRoute,
         remainingHops: Math.min(left.remainingHops, right.remainingHops),
@@ -479,7 +415,6 @@ export function mergeDuplicateFetchCandidates(left: FetchCandidate, right: Fetch
         fetchCount: Math.max(left.fetchCount, right.fetchCount),
         republishCount: Math.max(left.republishCount, right.republishCount),
         lastRepublishReason: latestState.lastRepublishReason,
-        lowOriginDiversityDeferred:
-            left.lowOriginDiversityDeferred === true || right.lowOriginDiversityDeferred === true ? true : undefined,
+        sourcePartitions: sourcePartitions.length > 0 ? sourcePartitions : undefined,
     }
 }

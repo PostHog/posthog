@@ -64,7 +64,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
 
     useAttachedContext(
         issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
@@ -152,14 +151,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         onChange={updateStatus}
                                                         size="default"
                                                     />
-                                                    {hasSeverityRules ? (
-                                                        <IssueSeveritySelect
-                                                            severity={issue.severity}
-                                                            onChange={updateSeverity}
-                                                            loading={severityUpdateInFlightIds.includes(issue.id)}
-                                                            size="default"
-                                                        />
-                                                    ) : null}
+                                                    <IssueSeveritySelect
+                                                        severity={issue.severity}
+                                                        onChange={updateSeverity}
+                                                        loading={severityUpdateInFlightIds.includes(issue.id)}
+                                                        size="default"
+                                                    />
                                                     <IssueAssigneeSelect
                                                         assignee={issue.assignee}
                                                         onChange={updateAssignee}
@@ -198,14 +195,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 onChange={updateStatus}
                                                 size="default"
                                             />
-                                            {hasSeverityRules ? (
-                                                <IssueSeveritySelect
-                                                    severity={issue.severity}
-                                                    onChange={updateSeverity}
-                                                    loading={severityUpdateInFlightIds.includes(issue.id)}
-                                                    size="default"
-                                                />
-                                            ) : null}
+                                            <IssueSeveritySelect
+                                                severity={issue.severity}
+                                                onChange={updateSeverity}
+                                                loading={severityUpdateInFlightIds.includes(issue.id)}
+                                                size="default"
+                                            />
                                             <IssueAssigneeSelect
                                                 assignee={issue.assignee}
                                                 onChange={updateAssignee}

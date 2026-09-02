@@ -2,7 +2,7 @@ version: 1
 owners: []
 # Slack channel per team, declared once for the whole repo (root-only registry).
 # A team only needs an entry where the derived '#<slug>' is wrong or missing; the
-# other 24 slugs in use derive correctly and are deliberately absent.
+# other 23 slugs in use derive correctly and are deliberately absent.
 teams:
     # GitHub team slugs that predate the 'team-' convention: the slug is right,
     # the channel just doesn't match it.
@@ -16,10 +16,9 @@ teams:
         slack: '#team-clickhouse'
     conversations:
         slack: '#team-conversations'
-    # The 'logs' and 'apm' GitHub teams have identical membership: APM ("Logs,
-    # Metrics and Traces") absorbed logs, and #team-apm is where it lives.
-    logs:
-        slack: '#team-apm'
+        notifications: '#support-conversations'
+    mcp-analytics:
+        slack: '#team-mcp-analytics'
     platform-ux:
         slack: '#team-platform-ux'
     team-data-stack:
@@ -53,6 +52,8 @@ rules:
           - '/nodejs/bin/'
           - '/rust/bin/'
       owners: team-devex
+    - match: '/bin/inject_mcp_intents.py'
+      owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: team-analytics-platform
     - match: '/.claude/'

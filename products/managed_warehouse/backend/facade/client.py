@@ -1,8 +1,9 @@
 """
 DuckLake query-client surface for managed_warehouse.
 
-Compile and run queries against an org's duckgres server — the endpoints shadow path,
-the data-modeling materialization activity, and the duckling backfill.
+Compile queries for managed DuckLake data, and run DuckDB SQL against an org's duckgres
+server — the endpoints shadow path, the data-modeling materialization activity, and the
+duckling backfill.
 
 Delegates to ``client`` at call time rather than re-exporting its functions: a bound
 re-export would freeze a copy that ``@patch`` on the source module never reaches. The
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
         DuckLakeQueryResult,
         DuckLakeS3Secret,
         DuckLakeTableResult,
+        TrinoCompiledQuery,
     )
     from products.managed_warehouse.backend.service_credentials import ServiceCredential
 
@@ -40,12 +42,34 @@ __all__ = [
     "ServiceCredential",
     "ServiceCredentialUnavailable",
     "compile_hogql_to_ducklake_sql",
+    "compile_hogql_to_trino_sql",
     "execute_ducklake_create_table",
     "execute_ducklake_query",
     "make_duckgres_conninfo",
     "mint_service_credential",
     "refresh_service_credential",
 ]
+
+
+def compile_hogql_to_trino_sql(
+    team_id: int,
+    query: HogQLQuery,
+    *,
+    team: Team | None = None,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
+) -> TrinoCompiledQuery:
+    from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keep the optional compiler off startup paths
+        compile_hogql_to_trino_sql as _compile_hogql_to_trino_sql,
+    )
+
+    return _compile_hogql_to_trino_sql(
+        team_id,
+        query,
+        team=team,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
 
 
 def make_duckgres_conninfo(

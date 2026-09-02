@@ -1,11 +1,12 @@
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -33,6 +34,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
+from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueAssignRequestSerializer
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -40,6 +42,22 @@ TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 def get_path_to(fixture_file: str) -> str:
     file_dir = os.path.dirname(__file__)
     return os.path.join(file_dir, "fixtures", fixture_file)
+
+
+class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("user", "not-a-user-id"),
+            ("role", "not-a-role-id"),
+        ]
+    )
+    def test_rejects_invalid_assignee_id(self, assignee_type: str, assignee_id: str) -> None:
+        serializer = ErrorTrackingIssueAssignRequestSerializer(
+            data={"assignee": {"id": assignee_id, "type": assignee_type}}
+        )
+
+        assert not serializer.is_valid()
+        assert "id" in serializer.errors["assignee"]
 
 
 class TestErrorTracking(APIBaseTest):
@@ -835,6 +853,17 @@ class TestErrorTracking(APIBaseTest):
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_rejects_unknown_assignee_type(self) -> None:
+        issue = self.create_issue()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": self.user.id, "type": "team"}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ErrorTrackingIssueAssignment.objects.filter(issue=issue).exists()
+
     @patch("products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse")
     @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
     @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
@@ -960,7 +989,7 @@ class TestErrorTracking(APIBaseTest):
         assert str(symbol_set.id) == symbol_set_upload_response["symbol_set_id"]
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
         assert "fallback_presigned_url" not in symbol_set_upload_response
-        assert symbol_set.last_used is None
+        assert symbol_set.last_used is not None
 
     def test_bulk_start_upload_includes_fallback_presigned_url_when_accelerated(self) -> None:
         chunk_id = str(uuid7())
@@ -1026,10 +1055,11 @@ class TestErrorTracking(APIBaseTest):
         existing_symbol_set.refresh_from_db()
         assert existing_symbol_set.storage_ptr == "existing"
         assert existing_symbol_set.release_id == release.id
+        assert existing_symbol_set.last_used is not None
 
         new_symbol_set = ErrorTrackingSymbolSet.objects.get(ref=new_chunk_id)
         assert new_symbol_set.release_id == release.id
-        assert new_symbol_set.last_used is None
+        assert new_symbol_set.last_used is not None
         assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
 
         assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
@@ -1041,6 +1071,44 @@ class TestErrorTracking(APIBaseTest):
             "total_chunks": 2,
             "chunks_skipped": 1,
         }
+
+    @parameterized.expand(
+        [
+            ("never_used", None, True),
+            ("used_before_the_refresh_interval", timedelta(hours=13), True),
+            ("used_within_the_refresh_interval", timedelta(hours=1), False),
+        ]
+    )
+    def test_bulk_start_upload_marks_unchanged_symbol_sets_as_used(
+        self, _name: str, last_used_age: timedelta | None, expect_refresh: bool
+    ) -> None:
+        chunk_id = str(uuid7())
+        last_used = None if last_used_age is None else timezone.now() - last_used_age
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+            last_used=last_used,
+        )
+
+        before_upload = timezone.now()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "already_uploaded"}]},
+            format="json",
+        )
+        after_upload = timezone.now()
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["id_map"] == {}
+
+        symbol_set.refresh_from_db()
+        if expect_refresh:
+            assert symbol_set.last_used is not None
+            assert before_upload <= symbol_set.last_used <= after_upload
+        else:
+            assert symbol_set.last_used == last_used
 
     @parameterized.expand(
         [

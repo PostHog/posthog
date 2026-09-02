@@ -441,9 +441,7 @@ export function GitActionControl({
   const showDropdown = actions.length > 1;
   const isPrimaryDisabled = !primaryAction.enabled || isBusy;
 
-  // Outlined rather than solid: the git action is one of several things the
-  // header offers, not the header's call to action, and "Continue in cloud"
-  // sits right beside it.
+  // Outlined rather than solid because the git action is one of several header actions.
   const primaryButton = (
     <QButton
       size="sm"

@@ -31,6 +31,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 import pyarrow.parquet as pq
@@ -67,6 +68,10 @@ EVENT_SOURCE = "customer_analytics_person_property_sync"
 # target_type value for group sources (kept as a literal so this module doesn't import the
 # customer_analytics config models, matching the isolation the hooks already preserve).
 _GROUP_TARGET = "group"
+
+# Keep this in lockstep with property-defs-rs: it admits property names up to half Django's
+# CharField limit, measured as UTF-8 bytes, and sanitizes NULs immediately before persistence.
+_MAX_PROPERTY_NAME_BYTES = 200
 
 
 def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
@@ -404,12 +409,13 @@ def _produce_intents(
     return produced
 
 
-def _stamp_provenance(
-    team_id: int, binding: WarehouseBinding, source: PersonPropertySyncSource, property_names: list[str]
+def _reconcile_property_definitions(
+    team_id: int,
+    project_id: int,
+    binding: WarehouseBinding,
+    source: PersonPropertySyncSource,
+    property_names: list[str],
 ) -> None:
-    # UPDATE-only on purpose: definitions are created by ingestion's propdef upsert when the $set /
-    # $groupidentify lands, so a brand-new property may not have a row yet on the first sync — the next
-    # sync's stamp catches it. Never inserting means this can't race that upsert.
     origin: dict[str, str] = {
         "source_id": str(source.definition_id),
         "custom_property_source_id": str(source.source_id),
@@ -420,22 +426,72 @@ def _stamp_provenance(
     # it would leave two stamps of the same schema describing it differently.
     if not binding.is_saved_query:
         origin["schema_id"] = binding.id
-    query = PropertyDefinition.objects.filter(team_id=team_id)
+
+    descriptions = source.property_descriptions or {}
+    canonical_descriptions: dict[str, str] = {}
+    for name in property_names:
+        if len(name.encode()) > _MAX_PROPERTY_NAME_BYTES:
+            continue
+        canonical_name = name.replace("\x00", "\ufffd")
+        canonical_descriptions.setdefault(canonical_name, descriptions.get(name, ""))
+
+    if not canonical_descriptions:
+        return
+
+    property_names = list(canonical_descriptions)
+    definition_type = PropertyDefinition.Type.PERSON
+    group_type_index = None
+    if source.target == _GROUP_TARGET:
+        if source.group_type_index is None:
+            return
+        definition_type = PropertyDefinition.Type.GROUP
+        group_type_index = source.group_type_index
+
+    # Property definitions are unique and read by effective project. Include legacy rows whose
+    # project_id is null so the conflict-safe insert and the final stamp address the same identity.
+    query = PropertyDefinition.objects.filter(Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id))
     if source.target == _GROUP_TARGET:
         # Group propdefs are keyed per group type, so the index predicate is mandatory.
         query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)
     else:
         query = query.filter(type=PropertyDefinition.Type.PERSON)
 
-    # Properties given a description carry it inside their provenance, so stamp those one at a time;
-    # the rest share the base origin and go in a single bulk update.
-    descriptions = source.property_descriptions or {}
-    described = [name for name in property_names if descriptions.get(name)]
-    plain = [name for name in property_names if not descriptions.get(name)]
+    current_origins = dict(query.filter(name__in=property_names).values_list("name", "warehouse_origin"))
+    missing = [name for name in property_names if name not in current_origins]
+    if missing:
+        # Ingestion may create the same effective-project identity after the read above. Ignore that
+        # conflict, then read back the winner before deciding which origins still need a write.
+        PropertyDefinition.objects.bulk_create(
+            [
+                PropertyDefinition(
+                    team_id=team_id,
+                    project_id=project_id,
+                    name=name,
+                    type=definition_type,
+                    group_type_index=group_type_index,
+                    warehouse_origin={
+                        **origin,
+                        **({"description": canonical_descriptions[name]} if canonical_descriptions[name] else {}),
+                    },
+                )
+                for name in missing
+            ],
+            ignore_conflicts=True,
+        )
+        current_origins.update(query.filter(name__in=missing).values_list("name", "warehouse_origin"))
+
+    plain = [
+        name for name in property_names if not canonical_descriptions[name] and current_origins.get(name) != origin
+    ]
     if plain:
         query.filter(name__in=plain).update(warehouse_origin=origin)
-    for name in described:
-        query.filter(name=name).update(warehouse_origin={**origin, "description": descriptions[name]})
+    for name in property_names:
+        description = canonical_descriptions[name]
+        if not description:
+            continue
+        described_origin = {**origin, "description": description}
+        if current_origins.get(name) != described_origin:
+            query.filter(name=name).update(warehouse_origin=described_origin)
 
 
 # --- orchestration -----------------------------------------------------------------------
@@ -459,6 +515,9 @@ async def _process_source_bundles(
     (staged rows vs a full Delta read)."""
     ps = PerSourceResult(source_id=str(source.source_id), rows_read=rows_read)
     prior = await _read_snapshot_hashes(team_id, binding, str(source.source_id))
+    await database_sync_to_async(_reconcile_property_definitions, thread_sensitive=False)(
+        team_id, project_id, binding, source, list((source.column_property_map or {}).values())
+    )
     changed, new_hashes = select_changed(bundles, prior)
     ps.changed = len(changed)
     if not changed:
@@ -501,13 +560,6 @@ async def _process_source_bundles(
         _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
     )
     ps.produced = produced
-
-    # Stamp provenance before advancing the snapshot: the snapshot is the checkpoint that makes
-    # these rows look unchanged on the next run, so anything that must accompany a produce has to
-    # happen first. Stamping is an idempotent update, safe to repeat if a retry re-produces.
-    await database_sync_to_async(_stamp_provenance, thread_sensitive=False)(
-        team_id, binding, source, list((source.column_property_map or {}).values())
-    )
 
     # Record only the distinct_ids we actually produced, as this run's snapshot file.
     sent_ids = {distinct_id for distinct_id, _ in to_send}

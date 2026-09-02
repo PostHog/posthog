@@ -26,13 +26,13 @@ jobs:
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.merged == true &&
-             contains(github.event.pull_request.labels.*.name, 'create desktop release'))
+             contains(github.event.pull_request.labels.*.name, 'desktop-release'))
         permissions:
             contents: write
             actions: write
             pull-requests: write
             issues: write
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         steps:
             - name: Get app token
@@ -67,11 +67,11 @@ jobs:
                   }
 
                   LABELER=$(gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/events" --paginate \
-                    --jq '.[] | select(.event == "labeled" and (.label.name | ascii_downcase) == "create desktop release") | "\(.id) \(.actor.login)"' \
+                    --jq '.[] | select(.event == "labeled" and (.label.name | ascii_downcase) == "desktop-release") | "\(.id) \(.actor.login)"' \
                     | sort -n | tail -1 | cut -d" " -f2)
 
                   if [ -z "$LABELER" ]; then
-                    skip "Could not determine who added the 'create desktop release' label."
+                    skip "Could not determine who added the 'desktop-release' label."
                     exit 0
                   fi
 
@@ -81,10 +81,10 @@ jobs:
                   fi
 
                   if echo "$MEMBERS" | grep -qixF "$LABELER"; then
-                    echo "'create desktop release' was added by ${LABELER}, a member of ${TEAM_SLUG}."
+                    echo "'desktop-release' was added by ${LABELER}, a member of ${TEAM_SLUG}."
                     echo "authorized=true" >> "$GITHUB_OUTPUT"
                   else
-                    skip "'create desktop release' was added by @${LABELER}, who is not on ${TEAM_SLUG}."
+                    skip "'desktop-release' was added by @${LABELER}, who is not on ${TEAM_SLUG}."
                   fi
 
             - name: Check quiet period

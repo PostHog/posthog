@@ -6,6 +6,7 @@ import { AnalyticsEvent } from '@/lib/posthog/analytics'
 const mocks = vi.hoisted(() => ({
     capture: vi.fn(),
     getAnalyticsContext: vi.fn(),
+    getApiKey: vi.fn(),
     getDistinctId: vi.fn(),
 }))
 
@@ -19,6 +20,7 @@ vi.mock('@/lib/StateManager', () => ({
     StateManager: class {
         getDistinctId = mocks.getDistinctId
         getAnalyticsContext = mocks.getAnalyticsContext
+        getApiKey = mocks.getApiKey
     },
 }))
 
@@ -29,8 +31,10 @@ describe('CLI context', () => {
         mocks.capture.mockClear()
         mocks.getDistinctId.mockReset()
         mocks.getAnalyticsContext.mockReset()
+        mocks.getApiKey.mockReset()
         mocks.getDistinctId.mockRejectedValue(new Error('offline'))
         mocks.getAnalyticsContext.mockRejectedValue(new Error('offline'))
+        mocks.getApiKey.mockRejectedValue(new Error('offline'))
     })
 
     it('uses an opaque analytics distinct ID when identity resolution fails', async () => {
@@ -56,6 +60,7 @@ describe('CLI context', () => {
         expect(mocks.capture).toHaveBeenCalledWith(
             expect.objectContaining({
                 distinctId: 'posthog-cli:anonymous',
+                properties: expect.objectContaining({ $mcp_scope_preset: 'user' }),
             })
         )
     })

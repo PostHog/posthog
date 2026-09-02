@@ -104,6 +104,7 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.growth.backend.temporal.signup_enrichment.schedule import create_icp_reenrichment_sweep_schedule
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
@@ -115,7 +116,10 @@ from products.replay_vision.backend.temporal.reconciler import create_replay_vis
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
-from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
+from products.signals.backend.temporal.agentic.schedule import (
+    create_scout_suggestions_coordinator_schedule,
+    create_signals_scout_coordinator_schedule,
+)
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -923,6 +927,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
+    create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,
@@ -955,6 +960,9 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_finalize_usage_reports_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
+    # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.
+    if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+        schedules.append(create_icp_reenrichment_sweep_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

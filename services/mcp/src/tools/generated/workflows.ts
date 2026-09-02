@@ -53,6 +53,9 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
             if (params.status !== undefined) {
                 body['status'] = params.status
             }
+            if (params.origin_product !== undefined) {
+                body['origin_product'] = params.origin_product
+            }
             if (params.trigger_masking !== undefined) {
                 body['trigger_masking'] = params.trigger_masking
             }
@@ -187,8 +190,11 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    origin_product: params.origin_product,
                     search: params.search,
                     status: params.status,
+                    trigger: params.trigger,
+                    type: params.type,
                     updated_at: params.updated_at,
                 },
             })
@@ -438,7 +444,7 @@ const WorkflowsUpdateSchema = HogFlowsPartialUpdateParams.omit({ project_id: tru
     HogFlowsPartialUpdateBody.shape
 )
 
-const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUrl<Schemas.HogFlow>> =>
+const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUrl<Schemas.HogFlowUpdate>> =>
     withUiApp('workflow', {
         name: 'workflows-update',
         schema: WorkflowsUpdateSchema,
@@ -466,7 +472,7 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             if (params.variables !== undefined) {
                 body['variables'] = params.variables
             }
-            const result = await context.api.request<Schemas.HogFlow>({
+            const result = await context.api.request<Schemas.HogFlowUpdate>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
                 body,

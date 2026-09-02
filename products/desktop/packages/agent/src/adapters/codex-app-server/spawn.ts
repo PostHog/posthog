@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -32,6 +32,7 @@ export interface CodexOptions {
    */
   binaryPath?: string;
   codexHome?: string;
+  useMachineAuth?: boolean;
   /** Extra codex `-c key=value` config overrides. */
   configOverrides?: Record<string, string | number>;
   /**
@@ -49,12 +50,8 @@ export interface CodexAppServerProcessOptions {
   cwd?: string;
   apiBaseUrl?: string;
   apiKey?: string;
-  /**
-   * Private CODEX_HOME for this run (skills + config). Without it codex falls
-   * back to the user's ~/.codex, whose ambient plugins/MCP servers can stall
-   * every turn (a broken plugin MCP blocks turn/start for its full timeout).
-   */
   codexHome?: string;
+  useMachineAuth?: boolean;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
   developerInstructions?: string;
   /**
@@ -79,6 +76,42 @@ export interface CodexAppServerProcess {
   stdin: Writable;
   stdout: Readable;
   kill: () => void;
+}
+
+function getUnixProcessTreePids(rootPid: number): number[] | undefined {
+  let processTable: string;
+  try {
+    processTable = execFileSync("ps", ["-ax", "-o", "pid=,ppid="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return undefined;
+  }
+
+  const childrenByParent = new Map<number, number[]>();
+  for (const line of processTable.split("\n")) {
+    const [pidText, parentPidText] = line.trim().split(/\s+/);
+    const pid = Number.parseInt(pidText, 10);
+    const parentPid = Number.parseInt(parentPidText, 10);
+    if (Number.isNaN(pid) || Number.isNaN(parentPid)) continue;
+    const children = childrenByParent.get(parentPid) ?? [];
+    children.push(pid);
+    childrenByParent.set(parentPid, children);
+  }
+
+  const processTreePids: number[] = [];
+  const visited = new Set<number>();
+  const addProcessTree = (pid: number): void => {
+    if (visited.has(pid)) return;
+    visited.add(pid);
+    for (const childPid of childrenByParent.get(pid) ?? []) {
+      addProcessTree(childPid);
+    }
+    processTreePids.push(pid);
+  };
+  addProcessTree(rootPid);
+  return processTreePids;
 }
 
 /** Serialize a string map as a TOML basic string (escapes `\` and `"`). */
@@ -108,15 +141,24 @@ export function buildAppServerArgs(
   // servers PostHog injects, so disable the plugin system outright.
   args.push("-c", "features.plugins=false");
 
-  // Codex defaults to the OS keychain for CLI auth, MCP OAuth tokens, and its
-  // secrets encryption key — on macOS that means permission prompts for our
-  // bundled binary (keychain ACLs are signature-bound, so grants to a user's
-  // standalone codex don't cover ours and don't stick across releases). Model
-  // auth is injected via POSTHOG_GATEWAY_API_KEY, so codex's own credential
-  // stores are unused: keep them on plain files inside the private CODEX_HOME
-  // and never touch the keychain.
-  args.push("-c", `cli_auth_credentials_store="file"`);
-  args.push("-c", `mcp_oauth_credentials_store="file"`);
+  // PostHog owns these integrations. Do not run user hooks or send task data
+  // to telemetry exporters from the user's Codex config.
+  args.push("-c", "mcp_servers={}");
+  args.push("-c", "hooks={}");
+  args.push("-c", "notify=[]");
+  args.push("-c", `otel.exporter="none"`);
+  args.push("-c", `otel.metrics_exporter="none"`);
+  args.push("-c", `otel.trace_exporter="none"`);
+  args.push("-c", "otel.log_user_prompt=false");
+
+  if (options.useMachineAuth) {
+    args.push("-c", `model_provider="openai"`);
+    args.push("-c", `forced_login_method="chatgpt"`);
+    args.push("-c", `history.persistence="none"`);
+  } else {
+    args.push("-c", `cli_auth_credentials_store="file"`);
+    args.push("-c", `mcp_oauth_credentials_store="file"`);
+  }
 
   // OS sandbox gated on platform (= availability): macOS Seatbelt → workspace-write
   // (keeps the sandbox engaged so a per-turn readOnly can tighten it and block
@@ -210,11 +252,23 @@ export function spawnCodexAppServerProcess(
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ASAR;
+  delete env.POSTHOG_GATEWAY_API_KEY;
+  // Codex hands its environment to every shell the exec tools run, so an
+  // ambient provider key would be readable by any script the agent executes.
+  // Neither auth mode needs them: gateway mode pins model_provider to the
+  // PostHog provider (env_key=POSTHOG_GATEWAY_API_KEY), machine auth uses the
+  // ChatGPT login state.
+  delete env.CODEX_ACCESS_TOKEN;
+  delete env.CODEX_API_KEY;
+  delete env.OPENAI_API_KEY;
+  delete env.OPENAI_API_BASE;
+  delete env.OPENAI_BASE_URL;
   if (options.apiKey) {
     env.POSTHOG_GATEWAY_API_KEY = options.apiKey;
   }
   if (options.codexHome) {
-    env.CODEX_HOME = options.codexHome;
+    if (!options.useMachineAuth) env.CODEX_HOME = options.codexHome;
+    env.CODEX_SQLITE_HOME = options.codexHome;
   }
   applyContextWikiEnv(env, options.contextWiki);
   env.PATH = `${dirname(options.binaryPath)}${delimiter}${env.PATH ?? ""}`;
@@ -271,6 +325,17 @@ export function spawnCodexAppServerProcess(
       child.stdin?.destroy();
       child.stdout?.destroy();
       child.stderr?.destroy();
+      if (process.platform !== "win32" && child.pid) {
+        const processTreePids = getUnixProcessTreePids(child.pid);
+        if (processTreePids) {
+          for (const pid of processTreePids) {
+            try {
+              process.kill(pid, "SIGTERM");
+            } catch {}
+          }
+          return;
+        }
+      }
       child.kill("SIGTERM");
     },
   };
