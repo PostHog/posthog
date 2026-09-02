@@ -137,8 +137,7 @@ export function withResolvedGroupKeyNames(
         if (Object.keys(groupKeyNames).length === 0) {
             return property
         }
-        // `group_key_names` is typed on group filters only, while the serializer accepts it as
-        // display-only passthrough on any property filter.
+        // The cast narrows the spread of the property union back to AnyPropertyFilter.
         return { ...property, group_key_names: groupKeyNames } as AnyPropertyFilter
     })
 }

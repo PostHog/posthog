@@ -39,7 +39,7 @@ interface FeatureFlagReleaseConditionsReadonlyProps {
 /** Extract group_key_names from a property, if present. */
 function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
     if ('group_key_names' in property) {
-        return (property as any).group_key_names ?? {}
+        return property.group_key_names ?? {}
     }
     return {}
 }

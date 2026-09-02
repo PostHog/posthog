@@ -146,7 +146,7 @@ function summarizeProperties(
         }
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
         const groupKeyNames: Record<string, string> =
-            'group_key_names' in property ? ((property as any).group_key_names ?? {}) : {}
+            'group_key_names' in property ? (property.group_key_names ?? {}) : {}
         const isDistinctId = isDistinctIdFilter(property)
         // Resolve a single raw value to its display name: server-provided group name,
         // frontend-fetched person name, or the raw value as fallback.

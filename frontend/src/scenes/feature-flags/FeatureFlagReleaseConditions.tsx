@@ -65,8 +65,7 @@ function PropertyValueComponent({
     property: AnyPropertyFilter
     getDistinctIdName: (distinctId: string) => string
 }): JSX.Element {
-    const groupKeyNames: Record<string, string> =
-        'group_key_names' in property ? ((property as any).group_key_names ?? {}) : {}
+    const groupKeyNames: Record<string, string> = 'group_key_names' in property ? (property.group_key_names ?? {}) : {}
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>

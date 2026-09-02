@@ -1206,6 +1206,9 @@ interface BasePropertyFilter {
     key: string
     value?: PropertyFilterValue
     label?: string
+    /** Display-only passthrough: resolved group names keyed by raw group key. The serializer
+     * accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+    group_key_names?: Record<string, string>
     type?: PropertyFilterType
 }
 
@@ -1289,7 +1292,6 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Group
     group_type_index?: integer | null
     operator: PropertyOperator
-    group_key_names?: Record<string, string>
 }
 
 /** The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter` */
