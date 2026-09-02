@@ -300,9 +300,7 @@ def scout_definition(
     evidence_lines = [f"- {entry.label}: `{entry.query}`" for entry in brief.evidence] or [
         "- none yet; the page checks nothing on its own"
     ]
-    signal_lines = [f"- {entry}" for entry in brief.signals] or [
-        "- events, feature flags, experiments, error issues, and session replays that touch the claim"
-    ]
+    signal_lines = [f"- {entry}" for entry in brief.signals] or ["- whatever in this project touches the claim"]
     verdict_call = (
         f'call doc-watch-verdict-submit {{"request_id": "{request_id}", "verdict": "<holding|moved|confirmed|refuted>", '
         '"reason": "<one line>"}'
@@ -340,15 +338,19 @@ def scout_definition(
             "",
             "Do not report these numbers on their own. Report what explains a move in them, or a signal they miss.",
             "",
-            "## Signals to follow",
+            "## Where to look",
+            "",
+            "These signals are the starting points the page named. They are not the boundary. Use every source",
+            "this project has that could touch the claim: product events, session replays, support conversations,",
+            "error issues, surveys, LLM traces, feature flags, experiments. A support ticket or a replay can",
+            "confirm or refute a claim as well as a count can.",
             "",
             *signal_lines,
             "",
             "## Each run",
             "",
             f"1. Read your memory: `scratchpad-search` for `doc-watch:{request_id}`. It says what you reported before.",
-            "2. Look at each signal for the last 24 hours with the read tools (`execute-sql`, `read-data-schema`,",
-            "   the list tools for flags, experiments, error issues, replays). Compare with the claim.",
+            "2. Look at the last 24 hours across the signals and every other source you can read. Compare with the claim.",
             "3. Nothing that confirms, refutes, or moves the claim: close out empty and remember the run in the scratchpad.",
             "4. Otherwise file one report with `emit_report`: title = one sentence on what changed; summary = at most",
             '   six lines with the numbers, each cited as <hogql label="what it counts">SELECT ...</hogql>, and what it means',

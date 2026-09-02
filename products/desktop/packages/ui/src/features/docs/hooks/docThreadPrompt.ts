@@ -178,7 +178,7 @@ export function watchTaskInput(input: {
     description: [
       `A page asks you to watch this hypothesis: “${claim}”.`,
       "",
-      "Use the watching-doc-hypotheses skill. Compile the claim into a brief: the claim in one sentence, what confirms it, what refutes it, up to four evidence queries (each one HogQL SELECT returning one number, or a date and a number per row; run each once with the PostHog SQL query tool), and up to six signals a scout should follow (real events, flags, experiments, error issues, replay filters in this project). Do not build or save anything.",
+      "Use the watching-doc-hypotheses skill. Compile the claim into a brief: the claim in one sentence, what confirms it, what refutes it, up to four evidence queries (each one HogQL SELECT returning one number, or a date and a number per row; run each once with the PostHog SQL query tool), and up to six signals a scout should look at first (real events, replays, support conversations, error issues, surveys, flags, or experiments in this project). Do not build or save anything.",
       `Hand the brief in through the PostHog MCP \`exec\` tool: \`${call}\`. Run \`info doc-watch-brief-submit\` first if you need the schema. If it answers ok: false, fix the failing evidence query and call it again.`,
       `request_id: ${input.requestId}`,
       'End your reply as the JSON object {"claim", "confirms", "refutes", "evidence", "signals"}. Nothing else in the reply.',
