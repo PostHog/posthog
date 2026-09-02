@@ -631,7 +631,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -657,6 +657,20 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
+
+            // An account with no usable password and nothing else linked can only leave the form via a
+            // password reset. Nothing records that dead end today, so capture it to size how often it
+            // happens. Report once per email, so a blur → focus → blur cycle cannot inflate the count.
+            if (values.hasNoConfiguredLoginMethod) {
+                const reportedEmails = (cache.reportedNoMethodEmails ??= new Set<string>())
+                // Key the dedupe on the email this precheck resolved for, not the live field — the
+                // user may have edited it while the request was in flight.
+                const { email } = precheckResponse
+                if (email && !reportedEmails.has(email)) {
+                    reportedEmails.add(email)
+                    posthog.capture('login precheck no sign-in method')
+                }
+            }
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (

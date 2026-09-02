@@ -387,6 +387,26 @@ describe('loginLogic', () => {
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual([])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(true)
+            expect(posthog.capture).toHaveBeenCalledWith('login precheck no sign-in method')
+        })
+
+        it('captures the dead end once per email, so re-blurring cannot inflate the count', async () => {
+            const deadEnd = { saml_available: false, password_login_available: false, social_providers: [] }
+            logic.actions.setLoginValue('email', 'user@example.com')
+            await precheck(deadEnd)
+            // Editing the field after the check must not re-report — the dedupe keys on the checked
+            // email, not the live field.
+            logic.actions.setLoginValue('email', 'edited@example.com')
+            await precheck(deadEnd)
+            const deadEndCaptures = (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === 'login precheck no sign-in method'
+            )
+            expect(deadEndCaptures).toHaveLength(1)
+        })
+
+        it('does not capture a dead end for an account that can still log in', async () => {
+            await precheck({ saml_available: false, password_login_available: true, social_providers: [] })
+            expect(posthog.capture).not.toHaveBeenCalledWith('login precheck no sign-in method')
         })
 
         it('defers entirely to enforced SSO', async () => {
