@@ -470,14 +470,52 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             }
         )
 
-        it('lets $set_once fill only gaps, and recomputes the display name from the merged properties', async () => {
+        it('reads the person again uncached when the trigger event wrote one and the first read missed', async () => {
+            // The person read is eventually consistent and caches a miss for as long as it caches a
+            // hit, so a person the trigger event just created can stay unresolved for the whole
+            // window. The run then has no recipient and the send drops.
+            const personsManager = processor['personsManager'] as any
+            jest.spyOn(personsManager, 'fetchPersonsByDistinctIds').mockResolvedValueOnce({})
+
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: 'distinct_A_1',
+                    captured_at: new Date().toISOString(),
+                    properties: { $set: { email: 'fresh@example.com' } },
+                } as any,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results[0].invocation.person?.id).toBe('dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1')
+            expect(results[0].invocation.person?.properties.email).toBe('fresh@example.com')
+        })
+
+        it('does not read again when the first read missed and the event wrote no person properties', async () => {
+            // An anonymous distinct id has no person and never will, so it must not cost two reads
+            // on every invocation.
+            const personsManager = processor['personsManager'] as any
+            const spy = jest.spyOn(personsManager, 'fetchPersonsByDistinctIds')
+
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { distinct_id: 'missing_person', properties: { foo: 'bar' } } as any,
+            })
+
+            await processor.processInvocations([invocation])
+
+            expect(spy).toHaveBeenCalledTimes(1)
+        })
+
+        it('ignores $set_once and recomputes the display name from the merged properties', async () => {
             const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
                 event: {
                     distinct_id: 'distinct_A_1',
                     captured_at: new Date().toISOString(),
                     properties: {
                         $set: { email: 'fresh@example.com' },
-                        $set_once: { name: 'Should not overwrite', signup_source: 'ad' },
+                        $set_once: { signup_source: 'ad' },
                     },
                 } as any,
             })
@@ -486,10 +524,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 invocation,
             ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
 
+            // $set_once resolves against the real person row, which this worker cannot read, so
+            // replaying it would invent a value the database may have rejected.
             expect(results[0].invocation.person?.properties).toEqual({
                 name: 'Person A 1',
                 email: 'fresh@example.com',
-                signup_source: 'ad',
             })
             // 'email' comes before 'name' in the default display-name properties, so the name follows
             // the new email. A template must not greet one address in a message sent to another.
