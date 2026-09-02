@@ -864,7 +864,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     578: ErrorCodeMeta("INVALID_FORMAT_INSERT_QUERY_WITH_DATA"),
     579: ErrorCodeMeta("INCORRECT_PART_TYPE"),
     580: ErrorCodeMeta("CANNOT_SET_ROUNDING_MODE"),
-    581: ErrorCodeMeta("TOO_LARGE_DISTRIBUTED_DEPTH"),
+    # Fixed message: the raw CH text only names the internal depth limit, so a written message
+    # tells the person what to change in the query.
+    581: ErrorCodeMeta(
+        "TOO_LARGE_DISTRIBUTED_DEPTH",
+        user_safe="This query nests reads across distributed tables too deeply. Flatten the nested subqueries or views and try again.",
+    ),
     582: ErrorCodeMeta("NO_SUCH_PROJECTION_IN_TABLE"),
     583: ErrorCodeMeta("ILLEGAL_PROJECTION"),
     584: ErrorCodeMeta("PROJECTION_NOT_USED"),

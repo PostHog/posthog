@@ -50,6 +50,12 @@ class TestWrapClickhouseQueryError:
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            (
+                581,
+                "TOO_LARGE_DISTRIBUTED_DEPTH",
+                "This query nests reads across distributed tables too deeply. "
+                "Flatten the nested subqueries or views and try again.",
+            ),
         ]
     )
     def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:
