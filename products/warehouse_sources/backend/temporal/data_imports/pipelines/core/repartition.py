@@ -538,8 +538,9 @@ def select_repartition_target(
     one format tier finer. An unpartitioned table gets an auto target, which sizes its bucket count
     the same way so md5 is reachable whatever its keys turn out to be. When no target is chosen the
     reason explains why (reported in metrics so a skipped table is diagnosable): `within_budget`,
-    `datetime_at_finest_tier`, `numerical_cannot_shrink`, `numerical_no_size`, or
-    `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+    `datetime_at_finest_tier` (only when there is no primary key distinct from the partition key to
+    hash — otherwise a datetime table out of tiers falls back to md5), `numerical_cannot_shrink`,
+    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -580,8 +581,25 @@ def select_repartition_target(
         # no-op'd to `hour` before the ceiling existed) has nothing finer to gain either.
         ceiling_index = DATETIME_FORMAT_TIERS.index(_datetime_tier_ceiling(schema))
         if current_index >= ceiling_index:
-            # Already at the finest usable tier — can't go finer. Caller alerts.
-            return None, "datetime_at_finest_tier"
+            # No finer tier left, yet the table is still over budget. The key itself is skewed — a
+            # backfill that stamped one timestamp across millions of rows puts more than the budget
+            # in a single bucket, and splitting time more finely cannot divide rows that share a
+            # value. md5 escapes that by bucketing on a hash rather than on the value, so partition
+            # size follows the row count. It must hash the PRIMARY KEY, not the datetime partition
+            # key: hashing the skewed column maps every row that shares a timestamp to the same
+            # bucket and reproduces the skew exactly. The cost is time-range pruning at query time,
+            # which an over-budget partition already outweighs by OOMing the merge and stalling the
+            # sync. With no distinct primary key to hash there is nothing better to move to, so the
+            # table stays parked at the finest tier for the caller to alert on.
+            hash_keys = schema.primary_key_columns or []
+            if not hash_keys or set(hash_keys) == set(keys):
+                return None, "datetime_at_finest_tier"
+            return RepartitionTarget(
+                partition_keys=hash_keys,
+                trigger_reason="",
+                partition_mode="md5",
+                partition_count=max(1, math.ceil(total_bytes / target_partition_bytes)),
+            ), "selected"
         return RepartitionTarget(
             partition_keys=keys,
             trigger_reason="",
