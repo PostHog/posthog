@@ -35,7 +35,7 @@ class BlastRadiusResult:
 
 # Window for the flag-sizing denominator. An all-time person count is inflated by anonymous,
 # one-shot persons that never return; a recent-activity window drops them and is defensible.
-RECENTLY_ACTIVE_DAYS = 30
+RECENTLY_ACTIVE_DAYS = 60
 
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,

@@ -15,7 +15,7 @@ export const MATCHING_ESTIMATE_TOOLTIP = (
             </Link>
         </div>
         <div className="mt-1">
-            Estimated from persons active in the last 30 days, so people who have not been seen recently are not
+            Estimated from persons active in the last 60 days, so people who have not been seen recently are not
             counted.
         </div>
     </>
