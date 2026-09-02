@@ -1,5 +1,4 @@
 import { cn } from "@posthog/quill";
-import { Flex } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
 const META_ROW_CLASS =
@@ -12,14 +11,15 @@ interface InboxMetaRowProps {
 
 export function InboxMetaRow({ children, className }: InboxMetaRowProps) {
   return (
-    <Flex
-      align="center"
-      gap="2"
-      wrap="wrap"
-      className={cn(META_ROW_CLASS, className)}
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2",
+        META_ROW_CLASS,
+        className,
+      )}
     >
       {children}
-    </Flex>
+    </div>
   );
 }
 

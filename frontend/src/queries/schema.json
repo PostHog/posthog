@@ -16485,6 +16485,11 @@
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "legendPosition": {
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
                 },
@@ -27352,7 +27357,11 @@
                 "Anvil",
                 "Coolify",
                 "SocialPilot",
-                "RoktAds"
+                "RoktAds",
+                "Strato",
+                "Medusa",
+                "Membrain",
+                "RecallAI"
             ],
             "type": "string"
         },
@@ -31015,6 +31024,7 @@
                 "apns",
                 "postgresql",
                 "aws-s3",
+                "aws-redshift",
                 "s3-compatible",
                 "snowflake",
                 "youtube-analytics"

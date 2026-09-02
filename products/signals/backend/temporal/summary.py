@@ -373,6 +373,9 @@ class SignalReportSummaryWorkflow:
                 await self._revert_report_to_candidate(inputs)
                 return False
             # 4. Select repository for the agentic research
+            # Captured before the selection is resolved, so the research activity can tell whether
+            # a reviewer rewrote the report's repo selection while this run was in flight.
+            repo_selection_as_of = workflow.now()
             repo_result: RepoSelectionResult = await workflow.execute_activity(
                 select_repository_activity,
                 SelectRepositoryInput(
@@ -414,6 +417,7 @@ class SignalReportSummaryWorkflow:
                         report_id=inputs.report_id,
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
+                        repo_selection_as_of=repo_selection_as_of,
                     ),
                     start_to_close_timeout=timedelta(hours=4),
                     heartbeat_timeout=timedelta(minutes=5),

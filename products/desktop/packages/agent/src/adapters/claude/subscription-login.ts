@@ -42,6 +42,7 @@ export interface ClaudeLoginCheckLogger {
 }
 
 const STATUS_TIMEOUT_MS = 15_000;
+const STATUS_KILL_GRACE_MS = 2_000;
 
 export interface ClaudeLoginCheckOptions {
   claudeCliPath: string;
@@ -115,6 +116,11 @@ export async function hasClaudeLogin(
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
+      const killTimer = setTimeout(
+        () => child.kill("SIGKILL"),
+        STATUS_KILL_GRACE_MS,
+      );
+      child.once("exit", () => clearTimeout(killTimer));
       finish("unknown");
     }, options.timeoutMs ?? STATUS_TIMEOUT_MS);
 

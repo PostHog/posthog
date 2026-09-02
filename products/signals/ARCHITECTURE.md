@@ -210,6 +210,8 @@ Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_
 
 **Eligibility filter:** Before invoking the agent, `select_repository_for_report` drops candidates that are archived or missing from the heavy cache (e.g., a row whose sync errored during a cold start). The prompt treats SQL hits as primary evidence, so a missing row would read as a false negative. If filtering leaves zero or one candidates, the activity short-circuits without running the agent.
 
+**Past corrections:** `select_repository_for_team` — the chokepoint every signals-side selection funnels through (report pipeline, custom agents, scout `emit_report`) — builds a "past selection corrections" block from the team's recent `wrong_repo` dismissals (`repo_corrections.wrong_repo_corrections_block`: newest first, one entry per report and per distinct selected→corrected lesson, capped at 20 within 180 days) and passes it to the tasks-side `select_repository`, which renders it into the prompt between the candidate list and the cache instructions. Caller-side injection rather than agent self-lookup is deliberate: the agent's SQL surface stays limited to the cache table, and an injected block is guaranteed in front of the agent on every run. Building the block is best-effort — on failure selection proceeds without it.
+
 **Truncation caveat:** GitHub's recursive tree endpoint truncates at ~50k entries / 7MB. The `tree_truncated` flag marks affected rows; `tree_paths` is incomplete on those rows and will silently miss files in HogQL grep. Consumers must filter on `tree_truncated=False` and explicitly degrade for truncated repos. Affects <2% of repos; paginated subtree fetch is future work.
 
 #### Re-promotion
@@ -451,20 +453,20 @@ An **append-only, attributed, schema-validated log of the work done on a report*
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
-| Type                     | Content                                                                                                                                                         |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video_segment`          | Video segment data from session clustering                                                                                                                      |
-| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                          |
-| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                    |
-| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                              |
-| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                  |
-| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                      |
-| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                  |
-| `dismissal`              | `{"reason"?, "note"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries                                                                 |
-| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end) |
-| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                      |
-| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                     |
-| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                         |
+| Type                     | Content                                                                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `video_segment`          | Video segment data from session clustering                                                                                                                                                                 |
+| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                                     |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                                               |
+| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                                         |
+| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                                             |
+| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                                                 |
+| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                                                             |
+| `dismissal`              | `{"reason"?, "note"?, "selected_repository"?, "corrected_repository"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries; the repository fields are set on `wrong_repo` dismissals |
+| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                                            |
+| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                 |
+| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                |
+| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                    |
 
 **Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
 
@@ -903,6 +905,15 @@ A dismisser who can't clear that bar still gets their feedback recorded on the r
 Two audience rules follow from a note living on the canonical project while the report it quotes may not.
 Reports on a child environment are never forwarded, since the note would be readable by people with no access to that environment.
 And on the read side, `scout-notes-list` withholds `report_dismissal` notes from callers who can't read reports (`task` scope plus `task` RBAC), so the notes surface can't be used to read report ids, titles, and dismissal text around the reports API (`scout_harness/views._may_read_reports`).
+
+**Wrong-repo dismissals.** The `wrong_repo` reason code carries an optional `corrected_repository` (`owner/repo`, refused with any other reason).
+The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.
+When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact, latest-wins.
+Restoring the report does not itself re-research; the appended selection means the report's next research run, once new signals re-promote it, targets the corrected repository instead of repeating the rejected pick.
+The appended selection carries `autostart_eligible=False`: a correction names the repo a person would target, never PR intent, so it must not outrank an earlier selection's False stamp on the autostart path.
+A wrong-repo dismissal without a usable correction (none named, or the named repository is not connected through the team's own GitHub integration, which research clones through) instead clears the selection: a user-attributed `repo_selection` with `repository=None` and `autostart_eligible=False`, so research cannot reuse the rejected pick and the report's next run re-selects with the corrections block in its prompt.
+The clear is skipped when the report has no reusable selection to begin with.
+These records feed back into selection: `repo_corrections.wrong_repo_corrections_block` renders the team's recent wrong-repo dismissals (newest first, one per report and one per distinct selected→corrected lesson, so a bulk dismissal cannot flood the block; capped) and `select_repository_for_team` passes the block into the selection agent's prompt on every signals-side selection — see Repository Selection.
 
 #### `SignalReportArtefactViewSet`
 

@@ -1584,9 +1584,9 @@ export function dedupeByChainIdentity(events: ElementsEventType[]): ElementsEven
     const seen = new Set<string>()
     const deduped: ElementsEventType[] = []
     for (const event of events) {
-        // the server hashes the raw chain before attribute filtering, so distinct chains that
-        // serialize identically after trimming stay distinct; the serialized-content fallback is
-        // transitional for servers that still return hash as null — delete once that's none of them
+        // the hash identifies the chain as the server grouped it, so two rows share it only when
+        // the server already counted them as one; the serialized-content fallback is transitional
+        // for servers that still return hash as null, delete once that's none of them
         const identity = `${event.type}:${event.hash ?? JSON.stringify(event.elements)}`
         if (seen.has(identity)) {
             continue

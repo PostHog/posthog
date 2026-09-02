@@ -74,6 +74,8 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
+                        # A hand-edit to the generated taxonomy JSON must reach the drift check
+                        - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -194,6 +196,15 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            # Calls the generator directly because this job installs neither pnpm nor
+            # node_modules. Keep the step after "Install Python dependencies": importing
+            # posthog.taxonomy.taxonomy pulls in Django via posthog/__init__.py, so the
+            # generator needs the full synced dependency set, not just stdlib.
+            - name: Check if the taxonomy JSON is up to date
+              shell: bash
+              run: |
+                  python3 bin/build-taxonomy-json.py --check
+
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
             # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
@@ -302,12 +313,6 @@ jobs:
               with:
                   name: junit-results-dependency-detection
                   path: junit-dependency-detection.xml
-
-            # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
-            #   if: needs.changes.outputs.python == 'true'
-            #   shell: bash
-            #   run: |
-            #       npm run taxonomy:build:json && git diff --exit-code
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always

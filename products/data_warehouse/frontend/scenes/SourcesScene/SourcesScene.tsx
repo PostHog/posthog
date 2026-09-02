@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { dataWarehouseEmptyState } from '../../emptyState/dataWarehouseEmptyState'
 import { SourcesList } from './SourcesList'
 import { sourcesSceneLogic } from './sourcesSceneLogic'
 
@@ -18,6 +19,7 @@ export const scene: SceneExport = {
     component: SourcesScene,
     logic: sourcesSceneLogic,
     productKey: ProductKey.DATA_WAREHOUSE,
+    emptyState: dataWarehouseEmptyState,
 }
 
 export function SourcesScene(): JSX.Element {
@@ -52,7 +54,7 @@ export function SourcesScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <SourcesList action={action} />
+            <SourcesList />
         </SceneContent>
     )
 }

@@ -180,23 +180,31 @@ class AgentServerLaunchMixin(SandboxBase):
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
             f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
         )
+        launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
         if repo_ready_file:
             # Keep the adapter process from inheriting a repository cwd that does not
             # exist yet, even if an overlaid agent-server mishandles its readiness flag.
-            wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
+            wait_for_repo = (
+                f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; "
+                f"{launch_started_at}; exec {server_cmd}"
+            )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
+        launch_started_prefix = "" if repo_ready_file else f"{launch_started_at} && "
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && {initialize_env_file} && "
+                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
                 f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
             )
         else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            return (
+                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
+                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            )
 
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""

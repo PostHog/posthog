@@ -165,4 +165,11 @@ export interface SceneProductEmptyState {
      * roll the empty state out gradually.
      */
     featureFlag?: FeatureFlagKey
+    /**
+     * Only gate these scene ids (`Scene` values), for scene modules that serve
+     * several scenes (tabs) where just one is the product being gated - e.g. the
+     * web analytics module, where only the web vitals tab has a setup state.
+     * Omit to gate every scene the module serves.
+     */
+    scenes?: string[]
 }

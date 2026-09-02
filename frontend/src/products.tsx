@@ -935,7 +935,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
-    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
@@ -1733,6 +1733,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
         waitingEvents: ['$mcp_initialize'],
         featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
 ]
 
 /** This const is auto-generated, as is the whole file */

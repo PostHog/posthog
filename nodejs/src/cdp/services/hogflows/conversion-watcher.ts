@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { ConversionWatcherRow, CyclotronJobInvocationHogFlow, PinnedConversionGoal } from '../../types'
@@ -65,10 +67,21 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
 // proportional to recent traffic rather than to all traffic ever.
 export const MAX_CONVERSION_WINDOW_MINUTES = 30 * 24 * 60
 
+// Substituting our window for the configured one changes what the workflow's conversion rate measures,
+// so it must not be silent: a clamped run reports over the cap, not over the window it asked for.
+const counterConversionWindowClamped = new Counter({
+    name: 'cdp_conversion_window_clamped',
+    help: 'Runs enrolled with a conversion window shortened to the cap because the workflow configured a longer one. Each one measures its conversion rate over a shorter period than the workflow asked for.',
+})
+
 function conversionWindowMinutes(hogFlow: HogFlow): number {
     const configured = hogFlow.conversion?.window_minutes
     if (!configured || configured <= 0) {
         return MAX_CONVERSION_WINDOW_MINUTES
     }
-    return Math.min(configured, MAX_CONVERSION_WINDOW_MINUTES)
+    if (configured > MAX_CONVERSION_WINDOW_MINUTES) {
+        counterConversionWindowClamped.inc()
+        return MAX_CONVERSION_WINDOW_MINUTES
+    }
+    return configured
 }

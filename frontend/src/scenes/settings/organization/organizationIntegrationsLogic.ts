@@ -16,6 +16,7 @@ export interface organizationIntegrationsLogicValues {
     getOrganizationIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -91,6 +92,7 @@ export interface organizationIntegrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -148,6 +150,7 @@ export interface organizationIntegrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -203,6 +206,7 @@ export interface organizationIntegrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'

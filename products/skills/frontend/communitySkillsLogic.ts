@@ -11,23 +11,23 @@ import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import { communitySkillsInstallCreate, communitySkillsList, communitySkillsVoteCreate } from './generated/api'
-import { TrustTierEnumApi } from './generated/api.schemas'
+import { CommunitySkillTrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi, PaginatedCommunitySkillListListApi } from './generated/api.schemas'
 
 export const COMMUNITY_SKILLS_PER_PAGE = 30
 
-const TRUST_TIERS = Object.values(TrustTierEnumApi)
+const TRUST_TIERS = Object.values(CommunitySkillTrustTierEnumApi)
 
 export interface CommunitySkillFilters {
     page: number
     search: string
     order_by: string
     tag: string
-    trust_tier: TrustTierEnumApi | ''
+    trust_tier: CommunitySkillTrustTierEnumApi | ''
 }
 
 // Filters can arrive from the URL, so anything that isn't a known tier falls back to "all tiers".
-function cleanTrustTier(value: unknown): TrustTierEnumApi | '' {
+function cleanTrustTier(value: unknown): CommunitySkillTrustTierEnumApi | '' {
     return TRUST_TIERS.find((tier) => tier === value) ?? ''
 }
 
