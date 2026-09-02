@@ -10,7 +10,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type { VisionActionRunListApi } from '../../generated/api.schemas'
-import { VisionActionModeEnumApi } from '../../generated/api.schemas'
+import { ActionModeEnumApi } from '../../generated/api.schemas'
 import { visionActionRunsLogic } from '../visionActionRunsLogic'
 import { RunStatusTag } from '../visionActionRunStatus'
 import { visionActionSceneLogic } from '../visionActionSceneLogic'
@@ -38,7 +38,7 @@ function RunStats(): JSX.Element {
     const disabled = action?.enabled === false
     // Quiet alert checks (condition not met) don't appear in the run list, so for alerts the time
     // cells speak in terms of checks: "last checked" can be much more recent than the newest row.
-    const isAlert = action?.mode === VisionActionModeEnumApi.Alert
+    const isAlert = action?.mode === ActionModeEnumApi.Alert
     // every_match rides each scanner sweep; on_breach thresholds are re-checked hourly.
     const everyMatch = action?.alert_config?.frequency === 'every_match'
     // Show run times in the schedule's own timezone so "Next run" lines up with the "Runs daily
@@ -97,7 +97,7 @@ function RunStats(): JSX.Element {
 
 function EmptyRuns(): JSX.Element {
     const { action } = useValues(visionActionRunsLogic)
-    const isAlert = action?.mode === VisionActionModeEnumApi.Alert
+    const isAlert = action?.mode === ActionModeEnumApi.Alert
     const everyMatch = action?.alert_config?.frequency === 'every_match'
     return (
         <div className="flex flex-col items-center text-center gap-3 py-10">
