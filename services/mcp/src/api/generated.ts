@@ -21617,7 +21617,7 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at: string | null;
@@ -21815,7 +21815,7 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at: string | null;
@@ -61284,7 +61284,7 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status?: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at?: string | null;
