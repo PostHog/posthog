@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
-from openai import APIConnectionError, RateLimitError
+from openai import APIConnectionError, InternalServerError, RateLimitError
 from rest_framework import exceptions
 
 from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
@@ -12,16 +12,22 @@ from products.ai_observability.backend.summarization.llm.openai import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
+_REQUEST = httpx.Request("POST", "https://example.com/v1/chat/completions")
+
 
 def _rate_limit_error() -> RateLimitError:
-    request = httpx.Request("POST", "https://example.com/v1/chat/completions")
-    return RateLimitError("rate limited", response=httpx.Response(429, request=request), body=None)
+    return RateLimitError("rate limited", response=httpx.Response(429, request=_REQUEST), body=None)
+
+
+def _gateway_ceiling_error() -> InternalServerError:
+    # The ai-gateway answers 504 when a buffered call outlives its ~290s response ceiling.
+    return InternalServerError("gateway timeout", response=httpx.Response(504, request=_REQUEST), body=None)
 
 
 def _connection_error() -> APIConnectionError:
     # A proxy or LB resetting a long-parked flex request surfaces as the bare parent class,
     # not APITimeoutError, so the fallback must catch APIConnectionError itself.
-    return APIConnectionError(request=httpx.Request("POST", "https://example.com/v1/chat/completions"))
+    return APIConnectionError(request=_REQUEST)
 
 
 @pytest.fixture
@@ -211,7 +217,7 @@ class TestSummarizeWithOpenAI:
             assert call_kwargs.get("reasoning_effort") == expected_effort
             assert call_kwargs["timeout"] == expected_timeout
 
-    @pytest.mark.parametrize("flex_error", [_rate_limit_error(), _connection_error()])
+    @pytest.mark.parametrize("flex_error", [_rate_limit_error(), _connection_error(), _gateway_ceiling_error()])
     def test_flex_failure_falls_back_to_standard_tier(self, valid_response_json, flex_error):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
