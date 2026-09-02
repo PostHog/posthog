@@ -47,6 +47,12 @@ registerAsyncFunction('fetch', {
                       },
                   }
                 : {}),
+            // A template passes the key of its secret headers input, never the headers,
+            // so the credentials stay out of this plaintext queue payload. The executor
+            // resolves the key against the destination's encrypted inputs at fetch time.
+            ...(typeof fetchOptions?.secret_headers_input === 'string'
+                ? { secret_headers_input: fetchOptions.secret_headers_input }
+                : {}),
         })
 
         result.invocation.queueParameters = fetchQueueParameters

@@ -1670,6 +1670,87 @@ describe('Hog Executor', () => {
             })
         })
 
+        describe('secret_headers_input', () => {
+            const seedSecretHeadersInput = (invocation: CyclotronJobInvocationHogFunction) => {
+                invocation.hogFunction.encrypted_inputs = {
+                    ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                    secret_headers: { value: { 'x-api-token': 'tok_HqZ2NmVrTt' } },
+                } as any
+            }
+
+            it('merges the resolved headers so they arrive at the upstream', async () => {
+                let receivedToken: string | undefined
+                let receivedContentType: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedToken = req.headers['x-api-token']
+                    receivedContentType = req.headers['content-type']
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/json' },
+                    secret_headers_input: 'secret_headers',
+                })
+                seedSecretHeadersInput(invocation)
+
+                await executor.executeFetch(invocation)
+
+                expect(receivedToken).toBe('tok_HqZ2NmVrTt')
+                expect(receivedContentType).toBe('application/json')
+            })
+
+            // The credential is why the reference exists, so it must never be written
+            // back to the queue payload, which cyclotron stores as plaintext JSON.
+            it('keeps the credential out of the stored queue payload', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/json' },
+                    secret_headers_input: 'secret_headers',
+                })
+                seedSecretHeadersInput(invocation)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(JSON.stringify(result.invocation.queueParameters ?? {})).not.toContain('tok_HqZ2NmVrTt')
+            })
+
+            // Falling through would ship the request with its credential header
+            // missing, which reads to the receiver as an unauthenticated caller.
+            it('errors loudly when the referenced input is missing', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/json' },
+                    secret_headers_input: 'secret_headers',
+                })
+                // Intentionally do NOT seed inputs.
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('Secret headers failed to resolve')
+                expect(result.error.message).toContain('secret_headers')
+            })
+        })
+
         describe('standard_webhooks', () => {
             // Secret from the Standard Webhooks spec's reference example. The tests
             // recompute the expected signature with the base64-decoded key, exactly

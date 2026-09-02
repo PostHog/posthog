@@ -22,6 +22,7 @@ import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
+import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -451,6 +452,17 @@ export class HogExecutorAsyncService {
             result.error = new Error(error)
             result.finished = true
             return result
+        }
+
+        // Merged before signing, so a signature covers the headers that actually go on
+        // the wire. Resolution failing is fail-closed: the request would otherwise reach
+        // the receiver with its credential header missing.
+        if (params.secret_headers_input) {
+            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            headers = mergeSecretHeaders(headers, resolved.headers)
         }
 
         let signedHeaders = headers

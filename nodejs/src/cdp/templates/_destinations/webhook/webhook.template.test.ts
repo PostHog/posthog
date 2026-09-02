@@ -68,6 +68,20 @@ describe('webhook template', () => {
         expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
     })
 
+    it('passes a secret headers reference, not the headers, to the fetch queue', async () => {
+        const response = await tester.invoke({
+            url: 'https://example.com',
+            headers: { 'Content-Type': 'application/json' },
+            secret_headers: { 'x-api-token': 'tok_HqZ2NmVrTt' },
+        })
+
+        expect(response.error).toBeUndefined()
+        const params = response.invocation.queueParameters as any
+        expect(params.secret_headers_input).toBe('secret_headers')
+        expect(params.headers).toEqual({ 'Content-Type': 'application/json' })
+        expect(JSON.stringify(params)).not.toContain('tok_HqZ2NmVrTt')
+    })
+
     it('should log details of given', async () => {
         let response = await tester.invoke({
             url: 'https://example.com?v={event.properties.$lib_version}',

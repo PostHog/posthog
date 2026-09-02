@@ -138,6 +138,13 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    // Headers whose values are credentials, merged over `headers` immediately before
+    // each attempt. Like `aws_sigv4` and `standard_webhooks` above, this is the KEY of
+    // a `secret: true` dictionary input rather than the headers themselves: the
+    // cyclotron `cyclotron_jobs.state` blob is plaintext JSON, so putting an API key
+    // or auth header in `headers` would write it there in the clear and defeat the
+    // at-rest encryption on `posthog_hogfunction.encrypted_inputs`.
+    secret_headers_input: z.string().optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
