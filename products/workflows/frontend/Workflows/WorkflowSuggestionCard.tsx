@@ -35,7 +35,7 @@ export function WorkflowSuggestionCard({ id, proposal }: { id: string; proposal:
 
     return (
         <div className="border rounded p-3 bg-surface-primary flex flex-col gap-2">
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2 flex-wrap">
                 <IconBolt className="text-lg shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-1 grow">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -61,7 +61,7 @@ export function WorkflowSuggestionCard({ id, proposal }: { id: string; proposal:
                         Suggested <TZLabel time={proposal.created_at} /> against version {proposal.base_version}
                     </span>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 ml-auto">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.Workflow}
                         minAccessLevel={AccessControlLevel.Editor}
