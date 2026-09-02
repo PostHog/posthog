@@ -18,6 +18,32 @@ TRINO_SYSTEM_SCHEMAS = ("information_schema",)
 TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR = (
     "Turn on TLS certificate verification to use password or JWT authentication."
 )
+TRINO_AUTHENTICATION_ERROR = "Trino rejected the credentials. Check the username and authentication details."
+TRINO_CATALOG_NOT_FOUND_ERROR = "Trino could not find that catalog. Check the catalog name and the user's permissions."
+TRINO_ACCESS_DENIED_ERROR = (
+    "Trino did not allow this user to read the catalog. Ask your Trino administrator for read access, then try again."
+)
+TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR = (
+    "Trino's access control service did not answer, so PostHog could not read the catalog. "
+    "Try again, or ask your Trino administrator to check that service."
+)
+TRINO_TLS_CERTIFICATE_ERROR = (
+    "PostHog could not verify the Trino server's TLS certificate. "
+    "Check the certificate or turn off certificate verification."
+)
+TRINO_CONNECTION_ERROR = "PostHog could not connect to Trino."
+
+# Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
+# its own error patterns, so the API shows the message instead of a generic one.
+TRINO_KNOWN_ERROR_MESSAGES = (
+    TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
+    TRINO_AUTHENTICATION_ERROR,
+    TRINO_CATALOG_NOT_FOUND_ERROR,
+    TRINO_ACCESS_DENIED_ERROR,
+    TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
+    TRINO_TLS_CERTIFICATE_ERROR,
+    TRINO_CONNECTION_ERROR,
+)
 POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
     {
         "trino.dw.dev.postwh.com",
@@ -45,18 +71,31 @@ class DiscoveredTrinoTable:
     columns: tuple[TrinoColumn, ...]
 
 
+class TrinoSchemaDiscoveryError(Exception):
+    """A failure Trino reported while PostHog listed the catalog's tables.
+
+    The message is already worded for the person who connects the source.
+    """
+
+
 def trino_error_to_message(error: Exception) -> str:
     message = str(error).strip()
     lowered = message.lower()
     if message == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR:
         return message
     if "authentication" in lowered or "unauthorized" in lowered or "401" in lowered:
-        return "Trino rejected the credentials. Check the username and authentication details."
+        return TRINO_AUTHENTICATION_ERROR
+    # Trino gives permission checks to an access control plugin. That plugin can fail on its own, for
+    # example when it cannot reach its policy service, which nobody can fix from PostHog.
+    if "opa backend" in lowered or "access control" in lowered:
+        return TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
+    if "access denied" in lowered or "permission denied" in lowered or "not authorized" in lowered:
+        return TRINO_ACCESS_DENIED_ERROR
     if "catalog" in lowered and ("not found" in lowered or "does not exist" in lowered):
-        return "Trino could not find that catalog. Check the catalog name and the user's permissions."
+        return TRINO_CATALOG_NOT_FOUND_ERROR
     if "certificate" in lowered or "ssl" in lowered:
-        return "PostHog could not verify the Trino server's TLS certificate. Check the certificate or turn off certificate verification."
-    return message.splitlines()[0] if message else "PostHog could not connect to Trino."
+        return TRINO_TLS_CERTIFICATE_ERROR
+    return message.splitlines()[0] if message else TRINO_CONNECTION_ERROR
 
 
 def _authentication(config: TrinoSourceConfig) -> Any:

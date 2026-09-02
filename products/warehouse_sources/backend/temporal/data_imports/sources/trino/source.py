@@ -20,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import TrinoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
+    TRINO_KNOWN_ERROR_MESSAGES,
+    TrinoSchemaDiscoveryError,
     connect_trino,
     discover_trino_schemas,
     trino_error_to_message,
@@ -212,8 +214,11 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         is_valid, error = self.is_database_host_valid(config.host, team_id)
         if not is_valid:
             raise ValueError(error or "Invalid Trino host.")
-        with connect_trino(config) as connection:
-            discovered = discover_trino_schemas(connection.cursor(), config, names)
+        try:
+            with connect_trino(config) as connection:
+                discovered = discover_trino_schemas(connection.cursor(), config, names)
+        except Exception as exc:
+            raise TrinoSchemaDiscoveryError(trino_error_to_message(exc)) from exc
         return [
             SourceSchema(
                 name=table.name if config.schema else f"{table.schema}.{table.name}",
@@ -226,3 +231,12 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             )
             for table in discovered
         ]
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Schema discovery hands back Trino's own verdict, so the API must show it. The last key
+        # catches every other Trino-side failure, which is the remote server's fault and not a
+        # PostHog exception to file.
+        return {
+            **{message: message for message in TRINO_KNOWN_ERROR_MESSAGES},
+            TrinoSchemaDiscoveryError.__name__: None,
+        }
