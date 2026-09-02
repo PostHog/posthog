@@ -11,15 +11,13 @@ import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/Pr
 import { midEllipsis } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import {
     formatPropertyLabel,
-    groupTypeIndexForFilterKey,
     isBehavioralPropertyFilter,
-    isPropertyFilterWithOperator,
+    isGroupCardFilterKey,
     propertyFilterTypeToPropertyDefinitionType,
 } from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
@@ -39,7 +37,6 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         ref
     ): JSX.Element {
         const { cohortsById } = useValues(cohortsModel)
-        const { groupTypes } = useValues(groupsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
@@ -72,20 +69,17 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             : item.value !== null && item.value !== undefined
               ? [String(item.value)]
               : []
-        // When a single group-key filter's value resolves to a real group we replace
+        // When a single-group filter's value resolves to a real group we replace
         // the bare "<key> = <uuid>" tooltip with a formatted card so the user can
         // confirm they picked the right group (e.g. after pasting a UUID). This is
         // display only and falls back to the label when the value isn't a real
         // group key. Restricted to a single value so hovering only ever looks up
         // the one group under the mouse — never a fan-out across an "is one of" list.
-        const groupCardTypeIndex = groupTypeIndexForFilterKey(
-            item.key,
-            item.type,
-            groupTypeIndex as GroupTypeIndex | undefined,
-            groupTypes,
-            isPropertyFilterWithOperator(item) ? item.operator : undefined
-        )
-        const showGroupCard = groupCardTypeIndex !== null && groupKeys.length === 1
+        const showGroupCard =
+            isGroupCardFilterKey(item.key, item.type) &&
+            groupTypeIndex !== null &&
+            groupTypeIndex !== undefined &&
+            groupKeys.length === 1
 
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
@@ -153,7 +147,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                     interactive
                     title={
                         <GroupKeyFilterTooltip
-                            groupTypeIndex={groupCardTypeIndex as GroupTypeIndex}
+                            groupTypeIndex={groupTypeIndex as GroupTypeIndex}
                             groupKey={groupKeys[0]}
                             fallbackLabel={label}
                         />

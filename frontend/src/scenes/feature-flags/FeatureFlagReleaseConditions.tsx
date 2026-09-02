@@ -65,6 +65,8 @@ function PropertyValueComponent({
     property: AnyPropertyFilter
     getDistinctIdName: (distinctId: string) => string
 }): JSX.Element {
+    const groupKeyNames: Record<string, string> =
+        'group_key_names' in property ? ((property as any).group_key_names ?? {}) : {}
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
@@ -83,7 +85,7 @@ function PropertyValueComponent({
         <>
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
-                    {isDistinctId ? getDistinctIdName(String(val)) : String(val)}
+                    {isDistinctId ? getDistinctIdName(String(val)) : (groupKeyNames[String(val)] ?? String(val))}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -142,6 +144,7 @@ export function FeatureFlagReleaseConditions({
         properties,
         filterGroups,
         getDistinctIdName,
+        resolveGroupKeyNames,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -311,7 +314,7 @@ export function FeatureFlagReleaseConditions({
                     )}
                     {readOnly ? (
                         <>
-                            {group.properties?.map((property, idx) => (
+                            {resolveGroupKeyNames(group.properties).map((property, idx) => (
                                 <div className="feature-flag-property-display" key={idx}>
                                     {idx === 0 ? (
                                         <LemonButton
@@ -372,7 +375,9 @@ export function FeatureFlagReleaseConditions({
                                 pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
                                     filters.aggregation_group_type_index ?? ''
                                 }`}
-                                propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
+                                propertyFilters={resolveGroupKeyNames(
+                                    withResolvedFlagLabels(group?.properties, getFlagKey)
+                                )}
                                 logicalRowDivider
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}

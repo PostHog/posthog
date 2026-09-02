@@ -8,7 +8,6 @@ import {
     isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
-    isOperatorRegex,
 } from 'lib/utils/operators'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 
@@ -37,8 +36,6 @@ import {
     FilterLogicalOperator,
     FlagPropertyFilter,
     GroupPropertyFilter,
-    GroupType,
-    GroupTypeIndex,
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
@@ -328,55 +325,6 @@ function formatBehavioralPropertyLabel(
 export function isGroupCardFilterKey(key: string | number | undefined, type: PropertyFilterType | undefined): boolean {
     return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
 }
-
-// Whole-value operators only: `is set` carries a bare `true`, and the partial-match
-// operators carry a fragment, so neither holds something resolvable as a group key.
-function operatorMatchesWholeValue(operator: PropertyOperator | undefined): boolean {
-    return (
-        operator === undefined ||
-        !(
-            isOperatorFlag(operator) ||
-            isOperatorRegex(operator) ||
-            [
-                PropertyOperator.IContains,
-                PropertyOperator.NotIContains,
-                PropertyOperator.IContainsMulti,
-                PropertyOperator.NotIContainsMulti,
-            ].includes(operator)
-        )
-    )
-}
-
-// Which group type, if any, a filter's values can be resolved against. Beyond the
-// group-identity keys above, a `<group_type>_id` property (e.g. `organization_id`
-// on a person) conventionally holds a group key, so its raw UUIDs can be labeled
-// with the group's name. The convention is not guaranteed by the schema, so this
-// stays display only — an unresolvable value falls back to the raw value.
-export function groupTypeIndexForFilterKey(
-    key: string | number | undefined,
-    type: PropertyFilterType | undefined,
-    groupTypeIndex: GroupTypeIndex | undefined,
-    groupTypes: Map<GroupTypeIndex, GroupType>,
-    operator?: PropertyOperator
-): GroupTypeIndex | null {
-    if (isGroupCardFilterKey(key, type)) {
-        return groupTypeIndex ?? null
-    }
-    if (typeof key !== 'string' || !operatorMatchesWholeValue(operator)) {
-        return null
-    }
-    const namedGroupType = key.toLowerCase().match(/^(.+)_id$/)?.[1]
-    if (!namedGroupType) {
-        return null
-    }
-    for (const groupType of groupTypes.values()) {
-        if (groupType.group_type.toLowerCase() === namedGroupType) {
-            return groupType.group_type_index
-        }
-    }
-    return null
-}
-
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }

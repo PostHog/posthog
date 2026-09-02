@@ -9,7 +9,6 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
-import { clearGroupLookupCache } from './groupKeyTooltipLogic'
 import { PropertyValue } from './PropertyValue'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -31,30 +30,9 @@ describe('PropertyValue', () => {
                     results: [{ name: 'Chrome' }, { name: 'Firefox' }, { name: 'Safari' }],
                     refreshing: false,
                 },
-                '/api/projects/:team/groups_types': [{ group_type: 'organization', group_type_index: 0 }],
-                '/api/environments/:team/groups/find': ({ request }) => {
-                    const groupKey = new URL(request.url).searchParams.get('group_key')
-                    const groups: Record<string, Record<string, any>> = {
-                        'uuid-001': { name: 'Fjellride AB' },
-                        // A real group that simply has no name set
-                        'uuid-nameless': {},
-                    }
-                    return groupKey && groupKey in groups
-                        ? [
-                              200,
-                              {
-                                  group_type_index: 0,
-                                  group_key: groupKey,
-                                  group_properties: groups[groupKey],
-                                  created_at: '2024-01-01',
-                              },
-                          ]
-                        : [404, { detail: 'Not found' }]
-                },
             },
         })
         initKeaTests()
-        clearGroupLookupCache()
         propertyDefinitionsModel.mount()
         loadPropertyValuesSpy = jest.spyOn(propertyDefinitionsModel.actions, 'loadPropertyValues')
     })
@@ -326,9 +304,12 @@ describe('PropertyValue', () => {
         expect(screen.getByText('org-abc-123')).toBeInTheDocument()
     })
 
-    it('labels an `organization_id` person filter with the organization name', async () => {
-        // A list of raw org UUIDs is unreadable, so a value that resolves to a group shows
-        // that group's name instead. The id itself stays on the hover card.
+    it.each([
+        ['editable', true],
+        ['read-only', false],
+    ])('labels a resolved value with its group name in the %s view', (_label, editable) => {
+        // The caller resolves the names, so a person property that holds a group key gets them
+        // too. Without this the feature flag filter shows a bare list of org UUIDs.
         render(
             <Provider>
                 <PropertyValue
@@ -336,32 +317,17 @@ describe('PropertyValue', () => {
                     type={PropertyFilterType.Person}
                     operator={PropertyOperator.Exact}
                     onSet={jest.fn()}
-                    value={['uuid-001', 'uuid-unknown', 'uuid-nameless']}
+                    editable={editable}
+                    value={['org-abc-123', 'org-def-456']}
+                    groupKeyNames={{ 'org-abc-123': 'Fjellride AB' }}
                 />
             </Provider>
         )
 
-        expect(await screen.findByText('Fjellride AB')).toBeInTheDocument()
-        // An id that resolves to no group keeps showing as itself.
-        expect(screen.getByText('uuid-unknown')).toBeInTheDocument()
-        // So does a group with no name — `groupDisplayId` falls back to the key there,
-        // so the name is dropped rather than replacing the id with a copy of itself.
-        expect(screen.getByText('uuid-nameless')).toBeInTheDocument()
-    })
-
-    it('does not resolve group names for an `is set` filter, whose value is a bare boolean', () => {
-        render(
-            <Provider>
-                <PropertyValue
-                    propertyKey="organization_id"
-                    type={PropertyFilterType.Person}
-                    operator={PropertyOperator.IsSet}
-                    onSet={jest.fn()}
-                    value={[true]}
-                />
-            </Provider>
-        )
-
-        expect(screen.getByText('true')).toBeInTheDocument()
+        expect(screen.getByText(editable ? 'Fjellride AB' : 'Fjellride AB or org-def-456')).toBeInTheDocument()
+        // An id the caller could not resolve keeps its raw value rather than showing a name.
+        if (editable) {
+            expect(screen.getByText('org-def-456')).toBeInTheDocument()
+        }
     })
 })

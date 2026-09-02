@@ -36,9 +36,9 @@ interface FeatureFlagReleaseConditionsReadonlyProps {
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
-/** Extract server-provided group_key_names from a property, if present. */
+/** Extract group_key_names from a property, if present. */
 function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
-    if (property.type === PropertyFilterType.Group && 'group_key_names' in property) {
+    if ('group_key_names' in property) {
         return (property as any).group_key_names ?? {}
     }
     return {}
@@ -60,7 +60,7 @@ function PropertyValueDisplay({
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
-    const groupKeyNames = property.key === '$group_key' ? getGroupKeyNames(property) : {}
+    const groupKeyNames = getGroupKeyNames(property)
     const isDistinctId = isDistinctIdFilter(property)
 
     return (
@@ -131,7 +131,7 @@ export function FeatureFlagReleaseConditionsReadonly({
         filters,
     })
 
-    const { filterGroups, aggregationTargetName, properties, getDistinctIdName, getFlagKey } =
+    const { filterGroups, aggregationTargetName, properties, getDistinctIdName, getFlagKey, resolveGroupKeyNames } =
         useValues(releaseConditionsLogic)
 
     return (
@@ -169,6 +169,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                             aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                             getDistinctIdName={getDistinctIdName}
                             getFlagKey={getFlagKey}
+                            resolveGroupKeyNames={resolveGroupKeyNames}
                         />
                     </div>
                 ))}
@@ -185,6 +186,7 @@ interface ConditionSetCardProps {
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
     getFlagKey: (flagId: string) => string
+    resolveGroupKeyNames: (properties: AnyPropertyFilter[] | undefined) => AnyPropertyFilter[]
 }
 
 function ConditionSetCard({
@@ -193,8 +195,9 @@ function ConditionSetCard({
     aggregationTargetName,
     getDistinctIdName,
     getFlagKey,
+    resolveGroupKeyNames,
 }: ConditionSetCardProps): JSX.Element {
-    const properties = withResolvedFlagLabels(group.properties, getFlagKey)
+    const properties = resolveGroupKeyNames(withResolvedFlagLabels(group.properties, getFlagKey))
     const rollout = group.rollout_percentage ?? 100
 
     const getSummary = (): JSX.Element => {

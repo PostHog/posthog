@@ -241,11 +241,9 @@ export function TaxonomicPropertyFilter({
                     ? (filter?.group_type_index as GroupTypeIndex)
                     : undefined
             }
-            groupKeyNames={
-                isGroupPropertyFilter(filter) && 'group_key_names' in filter
-                    ? (filter as any).group_key_names
-                    : undefined
-            }
+            // Any filter may carry resolved group names, not only a group-type one: feature
+            // flags attach them to a `<group_type>_id` person property too.
+            groupKeyNames={filter && 'group_key_names' in filter ? (filter as any).group_key_names : undefined}
             operatorAllowlist={operatorAllowlist}
         />
     )

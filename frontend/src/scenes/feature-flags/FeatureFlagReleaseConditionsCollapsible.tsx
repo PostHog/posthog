@@ -146,9 +146,7 @@ function summarizeProperties(
         }
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
         const groupKeyNames: Record<string, string> =
-            property.key === '$group_key' && property.type === PropertyFilterType.Group && 'group_key_names' in property
-                ? ((property as any).group_key_names ?? {})
-                : {}
+            'group_key_names' in property ? ((property as any).group_key_names ?? {}) : {}
         const isDistinctId = isDistinctIdFilter(property)
         // Resolve a single raw value to its display name: server-provided group name,
         // frontend-fetched person name, or the raw value as fallback.
@@ -190,6 +188,7 @@ interface ConditionHeaderProps {
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
     getFlagKey: (flagId: string) => string
+    resolveGroupKeyNames: (properties: AnyPropertyFilter[] | undefined) => AnyPropertyFilter[]
     onDuplicate: () => void
     onRemove: () => void
 }
@@ -202,13 +201,19 @@ function ConditionHeader({
     aggregationTargetName,
     getDistinctIdName,
     getFlagKey,
+    resolveGroupKeyNames,
     onDuplicate,
     onRemove,
 }: ConditionHeaderProps): JSX.Element {
     // Use description if available, otherwise summarize the filters
     const summary =
         group.description ||
-        summarizeProperties(group.properties || [], aggregationTargetName, getDistinctIdName, getFlagKey)
+        summarizeProperties(
+            resolveGroupKeyNames(group.properties),
+            aggregationTargetName,
+            getDistinctIdName,
+            getFlagKey
+        )
     const rollout = group.rollout_percentage ?? 100
 
     const actualCount =
@@ -353,6 +358,7 @@ interface ConditionProps {
     aggregationTargetName: (conditionGroupTypeIndex?: number | null) => string
     getDistinctIdName: (distinctId: string) => string
     getFlagKey: (flagId: string) => string
+    resolveGroupKeyNames: (properties: AnyPropertyFilter[] | undefined) => AnyPropertyFilter[]
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
@@ -427,6 +433,7 @@ const ConditionContent = ({
     aggregationTargetName,
     getDistinctIdName,
     getFlagKey,
+    resolveGroupKeyNames,
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
@@ -557,6 +564,7 @@ const ConditionContent = ({
                                 aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                                 getDistinctIdName={getDistinctIdName}
                                 getFlagKey={getFlagKey}
+                                resolveGroupKeyNames={resolveGroupKeyNames}
                                 onDuplicate={onDuplicate}
                                 onRemove={onRemove}
                             />
@@ -635,7 +643,9 @@ const ConditionContent = ({
                                         <PropertyFilters
                                             orFiltering={true}
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
-                                            propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
+                                            propertyFilters={resolveGroupKeyNames(
+                                                withResolvedFlagLabels(group?.properties, getFlagKey)
+                                            )}
                                             logicalRowDivider
                                             addText="Add filter"
                                             onChange={(properties) => {
@@ -890,6 +900,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         aggregationTargetName,
         getDistinctIdName,
         getFlagKey,
+        resolveGroupKeyNames,
         taxonomicGroupTypesForCondition,
         filters: releaseFilters,
         groupTypes,
@@ -988,7 +999,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                     const summary =
                         group.description ||
                         summarizeProperties(
-                            group.properties || [],
+                            resolveGroupKeyNames(group.properties),
                             aggregationTargetName(group.aggregation_group_type_index),
                             getDistinctIdName,
                             getFlagKey
@@ -1294,6 +1305,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 aggregationTargetName={aggregationTargetName}
                                                 getDistinctIdName={getDistinctIdName}
                                                 getFlagKey={getFlagKey}
+                                                resolveGroupKeyNames={resolveGroupKeyNames}
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
@@ -1334,7 +1346,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     <span className="text-sm break-all">
                                                         {draggedGroup.description ||
                                                             summarizeProperties(
-                                                                draggedGroup.properties || [],
+                                                                resolveGroupKeyNames(draggedGroup.properties),
                                                                 aggregationTargetName(
                                                                     draggedGroup.aggregation_group_type_index
                                                                 ),
@@ -1375,6 +1387,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
                                         getFlagKey={getFlagKey}
+                                        resolveGroupKeyNames={resolveGroupKeyNames}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
@@ -1430,6 +1443,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         aggregationTargetName={aggregationTargetName}
                                         getDistinctIdName={getDistinctIdName}
                                         getFlagKey={getFlagKey}
+                                        resolveGroupKeyNames={resolveGroupKeyNames}
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
@@ -1467,6 +1481,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 aggregationTargetName={aggregationTargetName}
                                 getDistinctIdName={getDistinctIdName}
                                 getFlagKey={getFlagKey}
+                                resolveGroupKeyNames={resolveGroupKeyNames}
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
