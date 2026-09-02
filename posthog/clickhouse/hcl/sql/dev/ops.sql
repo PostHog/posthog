@@ -1,6 +1,25 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the dev/ops node. Apply to a fresh ClickHouse to build it.
 
+CREATE TABLE posthog.event_property_daily_stats (
+  analysis_date Date,
+  team_id Int64,
+  property_key String,
+  event_count UInt64,
+  distinct_event_names UInt32,
+  total_property_bytes UInt64,
+  min_property_bytes UInt64,
+  max_property_bytes UInt64,
+  avg_property_bytes Float64,
+  p50_property_bytes Float64,
+  p90_property_bytes Float64,
+  p95_property_bytes Float64,
+  p99_property_bytes Float64,
+  property_size_histogram Array(Tuple(Float64, Float64, UInt64)),
+  top_event_names Array(String),
+  sample_rate Float32,
+  computed_at DateTime
+) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.event_property_daily_stats', '{replica}') ORDER BY (analysis_date, team_id, property_key) TTL analysis_date + toIntervalDay(30) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.events_team_daily_stats (
   analysis_date Date,
   team_id Int64,
@@ -17,6 +36,57 @@ CREATE TABLE posthog.events_team_daily_stats (
   event_size_histogram Array(Tuple(Float64, Float64, UInt64)),
   computed_at DateTime
 ) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.events_team_daily_stats', '{replica}') ORDER BY (analysis_date, team_id, event) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.metrics_exemplars (
+  team_id UInt64,
+  timestamp DateTime64(3, 'UTC'),
+  id UInt64,
+  value Float64,
+  labels_json String
+) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_exemplars', '{replica}') ORDER BY (team_id, id, timestamp) PARTITION BY toYYYYMMDD(timestamp) SETTINGS index_granularity = 1024;
+CREATE TABLE posthog.metrics_histograms (
+  team_id UInt64,
+  metric_name LowCardinality(String),
+  timestamp DateTime64(3, 'UTC'),
+  id UInt64,
+  histogram String,
+  version UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_histograms', '{replica}', version) ORDER BY (team_id, id, timestamp) PARTITION BY toYYYYMMDD(timestamp) SETTINGS index_granularity = 1024;
+CREATE TABLE posthog.metrics_label_index (
+  team_id UInt64,
+  metric_name LowCardinality(String),
+  label_name LowCardinality(String),
+  label_value String,
+  id UInt64,
+  PROJECTION by_label_value (SELECT team_id, metric_name, label_name, label_value, id
+ORDER BY team_id, label_name, label_value, id, metric_name),
+  PROJECTION by_id_label (SELECT team_id, metric_name, label_name, label_value, id
+ORDER BY team_id, id, label_name, metric_name, label_value)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_label_index', '{replica}') ORDER BY (team_id, metric_name, label_name, label_value, id) SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024;
+CREATE TABLE posthog.metrics_metadata (
+  team_id UInt64,
+  metric_family_name LowCardinality(String),
+  type LowCardinality(String),
+  unit String,
+  help String,
+  updated_at DateTime64(3, 'UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_metadata', '{replica}', updated_at) ORDER BY (team_id, metric_family_name) SETTINGS index_granularity = 1024;
+CREATE TABLE posthog.metrics_samples (
+  team_id UInt64 CODEC(T64, Default),
+  metric_name LowCardinality(String),
+  timestamp DateTime64(3, 'UTC') CODEC(DoubleDelta, Default),
+  id UInt64,
+  value Float64 CODEC(Gorilla(8), Default)
+) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_samples_new', '{replica}') ORDER BY (team_id, metric_name, toStartOfTenMinutes(timestamp), id, timestamp) PARTITION BY toYYYYMMDD(timestamp) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.metrics_series (
+  team_id UInt64,
+  id UInt64,
+  metric_name LowCardinality(String),
+  labels_json String,
+  min_time DateTime64(3, 'UTC'),
+  max_time DateTime64(3, 'UTC'),
+  PROJECTION by_id (SELECT team_id, id, metric_name, labels_json, min_time, max_time
+ORDER BY team_id, id)
+) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_series', '{replica}') ORDER BY (team_id, metric_name, id) SETTINGS index_granularity = 1024;
 CREATE TABLE posthog.prom_metrics_data (
   id UUID,
   timestamp DateTime64(3),
@@ -129,8 +199,9 @@ CREATE TABLE posthog.sharded_query_log_archive (
   lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
   lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets';
+  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  ProfileEvents2 JSON(max_dynamic_paths=0, OSCPUVirtualTimeMicroseconds UInt64, ReadBufferFromS3Bytes UInt64, RealTimeMicroseconds UInt64, S3AbortMultipartUpload UInt64, S3Clients UInt64, S3CompleteMultipartUpload UInt64, S3CopyObject UInt64, S3CreateMultipartUpload UInt64, S3DeleteObjects UInt64, S3GetObject UInt64, S3GetObjectAttributes UInt64, S3HeadObject UInt64, S3ListObjects UInt64, S3PutObject UInt64, S3UploadPart UInt64, S3UploadPartCopy UInt64, WriteBufferFromS3Bytes UInt64)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', storage_policy = 's3_tiered';
 CREATE TABLE posthog.sharded_tophog (
   timestamp DateTime64(6, 'UTC'),
   metric LowCardinality(String),
@@ -141,7 +212,7 @@ CREATE TABLE posthog.sharded_tophog (
   pipeline LowCardinality(String),
   lane LowCardinality(String),
   labels Map(LowCardinality(String), String)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.tophog', '{replica}') ORDER BY (pipeline, lane, metric, timestamp, key) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/ops/{shard}/posthog.tophog_new', '{replica}') ORDER BY (pipeline, lane, metric, timestamp, key) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.writable_prom_metrics_data (
   id UUID,
   timestamp DateTime64(3),
@@ -161,6 +232,14 @@ CREATE TABLE posthog.writable_prom_metrics_tags (
   min_time SimpleAggregateFunction(min, Nullable(DateTime64(3))),
   max_time SimpleAggregateFunction(max, Nullable(DateTime64(3)))
 ) ENGINE = Buffer('posthog', 'prom_metrics_tags', 1, 2, 5, 1, 1000000, 1, 100000000);
+CREATE MATERIALIZED VIEW posthog.metrics_label_index_from_series_mv TO posthog.metrics_label_index (team_id UInt64, metric_name LowCardinality(String), label_name LowCardinality(String), label_value String, id UInt64) AS SELECT
+  team_id,
+  metric_name,
+  tupleElement(label_pair, 1) AS label_name,
+  tupleElement(label_pair, 2) AS label_value,
+  id
+FROM
+  posthog.metrics_series ARRAY JOIN JSONExtractKeysAndValues(labels_json, 'String') AS label_pair;
 CREATE VIEW posthog.custom_metrics_backups AS WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
   [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,

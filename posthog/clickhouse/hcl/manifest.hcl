@@ -26,9 +26,9 @@
 
 role "ops" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/cloud", "roles/ops/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/ops/shared", "roles/ops/cloud", "roles/ops/prod", "roles/ops/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/cloud", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
 # Every logs node composes the trace suite and the metrics ingest chain

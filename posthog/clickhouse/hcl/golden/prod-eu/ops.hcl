@@ -1,4 +1,67 @@
 database "posthog" {
+  table "event_property_daily_stats" {
+    order_by = ["analysis_date", "team_id", "property_key"]
+    ttl      = "analysis_date + toIntervalDay(30)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "analysis_date" {
+      type = "Date"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "property_key" {
+      type = "String"
+    }
+    column "event_count" {
+      type = "UInt64"
+    }
+    column "distinct_event_names" {
+      type = "UInt32"
+    }
+    column "total_property_bytes" {
+      type = "UInt64"
+    }
+    column "min_property_bytes" {
+      type = "UInt64"
+    }
+    column "max_property_bytes" {
+      type = "UInt64"
+    }
+    column "avg_property_bytes" {
+      type = "Float64"
+    }
+    column "p50_property_bytes" {
+      type = "Float64"
+    }
+    column "p90_property_bytes" {
+      type = "Float64"
+    }
+    column "p95_property_bytes" {
+      type = "Float64"
+    }
+    column "p99_property_bytes" {
+      type = "Float64"
+    }
+    column "property_size_histogram" {
+      type = "Array(Tuple(Float64, Float64, UInt64))"
+    }
+    column "top_event_names" {
+      type = "Array(String)"
+    }
+    column "sample_rate" {
+      type = "Float32"
+    }
+    column "computed_at" {
+      type = "DateTime"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/ops/tables/{shard}/posthog.event_property_daily_stats"
+      replica_name = "{replica}"
+    }
+  }
+
   table "events_main" {
     column "uuid" {
       type = "UUID"
@@ -215,6 +278,20 @@ database "posthog" {
     column "id" {
       type = "UInt64"
     }
+    projection "by_label_value" {
+      query = <<SQL
+SELECT team_id, metric_name, label_name, label_value, id
+ORDER BY team_id, label_name, label_value, id, metric_name
+SQL
+
+    }
+    projection "by_id_label" {
+      query = <<SQL
+SELECT team_id, metric_name, label_name, label_value, id
+ORDER BY team_id, id, label_name, metric_name, label_value
+SQL
+
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path     = "/clickhouse/ops/tables/{shard}/posthog.metrics_label_index"
       replica_name = "{replica}"
@@ -252,28 +329,31 @@ database "posthog" {
   }
 
   table "metrics_samples" {
-    order_by     = ["team_id", "metric_name", "id", "timestamp"]
+    order_by     = ["team_id", "metric_name", "toStartOfTenMinutes(timestamp)", "id", "timestamp"]
     partition_by = "toYYYYMMDD(timestamp)"
     settings = {
-      index_granularity = "1024"
+      index_granularity = "8192"
     }
     column "team_id" {
-      type = "UInt64"
+      type  = "UInt64"
+      codec = "T64, Default"
     }
     column "metric_name" {
       type = "LowCardinality(String)"
     }
     column "timestamp" {
-      type = "DateTime64(3, 'UTC')"
+      type  = "DateTime64(3, 'UTC')"
+      codec = "DoubleDelta, Default"
     }
     column "id" {
       type = "UInt64"
     }
     column "value" {
-      type = "Float64"
+      type  = "Float64"
+      codec = "Gorilla(8), Default"
     }
     engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/ops/tables/{shard}/posthog.metrics_samples"
+      zoo_path     = "/clickhouse/ops/tables/{shard}/posthog.metrics_samples_new"
       replica_name = "{replica}"
     }
   }
@@ -300,6 +380,13 @@ database "posthog" {
     }
     column "max_time" {
       type = "DateTime64(3, 'UTC')"
+    }
+    projection "by_id" {
+      query = <<SQL
+SELECT team_id, id, metric_name, labels_json, min_time, max_time
+ORDER BY team_id, id
+SQL
+
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/ops/tables/{shard}/posthog.metrics_series"
@@ -763,13 +850,112 @@ database "posthog" {
     }
   }
 
+  table "query_team_daily_stats" {
+    order_by = ["analysis_date", "team_id"]
+    ttl      = "analysis_date + toIntervalDay(90)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "analysis_date" {
+      type = "Date"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "query_count" {
+      type = "UInt64"
+    }
+    column "error_count" {
+      type = "UInt64"
+    }
+    column "distinct_query_shapes" {
+      type = "UInt64"
+    }
+    column "total_duration_ms" {
+      type = "UInt64"
+    }
+    column "avg_duration_ms" {
+      type = "Float64"
+    }
+    column "p50_duration_ms" {
+      type = "Float64"
+    }
+    column "p90_duration_ms" {
+      type = "Float64"
+    }
+    column "p99_duration_ms" {
+      type = "Float64"
+    }
+    column "max_duration_ms" {
+      type = "UInt64"
+    }
+    column "total_read_rows" {
+      type = "UInt64"
+    }
+    column "total_read_bytes" {
+      type    = "UInt64"
+      comment = "Uncompressed bytes scanned, coordinator-side summed across shards (is_initial_query=1). Compute/scan cost proxy, NOT stored footprint."
+    }
+    column "total_result_rows" {
+      type = "UInt64"
+    }
+    column "total_result_bytes" {
+      type = "UInt64"
+    }
+    column "total_written_rows" {
+      type = "UInt64"
+    }
+    column "total_written_bytes" {
+      type = "UInt64"
+    }
+    column "total_cpu_seconds" {
+      type    = "Float64"
+      comment = "ProfileEvents OSCPUVirtualTimeMicroseconds summed across ALL QueryFinish rows (initiator + shard leaves) / 1e6. CPU is not folded onto the initiator row, so leaves must be summed."
+    }
+    column "total_memory_usage" {
+      type    = "UInt64"
+      comment = "Peak memory_usage summed across all shard rows (per-node peak; not folded onto the initiator)."
+    }
+    column "max_memory_usage" {
+      type    = "UInt64"
+      comment = "Largest single-node peak memory across all shard rows."
+    }
+    column "p99_memory_usage" {
+      type = "Float64"
+    }
+    column "total_s3_get_objects" {
+      type    = "UInt64"
+      comment = "ProfileEvents S3GetObject summed across all shard rows: object-storage GET count."
+    }
+    column "total_s3_read_bytes" {
+      type    = "UInt64"
+      comment = "ProfileEvents ReadBufferFromS3Bytes summed across all shard rows: object-storage read cost proxy."
+    }
+    column "query_kind_counts" {
+      type    = "Map(String, UInt64)"
+      comment = "query_kind -> count for QueryFinish rows."
+    }
+    column "computed_at" {
+      type = "DateTime"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/ops/tables/{shard}/posthog.query_team_daily_stats"
+      replica_name = "{replica}"
+    }
+  }
+
   table "sharded_query_log_archive" {
     order_by     = ["team_id", "event_date", "event_time", "query_id"]
     partition_by = "toYYYYMM(event_date)"
     settings = {
       index_granularity                        = "8192"
+      max_replicated_merges_in_queue           = "6"
       object_serialization_version             = "v3"
       object_shared_data_serialization_version = "map_with_buckets"
+      parts_to_delay_insert                    = "1000"
+      parts_to_throw_insert                    = "3000"
+      prefer_fetch_merged_part_size_threshold  = "1"
+      prefer_fetch_merged_part_time_threshold  = "60"
     }
     column "hostname" {
       type = "LowCardinality(String)"

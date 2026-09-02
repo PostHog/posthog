@@ -1,6 +1,25 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the prod-us/ops node. Apply to a fresh ClickHouse to build it.
 
+CREATE TABLE posthog.event_property_daily_stats (
+  analysis_date Date,
+  team_id Int64,
+  property_key String,
+  event_count UInt64,
+  distinct_event_names UInt32,
+  total_property_bytes UInt64,
+  min_property_bytes UInt64,
+  max_property_bytes UInt64,
+  avg_property_bytes Float64,
+  p50_property_bytes Float64,
+  p90_property_bytes Float64,
+  p95_property_bytes Float64,
+  p99_property_bytes Float64,
+  property_size_histogram Array(Tuple(Float64, Float64, UInt64)),
+  top_event_names Array(String),
+  sample_rate Float32,
+  computed_at DateTime
+) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.event_property_daily_stats', '{replica}') ORDER BY (analysis_date, team_id, property_key) TTL analysis_date + toIntervalDay(30) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.events_main (
   uuid UUID,
   event String,
@@ -91,7 +110,11 @@ CREATE TABLE posthog.metrics_label_index (
   metric_name LowCardinality(String),
   label_name LowCardinality(String),
   label_value String,
-  id UInt64
+  id UInt64,
+  PROJECTION by_label_value (SELECT team_id, metric_name, label_name, label_value, id
+ORDER BY team_id, label_name, label_value, id, metric_name),
+  PROJECTION by_id_label (SELECT team_id, metric_name, label_name, label_value, id
+ORDER BY team_id, id, label_name, metric_name, label_value)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_label_index', '{replica}') ORDER BY (team_id, metric_name, label_name, label_value, id) SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024;
 CREATE TABLE posthog.metrics_metadata (
   team_id UInt64,
@@ -102,20 +125,49 @@ CREATE TABLE posthog.metrics_metadata (
   updated_at DateTime64(3, 'UTC')
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_metadata', '{replica}', updated_at) ORDER BY (team_id, metric_family_name) SETTINGS index_granularity = 1024;
 CREATE TABLE posthog.metrics_samples (
-  team_id UInt64,
+  team_id UInt64 CODEC(T64, Default),
   metric_name LowCardinality(String),
-  timestamp DateTime64(3, 'UTC'),
+  timestamp DateTime64(3, 'UTC') CODEC(DoubleDelta, Default),
   id UInt64,
-  value Float64
-) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_samples', '{replica}') ORDER BY (team_id, metric_name, id, timestamp) PARTITION BY toYYYYMMDD(timestamp) SETTINGS index_granularity = 1024;
+  value Float64 CODEC(Gorilla(8), Default)
+) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_samples_new', '{replica}') ORDER BY (team_id, metric_name, toStartOfTenMinutes(timestamp), id, timestamp) PARTITION BY toYYYYMMDD(timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics_series (
   team_id UInt64,
   id UInt64,
   metric_name LowCardinality(String),
   labels_json String,
   min_time DateTime64(3, 'UTC'),
-  max_time DateTime64(3, 'UTC')
+  max_time DateTime64(3, 'UTC'),
+  PROJECTION by_id (SELECT team_id, id, metric_name, labels_json, min_time, max_time
+ORDER BY team_id, id)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.metrics_series', '{replica}') ORDER BY (team_id, metric_name, id) SETTINGS index_granularity = 1024;
+CREATE TABLE posthog.query_team_daily_stats (
+  analysis_date Date,
+  team_id Int64,
+  query_count UInt64,
+  error_count UInt64,
+  distinct_query_shapes UInt64,
+  total_duration_ms UInt64,
+  avg_duration_ms Float64,
+  p50_duration_ms Float64,
+  p90_duration_ms Float64,
+  p99_duration_ms Float64,
+  max_duration_ms UInt64,
+  total_read_rows UInt64,
+  total_read_bytes UInt64 COMMENT 'Uncompressed bytes scanned, coordinator-side summed across shards (is_initial_query=1). Compute/scan cost proxy, NOT stored footprint.',
+  total_result_rows UInt64,
+  total_result_bytes UInt64,
+  total_written_rows UInt64,
+  total_written_bytes UInt64,
+  total_cpu_seconds Float64 COMMENT 'ProfileEvents OSCPUVirtualTimeMicroseconds summed across ALL QueryFinish rows (initiator + shard leaves) / 1e6. CPU is not folded onto the initiator row, so leaves must be summed.',
+  total_memory_usage UInt64 COMMENT 'Peak memory_usage summed across all shard rows (per-node peak; not folded onto the initiator).',
+  max_memory_usage UInt64 COMMENT 'Largest single-node peak memory across all shard rows.',
+  p99_memory_usage Float64,
+  total_s3_get_objects UInt64 COMMENT 'ProfileEvents S3GetObject summed across all shard rows: object-storage GET count.',
+  total_s3_read_bytes UInt64 COMMENT 'ProfileEvents ReadBufferFromS3Bytes summed across all shard rows: object-storage read cost proxy.',
+  query_kind_counts Map(String, UInt64) COMMENT 'query_kind -> count for QueryFinish rows.',
+  computed_at DateTime
+) ENGINE = ReplicatedMergeTree('/clickhouse/ops/tables/{shard}/posthog.query_team_daily_stats', '{replica}') ORDER BY (analysis_date, team_id) PARTITION BY analysis_date TTL analysis_date + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -211,7 +263,7 @@ CREATE TABLE posthog.sharded_query_log_archive (
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
   lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
   ProfileEvents2 JSON(max_dynamic_paths=0, OSCPUVirtualTimeMicroseconds UInt64, ReadBufferFromS3Bytes UInt64, RealTimeMicroseconds UInt64, S3AbortMultipartUpload UInt64, S3Clients UInt64, S3CompleteMultipartUpload UInt64, S3CopyObject UInt64, S3CreateMultipartUpload UInt64, S3DeleteObjects UInt64, S3GetObject UInt64, S3GetObjectAttributes UInt64, S3HeadObject UInt64, S3ListObjects UInt64, S3PutObject UInt64, S3UploadPart UInt64, S3UploadPartCopy UInt64, WriteBufferFromS3Bytes UInt64)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets';
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', storage_policy = 's3_tiered';
 CREATE TABLE posthog.sharded_tophog (
   timestamp DateTime64(6, 'UTC'),
   metric LowCardinality(String),
