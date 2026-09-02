@@ -256,7 +256,7 @@ The default is 6 hours — a hung job burns paid minutes silently.
 
 ## Caching
 
-Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, save gated to master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
+Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
