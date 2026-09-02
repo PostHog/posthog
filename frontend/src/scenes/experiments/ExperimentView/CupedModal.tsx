@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
@@ -11,8 +11,9 @@ import { modalsLogic } from '../modalsLogic'
 import { CupedSelection, getCupedSelection, resolveCupedLookbackDays } from './cuped'
 
 export function CupedModal(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { updateExperimentSettings, setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { experiment, experimentUpdateLoading } = useValues(experimentLogic)
+    const { setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { updateExperimentSettings } = useAsyncActions(experimentLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const { closeCupedModal } = useActions(modalsLogic)
     const { isCupedModalOpen } = useValues(modalsLogic)
@@ -61,8 +62,13 @@ export function CupedModal(): JSX.Element {
         })
     }
 
-    const onSave = (): void => {
-        updateExperimentSettings({ stats_config: experiment.stats_config })
+    const onSave = async (): Promise<void> => {
+        try {
+            await updateExperimentSettings({ stats_config: experiment.stats_config })
+        } catch {
+            // Keep the modal open so the user can retry
+            return
+        }
         closeCupedModal()
     }
 
@@ -77,7 +83,7 @@ export function CupedModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={onClose}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={onSave}>
+                    <LemonButton type="primary" loading={experimentUpdateLoading} onClick={() => void onSave()}>
                         Save
                     </LemonButton>
                 </div>

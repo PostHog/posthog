@@ -2973,6 +2973,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
             await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            lemonToast.success('Settings saved. Recalculating results…')
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         resetRunningExperiment: async () => {
