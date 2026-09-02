@@ -1,0 +1,395 @@
+import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { router } from 'kea-router'
+
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { urls } from 'scenes/urls'
+
+import { DashboardTile, QueryBasedInsightModel } from '~/types'
+
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
+
+import type { Node } from '../../queries/schema/schema-general'
+import type { DashboardType } from '../../types'
+
+export const DASHBOARD_AI_HIGHLIGHT_MS = 5_000
+
+export const DASHBOARD_AI_TOOL_NAMES = [
+    'dashboard-update',
+    'dashboard-create-text-tile',
+    'dashboard-update-text-tile',
+    'dashboard-delete-tile',
+    'dashboard-reorder-tiles',
+    'dashboard-tile-copy',
+    'dashboard-widgets-batch-add',
+    'dashboard-widgets-batch-update',
+    'dashboards-move-tile-partial-update',
+    'dashboard-delete',
+    'insight-create',
+    'insight-update',
+    'insight-delete',
+    'subscriptions-create',
+    'subscriptions-partial-update',
+    'subscriptions-delete',
+    'alert-create',
+    'alert-update',
+    'alert-delete',
+] as const
+
+export interface DashboardTileIdentity {
+    tileId: number
+    insightId?: number
+    insightShortId?: string
+}
+
+export interface DashboardAiPendingChange {
+    baselineTileIds: number[]
+    candidateTileIds: number[]
+    candidateInsightIds: Array<number | string>
+}
+
+const asId = (value: unknown): number | string | null => {
+    if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+        return value
+    }
+    if (typeof value === 'string' && value.length > 0) {
+        return /^\d+$/.test(value) ? Number(value) : value
+    }
+    return null
+}
+
+const sameId = (left: unknown, right: unknown): boolean => {
+    const leftId = asId(left)
+    const rightId = asId(right)
+    return leftId !== null && rightId !== null && String(leftId) === String(rightId)
+}
+
+const numericId = (value: unknown): number | null => {
+    const id = asId(value)
+    return typeof id === 'number' ? id : null
+}
+
+const idsFrom = (value: unknown): number[] => {
+    if (Array.isArray(value)) {
+        return value.flatMap(idsFrom)
+    }
+    if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>
+        return [record.id, record.tile_id, record.tileId].flatMap(idsFrom)
+    }
+    const id = numericId(value)
+    return id === null ? [] : [id]
+}
+
+export function snapshotDashboardTiles(tiles: DashboardTile<QueryBasedInsightModel>[]): DashboardTileIdentity[] {
+    return tiles.map((tile) => ({
+        tileId: tile.id,
+        insightId: tile.insight?.id,
+        insightShortId: tile.insight?.short_id,
+    }))
+}
+
+const structuralDashboardTools = new Set<string>([
+    'dashboard-update',
+    'dashboard-create-text-tile',
+    'dashboard-update-text-tile',
+    'dashboard-delete-tile',
+    'dashboard-reorder-tiles',
+    'dashboard-tile-copy',
+    'dashboard-widgets-batch-add',
+    'dashboard-widgets-batch-update',
+    'dashboard-delete',
+])
+
+export function dashboardToolTargetsCurrentDashboard(
+    toolName: string,
+    innerInput: Record<string, unknown>,
+    dashboardId: number,
+    tileSnapshot: DashboardTileIdentity[]
+): boolean {
+    if (structuralDashboardTools.has(toolName)) {
+        return sameId(innerInput.id, dashboardId)
+    }
+
+    if (toolName === 'dashboards-move-tile-partial-update') {
+        return sameId(innerInput.id, dashboardId) || sameId(innerInput.to_dashboard, dashboardId)
+    }
+
+    if (toolName === 'insight-create') {
+        return Array.isArray(innerInput.dashboards) && innerInput.dashboards.some((id) => sameId(id, dashboardId))
+    }
+
+    if (toolName === 'insight-update') {
+        return (
+            (Array.isArray(innerInput.dashboards) && innerInput.dashboards.some((id) => sameId(id, dashboardId))) ||
+            tileSnapshot.some(
+                (tile) => sameId(tile.insightId, innerInput.id) || sameId(tile.insightShortId, innerInput.id)
+            )
+        )
+    }
+
+    if (toolName === 'insight-delete') {
+        return tileSnapshot.some(
+            (tile) => sameId(tile.insightId, innerInput.id) || sameId(tile.insightShortId, innerInput.id)
+        )
+    }
+
+    return false
+}
+
+const extractCandidateTileIds = (toolName: string, innerInput: Record<string, unknown>): number[] => {
+    if (toolName === 'dashboard-update' || toolName === 'dashboard-delete') {
+        return []
+    }
+
+    return [
+        ...idsFrom(innerInput.tile_id),
+        ...idsFrom(innerInput.tileId),
+        ...idsFrom(innerInput.tile),
+        ...idsFrom(innerInput.tiles),
+        ...idsFrom(innerInput.widgets),
+        ...idsFrom(innerInput.tile_order),
+    ]
+}
+
+const extractCandidateInsightIds = (toolName: string, innerInput: Record<string, unknown>): Array<number | string> => {
+    if (toolName !== 'insight-update' && toolName !== 'insight-delete') {
+        return []
+    }
+    const id = asId(innerInput.id)
+    return id === null ? [] : [id]
+}
+
+const uniqueIds = <T extends number | string>(ids: T[]): T[] =>
+    ids.filter((id, index) => ids.findIndex((candidate) => sameId(candidate, id)) === index)
+
+export function mergePendingChange(
+    pendingChange: DashboardAiPendingChange | null,
+    change: DashboardAiPendingChange
+): DashboardAiPendingChange {
+    if (!pendingChange) {
+        return {
+            baselineTileIds: uniqueIds(change.baselineTileIds),
+            candidateTileIds: uniqueIds(change.candidateTileIds),
+            candidateInsightIds: uniqueIds(change.candidateInsightIds),
+        }
+    }
+
+    return {
+        baselineTileIds: pendingChange.baselineTileIds,
+        candidateTileIds: uniqueIds([...pendingChange.candidateTileIds, ...change.candidateTileIds]),
+        candidateInsightIds: uniqueIds([...pendingChange.candidateInsightIds, ...change.candidateInsightIds]),
+    }
+}
+
+export function resolveHighlightedTileIds(
+    pending: DashboardAiPendingChange,
+    refreshedTiles: DashboardTileIdentity[]
+): number[] {
+    const baseline = new Set(pending.baselineTileIds)
+    const explicitTiles = new Set(pending.candidateTileIds)
+    const explicitInsights = new Set(pending.candidateInsightIds.map(String))
+
+    return refreshedTiles
+        .filter(
+            (tile) =>
+                !baseline.has(tile.tileId) ||
+                explicitTiles.has(tile.tileId) ||
+                (tile.insightId !== undefined && explicitInsights.has(String(tile.insightId))) ||
+                (tile.insightShortId !== undefined && explicitInsights.has(tile.insightShortId))
+        )
+        .map((tile) => tile.tileId)
+}
+
+export interface DashboardAiSyncLogicProps {
+    dashboardId: number
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface dashboardAiSyncLogicValues {
+    dashboard: DashboardType<QueryBasedInsightModel> | null // dashboardLogic
+    tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[] // dashboardLogic
+    aiHighlightedTileIds: number[]
+    pendingChange: DashboardAiPendingChange | null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface dashboardAiSyncLogicActions {
+    loadDashboard: (payload: { action: DashboardLoadAction }) => {
+        action: DashboardLoadAction
+    } // dashboardLogic
+    loadDashboardSuccess: (
+        dashboard:
+            | null
+            | import('~/types').DashboardType<
+                  QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>
+              >,
+        payload?:
+            | {
+                  action: DashboardLoadAction
+              }
+            | undefined
+    ) => {
+        dashboard:
+            | null
+            | import('~/types').DashboardType<
+                  QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>
+              >
+        payload?: {
+            action: DashboardLoadAction
+        }
+    } // dashboardLogic
+    agentToolCompleted: (
+        toolName: string,
+        innerInput: Record<string, unknown> | null,
+        baselineTiles: DashboardTileIdentity[]
+    ) => {
+        baselineTiles: DashboardTileIdentity[]
+        innerInput: Record<string, unknown> | null
+        toolName: string
+    }
+    clearAiHighlightedTileIds: () => {
+        value: true
+    }
+    completeDashboardReload: (tileIds: number[]) => {
+        tileIds: number[]
+    }
+    queueDashboardReload: (change: DashboardAiPendingChange) => {
+        change: DashboardAiPendingChange
+    }
+    setAiHighlightedTileIds: (tileIds: number[]) => {
+        tileIds: number[]
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface dashboardAiSyncLogicMeta {
+    key: number
+}
+
+export type dashboardAiSyncLogicType = MakeLogicType<
+    dashboardAiSyncLogicValues,
+    dashboardAiSyncLogicActions,
+    DashboardAiSyncLogicProps,
+    dashboardAiSyncLogicMeta
+>
+
+export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<dashboardAiSyncLogicType>([
+    props({} as DashboardAiSyncLogicProps),
+    key(({ dashboardId }) => dashboardId),
+    path((key) => ['scenes', 'dashboard', 'dashboardAiSyncLogic', key]),
+    connect((logicProps: DashboardAiSyncLogicProps) => ({
+        actions: [dashboardLogic({ id: logicProps.dashboardId }), ['loadDashboard', 'loadDashboardSuccess']],
+        values: [dashboardLogic({ id: logicProps.dashboardId }), ['dashboard', 'tiles']],
+    })),
+    actions({
+        agentToolCompleted: (
+            toolName: string,
+            innerInput: Record<string, unknown> | null,
+            baselineTiles: DashboardTileIdentity[]
+        ) => ({ toolName, innerInput, baselineTiles }),
+        queueDashboardReload: (change: DashboardAiPendingChange) => ({ change }),
+        completeDashboardReload: (tileIds: number[]) => ({ tileIds }),
+        setAiHighlightedTileIds: (tileIds: number[]) => ({ tileIds }),
+        clearAiHighlightedTileIds: true,
+    }),
+    reducers({
+        pendingChange: [
+            null as DashboardAiPendingChange | null,
+            {
+                queueDashboardReload: (state, { change }) => mergePendingChange(state, change),
+                completeDashboardReload: () => null,
+            },
+        ],
+        aiHighlightedTileIds: [
+            [] as number[],
+            {
+                setAiHighlightedTileIds: (_, { tileIds }) => tileIds,
+                clearAiHighlightedTileIds: () => [],
+            },
+        ],
+    }),
+    listeners(({ actions, cache, props, values }) => ({
+        queueDashboardReload: () => {
+            actions.loadDashboard({ action: DashboardLoadAction.Update })
+        },
+        loadDashboardSuccess: ({ dashboard }) => {
+            const pendingChange = values.pendingChange
+            if (!dashboard || !pendingChange) {
+                return
+            }
+            actions.completeDashboardReload(
+                resolveHighlightedTileIds(pendingChange, snapshotDashboardTiles(dashboard.tiles ?? []))
+            )
+        },
+        completeDashboardReload: ({ tileIds }) => {
+            actions.setAiHighlightedTileIds(tileIds)
+        },
+        setAiHighlightedTileIds: ({ tileIds }) => {
+            cache.disposables.dispose('aiTileHighlight')
+            if (tileIds.length === 0) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timeout = window.setTimeout(() => actions.clearAiHighlightedTileIds(), DASHBOARD_AI_HIGHLIGHT_MS)
+                return () => window.clearTimeout(timeout)
+            }, 'aiTileHighlight')
+        },
+        clearAiHighlightedTileIds: () => {
+            cache.disposables.dispose('aiTileHighlight')
+        },
+        agentToolCompleted: ({ toolName, innerInput, baselineTiles }) => {
+            if (!innerInput) {
+                return
+            }
+
+            if (toolName === 'dashboard-delete' && sameId(innerInput.id, props.dashboardId)) {
+                router.actions.push(urls.dashboards())
+                return
+            }
+
+            if (dashboardToolTargetsCurrentDashboard(toolName, innerInput, props.dashboardId, baselineTiles)) {
+                actions.queueDashboardReload({
+                    baselineTileIds: baselineTiles.map((tile) => tile.tileId),
+                    candidateTileIds: extractCandidateTileIds(toolName, innerInput),
+                    candidateInsightIds: extractCandidateInsightIds(toolName, innerInput),
+                })
+                return
+            }
+
+            const mountedSubscriptionsLogic = subscriptionsLogic.findMounted({ dashboardId: props.dashboardId })
+            if (toolName === 'subscriptions-create' && sameId(innerInput.dashboard, props.dashboardId)) {
+                mountedSubscriptionsLogic?.actions.loadAllSubscriptions()
+                return
+            }
+            if (
+                (toolName === 'subscriptions-partial-update' || toolName === 'subscriptions-delete') &&
+                mountedSubscriptionsLogic &&
+                [
+                    ...mountedSubscriptionsLogic.values.subscriptions,
+                    ...mountedSubscriptionsLogic.values.insightSubscriptions,
+                ].some((subscription) => sameId(subscription.id, innerInput.id))
+            ) {
+                mountedSubscriptionsLogic.actions.loadAllSubscriptions()
+                return
+            }
+
+            const mountedAlertLogics = insightAlertsLogic
+                .findAllMounted()
+                .filter((alertLogic) =>
+                    baselineTiles.some((tile) => sameId(tile.insightId, alertLogic.props.insightId))
+                )
+            if (toolName === 'alert-create') {
+                mountedAlertLogics
+                    .filter((alertLogic) => sameId(alertLogic.props.insightId, innerInput.insight))
+                    .forEach((alertLogic) => alertLogic.actions.loadAlerts())
+                return
+            }
+            if (toolName === 'alert-update' || toolName === 'alert-delete') {
+                mountedAlertLogics
+                    .filter((alertLogic) => alertLogic.values.alerts.some((alert) => sameId(alert.id, innerInput.id)))
+                    .forEach((alertLogic) => alertLogic.actions.loadAlerts())
+            }
+        },
+    })),
+])
