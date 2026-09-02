@@ -40,7 +40,14 @@ describe('nativeAlertsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        mockList.mockResolvedValue({ count: 2, results: [alert(), alert({ id: 'alert-2', name: 'Spikes' })] } as never)
+        // Two pages, so the walk over `next` is exercised.
+        mockList
+            .mockResolvedValueOnce({ count: 2, next: 'page-2', results: [alert()] } as never)
+            .mockResolvedValueOnce({
+                count: 2,
+                next: null,
+                results: [alert({ id: 'alert-2', name: 'Spikes' })],
+            } as never)
         logic = nativeAlertsLogic()
         logic.mount()
     })
