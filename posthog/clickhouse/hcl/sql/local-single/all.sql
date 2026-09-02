@@ -1644,6 +1644,16 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id) PARTITION BY toYYYYMM(timestamp) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_billing_usage_records_daily (
+  day Date,
+  team_id Int64,
+  organization_id UUID,
+  producer_id LowCardinality(String),
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  rolled_up_at DateTime64(6, 'UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records_daily', '{replica}', rolled_up_at) ORDER BY (team_id, day, organization_id, producer_id, usage_key, unit) PARTITION BY toYYYYMM(day);
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -5722,6 +5732,16 @@ CREATE TABLE posthog.billing_usage_records (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
+CREATE TABLE posthog.billing_usage_records_daily (
+  day Date,
+  team_id Int64,
+  organization_id UUID,
+  producer_id LowCardinality(String),
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  rolled_up_at DateTime64(6, 'UTC')
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records_daily', cityHash64(team_id));
 CREATE TABLE posthog.conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,
