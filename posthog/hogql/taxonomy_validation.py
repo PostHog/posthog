@@ -5,7 +5,8 @@ from typing import Literal
 
 from django.contrib.postgres.search import TrigramSimilarity
 from django.db import DatabaseError
-from django.db.models import QuerySet
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models.functions import Greatest
 
 from posthog.schema import HogQLNotice
 
@@ -24,17 +25,17 @@ logger = getLogger(__name__)
 # `property` → a `properties.<identifier>` field. Both escape the suggestion (see `_build_fix`).
 FixContext = Literal["string", "property"]
 
-# How many similar names one suggestion lookup reads. Postgres ranks candidates by trigram
-# similarity, so the best match is in the first rows and difflib does not need every name.
+# How many similar names the suggestion lookup reads per typed name. Postgres ranks candidates by
+# trigram similarity, so the best match is in the first rows and difflib does not need every name.
 SUGGESTION_CANDIDATE_LIMIT = 20
 
 # The `name` column of both definition models is `CharField(max_length=400)`.
 MAX_SUGGESTION_INPUT_LENGTH = 400
 
-# How many unknown names in one query get a suggestion. Each suggestion costs two more queries, and a
-# caller controls how many unknown names one query carries, so the fan-out needs a bound that does
-# not grow with the input. Names past this cap still warn, only without "Did you mean".
-MAX_SUGGESTION_LOOKUPS = 5
+# How many unknown names in one query get a suggestion. One lookup covers the whole batch, but
+# pg_trgm compares every name in it, and a caller controls how many unknown names one query carries.
+# Names past this cap still warn, only without "Did you mean".
+MAX_SUGGESTED_NAMES = 5
 
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
 # never appear in PropertyDefinition and must not be flagged as unknown.
@@ -208,10 +209,12 @@ def _warnings_for_unknown_references(
     if not found_names and not taxonomy.exists():
         return []
 
+    suggestions = _suggestions_for(taxonomy, unknown_names[:MAX_SUGGESTED_NAMES])
+
     warnings: list[HogQLNotice] = []
-    for position, name in enumerate(unknown_names):
+    for name in unknown_names:
         reference = references_by_name[name]
-        suggestion = _suggest_name(taxonomy, name) if position < MAX_SUGGESTION_LOOKUPS else None
+        suggestion = suggestions.get(name)
         message = f"{kind} '{name}' was not found in this project taxonomy."
         if suggestion:
             message += f" Did you mean '{suggestion}'?"
@@ -239,33 +242,74 @@ def _build_fix(fix_context: FixContext | None, suggestion: str) -> str | None:
     return None
 
 
-def _suggest_name(taxonomy: QuerySet, name: str) -> str | None:
-    dollar_prefixed = f"${name}"
-    if not name.startswith("$") and taxonomy.filter(name=dollar_prefixed).exists():
-        return dollar_prefixed
+def _suggestions_for(taxonomy: QuerySet, names: list[str]) -> dict[str, str]:
+    """Map the names that earn a suggestion to the name suggested for each.
 
-    return _closest_name(name, _similar_names(taxonomy, name))
+    One candidate read covers the whole batch. A read per name would cost a round trip per name, and
+    a typical project holds a few hundred definitions, where those round trips cost more than the
+    comparison they save.
+    """
+    candidates = _similar_names(taxonomy, names)
+    if not candidates:
+        return {}
+
+    candidate_set = set(candidates)
+    suggestions: dict[str, str] = {}
+    for name in names:
+        dollar_prefixed = f"${name}"
+        if not name.startswith("$") and dollar_prefixed in candidate_set:
+            suggestions[name] = dollar_prefixed
+            continue
+
+        closest = _closest_name(name, candidates)
+        if closest:
+            suggestions[name] = closest
+
+    return suggestions
 
 
-def _similar_names(taxonomy: QuerySet, name: str) -> list[str]:
-    """Read the names most similar to `name`, ranked and capped by Postgres.
+def _similar_names(taxonomy: QuerySet, names: list[str]) -> list[str]:
+    """Read the names most similar to any of `names`, ranked and capped by Postgres.
 
     `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
     `index_event_definition_name` and `index_property_definition_name` answer directly. Postgres
     still intersects that match with the project scope, so this call is bounded by what it returns,
     not by what it reads.
 
+    The `$`-prefixed form of each name is matched exactly as well, and sorts ahead of the ranked
+    candidates. A caller who typed a name without its `$` therefore keeps that suggestion however
+    many other candidates the batch pulls in.
+
     A name longer than the `name` column can never equal a definition, and pg_trgm cost grows with
-    the input, so an oversized literal gets no suggestion rather than a wasted comparison.
+    the input, so an oversized literal is dropped rather than compared.
     """
-    if len(name) > MAX_SUGGESTION_INPUT_LENGTH:
+    comparable = [name for name in names if len(name) <= MAX_SUGGESTION_INPUT_LENGTH]
+    if not comparable:
         return []
 
+    dollar_prefixed = [f"${name}" for name in comparable if not name.startswith("$")]
+
+    matches = Q(name__in=dollar_prefixed) if dollar_prefixed else Q()
+    for name in comparable:
+        matches |= Q(name__trigram_similar=name)
+
+    similarities = [TrigramSimilarity("name", name) for name in comparable]
+    ranked = taxonomy.filter(matches).annotate(
+        # `Greatest` needs two expressions, and one unknown name is the common case.
+        name_similarity=Greatest(*similarities) if len(similarities) > 1 else similarities[0]
+    )
+
+    ordering = ["-name_similarity", "name"]
+    if dollar_prefixed:
+        ranked = ranked.annotate(
+            name_is_dollar_prefixed=Case(
+                When(name__in=dollar_prefixed, then=Value(1)), default=Value(0), output_field=IntegerField()
+            )
+        )
+        ordering.insert(0, "-name_is_dollar_prefixed")
+
     return list(
-        taxonomy.filter(name__trigram_similar=name)
-        .annotate(name_similarity=TrigramSimilarity("name", name))
-        .order_by("-name_similarity", "name")
-        .values_list("name", flat=True)[:SUGGESTION_CANDIDATE_LIMIT]
+        ranked.order_by(*ordering).values_list("name", flat=True)[: SUGGESTION_CANDIDATE_LIMIT * len(comparable)]
     )
 
 

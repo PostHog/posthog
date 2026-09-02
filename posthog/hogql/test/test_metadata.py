@@ -4,8 +4,9 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -21,7 +22,7 @@ from posthog.schema import (
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
-from posthog.hogql.taxonomy_validation import MAX_SUGGESTION_LOOKUPS
+from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
 
@@ -319,23 +320,36 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(taxonomy_warnings("in_this_project"), [])
         self.assertEqual(len(taxonomy_warnings("in_another_project")), 1)
 
-    def test_metadata_caps_how_many_unknown_names_get_a_suggestion(self) -> None:
-        # One query can carry any number of unknown names, and each suggestion costs a further pair
-        # of queries. Every unknown name still warns, so only the "Did you mean" half is capped.
-        unknown_count = MAX_SUGGESTION_LOOKUPS + 3
-        for index in range(unknown_count):
+    def _select_with_unknown_properties(self, count: int) -> HogQLMetadataResponse:
+        for index in range(count):
             PropertyDefinition.objects.create(team=self.team, name=f"suggestable_{index}")
 
-        conditions = " OR ".join(f"properties.sugestable_{index} = '1'" for index in range(unknown_count))
+        conditions = " OR ".join(f"properties.sugestable_{index} = '1'" for index in range(count))
+        return self._select(f"SELECT count() FROM events WHERE {conditions}")
 
-        metadata = self._select(f"SELECT count() FROM events WHERE {conditions}")
+    def test_metadata_caps_how_many_unknown_names_get_a_suggestion(self) -> None:
+        # One query can carry any number of unknown names. Every unknown name still warns, so only
+        # the "Did you mean" half is capped.
+        unknown_count = MAX_SUGGESTED_NAMES + 3
+
+        metadata = self._select_with_unknown_properties(unknown_count)
 
         taxonomy_warnings = [w.message for w in metadata.warnings if "project taxonomy" in w.message]
         self.assertEqual(len(taxonomy_warnings), unknown_count)
         self.assertEqual(
             len([message for message in taxonomy_warnings if "Did you mean" in message]),
-            MAX_SUGGESTION_LOOKUPS,
+            MAX_SUGGESTED_NAMES,
         )
+
+    def test_metadata_reads_suggestion_candidates_in_one_query(self) -> None:
+        # A candidate read per unknown name costs a round trip per name. A typical project holds a
+        # few hundred definitions, where those round trips cost more than the comparison they save.
+        with CaptureQueriesContext(connection) as captured:
+            metadata = self._select_with_unknown_properties(MAX_SUGGESTED_NAMES)
+
+        self.assertTrue(metadata.isValid)
+        candidate_reads = [q["sql"] for q in captured.captured_queries if "SIMILARITY" in q["sql"].upper()]
+        self.assertEqual(len(candidate_reads), 1, candidate_reads)
 
     def test_metadata_does_not_warn_for_dynamic_event_expression(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
