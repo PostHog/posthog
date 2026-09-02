@@ -702,10 +702,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         wait cancels it. A full-length sleep each time therefore measures the gap between
         workflow events, not the gap since the agent was last active, so any periodic event
         shorter than the timeout holds the exit off for the life of the run.
+
+        A run that has produced no activity yet has no last-activity anchor, so the timer
+        measures from the chain start instead. Without that fallback the timer sleeps the full
+        timeout every pass, and the periodic quota recheck keeps resetting it, so a run whose
+        agent never signals activity only exits at the wall-clock cap, recorded as failed.
         """
         remaining = timeout
-        if self._last_active_time is not None and _anchored_inactivity_timer_enabled():
-            remaining = timeout - (workflow.now() - self._last_active_time)
+        if _anchored_inactivity_timer_enabled():
+            anchor = self._last_active_time or self._chain_start_time()
+            remaining = timeout - (workflow.now() - anchor)
         if remaining.total_seconds() > 0:
             await workflow.sleep(remaining.total_seconds())
         return TaskEvent.TIMEOUT_REACHED

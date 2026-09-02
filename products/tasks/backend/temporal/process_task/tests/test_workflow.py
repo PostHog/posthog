@@ -458,6 +458,7 @@ class TestInactivityTimer:
     def _workflow(self, monkeypatch, *, last_active_minutes_ago: int | None) -> tuple[ProcessTaskWorkflow, AsyncMock]:
         wf = ProcessTaskWorkflow()
         wf._context = _build_context(github_integration_id=123)
+        wf._chain_started_at = self.NOW - timedelta(minutes=10)
         wf._last_active_time = (
             self.NOW - timedelta(minutes=last_active_minutes_ago) if last_active_minutes_ago is not None else None
         )
@@ -471,7 +472,7 @@ class TestInactivityTimer:
         "last_active_minutes_ago,expected_seconds",
         [
             pytest.param(25, 5 * 60, id="quiet_for_part_of_the_window"),
-            pytest.param(None, 30 * 60, id="no_activity_yet"),
+            pytest.param(None, 20 * 60, id="no_activity_yet_anchors_to_chain_start"),
             pytest.param(40, None, id="quiet_past_the_window"),
         ],
     )
