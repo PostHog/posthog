@@ -47,6 +47,10 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * once that stack resolves, which lands a handled 401 in the same issue as a genuine crash.
  *
  * Left unreported, because something else already resolves them for the user:
+ * - 400 — a validation response the backend returns for bad input, not an application defect. The
+ *   view that made the request shows the `detail` message and lets the user correct the input, so
+ *   reporting it files a user mistake as a crash. Every user input error across the app raises a
+ *   400 here, so this is the largest source of false issues.
  * - 401 — an authentication state rather than a crash. `apiStatusLogic` re-checks the session and
  *   logs the user out, best-effort: it bails while impersonating (where `ImpersonationNotice`
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
@@ -72,7 +76,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === undefined) {
         return true
     }
-    if (status === 401 || isTransientGatewayStatus(status)) {
+    if (status === 400 || status === 401 || isTransientGatewayStatus(status)) {
         return false
     }
     if (isAccessDeniedError(failure)) {

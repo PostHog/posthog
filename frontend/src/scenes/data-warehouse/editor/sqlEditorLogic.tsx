@@ -48,7 +48,11 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import {
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+    queryUsesVariablesPlaceholder,
+} from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -2329,6 +2333,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         incrementalUniqueKey,
                         incrementalLookbackSeconds,
                     }) => {
+                        // Views cannot contain variables. Check the query the user actually selected
+                        // via SaveTargetCycler, and tell them here instead of letting the backend
+                        // reject it with a validation error.
+                        if (queryUsesVariablesPlaceholder(selectedRef.current ?? values.queryInput ?? '')) {
+                            lemonToast.error(
+                                'Variables are not allowed in views. Remove them from your query before saving.'
+                            )
+                            return
+                        }
                         const incremental =
                             shouldMaterialize && incrementalEnabled && incrementalKey && incrementalUniqueKey?.length
                                 ? {

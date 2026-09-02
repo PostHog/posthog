@@ -1,4 +1,9 @@
-import { normalizeIdentifier, parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from './sql-utils'
+import {
+    normalizeIdentifier,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+    queryUsesVariablesPlaceholder,
+} from './sql-utils'
 
 describe('sql-utils', () => {
     describe('normalizeIdentifier', () => {
@@ -20,6 +25,8 @@ describe('sql-utils', () => {
             ['field placeholder', 'SELECT * FROM events WHERE {filters.properties}', true],
             ['column-bound placeholder', 'SELECT * FROM v WHERE {filters(day AS timestamp)}', true],
             ['line-commented placeholder', 'SELECT * FROM events\n-- {filters}', false],
+            ['slash-commented placeholder', 'SELECT * FROM events\n// {filters}', false],
+            ['hash-commented placeholder', 'SELECT * FROM events\n# {filters}', false],
             ['inline line-commented placeholder', 'SELECT * FROM events -- WHERE {filters}', false],
             ['block-commented placeholder', 'SELECT * FROM events /* WHERE {filters} */', false],
             ['single-quoted placeholder', "SELECT '{filters}' FROM events", false],
@@ -29,6 +36,23 @@ describe('sql-utils', () => {
             ['real placeholder after block comment', 'SELECT * FROM events /* {filters} */ WHERE {filters}', true],
         ])('%s', (_name, query, expected) => {
             expect(queryUsesFiltersPlaceholder(query)).toBe(expected)
+        })
+    })
+
+    describe('queryUsesVariablesPlaceholder', () => {
+        test.each([
+            ['field placeholder', 'SELECT * FROM events WHERE created_at > now() - {variables.days_count}', true],
+            ['plain placeholder', 'SELECT {variables} FROM events', true],
+            ['line-commented placeholder', 'SELECT * FROM events\n-- {variables.days_count}', false],
+            ['slash-commented placeholder', 'SELECT * FROM events\n// {variables.days_count}', false],
+            ['hash-commented placeholder', 'SELECT * FROM events\n# {variables.days_count}', false],
+            ['single-quoted placeholder', "SELECT '{variables.days_count}' FROM events", false],
+            ['block-commented placeholder', 'SELECT * FROM events /* {variables.days_count} */', false],
+            ['no placeholder', 'SELECT * FROM events', false],
+            ['positional reference is not a comment', 'SELECT #1, {variables.x} FROM events', true],
+            ['real placeholder after comment', 'SELECT * FROM events -- {variables.x}\nWHERE {variables.y}', true],
+        ])('%s', (_name, query, expected) => {
+            expect(queryUsesVariablesPlaceholder(query)).toBe(expected)
         })
     })
 

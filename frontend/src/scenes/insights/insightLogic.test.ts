@@ -1057,11 +1057,12 @@ describe('insightLogic', () => {
         })
 
         // Catching the rejection skips the gate `initKea` applies to loader failures, so the
-        // listener has to reapply it: a validation error is the app's own bug and stays
-        // reportable, while an access-denied 403 the AccessDenied scene already handles would
+        // listener has to reapply it: a 500 is a genuine backend exception and stays reportable,
+        // while a 400 validation error or an access-denied 403 the app already surfaces would
         // file an issue sharing its stack with every other ApiError, burying real crashes.
         it.each([
-            ['a validation error', 400, { detail: 'Insight limit reached' }, 1],
+            ['a backend exception', 500, { detail: 'Something broke' }, 1],
+            ['a validation error', 400, { detail: 'Insight limit reached' }, 0],
             [
                 'a failure the app recovers from',
                 403,
