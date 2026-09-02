@@ -326,7 +326,13 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     non_retryable=True,
                 )
 
-        assert result is not None  # every dispatch branch above assigns, returns, or raises
+        if result is None:
+            # Unreachable: every dispatch branch above assigns, returns, or raises. An assert
+            # would wedge the workflow task in an infinite retry; this fails the run instead.
+            raise ApplicationError(
+                f"No evaluation result for type: {evaluation_type}",
+                non_retryable=True,
+            )
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(

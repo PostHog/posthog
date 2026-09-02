@@ -14,7 +14,7 @@ from structlog.contextvars import bind_contextvars
 from posthog.api.capture import CaptureInternalError
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
@@ -436,7 +436,7 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
     retry policy. Terminal user errors skip the emit; the workflow owns disable and notify.
     """
     bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
-    evaluation = await database_sync_to_async(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
+    evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
     evaluation_type = evaluation.get("evaluation_type", "llm_judge")
     if evaluation_type == "hog":

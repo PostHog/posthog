@@ -791,6 +791,75 @@ class TestRunEvaluationWorkflow:
         assert result["message"] == "Must return boolean, got int: 42"
 
     @pytest.mark.asyncio
+    async def test_pre_patch_hog_history_replays_against_new_code(self, monkeypatch):
+        @activity.defn(name="fetch_evaluation_activity")
+        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
+            return {
+                "id": inputs.evaluation_id,
+                "name": "Hog eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {},
+                "output_type": "boolean",
+                "output_config": {},
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_hog_eval_activity")
+        async def mock_execute_hog_eval(
+            evaluation: dict[str, Any], event_data: dict[str, Any]
+        ) -> EvaluationActivityResult:
+            return {
+                "result_type": "boolean",
+                "verdict": True,
+                "reasoning": "",
+                "allows_na": False,
+            }
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(_: EmitEvaluationEventInputs) -> None:
+            return
+
+        original_patched = run_evaluation_module.temporalio.workflow.patched
+
+        def pre_patch(patch_id: str) -> bool:
+            if patch_id in ("remove-per-evaluation-signal-2026-08", "merge-local-eval-activities-2026-09"):
+                return False
+            return original_patched(patch_id)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_fetch_evaluation, mock_execute_hog_eval, mock_emit_evaluation_event],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", pre_patch)
+                try:
+                    handle = await env.client.start_workflow(
+                        RunEvaluationWorkflow.run,
+                        RunEvaluationInputs(
+                            evaluation_id="pre-patch-hog-evaluation",
+                            event_data=create_mock_event_data(team_id=1),
+                        ),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                    )
+                    result: WorkflowResult = await handle.result()
+                    history = await handle.fetch_history()
+                finally:
+                    monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", original_patched)
+
+        assert result["verdict"] is True
+
+        # A pre-patch hog run recorded fetch/execute/emit commands; the new code must replay them.
+        await Replayer(
+            workflows=[RunEvaluationWorkflow],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ).replay_workflow(history)
+
+    @pytest.mark.asyncio
     async def test_merged_local_eval_result_is_not_emitted_again_by_the_workflow(self):
         @activity.defn(name="run_local_evaluation_activity")
         async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
