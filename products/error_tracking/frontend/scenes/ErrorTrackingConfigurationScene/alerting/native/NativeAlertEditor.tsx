@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonInput,
+    LemonLabel,
+    LemonModal,
+    LemonSelect,
+} from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -48,7 +56,19 @@ export function NativeAlertEditor(): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 status="danger"
-                                onClick={deleteAlert}
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: 'Delete this alert?',
+                                        description:
+                                            'Open Slack threads stay in Slack, but PostHog stops updating them and loses the link to them.',
+                                        primaryButton: {
+                                            children: 'Delete alert',
+                                            status: 'danger',
+                                            onClick: deleteAlert,
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }
                                 loading={deleting}
                                 disabledReason={saving ? 'Saving' : undefined}
                             >
