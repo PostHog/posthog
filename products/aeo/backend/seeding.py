@@ -19,6 +19,7 @@ from __future__ import annotations
 import csv
 import json
 import hashlib
+from collections.abc import Callable
 from dataclasses import field
 from typing import Any
 
@@ -79,19 +80,29 @@ def collect_candidates(
     if csv_path:
         candidates += import_prompts_csv(csv_path, source=csv_source)
 
+    def best_effort(label: str, fetch: Callable[[], list[Any]]) -> list[Any]:
+        # Each first-party source degrades independently: one broken analytics
+        # query must not abort the seed run (in particular a CSV import).
+        try:
+            return fetch()
+        except Exception as e:
+            logger.exception("aeo_seed_source_unavailable", team_id=team.id, seed_source=label)
+            notes.append(f"{label} source unavailable, skipped: {str(e)[:120]}")
+            return []
+
     if source in ("all", "user_reported"):
-        candidates += fetch_user_reported_prompts(team)
+        candidates += best_effort("user_reported", lambda: fetch_user_reported_prompts(team))
     if source in ("all", "gsc"):
-        candidates += fetch_gsc_queries(team)
+        candidates += best_effort("gsc", lambda: fetch_gsc_queries(team))
     if source in ("all", "ai_entry_pages"):
-        entry_paths = fetch_ai_entry_paths(team)
+        entry_paths = best_effort("ai_entry_pages", lambda: fetch_ai_entry_paths(team))
         notes.append(f"AI entry pages observed: {len(entry_paths)}")
         if expand:
             candidates += expand_paths_to_prompts(entry_paths, source=AEOPrompt.Source.AI_ENTRY_PAGE)
         elif entry_paths:
             notes.append("pass expand=True (--expand) to turn AI entry pages into prompts")
     if source in ("all", "crawled_content"):
-        crawled_paths = fetch_ai_crawled_paths(team)
+        crawled_paths = best_effort("crawled_content", lambda: fetch_ai_crawled_paths(team))
         notes.append(f"AI-crawled content paths observed: {len(crawled_paths)}")
         if expand:
             candidates += expand_paths_to_prompts(crawled_paths, source=AEOPrompt.Source.CRAWLED_CONTENT)
