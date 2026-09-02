@@ -19,4 +19,4 @@ Metadata for session recordings captured by the PostHog SDK. The actual replay d
 - Recordings are created by the SDK, not via the API
 - The `session_id` field is the user-facing ID (used in URLs and API calls), not the internal `id`
 - Activity data (click_count, duration, etc.) is populated from ClickHouse and may be NULL for older recordings
-- Use `deleted IS NOT TRUE` to filter out soft-deleted recordings
+- Filter out soft-deleted recordings with `ifNull(deleted, 0) = 0` — `deleted` is an integer 0/1, NULL for older rows

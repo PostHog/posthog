@@ -20,5 +20,5 @@ Saved views for organizing session recordings. There are two types: collections 
   - `collection` — manually curated list of recordings
   - `filters` — saved filter criteria that dynamically match recordings
 - Use `short_id` for lookups (this is the API lookup field)
-- Use `deleted = false` to filter out soft-deleted playlists
+- Use `deleted = 0` to filter out soft-deleted playlists — `deleted` is an integer 0/1
 - The `filters` field is only meaningful when `type = 'filters'`
