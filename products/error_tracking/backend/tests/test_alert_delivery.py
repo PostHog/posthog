@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,6 +24,7 @@ from products.error_tracking.backend.temporal.alerts.delivery import (
     plan_alert_deliveries,
 )
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
+from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.alerts.workflow import ACTIVITY_RETRY_POLICY
 
@@ -171,6 +173,41 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert reply[0].destination.id == second_destination.id
         assert reply[0].thread is not None
         assert reply[0].thread.id == thread.id
+
+
+class TestAlertMessages(SimpleTestCase):
+    def _inputs(self, **extra: str) -> AlertDeliveryWorkflowInputs:
+        return AlertDeliveryWorkflowInputs(
+            notification_id="notif-1",
+            team_id=1,
+            issue_id="issue-1",
+            event="$error_tracking_issue_spiking",
+            issue_name="TypeError",
+            extra=extra or None,
+        )
+
+    @parameterized.expand(
+        [
+            ("with_baseline", {"current_bucket_value": "600", "computed_baseline": "12.5"}, "vs baseline 12.5"),
+            # A zero baseline means the issue has no history, not a real comparison.
+            ("zero_baseline", {"current_bucket_value": "600", "computed_baseline": "0.0"}, "no baseline yet"),
+            ("missing_baseline", {"current_bucket_value": "600"}, "no baseline yet"),
+        ]
+    )
+    def test_spike_summary_describes_the_baseline_honestly(self, _name, extra, expected):
+        reply = build_reply_text(self._inputs(**extra))
+        assert reply is not None
+        assert reply.startswith("📈 Spiking again: 600 events")
+        assert expected in reply
+
+    def test_spiking_root_carries_the_measurements(self):
+        # A spiking-only alert opens the thread with the spike, so the root must say how big it is.
+        blocks = build_root_message(self._inputs(current_bucket_value="600", computed_baseline="12.5"))["blocks"]
+        context_texts = [el["text"] for block in blocks if block["type"] == "context" for el in block["elements"]]
+        assert "600 events in the last window vs baseline 12.5" in context_texts
+
+    def test_spiking_reply_without_measurements_stays_short(self):
+        assert build_reply_text(self._inputs()) == "📈 Spiking again"
 
 
 class TestSlackThreadDelivery(AlertTestMixin):
