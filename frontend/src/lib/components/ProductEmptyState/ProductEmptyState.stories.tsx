@@ -26,6 +26,7 @@ import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
+import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
@@ -343,6 +344,11 @@ export const WebVitalsWaitingForData: ProductEmptyStateStory = productEmptyState
     'waiting-for-data',
     { mocks: webVitalsMocks }
 )
+
+// Notebooks detection counts notebooks on mount - answer "none yet".
+export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
+})
 
 // Data warehouse detection lists sources and tables on mount - answer "none yet".
 export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
