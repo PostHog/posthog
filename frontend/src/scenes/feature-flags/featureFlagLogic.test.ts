@@ -813,6 +813,34 @@ describe('featureFlagLogic', () => {
                 })
             }).toMatchValues({ hasEncryptedPayloadBeenSaved: false })
         })
+
+        it('stays false for a duplicated encrypted flag, which has no server row yet', async () => {
+            // A duplicate opens as a new flag but keeps the source's encryption and redacted payload,
+            // so both selector inputs look "saved" — only the 'new' route id marks it as unsaved.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setFeatureFlag({
+                    ...newLogic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                    filters: {
+                        ...newLogic.values.featureFlag.filters,
+                        payloads: { true: '"********* (encrypted)"' },
+                    },
+                })
+                newLogic.actions.setOriginalFeatureFlag({
+                    ...newLogic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: false })
+
+            newLogic.unmount()
+        })
     })
 
     describe('setFeatureFlagFilters', () => {

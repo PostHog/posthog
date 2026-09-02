@@ -4406,10 +4406,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         hasEncryptedPayloadBeenSaved: [
-            (s) => [s.featureFlag, s.originalFeatureFlag],
-            (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null): boolean => {
+            (s) => [s.featureFlag, s.originalFeatureFlag, (_, props: FeatureFlagLogicProps) => props.id],
+            (
+                featureFlag: FeatureFlagType,
+                originalFeatureFlag: FeatureFlagType | null,
+                id: FeatureFlagLogicProps['id']
+            ): boolean => {
                 // A pending reset clears the working copy, which must unlock the payload again.
                 if (!featureFlag.has_encrypted_payloads) {
+                    return false
+                }
+                // Only a saved flag can hold a server-encrypted payload. A duplicate opens as a new
+                // flag ('new') but keeps the source's has_encrypted_payloads and redacted payload, so
+                // it must stay editable until it is saved as its own flag.
+                if (typeof id !== 'number') {
                     return false
                 }
                 // The server baseline, not the flag list cache: a flag opened straight from its URL
