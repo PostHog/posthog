@@ -148,7 +148,14 @@ jobs:
               env:
                   IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
-                  echo "cache-key-prefix=$(bash "$GITHUB_WORKSPACE/.github/actions/setup-sccache/cache-key-prefix.sh" Cargo.lock)" >> "$GITHUB_OUTPUT"
+                  script="$GITHUB_WORKSPACE/.github/actions/setup-sccache/cache-key-prefix.sh"
+                  if [ -f "$script" ]; then
+                      prefix=$(bash "$script" Cargo.lock)
+                  else
+                      # rust-smoke-test-build checks out head.sha, so a branch that predates the script must still get its own namespace.
+                      prefix="cargo-$(sha256sum Cargo.lock | cut -c1-16)"
+                  fi
+                  echo "cache-key-prefix=$prefix" >> "$GITHUB_OUTPUT"
                   if [ "$IS_FORK_PR" = "true" ]; then
                       echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
                       exit 0
