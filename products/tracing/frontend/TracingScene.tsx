@@ -120,7 +120,6 @@ function TracingSceneContents(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
-    const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
@@ -219,7 +218,7 @@ function TracingSceneContents(): JSX.Element {
                     }
                 />
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
-                    {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
+                    {!facetRailCollapsed && <FacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
                         {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (

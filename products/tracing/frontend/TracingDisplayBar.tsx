@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconChevronLeft, IconChevronRight, IconList, IconListTree, IconStack } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
@@ -21,11 +19,9 @@ import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
 export function TracingDisplayBar(): JSX.Element {
     const { totalMatchingFilters, compareActive, displayMode, operationsViewEnabled } = useValues(tracingSceneLogic())
     const { setDisplayMode } = useActions(tracingSceneLogic())
-    const { featureFlags } = useValues(featureFlagLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
 
-    const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const inTracesView = displayMode !== 'operations'
     const showCount = inTracesView && !compareActive && totalMatchingFilters > 0
 
@@ -63,17 +59,15 @@ export function TracingDisplayBar(): JSX.Element {
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-                {facetRailEnabled && (
-                    <LemonButton
-                        size="small"
-                        icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
-                        onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
-                        aria-label={facetRailCollapsed ? 'Show filters' : 'Hide filters'}
-                        data-attr="tracing-facet-rail-toggle"
-                    >
-                        {facetRailCollapsed ? 'Show filters' : 'Hide filters'}
-                    </LemonButton>
-                )}
+                <LemonButton
+                    size="small"
+                    icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
+                    onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
+                    aria-label={facetRailCollapsed ? 'Show filters' : 'Hide filters'}
+                    data-attr="tracing-facet-rail-toggle"
+                >
+                    {facetRailCollapsed ? 'Show filters' : 'Hide filters'}
+                </LemonButton>
                 <LemonSegmentedButton<TracingDisplayMode>
                     size="small"
                     value={displayMode}
