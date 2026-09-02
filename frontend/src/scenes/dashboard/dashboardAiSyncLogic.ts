@@ -1,4 +1,16 @@
-import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+} from 'kea'
 import { router } from 'kea-router'
 
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -354,6 +366,8 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
         return {
             queueDashboardReload: startQueuedReload,
             startDashboardReload: async ({ generation }) => {
+                const lifetimeToken = cache.dashboardAiSyncLifetime
+                const lifetimeDisposables = cache.disposables
                 const loadPayload: DashboardAiLoadPayload = {
                     action: DashboardLoadAction.Update,
                     dashboardAiSyncGeneration: generation,
@@ -363,6 +377,9 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
                 } finally {
                     // kea-loaders does not retain the original request payload on failure. The request-specific
                     // async action settles after success/failure, so an uncleared generation failed or cancelled.
+                    if (lifetimeDisposables.isDisposed || cache.dashboardAiSyncLifetime !== lifetimeToken) {
+                        return
+                    }
                     if (values.activeReload?.generation === generation) {
                         actions.failDashboardReload(generation)
                     }
@@ -456,5 +473,8 @@ export const dashboardAiSyncLogic: LogicWrapper<dashboardAiSyncLogicType> = kea<
                 }
             },
         }
+    }),
+    afterMount(({ cache }) => {
+        cache.dashboardAiSyncLifetime = Symbol('dashboardAiSyncLifetime')
     }),
 ])

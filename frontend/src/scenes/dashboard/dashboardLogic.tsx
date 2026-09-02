@@ -1473,6 +1473,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
+                        await breakpoint()
+
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
                         if (!dashboard || typeof dashboard !== 'object' || typeof dashboard.id !== 'number') {
@@ -1481,6 +1483,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
+                        await breakpoint()
                         if (error.status === 404) {
                             return null
                         }

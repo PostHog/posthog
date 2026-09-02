@@ -248,6 +248,63 @@ describe('dashboardAiSyncLogic', () => {
         getResponse.mockRestore()
     })
 
+    it('keeps a newer manual dashboard response when an older AI reload resolves last', async () => {
+        const aiReload = deferred<Response>()
+        const manualReload = deferred<Response>()
+        const getResponse = mockDashboardResponses(5, aiReload.promise, manualReload.promise)
+
+        logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 10 }] }, baselineTiles)
+        await jest.advanceTimersByTimeAsync(200)
+
+        dashboardSceneLogic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+        await jest.advanceTimersByTimeAsync(200)
+        expect(dashboardRequests(getResponse, 5)).toHaveLength(2)
+
+        manualReload.resolve(dashboardResponse(5, [dashboardTile(99)]))
+        await jest.advanceTimersByTimeAsync(0)
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([99])
+
+        aiReload.resolve(dashboardResponse(5, [dashboardTile(10)]))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([99])
+        expect(logic.values.aiHighlightedTileIds).toEqual([])
+        expect(logic.values.activeReload).toBeNull()
+        expect(logic.values.queuedChange).toBeNull()
+        getResponse.mockRestore()
+    })
+
+    it('does not let an obsolete mounted lifetime complete a new reload for the same dashboard', async () => {
+        const oldReload = deferred<Response>()
+        const newReload = deferred<Response>()
+        const getResponse = mockDashboardResponses(5, oldReload.promise, newReload.promise)
+
+        logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 10 }] }, baselineTiles)
+        await jest.advanceTimersByTimeAsync(200)
+        expect(logic.values.activeReload?.generation).toBe(1)
+
+        logic.unmount()
+        logic = dashboardAiSyncLogic({ dashboardId: 5 })
+        logic.mount()
+        logic.actions.agentToolCompleted('dashboard-update', { id: 5, tiles: [{ id: 20 }] }, baselineTiles)
+        await jest.advanceTimersByTimeAsync(200)
+        expect(logic.values.activeReload?.generation).toBe(1)
+
+        oldReload.resolve(dashboardResponse(5, [dashboardTile(10)]))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.activeReload?.generation).toBe(1)
+        expect(logic.values.aiHighlightedTileIds).toEqual([])
+
+        newReload.resolve(dashboardResponse(5, [dashboardTile(10), dashboardTile(20)]))
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(dashboardSceneLogic.values.dashboard?.tiles.map((tile) => tile.id)).toEqual([10, 20])
+        expect(logic.values.aiHighlightedTileIds).toEqual([20])
+        expect(logic.values.activeReload).toBeNull()
+        getResponse.mockRestore()
+    })
+
     it('clears a failed AI generation before an unrelated manual reload succeeds', async () => {
         const aiReload = deferred<Response>()
         const manualReload = deferred<Response>()
