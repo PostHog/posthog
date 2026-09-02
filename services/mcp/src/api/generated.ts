@@ -8794,6 +8794,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
+      /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+      legendPosition?: LegendPosition | null;
       pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
@@ -9327,6 +9329,8 @@ export namespace Schemas {
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
+     * * `min` - min
+     * * `max` - max
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
@@ -9339,6 +9343,8 @@ export namespace Schemas {
       Sum: 'sum',
       Avg: 'avg',
       Count: 'count',
+      Min: 'min',
+      Max: 'max',
       P95: 'p95',
       Rate: 'rate',
       Increase: 'increase',
@@ -20415,8 +20421,10 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
-      /** Workflows that use this property, resolved by definition id. */
+      /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
       readonly references: readonly CustomPropertyReference[];
+      /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+      readonly has_workflow_reference: boolean;
     }
 
     /**
@@ -57407,7 +57415,7 @@ export namespace Schemas {
          * @nullable
          */
       count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
       start_date: string;
       /**
          * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -60877,8 +60885,10 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
-      /** Workflows that use this property, resolved by definition id. */
+      /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
       readonly references?: readonly CustomPropertyReference[];
+      /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+      readonly has_workflow_reference?: boolean;
     }
 
     /**
@@ -66432,7 +66442,7 @@ export namespace Schemas {
          * @nullable
          */
       count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
       start_date?: string;
       /**
          * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -85696,7 +85706,7 @@ export namespace Schemas {
     }
 
     export interface TeamCIHealthItem {
-      /** Owning team slug (the CODEOWNERS handle minus '@PostHog/', e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
+      /** Owning team slug from the repo's owners.yaml map (e.g. 'team-replay'), or the literal 'unowned' for tests whose spans carry no ownership stamp. */
       owner_team: string;
       /** Owned tests one commit was seen both failing and passing in the window: the same proof, and the same word, that flaky_tests calls a confirmed_flake. Compare with flaky_test_count_prior for the delta. */
       flaky_test_count: number;
@@ -85718,8 +85728,31 @@ export namespace Schemas {
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
-      /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
-      last_seen_at: string;
+      /**
+         * Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. Null for a team present only through the census (no CI signal recorded).
+         * @nullable
+         */
+      last_seen_at: string | null;
+      /**
+         * Test files the team owns per the daily owners.yaml census. Null until a census event exists for the repository.
+         * @nullable
+         */
+      test_file_count?: number | null;
+      /**
+         * The latest census value at or before the window start, for the trend.
+         * @nullable
+         */
+      test_file_count_prior?: number | null;
+      /**
+         * Merged PRs authored by the team's members in the window, bots excluded. Null when the team_members snapshot isn't synced, or for 'unowned'.
+         * @nullable
+         */
+      merged_pr_count?: number | null;
+      /**
+         * Same count over the prior window.
+         * @nullable
+         */
+      merged_pr_count_prior?: number | null;
     }
 
     export interface TeamCIHealthList {
@@ -88782,6 +88815,8 @@ export namespace Schemas {
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
@@ -89054,6 +89089,8 @@ export namespace Schemas {
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
@@ -89147,6 +89184,8 @@ export namespace Schemas {
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
@@ -89212,11 +89251,13 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
+       * * `min` - min
+       * * `max` - max
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
@@ -91270,6 +91311,13 @@ export namespace Schemas {
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
     } as const;
+
+    export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean;
+    };
 
     export type AlertsListParams = {
     /**
@@ -93397,6 +93445,10 @@ export namespace Schemas {
      * An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.
      */
     min_failed_prs?: number;
+    /**
+     * Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup.
+     */
+    owner_team?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

@@ -38,6 +38,7 @@ import { InsightSelector } from './InsightSelector'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
+import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
@@ -51,7 +52,6 @@ import {
     shouldShowDayPicker,
     requestSubscriptionWizardCancellation,
     targetTypeOptions,
-    timeOptions,
     WEEKDAYS,
     weekdayOptions,
 } from './utils'
@@ -565,21 +565,7 @@ function SubscriptionScheduleStep({ logicProps }: { logicProps: SubscriptionLogi
                 ) : null}
                 <span>at</span>
                 <LemonField name="start_date">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            options={timeOptions}
-                            value={dayjs(value).hour().toString()}
-                            onChange={(hour) =>
-                                onChange(
-                                    dayjs()
-                                        .hour(Number(hour ?? 0))
-                                        .minute(0)
-                                        .second(0)
-                                        .toISOString()
-                                )
-                            }
-                        />
-                    )}
+                    {({ value, onChange }) => <SubscriptionTimePicker value={value} onChange={onChange} />}
                 </LemonField>
             </div>
             {nextDeliveryDate ? (
