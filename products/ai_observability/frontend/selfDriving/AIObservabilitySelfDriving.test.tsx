@@ -16,6 +16,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
 import * as alertsApi from 'products/alerts/frontend/generated/api'
+import { signalsScoutConfigList } from 'products/signals/frontend/generated/api'
 
 import * as aiObservabilityApi from '../generated/api'
 import { AIObservabilitySelfDriving } from './AIObservabilitySelfDriving'
@@ -102,6 +103,8 @@ describe('AIObservabilitySelfDriving', () => {
             [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]: true,
         })
         jest.mocked(newInternalTab).mockReset()
+        // Default to a fleet that never arrives, so a test that needs a resolved one opts in.
+        jest.mocked(signalsScoutConfigList).mockImplementation(() => new Promise(() => {}))
         jest.mocked(aiObservabilityApi.evaluationDirectoriesList).mockResolvedValue([])
         jest.mocked(aiObservabilityApi.evaluationsList).mockResolvedValue({
             count: 2,
@@ -269,7 +272,12 @@ describe('AIObservabilitySelfDriving', () => {
         await userEvent.click(screen.getByTestId('create-costly-users-scout'))
         expect(await screen.findByText('Create a scout')).toBeInTheDocument()
 
+        // People click this, so it has to go somewhere on its own rather than only reveal a tooltip.
         const tooltipTrigger = screen.getByText('What is this?')
+        expect(tooltipTrigger.closest('a')).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/ai-observability/self-driving'
+        )
         await userEvent.hover(tooltipTrigger)
 
         expect(await screen.findByText(/Each template is a pre-defined scout/)).toBeInTheDocument()
@@ -369,6 +377,22 @@ describe('AIObservabilitySelfDriving', () => {
 
         await userEvent.click(anomalyTableQueries.getByText('Unexpected AI cost'))
         expect(newInternalTab).toHaveBeenLastCalledWith('/alerts?alert_type=insights&alert_id=alert-investigated')
+    })
+
+    // A project with no scouts is where the first one gets created, so the empty state has to open
+    // the create form itself rather than point at another part of the page.
+    it('opens a template from the empty scout fleet', async () => {
+        jest.mocked(signalsScoutConfigList).mockResolvedValue([])
+
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        await userEvent.click(await screen.findByTestId('create-scout-from-empty-state'))
+
+        expect(await screen.findByText('Create a scout')).toBeInTheDocument()
     })
 
     // Both sections render the same switch, so a section wired to the other section's signal
