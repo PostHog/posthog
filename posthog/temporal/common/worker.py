@@ -214,7 +214,6 @@ async def create_worker(
     graceful_shutdown_timeout: dt.timedelta | None = None,
     max_concurrent_workflow_tasks: int | None = None,
     max_concurrent_activities: int | None = None,
-    max_cached_workflows: int | None = None,
     metric_prefix: str | None = None,
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
@@ -242,9 +241,6 @@ async def create_worker(
             the worker can handle. Defaults to 50.
         max_concurrent_activities: Maximum number of concurrent activity tasks the
             worker can handle. Defaults to 50.
-        max_cached_workflows: Sticky cache size. Each cached workflow holds its full
-            history, payloads included, so queues running short-lived, high-volume
-            workflows should set this far below the SDK default of 1000.
         metric_prefix: Prefix to apply to metrics emitted by this worker, if
             left unset (`None`) Temporal will default to "temporal_".
         use_pydantic_converter: Flag to enable Pydantic data converter
@@ -406,7 +402,6 @@ async def create_worker(
                 workflow_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_workflow_tasks or 50),
                 activity_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_activities or 50),
             ),
-            max_cached_workflows=max_cached_workflows if max_cached_workflows is not None else 1000,
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
@@ -423,7 +418,6 @@ async def create_worker(
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,
-            max_cached_workflows=max_cached_workflows if max_cached_workflows is not None else 1000,
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),

@@ -25,7 +25,6 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
-MAX_CACHED_WORKFLOWS: int | None = get_from_env("MAX_CACHED_WORKFLOWS", None, optional=True, type_cast=int)
 # No-deploy rollback lever for flex-tier cluster labeling; workers read it at boot.
 LLMA_LABELING_FLEX_ENABLED: bool = get_from_env("LLMA_LABELING_FLEX_ENABLED", True, type_cast=str_to_bool)
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
