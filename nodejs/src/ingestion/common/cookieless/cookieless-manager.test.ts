@@ -12,7 +12,7 @@ import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
-import { CookielessServerHashMode, EventHeaders, PipelineEvent, Team } from '~/types'
+import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '~/types'
 
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
@@ -574,6 +574,49 @@ describe('CookielessManager', () => {
                 expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
                 if (nonCookielessResult.type === PipelineResultType.OK) {
                     expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+
+            it('should DLQ an undefined batch entry without crashing the batch', async () => {
+                const response = await infra.cookielessManager.doBatch([
+                    { event, team, message, headers: createTestEventHeaders() },
+                    undefined as unknown as IncomingEventWithTeam,
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
+                ])
+                expect(response.length).toBe(3)
+
+                const undefinedResult = response[1]
+                expect(undefinedResult.type).toBe(PipelineResultType.DLQ)
+                if (undefinedResult.type === PipelineResultType.DLQ) {
+                    expect(undefinedResult.reason).toBe('cookieless_undefined_event')
+                }
+
+                // The valid events in the batch still process.
+                expect(response[0].type).toBe(PipelineResultType.OK)
+                const nonCookielessResult = response[2]
+                expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
+                if (nonCookielessResult.type === PipelineResultType.OK) {
+                    expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+
+            it('should DLQ an undefined batch entry on the fail-close path without crashing', async () => {
+                const unexpectedError = new Error('Something went wrong')
+                jest.spyOn(infra.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
+                    throw unexpectedError
+                })
+
+                const response = await infra.cookielessManager.doBatch([
+                    { event, team, message, headers: createTestEventHeaders() },
+                    undefined as unknown as IncomingEventWithTeam,
+                ])
+                expect(response.length).toBe(2)
+
+                expect(response[0].type).toBe(PipelineResultType.DLQ)
+                const undefinedResult = response[1]
+                expect(undefinedResult.type).toBe(PipelineResultType.DLQ)
+                if (undefinedResult.type === PipelineResultType.DLQ) {
+                    expect(undefinedResult.reason).toBe('cookieless_fail_close')
                 }
             })
 
