@@ -111,8 +111,8 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
 
     @parameterized.expand(STATE_CASES)
     def test_action_ignores_a_caller_supplied_body(self, case, active, archived, expected_active, expected_archived):
-        # The point of these endpoints: a caller cannot smuggle targeting through them, so a
-        # stale read can never overwrite someone else's edit. `version` and `original_flag` are
+        # A caller-supplied stale targeting object cannot overwrite another edit, because
+        # lifecycle actions ignore the request body. `version` and `original_flag` are
         # in the body because the flag UI sends both on every PATCH, so an agent porting a
         # PATCH call keeps them. Together they used to make the serializer discard the state
         # change and still return 200.
@@ -152,6 +152,32 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK, second.content
         assert second.json()["version"] == first.json()["version"]
         assert ActivityLog.objects.filter(scope="FeatureFlag", item_id=str(flag.id), activity="updated").count() == 1
+
+    @parameterized.expand(
+        [
+            ("enable", False, False),
+            ("disable", True, False),
+            ("archive", True, False),
+            ("unarchive", False, True),
+        ]
+    )
+    def test_action_preserves_legacy_filter_keys(self, action, active, archived):
+        # The serializer opportunistically strips `holdout_groups` and `super_groups` on any
+        # save, falling back to the stored filters when the write sent none. That silently
+        # rewrote targeting on a state flip, which is exactly what these endpoints promise not
+        # to do. TARGETING carries neither key, so nothing else here would catch it.
+        legacy = {
+            "groups": [{"properties": [], "rollout_percentage": 30}],
+            "holdout_groups": [{"properties": [], "rollout_percentage": 5, "variant": "holdout-1"}],
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        flag = self._flag(active=active, archived=archived, filters=legacy)
+
+        response = self._act(flag, action)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters == legacy
 
     def test_enable_refuses_an_archived_flag(self):
         flag = self._flag(active=False, archived=True)

@@ -171,6 +171,35 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
         assert flag.archived is True
         assert flag.active is False
 
+    @parameterized.expand(
+        [
+            ("unarchive", "feature_flag.enable"),
+            ("unarchive", "feature_flag.disable"),
+            ("archive_disabled", "feature_flag.enable"),
+            ("archive_disabled", "feature_flag.disable"),
+        ]
+    )
+    def test_archived_only_lifecycle_write_is_not_gated(self, _mock_enabled, case, action_key):
+        # An archived-only write changes neither `active` nor `filters`, so every gated action
+        # declines it. These pass through with no change request even under an enable or disable
+        # policy, and a regression that starts gating them would not fail the cases above.
+        _enable_policy_for(self, action_key)
+        action = "unarchive" if case == "unarchive" else "archive"
+        flag = self._flag(active=False, key=f"matrix-{case}")
+        if case == "unarchive":
+            flag.archived = True
+            flag.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.archived is (case != "unarchive")
+        assert flag.active is False
+        assert ChangeRequest.objects.count() == 0
+
     def test_lifecycle_actions_gate_each_flag_separately(self, _mock_enabled):
         # The gate keys duplicate detection on resource_id, which it derives from the request
         # method: it returns None for POST. A lifecycle action that reported itself as POST

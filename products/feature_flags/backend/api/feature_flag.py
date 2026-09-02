@@ -2184,12 +2184,15 @@ class FeatureFlagSerializer(
                     payloads.pop("true", None)
                 filters["payloads"] = payloads
 
-        # Opportunistically strip legacy keys on save.
-        previous_filters = validated_data.get("filters") or instance.filters
-        if previous_filters and ("holdout_groups" in previous_filters or "super_groups" in previous_filters):
-            validated_data["filters"] = {
-                k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
-            }
+        # Opportunistically strip legacy keys on save, including on a write that sent no filters.
+        # A caller that declares the exemption is spared: it would otherwise persist a rewritten
+        # filters object for a change that never mentioned targeting.
+        if not getattr(request, "skip_opportunistic_filter_cleanup", False):
+            previous_filters = validated_data.get("filters") or instance.filters
+            if previous_filters and ("holdout_groups" in previous_filters or "super_groups" in previous_filters):
+                validated_data["filters"] = {
+                    k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
+                }
 
         version = request_data.get("version", -1)
 
@@ -3054,6 +3057,21 @@ def flag_lifecycle_responses(bad_request: str | None = None, *, approval_gated: 
     return responses
 
 
+def apply_encrypted_payload_response_form(request: Any, feature_flag_data: dict) -> None:
+    """Replace stored ciphertext in a serialized flag with the form the response may carry.
+
+    ``filters`` serializes the stored dict, so every surface returning a flag has to apply this
+    or it hands out the raw ciphertext. A personal API key gets plaintext, anything else gets the
+    redacted placeholder. Kept in one place because list, retrieve and the lifecycle actions
+    each carried their own copy of the same rule, free to drift apart.
+    """
+    if not feature_flag_data.get("has_encrypted_payloads", False):
+        return
+    feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
+        request, feature_flag_data["filters"]["payloads"]
+    )
+
+
 class FlagLifecycleWriteRequest(ServiceRequest):
     """The request a flag lifecycle action hands to the flag facade.
 
@@ -3071,6 +3089,11 @@ class FlagLifecycleWriteRequest(ServiceRequest):
     Everything else defers to the real request, so impersonation attribution and analytics behave
     as they do on any other flag write.
     """
+
+    # A lifecycle write sends no filters, so the serializer's opportunistic legacy-key cleanup
+    # would rewrite targeting this caller never touched. Declared here rather than inferred from
+    # the request class, mirroring how `is_system` declares intent to the same serializer.
+    skip_opportunistic_filter_cleanup = True
 
     def __init__(self, request: request.Request) -> None:
         self._request = request
@@ -3339,11 +3362,7 @@ class FeatureFlagViewSet(
             if not is_evaluation_contexts_enabled:
                 feature_flag["evaluation_contexts"] = []
 
-            # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
-            if feature_flag.get("has_encrypted_payloads", False):
-                feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
-                    request, feature_flag["filters"]["payloads"]
-                )
+            apply_encrypted_payload_response_form(request, feature_flag)
 
         return response
 
@@ -3356,11 +3375,7 @@ class FeatureFlagViewSet(
         if not is_evaluation_contexts_enabled:
             feature_flag_data["evaluation_contexts"] = []
 
-        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
-        if feature_flag_data.get("has_encrypted_payloads", False):
-            feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
-                request, feature_flag_data["filters"]["payloads"]
-            )
+        apply_encrypted_payload_response_form(request, feature_flag_data)
 
         return response
 
@@ -3515,14 +3530,9 @@ class FeatureFlagViewSet(
 
     def _lifecycle_response(self, feature_flag: FeatureFlag) -> Response:
         data = self.get_serializer(feature_flag).data
-        # `filters` serializes the stored dict, so an encrypted payload would leave here as
-        # ciphertext. This applies the same redaction as retrieve(). It does not blank
-        # `evaluation_contexts` the way retrieve() does: this is a write response, and it
-        # matches partial_update.
-        if data.get("has_encrypted_payloads", False):
-            data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
-                self.request, data["filters"]["payloads"]
-            )
+        # Unlike retrieve(), this does not blank `evaluation_contexts`: it is a write response
+        # and matches partial_update.
+        apply_encrypted_payload_response_form(self.request, data)
         return Response(data, status=status.HTTP_200_OK)
 
     def _set_active(self, request: request.Request, *, active: bool) -> Response:
