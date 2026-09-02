@@ -10,6 +10,7 @@ from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    get_linked_distinct_ids,
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
@@ -591,3 +592,29 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
         assert "id" in mask
         assert "team_id" in mask
         assert "properties" not in mask
+
+
+# ── Public get_linked_distinct_ids tests ─────────────────────────────
+
+
+class TestGetLinkedDistinctIds(BaseTest):
+    def test_returns_every_distinct_id_of_the_matched_person(self):
+        create_person(team=self.team, distinct_ids=["alice", "alice-2", "alice-3"])
+
+        result = get_linked_distinct_ids(self.team.pk, "alice-2")
+
+        assert set(result) == {"alice", "alice-2", "alice-3"}
+
+    def test_returns_empty_list_when_no_person_matches(self):
+        result = get_linked_distinct_ids(self.team.pk, "nonexistent")
+
+        assert result == []
+        get_active_fake().assert_not_called("get_distinct_ids_for_person")
+
+    def test_sends_uuid_only_field_mask(self):
+        create_person(team=self.team, distinct_ids=["d1"])
+
+        get_linked_distinct_ids(self.team.pk, "d1")
+
+        calls = get_active_fake().assert_called("get_persons_by_distinct_ids_in_team", times=1)
+        assert "properties" not in calls[0].request.read_options.field_mask

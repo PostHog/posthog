@@ -509,7 +509,7 @@ class TestGroupTarget:
 
 
 class TestExistenceLookupChunking:
-    """Both personhog helpers return whole models (properties included) and hold every one before
+    """The group helper returns whole models (properties included) and holds every one before
     returning, so `_filter_existing_ids` must ask in chunks — an unchunked call over a large changed
     set materializes the lot at once and OOM-kills the worker."""
 
@@ -524,8 +524,8 @@ class TestExistenceLookupChunking:
             (
                 "person",
                 PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"}),
-                "get_persons_mapped_by_distinct_id",
-                lambda _team_id, chunk: {key: MagicMock() for key in chunk if key != "ghost"},
+                "get_person_uuids_and_matched_distinct_ids",
+                lambda _team_id, chunk: ([], {key for key in chunk if key != "ghost"}),
             ),
         ]
     )
@@ -540,7 +540,7 @@ class TestExistenceLookupChunking:
 
     def test_single_call_below_the_chunk_size(self):
         source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"})
-        with patch(f"{_MODULE}.get_persons_mapped_by_distinct_id", return_value={"a": MagicMock()}) as lookup:
+        with patch(f"{_MODULE}.get_person_uuids_and_matched_distinct_ids", return_value=([], {"a"})) as lookup:
             assert pps._filter_existing_ids(9, source, ["a"]) == {"a"}
         lookup.assert_called_once_with(9, ["a"])
 
@@ -548,7 +548,7 @@ class TestExistenceLookupChunking:
         source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group")
         with (
             patch(f"{_MODULE}.get_groups_by_identifiers") as groups,
-            patch(f"{_MODULE}.get_persons_mapped_by_distinct_id") as persons,
+            patch(f"{_MODULE}.get_person_uuids_and_matched_distinct_ids") as persons,
         ):
             assert pps._filter_existing_ids(9, source, ["acme"]) == set()
         groups.assert_not_called()
