@@ -65,6 +65,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "scimLogsPage": 1,
   "scimLogsSearch": "",
   "scimLogsStatusFilter": "all",
+  "scimLogsTargetType": "domain",
   "showIdJagConfigErrors": false,
   "showSamlConfigErrors": false,
   "updatingDomain": false,
