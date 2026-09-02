@@ -1,5 +1,4 @@
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import Q
 
@@ -45,11 +44,6 @@ class TraceReviewScore(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     class Meta:
         db_table = "llm_analytics_tracereviewscore"
         ordering = ["definition__name", "id"]
-        indexes = [
-            models.Index(fields=["team", "definition"], name="llma_tr_score_def_idx"),
-            models.Index(fields=["team", "review"], name="llma_tr_score_rev_idx"),
-            GinIndex(fields=["categorical_values"], name="llma_tr_score_cat_gin"),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["review", "definition"],
