@@ -1,8 +1,10 @@
+import time
+import asyncio
 from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
@@ -183,7 +185,7 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
     def test_dispatch_skips_teams_without_enabled_alerts(self):
         self._create_alert(enabled=False)
         with (
-            patch("products.error_tracking.backend.temporal.alerts.dispatch.sync_connect") as connect,
+            patch("products.error_tracking.backend.temporal.alerts.dispatch.async_connect") as connect,
             patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True) as flag,
         ):
             self._dispatch()
@@ -194,7 +196,7 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
     def test_dispatch_skips_teams_outside_the_flag(self):
         self._create_alert()
         with (
-            patch("products.error_tracking.backend.temporal.alerts.dispatch.sync_connect") as connect,
+            patch("products.error_tracking.backend.temporal.alerts.dispatch.async_connect") as connect,
             patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=False),
         ):
             self._dispatch()
@@ -202,15 +204,20 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
 
     def test_dispatch_starts_idempotent_workflow(self):
         self._create_alert()
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
         with (
-            patch("products.error_tracking.backend.temporal.alerts.dispatch.sync_connect") as connect,
+            patch(
+                "products.error_tracking.backend.temporal.alerts.dispatch.async_connect",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
             patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True),
         ):
-            connect.return_value.start_workflow = AsyncMock()
             self._dispatch()
 
-        connect.return_value.start_workflow.assert_called_once()
-        args, kwargs = connect.return_value.start_workflow.call_args
+        client.start_workflow.assert_called_once()
+        args, kwargs = client.start_workflow.call_args
         assert args[0] == "error-tracking-alert-delivery"
         assert args[1].notification_id == "notif-1"
         assert kwargs["id"] == "error-tracking-alert-delivery-notif-1"
@@ -218,13 +225,31 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
         assert kwargs["task_queue"] == settings.ERROR_TRACKING_TASK_QUEUE
         # A redelivered start after completion must be rejected, not rerun.
         assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
-        assert kwargs["rpc_timeout"] == timedelta(seconds=10)
+
+    def test_dispatch_gives_up_on_a_stalled_temporal(self):
+        self._create_alert()
+
+        async def hang() -> None:
+            await asyncio.sleep(5)
+
+        with (
+            patch("products.error_tracking.backend.temporal.alerts.dispatch.async_connect", side_effect=hang),
+            patch(
+                "products.error_tracking.backend.temporal.alerts.dispatch.DISPATCH_TIMEOUT", timedelta(milliseconds=50)
+            ),
+            patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True),
+        ):
+            started = time.monotonic()
+            self._dispatch()
+
+        # The web worker gets its thread back well before the stalled connect would return.
+        assert time.monotonic() - started < 2
 
     def test_dispatch_swallows_temporal_errors(self):
         self._create_alert()
         with (
             patch(
-                "products.error_tracking.backend.temporal.alerts.dispatch.sync_connect",
+                "products.error_tracking.backend.temporal.alerts.dispatch.async_connect",
                 side_effect=RuntimeError("temporal down"),
             ),
             patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True),
