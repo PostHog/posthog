@@ -45,7 +45,13 @@ import { KafkaConsumerV2 } from './consumer-v2'
  * assigned offset is kept; all expectations are derived from those reports, never assumed.
  */
 
-jest.setTimeout(60_000)
+// These tests wait on real broker timers (the 6s session/rebalance timeout, deliberately
+// slow revoke hooks) and each step polls with its own generous upper bound. Those bounds
+// sum to 50-96s per test, so the per-test timeout must sit above the largest sum or a
+// slow runner hits Jest's timeout while a step is still legitimately waiting; that leaves
+// a consumer mid-rebalance, which --forceExit then blocks on. The step-level waitFor
+// budgets stay tight so a real regression still fails with a descriptive error.
+jest.setTimeout(150_000)
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'kafka:9092'
 const KAFKA_CONFIG = { 'metadata.broker.list': KAFKA_HOSTS }
