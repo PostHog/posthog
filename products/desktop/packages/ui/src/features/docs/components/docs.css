@@ -325,29 +325,50 @@
   color: var(--red-11);
 }
 
-/* Under the quote, fixed: where the claim stands in one line, then its
-   numbers as small figures. Everything longer lives in the dossier. */
-.doc-watch-strip {
-  margin: 6px 12px 0 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--gray-4);
-  font-size: 12.5px;
-  color: var(--gray-11);
-}
-
-.doc-watch-status {
+/* The watch under the header: the quoted words and one pill, all one button
+   that opens the dossier. */
+.doc-watch-block {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 8px 0 8px;
+  padding: 4px 4px 8px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms;
 }
 
-/* The state is a dot and a word. Colour carries the state, the row stays quiet. */
+.doc-watch-block:hover {
+  background: var(--gray-2);
+}
+
+.doc-watch-block:hover .doc-thread-quote {
+  color: var(--gray-12);
+}
+
+.doc-watch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: calc(0.6rem + 2px);
+  padding: 2px 9px 2px 8px;
+  border: 1px solid var(--gray-5);
+  border-radius: 999px;
+  background: var(--gray-1);
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--gray-10);
+}
+
+/* The state is a dot and a word. Colour carries the state, the pill stays quiet. */
 .doc-watch-state {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: none;
   font-weight: 600;
   color: var(--blue-11);
 }
@@ -360,82 +381,44 @@
   background: currentColor;
 }
 
-.doc-watch-state[data-verdict="moved"] {
+.doc-watch-pill[data-verdict="moved"] .doc-watch-state {
   color: var(--amber-11);
 }
 
-.doc-watch-state[data-verdict="confirmed"] {
+.doc-watch-pill[data-verdict="confirmed"] .doc-watch-state {
   color: var(--green-11);
 }
 
-.doc-watch-state[data-verdict="refuted"] {
+.doc-watch-pill[data-verdict="refuted"] .doc-watch-state {
   color: var(--red-11);
 }
 
-.doc-watch-state[data-verdict="stale"],
-.doc-watch-state[data-verdict="pending"],
-.doc-watch-state[data-status="paused"],
-.doc-watch-state[data-status="stopped"]:not([data-verdict="confirmed"]):not(
+.doc-watch-pill[data-verdict="stale"] .doc-watch-state,
+.doc-watch-pill[data-verdict="pending"] .doc-watch-state,
+.doc-watch-pill[data-status="paused"] .doc-watch-state,
+.doc-watch-pill[data-status="stopped"]:not([data-verdict="confirmed"]):not(
     [data-verdict="refuted"]
-  ) {
+  )
+  .doc-watch-state {
   color: var(--gray-10);
 }
 
-.doc-watch-status-text {
-  margin-top: 3px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--gray-10);
-}
-
-/* The headline figure: the number, its change, and a small gray trend after them. */
 .doc-watch-figure {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 11.5px;
+  align-items: baseline;
+  gap: 5px;
+  padding-left: 8px;
+  border-left: 1px solid var(--gray-5);
   font-variant-numeric: tabular-nums;
-  color: var(--gray-10);
 }
 
 .doc-watch-figure b {
-  font-size: 12.5px;
   font-weight: 600;
   color: var(--gray-12);
 }
 
-.doc-watch-figure .doc-spark {
-  margin: 0;
-  stroke: var(--gray-7);
-}
-
 .doc-watch-figure[data-moved="true"] {
   color: var(--amber-11);
-}
-
-.doc-watch-figure[data-moved="true"] .doc-spark {
-  stroke: var(--amber-8);
-}
-
-.doc-watch-history {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  cursor: pointer;
-  border: 0;
-  padding: 0;
-  background: none;
-  font-size: 11.5px;
-  color: var(--gray-10);
-}
-
-.doc-watch-history:hover {
-  color: var(--gray-12);
 }
 
 .doc-watch-note {

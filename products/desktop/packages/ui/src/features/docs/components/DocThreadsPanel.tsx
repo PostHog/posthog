@@ -43,7 +43,7 @@ import {
 } from "../hooks/useDocThread";
 import { DocPostRow, DocStreamingRow } from "./DocPostRow";
 import { DocThreadRow, threadStanding } from "./DocThreadRow";
-import { WatchHeaderActions, WatchStrip } from "./DocWatchCard";
+import { WatchHeaderActions, WatchPill } from "./DocWatchCard";
 import { DocWatchDossier } from "./DocWatchDossier";
 
 export type ThreadsPanelView =
@@ -402,31 +402,39 @@ function ThreadView({
         ) : null}
       </PanelHeader>
 
-      <button
-        type="button"
-        className="doc-thread-quote mx-3 mt-3 cursor-pointer text-left hover:text-(--gray-12)"
-        data-kind={kind}
-        title="Show this in the page"
-        onClick={() => onJumpToAnchor(anchorKey)}
-      >
-        {kind === "data"
-          ? `+ ${anchorText}`
-          : anchorText || "a place in the doc"}
-      </button>
       {thread?.watch ? (
-        <>
-          <WatchStrip
-            watch={thread.watch}
-            onHistory={() => setDossierOpen(true)}
-          />
-          <DocWatchDossier
-            thread={thread}
-            open={dossierOpen}
-            onOpenChange={setDossierOpen}
-            onAction={onWatchAction}
-            pendingAction={pendingAction}
-          />
-        </>
+        <button
+          type="button"
+          className="doc-watch-block"
+          title="Open the watch"
+          onClick={() => setDossierOpen(true)}
+        >
+          <span className="doc-thread-quote" data-kind={kind}>
+            {anchorText || "a place in the doc"}
+          </span>
+          <WatchPill watch={thread.watch} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="doc-thread-quote mx-3 mt-3 cursor-pointer text-left hover:text-(--gray-12)"
+          data-kind={kind}
+          title="Show this in the page"
+          onClick={() => onJumpToAnchor(anchorKey)}
+        >
+          {kind === "data"
+            ? `+ ${anchorText}`
+            : anchorText || "a place in the doc"}
+        </button>
+      )}
+      {thread?.watch ? (
+        <DocWatchDossier
+          thread={thread}
+          open={dossierOpen}
+          onOpenChange={setDossierOpen}
+          onAction={onWatchAction}
+          pendingAction={pendingAction}
+        />
       ) : null}
 
       <div

@@ -1,7 +1,6 @@
 import {
   ArrowsClockwiseIcon,
   CheckCircleIcon,
-  ClockCounterClockwiseIcon,
   DotsThreeIcon,
   EyeIcon,
   EyeSlashIcon,
@@ -30,7 +29,6 @@ import {
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { DocMarkState } from "@posthog/ui/primitives/DocMark";
 import { useState } from "react";
-import { Spark } from "../extensions/DataValue";
 
 type Watch = DocSchemas.DocWatch;
 export type Decision = "confirmed" | "refuted";
@@ -142,61 +140,31 @@ export function statusLine(watch: Watch): string {
   return parts.join(" · ");
 }
 
-/** The one figure the strip shows: the number that moved, else the first. */
+/** The one figure the pill shows: the number that moved, else the first. */
 function headlineFigure(
   evidence: DocSchemas.WatchEvidence[],
 ): DocSchemas.WatchEvidence | undefined {
   return evidence.find((entry) => entry.moved) ?? evidence[0];
 }
 
-/**
- * Fixed under the quote, two lines: the state word with the headline figure,
- * then the reason. The rest is a click away in the dossier.
- */
-export function WatchStrip({
-  watch,
-  onHistory,
-}: {
-  watch: Watch;
-  onHistory: () => void;
-}) {
+/** Where the claim stands, as one pill: the state word and the headline figure. */
+export function WatchPill({ watch }: { watch: Watch }) {
   const figure = headlineFigure(watch.brief?.evidence ?? []);
-  const points =
-    figure?.history
-      .map((point) => point[1])
-      .filter((value): value is number => typeof value === "number") ?? [];
-  const reason = watch.verdict.reason || statusLine(watch);
   return (
-    <div className="doc-watch-strip">
-      <div className="doc-watch-status">
-        <span
-          className="doc-watch-state"
-          data-verdict={watch.verdict.verdict}
-          data-status={watch.status}
-        >
-          {verdictLabel(watch)}
+    <span
+      className="doc-watch-pill"
+      data-verdict={watch.verdict.verdict}
+      data-status={watch.status}
+      title={watch.verdict.reason || statusLine(watch)}
+    >
+      <span className="doc-watch-state">{verdictLabel(watch)}</span>
+      {figure ? (
+        <span className="doc-watch-figure" data-moved={figure.moved}>
+          <b>{formatNumber(figure.value)}</b>
+          <span>{deltaShort(figure)}</span>
         </span>
-        {figure ? (
-          <span
-            className="doc-watch-figure"
-            data-moved={figure.moved}
-            title={figure.label}
-          >
-            <b>{formatNumber(figure.value)}</b>
-            <span>{deltaShort(figure)}</span>
-            {points.length > 1 ? <Spark points={points} /> : null}
-          </span>
-        ) : null}
-        <span className="flex-1" />
-        <button type="button" className="doc-watch-history" onClick={onHistory}>
-          <ClockCounterClockwiseIcon size={13} />
-          History
-        </button>
-      </div>
-      <div className="doc-watch-status-text" title={reason}>
-        {reason}
-      </div>
-    </div>
+      ) : null}
+    </span>
   );
 }
 
