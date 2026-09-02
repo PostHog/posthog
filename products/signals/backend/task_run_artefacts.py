@@ -14,8 +14,12 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
+from datetime import datetime
 
 from django.db import transaction
+
+from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
@@ -24,6 +28,7 @@ from products.signals.backend.artefact_schemas import (
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
     TASK_RUN_TYPE_SCOUT,
+    ActionabilityAssessment,
     NoteArtefact,
     TaskRunArtefact,
 )
@@ -158,18 +163,68 @@ def _live_implementation_exists(*, team_id: int, report_id: str, exclude_task_id
     runs_by_task: dict[str, list[tuple[str | None, object]]] = {}
     for task_id, status, pr_url in rows:
         runs_by_task.setdefault(str(task_id), []).append((status, pr_url))
-    for runs in runs_by_task.values():
-        has_runs = any(run_status is not None for run_status, _run_pr_url in runs)
-        if not has_runs:
+    return any(_runs_claim_implementation_slot(runs) for runs in runs_by_task.values())
+
+
+def _runs_claim_implementation_slot(runs: Sequence[tuple[str | None, object]]) -> bool:
+    """Whether one implementation task's runs still claim its slot.
+
+    A task with no runs yet still claims the slot; a live (non-terminal) run or a run that
+    shipped a GitHub PR claims it; a task whose runs all ended failed/cancelled without a PR
+    has released it. `runs` is that task's `(status, pr_url)` rows; an empty status marks a task
+    row with no runs joined.
+    """
+    has_runs = any(run_status is not None for run_status, _run_pr_url in runs)
+    if not has_runs:
+        return True
+    for run_status, run_pr_url in runs:
+        if run_status is None:
+            continue
+        if run_status not in _TERMINAL_NO_PR_RUN_STATUSES:
             return True
-        for run_status, run_pr_url in runs:
-            if run_status is None:
-                continue
-            if run_status not in _TERMINAL_NO_PR_RUN_STATUSES:
-                return True
-            if isinstance(run_pr_url, str) and run_pr_url.startswith(_GITHUB_PR_URL_PREFIX):
-                return True
+        if isinstance(run_pr_url, str) and run_pr_url.startswith(_GITHUB_PR_URL_PREFIX):
+            return True
     return False
+
+
+def _task_holds_implementation_slot(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether this one implementation task still claims the report's slot.
+
+    Same per-task rule as `_live_implementation_exists`, scoped to a single task. A rerun of a
+    task that shipped a GitHub PR or holds a live run continues its own work, so a fresher
+    `already_addressed` verdict (which may name that very PR) must not block it.
+    """
+    rows = list(
+        SignalReportTask.objects.filter(
+            team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        .exclude(task__deleted=True)
+        .values_list("task__runs__status", "task__runs__output__pr_url")
+    )
+    return _runs_claim_implementation_slot(rows)
+
+
+def _report_already_addressed_at(*, report_id: str) -> datetime | None:
+    """When the report's latest actionability verdict says the fix is already addressed.
+
+    Returns the verdict's timestamp when the latest `actionability_judgment` sets
+    `already_addressed`, else `None` — no verdict, an unparseable one, or a still-open
+    `already_addressed: false`. Latest-wins, matching auto-start's `_latest_artefact_as`.
+    """
+    artefact = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if artefact is None:
+        return None
+    try:
+        assessment = ActionabilityAssessment.model_validate_json(artefact.content)
+    except ValidationError:
+        return None
+    return artefact.created_at if assessment.already_addressed else None
 
 
 def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str | None) -> None:
@@ -220,9 +275,17 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     lets a second implementation be created for the report — and then running the first one again
     would put two live implementations on it, spending unbilled inference twice over.
 
-    Only another task holding the slot blocks: a task reclaiming the slot it released is the
-    ordinary "my run failed, try again" path and stays allowed. Non-implementation tasks are
-    unaffected, since the discussion cap counts tasks rather than runs and conversation inside
+    A re-run of a *released* task also loses to a fresher verdict: if the task shipped no PR and
+    holds no live run, and a verdict that landed *after* the task was dispatched says the fix is
+    already addressed, re-running it would open a competing PR, so the re-run is refused. Two
+    cases stay allowed. A task that still holds its slot continues its own work (fixing CI,
+    answering review on the PR it opened), and the verdict can name that very PR. And a verdict
+    older than the task was already visible when the task started, so it is not the news this
+    guard exists for; blocking on it would strand a task that can never run.
+
+    Otherwise only another task holding the slot blocks — a task reclaiming the slot it released
+    is the ordinary "my run failed, try again" path and stays allowed. Non-implementation tasks
+    are unaffected, since the discussion cap counts tasks rather than runs and conversation inside
     one is deliberately unlimited.
 
     Must be called inside an open transaction: it locks the report row, the same lock creation
@@ -236,14 +299,34 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
         raise RuntimeError(
             "enforce_report_implementation_rerun_cap must run inside a transaction; it locks the report row"
         )
-    is_implementation = SignalReportTask.objects.filter(
-        team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-    ).exists()
-    if not is_implementation:
+    dispatched_at = (
+        SignalReportTask.objects.filter(
+            team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    if dispatched_at is None:
         return
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
         return
+    # Only a task that released its slot can open a competing PR; a task that still holds its slot
+    # (it shipped a PR or has a live run) is continuing its own work, and the verdict that judged
+    # the report addressed may be naming that very PR. So re-check the verdict only for a released
+    # task, mirroring the `exclude_task_id` allowance the slot check below already makes — and only
+    # for a verdict that arrived after the task, so a verdict someone already saw when they started
+    # the task cannot strand it.
+    if not _task_holds_implementation_slot(team_id=team_id, report_id=report_id, task_id=task_id):
+        addressed_at = _report_already_addressed_at(report_id=report_id)
+        if addressed_at is not None and addressed_at > dispatched_at:
+            raise ReportTaskCapExceeded(
+                kind=TASK_RUN_TYPE_IMPLEMENTATION,
+                detail=(
+                    f"This report was judged already addressed on {addressed_at.date().isoformat()}; "
+                    "check the existing work instead of starting another."
+                ),
+            )
     if _live_implementation_exists(team_id=team_id, report_id=report_id, exclude_task_id=task_id):
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION,

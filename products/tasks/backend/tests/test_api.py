@@ -2202,6 +2202,61 @@ class TestTaskAPI(BaseTaskAPITest):
         else:
             self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    @parameterized.expand(
+        [
+            # A released task (all runs failed, no PR) rerun would open a competing PR when a
+            # fresher verdict says the fix is already in flight, so refuse.
+            ("released_and_already_addressed", [("failed", None), ("failed", None)], True, False, True),
+            # The latest verdict is still open, so the ordinary "my run failed, try again" stands.
+            ("released_but_still_open", [("failed", None), ("failed", None)], False, False, False),
+            # A task that shipped a PR still holds its slot, so rerunning continues that PR
+            # (fixing CI, answering review). The verdict may be naming that very PR, so it must
+            # not block the rerun.
+            (
+                "shipped_pr_and_already_addressed",
+                [("failed", "https://github.com/acme/web/pull/1")],
+                True,
+                False,
+                False,
+            ),
+            # The verdict was already there when someone started the task, so it is not the
+            # fresher news this guard exists for. Blocking on it would strand a task that can
+            # never run, with no in-product way to clear it.
+            ("released_but_verdict_predates_task", [("failed", None), ("failed", None)], True, True, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rerunning_an_implementation_rechecks_the_verdict_only_for_a_released_slot(
+        self, _name, run_specs, already_addressed, verdict_predates_task, expect_refused, mock_workflow
+    ):
+        from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice
+        from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+
+        report = SignalReport.objects.create(team=self.team)
+        task = self._create_implementation_task_with_runs(report, run_specs)
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=ActionabilityAssessment(
+                explanation="Covered by an open PR.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=already_addressed,
+            ).model_dump_json(),
+        )
+        if verdict_predates_task:
+            dispatched_at = SignalReportTask.objects.get(report=report, task=task).created_at
+            SignalReportArtefact.objects.filter(id=artefact.id).update(created_at=dispatched_at - timedelta(days=1))
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        if expect_refused:
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            mock_workflow.assert_not_called()
+        else:
+            self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_rerun_refuses_when_the_slot_is_taken_after_the_preflight_check(self, mock_workflow):
         from products.signals.backend.models import SignalReport
