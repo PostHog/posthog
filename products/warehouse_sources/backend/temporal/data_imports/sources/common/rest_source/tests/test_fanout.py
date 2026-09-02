@@ -1,3 +1,4 @@
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
@@ -381,8 +382,10 @@ def test_paginate_dependent_resource_does_not_leak_params_across_parents() -> No
         assert "before" not in params_snapshot
 
 
-def _pages_by_path(pages: dict[str, list[dict[str, Any]]]):
-    def paginate(self, *, path: str = "", **kwargs):
+def _pages_by_path(
+    pages: dict[str, list[dict[str, Any]]],
+) -> Callable[..., Iterator[list[dict[str, Any]]]]:
+    def paginate(self: Any, *, path: str = "", **kwargs: Any) -> Iterator[list[dict[str, Any]]]:
         yield pages[path]
 
     return paginate

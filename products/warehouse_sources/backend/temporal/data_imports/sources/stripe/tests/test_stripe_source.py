@@ -15,6 +15,7 @@ import pyarrow as pa
 import deltalake
 from parameterized import parameterized
 from stripe import ListObject
+from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -465,7 +466,7 @@ def _run_nested_get_rows(
     warehouse_parent=None,
     parent_method=None,
     can_resume=False,
-    logger=None,
+    logger: FilteringBoundLogger | None = None,
 ):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
