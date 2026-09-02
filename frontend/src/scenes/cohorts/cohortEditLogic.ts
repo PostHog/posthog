@@ -334,6 +334,9 @@ export interface cohortEditLogicActions {
     setCohort: (cohort: CohortType) => {
         cohort: CohortType
     }
+    setCalculationRetryBaseline: (baselineErrors: number) => {
+        baselineErrors: number
+    }
     setCohortFailure: (
         error: string,
         errorObject?: any
@@ -523,6 +526,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     actions({
         saveCohort: (cohortParams = {}) => ({ cohortParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
+        setCalculationRetryBaseline: (baselineErrors: number) => ({ baselineErrors }),
         deleteCohort: true,
         restoreCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
@@ -762,10 +766,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         calculationRetryState: [
             null as CalculationRetryState,
             {
-                // A save queues a fresh (re)calculation. Snapshot the error count so a subsequent
-                // pending version reads as in-progress, not as the earlier failure.
-                saveCohortSuccess: (_, { cohort }) =>
-                    cohort.id !== 'new' ? { baselineErrors: cohort.errors_calculating ?? 0 } : null,
+                // Snapshot the error count when a save actually queued a recalculation, so a
+                // subsequent pending version reads as in-progress, not as the earlier failure.
+                setCalculationRetryBaseline: (_, { baselineErrors }) => ({ baselineErrors }),
                 // Any other cohort refresh (initial load, poll completion) is a clean slate.
                 setCohort: () => null,
             },
@@ -967,6 +970,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                     delete cohort['csv']
                     actions.setCohort(cohort)
+                    // Only this path queued a calculation; snapshot after setCohort, which clears
+                    // the baseline. A failed save returns early above and never reaches here, so a
+                    // retry that errored out is not mistaken for one in progress.
+                    actions.setCalculationRetryBaseline(cohort.errors_calculating ?? 0)
                     refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
