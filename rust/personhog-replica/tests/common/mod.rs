@@ -1,4 +1,5 @@
 use personhog_replica::storage::{postgres::PostgresStorage, FullStorage};
+use personhog_replica::team_allowlist::TeamAllowlist;
 use rand::Rng;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
@@ -21,6 +22,11 @@ pub struct TestContext {
 
 impl TestContext {
     pub async fn new() -> Self {
+        Self::new_with_tombstone_deletes(TeamAllowlist::None).await
+    }
+
+    /// A context whose storage tombstones person deletes for the given teams.
+    pub async fn new_with_tombstone_deletes(tombstone_delete_teams: TeamAllowlist) -> Self {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string()
         });
@@ -36,6 +42,7 @@ impl TestContext {
             pool.clone(),
             50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
             5,  // bulk_max_concurrent_chunks
+            tombstone_delete_teams,
         ));
         let team_id = random_team_id();
 
