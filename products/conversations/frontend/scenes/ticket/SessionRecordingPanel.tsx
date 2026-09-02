@@ -3,6 +3,7 @@ import { useActions } from 'kea'
 import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
@@ -45,9 +46,23 @@ export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRec
         if (!recordingId) {
             return
         }
+        const player = inlinePlayer()
         // The modal is a second player for the same recording, so this one must not keep playing behind it
-        inlinePlayer()?.actions.setPause()
-        openSessionPlayer({ id: recordingId })
+        player?.actions.setPause()
+        // Open the larger view at the moment the responder scrubbed to, so it does not restart from 0:00.
+        // currentTimestamp is an absolute unix ms and reaches the modal player through ?timestamp=.
+        openSessionPlayer({ id: recordingId }, player?.values.currentTimestamp ?? null)
+    }
+
+    const openInReplay = (): void => {
+        if (!recordingId) {
+            return
+        }
+        // A new browser tab, computed on click so it carries the scrubbed position, like ViewRecordingButton.
+        const currentTimestamp = inlinePlayer()?.values.currentTimestamp
+        newInternalTab(
+            urls.replaySingle(recordingId, currentTimestamp ? { unixTimestampMillis: currentTimestamp } : undefined)
+        )
     }
 
     const seeAllRecordings = distinctId ? (
@@ -106,8 +121,7 @@ export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRec
                                         type="secondary"
                                         size="xsmall"
                                         icon={<IconExternal />}
-                                        to={urls.replaySingle(recordingId)}
-                                        targetBlank
+                                        onClick={openInReplay}
                                         data-attr="ticket-recording-open-replay"
                                     >
                                         Open in replay
