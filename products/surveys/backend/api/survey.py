@@ -2143,6 +2143,7 @@ class SurveyFilterSet(FilterSet):
 
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     list=extend_schema(
         parameters=[
@@ -2163,10 +2164,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     filterset_class = SurveyFilterSet
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
-        if self.request.method == "POST" or self.request.method == "PATCH":
+        if self.request.method in ("POST", "PUT", "PATCH"):
             return SurveySerializerCreateUpdateOnly
-        else:
-            return SurveySerializer
+        return SurveySerializer
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.exclude(product_tour__isnull=False)

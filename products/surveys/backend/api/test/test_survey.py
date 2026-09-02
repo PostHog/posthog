@@ -4299,7 +4299,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["questions"][0]["branching"]["type"] == "end"
 
-    def test_create_survey_sanitizes_html_in_appearance_text(self):
+    def test_create_survey_sanitizes_html_in_appearance_text(self) -> None:
         appearance_fields = [
             "thankYouMessageHeader",
             "thankYouMessageDescription",
@@ -4327,7 +4327,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             assert f"<strong>{field}</strong>" in sanitized_value
             assert "onerror" not in sanitized_value
 
-    def test_update_survey_sanitizes_html_in_appearance_text(self):
+    def test_update_survey_sanitizes_html_in_appearance_text(self) -> None:
         survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
@@ -4344,6 +4344,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "appearance": {
                     "introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'
                 },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "How are you?",
+                        "description": '<strong>Details</strong><img src="invalid" onerror="void 0">',
+                        "descriptionContentType": "html",
+                    }
+                ],
             },
             format="json",
         )
@@ -4351,6 +4359,8 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "<strong>Welcome</strong>" in response.json()["appearance"]["introScreenDescription"]
         assert "onerror" not in response.json()["appearance"]["introScreenDescription"]
+        assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
+        assert "onerror" not in response.json()["questions"][0]["description"]
 
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):

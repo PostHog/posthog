@@ -198,7 +198,7 @@ class TestExternalSurveys(APIBaseTest):
             ("missing_survey", str(uuid.uuid4()), 404),
         ]
     )
-    def test_error_responses_are_sandboxed(self, _name: str, survey_id: str, expected_status: int):
+    def test_error_responses_are_sandboxed(self, _name: str, survey_id: str, expected_status: int) -> None:
         response = self.client.get(f"/external_surveys/{survey_id}/")
 
         assert response.status_code == expected_status
