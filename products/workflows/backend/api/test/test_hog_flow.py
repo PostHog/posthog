@@ -5352,7 +5352,7 @@ class TestFlagGatedTemplates(APIBaseTest):
     def test_flag_eval_failure_hides_the_gated_template(self):
         # A flag-service blip must hide the pre-release step, not expose it.
         with patch(
-            "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
+            "posthog.cdp.flag_gated_templates.posthog_feature_flag_enabled",
             side_effect=Exception("flag service down"),
         ):
             assert gated_template_enabled("workflow-ai-task-action", self.team) is False

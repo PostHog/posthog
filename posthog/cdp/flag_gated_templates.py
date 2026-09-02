@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING
 
 import structlog
-import posthoganalytics
+
+from posthog.permissions import posthog_feature_flag_enabled
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -21,16 +22,11 @@ FLAG_GATED_TEMPLATE_IDS = {
 def gated_template_enabled(flag_key: str, team: "Team") -> bool:
     # A flag-eval blip hides the pre-release template rather than exposing it: fail closed.
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag_key,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-            )
+        return posthog_feature_flag_enabled(
+            flag_key,
+            str(team.uuid),
+            organization_id=team.organization_id,
+            team_id=team.id,
         )
     except Exception:
         logger.warning(
