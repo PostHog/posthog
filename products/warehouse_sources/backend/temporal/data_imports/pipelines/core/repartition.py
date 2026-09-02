@@ -538,9 +538,9 @@ def select_repartition_target(
     one format tier finer. An unpartitioned table gets an auto target, which sizes its bucket count
     the same way so md5 is reachable whatever its keys turn out to be. When no target is chosen the
     reason explains why (reported in metrics so a skipped table is diagnosable): `within_budget`,
-    `datetime_at_finest_tier` (only when there are no keys to hash — otherwise a datetime table out
-    of tiers falls back to md5), `numerical_cannot_shrink`, `numerical_no_size`, or
-    `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+    `datetime_at_finest_tier` (only when there is no primary key distinct from the partition key to
+    hash — otherwise a datetime table out of tiers falls back to md5), `numerical_cannot_shrink`,
+    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
     """
     if not partition_bytes:
         return None, "no_partitions"
