@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
+  sourceConfigs: [{ enabled: true }] as { enabled: boolean }[],
+  navigateToAgents: vi.fn(),
   navigateToInboxReportDetail: vi.fn(),
   prefetchReport: vi.fn(),
   prefetchRoute: vi.fn(),
@@ -120,6 +122,14 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxSectionCounts", () => ({
   }),
 }));
 
+vi.mock("@posthog/ui/features/inbox/hooks/useSignalSourceConfigs", () => ({
+  useSignalSourceConfigs: () => ({
+    data: mocks.sourceConfigs,
+    isPending: false,
+    isSuccess: true,
+  }),
+}));
+
 vi.mock("@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed", () => ({
   useTrackReportsInboxViewed: () => undefined,
 }));
@@ -139,7 +149,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToAgents: vi.fn(),
+  navigateToAgents: mocks.navigateToAgents,
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
 }));
 
@@ -209,6 +219,7 @@ describe("ReportsInboxView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.activeReports = [];
+    mocks.sourceConfigs = [{ enabled: true }];
     mocks.searchQuery = "checkout";
     mocks.triageFocusEnabled = false;
     mocks.triageProps = null;
@@ -247,10 +258,13 @@ describe("ReportsInboxView", () => {
     ).toEqual(["ready", "ready,pending_input", "resolved,suppressed"]);
   });
 
-  it("shows the empty state when no selected reports exist", () => {
+  it("offers agent configuration when no reports or agents exist", async () => {
+    mocks.sourceConfigs = [];
     render(<ReportsInboxView />);
 
     expect(screen.getByText("Nothing to review")).toBeTruthy();
+    await userEvent.click(screen.getAllByText("Configure agents")[1]);
+    expect(mocks.navigateToAgents).toHaveBeenCalledOnce();
   });
 
   it("opens a report on the first click without preloading its route", async () => {

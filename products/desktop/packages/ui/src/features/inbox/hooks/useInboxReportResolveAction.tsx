@@ -49,6 +49,12 @@ export function useInboxReportResolveAction(
         if (startedAtRef.current !== null) {
           trackResult("resolve", "succeeded", startedAtRef.current);
         }
+        setOpen(false);
+        toast.success(
+          hasOpenPr
+            ? "Report resolved. Closing its pull request."
+            : "Report resolved",
+        );
         await queryClient.invalidateQueries({
           queryKey: reportKeys.all,
           exact: false,
@@ -57,12 +63,6 @@ export function useInboxReportResolveAction(
           queryKey: taskFeedResultsQueryRoot,
           exact: false,
         });
-        setOpen(false);
-        toast.success(
-          hasOpenPr
-            ? "Report resolved. Closing its pull request."
-            : "Report resolved",
-        );
       },
       onError: (error) => {
         if (startedAtRef.current !== null) {

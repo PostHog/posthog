@@ -148,7 +148,7 @@ export function InboxReportContextMenuContent({
             ) : null}
             {canResolveReport(report) ? (
               <ContextMenuSub>
-                <ContextMenuSubTrigger disabled={resolve.isPending}>
+                <ContextMenuSubTrigger disabled={resolve.isPending} openOnHover>
                   <CheckCircleIcon size={14} />
                   Resolve
                 </ContextMenuSubTrigger>
@@ -172,7 +172,7 @@ export function InboxReportContextMenuContent({
               </ContextMenuSub>
             ) : null}
             <ContextMenuSub>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger openOnHover>
                 <EyeSlashIcon size={14} />
                 Dismiss
               </ContextMenuSubTrigger>
@@ -194,7 +194,7 @@ export function InboxReportContextMenuContent({
               </ContextMenuSubContent>
             </ContextMenuSub>
             <ContextMenuSub onOpenChange={setReviewersOpen}>
-              <ContextMenuSubTrigger>
+              <ContextMenuSubTrigger openOnHover>
                 <UsersThreeIcon size={14} />
                 Reviewers
               </ContextMenuSubTrigger>

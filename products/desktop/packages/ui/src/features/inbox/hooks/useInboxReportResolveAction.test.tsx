@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   trackResult: vi.fn(),
   actionTrackerArgs: [] as unknown[],
   resultTrackerArgs: [] as unknown[],
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -30,7 +31,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: mocks.toastSuccess, error: vi.fn() },
 }));
 
 import { useInboxReportResolveAction } from "./useInboxReportResolveAction";
@@ -47,22 +48,26 @@ const report: SignalReport = {
   updated_at: "2026-08-20T09:00:00Z",
 };
 
-function wrapper({ children }: { children: ReactNode }): React.JSX.Element {
-  return (
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: {
-            queries: { retry: false },
-            mutations: { retry: false },
-          },
-        })
-      }
-    >
-      {children}
-    </QueryClientProvider>
-  );
+function createWrapper(queryClient = new QueryClient()) {
+  return function Wrapper({
+    children,
+  }: {
+    children: ReactNode;
+  }): React.JSX.Element {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
 }
+
+const wrapper = createWrapper(
+  new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  }),
+);
 
 describe("useInboxReportResolveAction", () => {
   beforeEach(() => {
@@ -100,6 +105,30 @@ describe("useInboxReportResolveAction", () => {
         "succeeded",
         expect.any(Number),
       ),
+    );
+  });
+
+  it("shows success before refreshing report queries", async () => {
+    let finishRequest: ((value: SignalReport) => void) | undefined;
+    mocks.updateState.mockReturnValue(
+      new Promise<SignalReport>((resolve) => {
+        finishRequest = resolve;
+      }),
+    );
+    const queryClient = new QueryClient();
+    vi.spyOn(queryClient, "invalidateQueries").mockReturnValue(
+      new Promise<void>(() => {}),
+    );
+    const { result } = renderHook(() => useInboxReportResolveAction(report), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => result.current.resolveWithReason("fixed_outside_posthog"));
+    await waitFor(() => expect(mocks.updateState).toHaveBeenCalledOnce());
+    await act(async () => finishRequest?.({ ...report, status: "resolved" }));
+
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Report resolved"),
     );
   });
 });

@@ -72,7 +72,7 @@ export function InboxReportFilters(): React.JSX.Element {
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="default"
               data-attr="inbox-filter-priority"
             >
               {inboxPriorityFilterLabel(priorityFilter)}
@@ -104,7 +104,7 @@ export function InboxReportFilters(): React.JSX.Element {
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="default"
               data-attr="inbox-filter-state"
             >
               {reportStateFilterLabel(reportStateFilter)}
@@ -145,7 +145,7 @@ export function InboxReportFilters(): React.JSX.Element {
           if (option) setSort(option.field, option.direction);
         }}
       >
-        <SelectTrigger size="sm" data-attr="inbox-sort">
+        <SelectTrigger size="default" data-attr="inbox-sort">
           <span>Sort:</span>
           <SelectValue>
             {(selected: string) =>

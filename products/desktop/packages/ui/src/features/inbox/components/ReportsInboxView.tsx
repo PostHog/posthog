@@ -14,6 +14,7 @@ import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/compone
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import { useSignalSourceConfigs } from "@posthog/ui/features/inbox/hooks/useSignalSourceConfigs";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
   DEFAULT_INBOX_REPORT_STATE_FILTER,
@@ -90,6 +91,7 @@ export function ReportsInboxView(): React.JSX.Element {
     sortDirection,
   } = reviewAndMergeQuery;
   const triageFocusEnabled = useTriageFocusEnabled();
+  const sourceConfigs = useSignalSourceConfigs();
   const triageOrigin = useInboxTriageOrigin();
   const navigate = useNavigate();
   const [focusMode, setFocusMode] = useState(() => triageOrigin !== null);
@@ -290,17 +292,25 @@ export function ReportsInboxView(): React.JSX.Element {
   }
 
   const isEmpty = isSuccess && reportCount === 0;
+  const isAgentConfigurationLoading =
+    isEmpty && !hasActiveFilters && sourceConfigs.isPending;
+  const showConfigureAgentsEmptyState =
+    isEmpty &&
+    !hasActiveFilters &&
+    sourceConfigs.isSuccess &&
+    !sourceConfigs.data?.some((config) => config.enabled);
 
   return (
     <ReportsInboxViewPresentation
       reports={visibleReports}
       triageReportCount={needsPrCount}
-      isLoading={isLoading}
+      isLoading={isLoading || isAgentConfigurationLoading}
       isFetchingNextPage={isFetchingNextPage}
       hasNextPage={hasNextPage}
       isError={isError}
       isEmpty={isEmpty}
       hasActiveFilters={hasActiveFilters}
+      showConfigureAgentsEmptyState={showConfigureAgentsEmptyState}
       triageEnabled={triageFocusEnabled}
       filterControl={<InboxReportFilters />}
       scopeControl={<InboxScopeSelect />}

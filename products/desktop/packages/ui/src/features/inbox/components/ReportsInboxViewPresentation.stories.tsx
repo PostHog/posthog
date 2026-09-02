@@ -98,6 +98,7 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
     isError: false,
     isEmpty: false,
     hasActiveFilters: false,
+    showConfigureAgentsEmptyState: false,
     triageEnabled: true,
     filterControl: <InboxReportFilters />,
     scopeControl: <InboxScopeSelect />,
@@ -120,6 +121,15 @@ export const EmptyInbox: Story = {
     reports: [],
     triageReportCount: 0,
     isEmpty: true,
+  },
+};
+
+export const UnconfiguredEmptyInbox: Story = {
+  args: {
+    reports: [],
+    triageReportCount: 0,
+    isEmpty: true,
+    showConfigureAgentsEmptyState: true,
   },
 };
 
