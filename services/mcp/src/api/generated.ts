@@ -57425,7 +57425,7 @@ export namespace Schemas {
          * @nullable
          */
       count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
       start_date: string;
       /**
          * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -66450,7 +66450,7 @@ export namespace Schemas {
          * @nullable
          */
       count?: number | null;
-      /** When to start delivering (ISO 8601 datetime). */
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
       start_date?: string;
       /**
          * When to stop delivering (ISO 8601 datetime). Null for indefinite.
