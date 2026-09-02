@@ -1,3 +1,4 @@
+import re
 import errno
 import socket
 import threading
@@ -3394,6 +3395,187 @@ class TestOffsetChunkingRecoveryConflictTimeout:
         # non-retryable signal here is the type name, not the message text.
         non_retryable = PostgresSource().get_non_retryable_errors()
         assert type(exc_info.value).__name__ in non_retryable
+
+
+class TestChunkedRereadAfterRecoveryConflict:
+    """A read replica cancelling the initial read with "conflict with recovery" routes `get_rows`
+    into a chunked re-read. Paging by LIMIT/OFFSET is only correct when the query orders its rows:
+    a full-table read has no ORDER BY, so every page is a fresh scan Postgres may return in a
+    different order, which both repeats and drops rows. Such a read must page by seeking past the
+    last primary key it read, and must refuse to page at all when it cannot.
+
+    `_Scan` rotates an unordered result per statement to model that freedom deterministically.
+    """
+
+    _CONFLICT = "canceling statement due to conflict with recovery"
+    _ROWS: list[tuple[int]] = [(1,), (2,), (3,), (4,), (5,), (6,)]
+
+    class _Scan:
+        def __init__(self, rows: list[tuple[int]]):
+            self._rows = rows
+            self._statements = 0
+
+        def rows_for(self, ordered: bool) -> list[tuple[int]]:
+            if ordered:
+                return sorted(self._rows)
+            self._statements += 1
+            pivot = self._statements % len(self._rows)
+            return self._rows[pivot:] + self._rows[:pivot]
+
+    class _PageCursor:
+        def __init__(self, scan):
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+            self._scan = scan
+            self._result: list[tuple[int]] = []
+
+        def execute(self, query, *args, **kwargs):
+            text = query.as_string()
+            rows = self._scan.rows_for("ORDER BY" in text)
+            seek = re.search(r'\("id"\) > \((\d+)\)', text)
+            if seek:
+                rows = [row for row in rows if row[0] > int(seek.group(1))]
+            offset = re.search(r"OFFSET (\d+)", text)
+            if offset:
+                rows = rows[int(offset.group(1)) :]
+            limit = re.search(r"LIMIT (\d+)", text)
+            self._result = rows[: int(limit.group(1))] if limit else rows
+
+        def fetchall(self):
+            return self._result
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _NamedCursor:
+        def __init__(self, rows_before_conflict: int, scan):
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+            self._pending = scan.rows_for(True)[:rows_before_conflict]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, _n):
+            if self._pending:
+                page, self._pending = self._pending, []
+                return page
+            raise psycopg.errors.SerializationFailure(TestChunkedRereadAfterRecoveryConflict._CONFLICT)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, named_cursor):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._named_cursor = named_cursor
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return self._named_cursor
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _read_ids(
+        self,
+        *,
+        should_use_incremental_field: bool,
+        rows_before_conflict: int,
+        primary_keys: list[str] | None = None,
+    ) -> list[int]:
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        scan = self._Scan(list(self._ROWS))
+        connection = self._Connection(self._NamedCursor(rows_before_conflict, scan))
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=primary_keys),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=2, fetch_rows=2)),
+            patch(f"{module}._get_rows_to_sync", return_value=len(self._ROWS)),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=should_use_incremental_field,
+                incremental_field="id" if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Integer if should_use_incremental_field else None,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=0 if should_use_incremental_field else None,
+                team_id=1,
+            )
+            return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,rows_before_conflict",
+        [(False, 0), (True, 2)],
+        ids=["full_refresh_has_no_order_of_its_own", "incremental_read_is_ordered_by_its_cursor"],
+    )
+    def test_chunked_reread_yields_every_row_exactly_once(self, should_use_incremental_field, rows_before_conflict):
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=rows_before_conflict,
+            primary_keys=["id"],
+        )
+
+        assert sorted(ids) == [row[0] for row in self._ROWS]
+
+    @pytest.mark.parametrize(
+        "rows_before_conflict,primary_keys",
+        [(2, ["id"]), (0, None)],
+        ids=["rows_of_an_unordered_prefix_are_already_written", "no_unique_key_to_seek_on"],
+    )
+    def test_full_refresh_refuses_to_page_an_unordered_read(self, rows_before_conflict, primary_keys):
+        with pytest.raises(psycopg.errors.SerializationFailure):
+            self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=rows_before_conflict,
+                primary_keys=primary_keys,
+            )
 
 
 class TestSafeCloseConnection:
