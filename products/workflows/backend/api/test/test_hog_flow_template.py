@@ -1,6 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -11,7 +12,7 @@ from posthog.models import Organization, Team, User
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
-from products.workflows.backend.templates import clear_template_cache, load_global_templates
+from products.workflows.backend.templates import SRE_AGENT_TEMPLATE_ID, clear_template_cache, load_global_templates
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -122,6 +123,22 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         # Verify inputs are preserved - only url was provided in custom_inputs
         assert function_action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+
+    def test_template_creation_with_internal_event_trigger(self):
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["actions"][0]["config"] = {
+            "type": "internal-event",
+            "filters": {
+                "source": "internal-events",
+                "events": [{"id": "$slack_message_received", "type": "events"}],
+                "properties": [{"key": "text", "value": ["Alert"], "operator": "icontains", "type": "event"}],
+            },
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["trigger"]["type"] == "internal-event"
 
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""
@@ -477,6 +494,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # Should return file-based templates
         results = response.json()["results"]
         assert len(results) > 0, "No templates returned from public endpoint"
+        assert SRE_AGENT_TEMPLATE_ID not in {template["id"] for template in results}
 
         # All returned templates should have scope='global'
         for template in results:
@@ -494,7 +512,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         file_template_ids = {t["id"] for t in file_templates}
         file_template_names = {t["name"] for t in file_templates}
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates")
+        with patch("products.workflows.backend.templates.gated_template_enabled", return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates")
         assert response.status_code == 200
 
         api_results = response.json()["results"]
@@ -514,6 +533,31 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         for template in api_results:
             if template["id"] in file_template_ids:
                 assert template["scope"] == "global", f"Template {template['id']} from files should have scope='global'"
+
+    def test_sre_agent_template_respects_feature_flags(self):
+        list_url = f"/api/projects/{self.team.id}/hog_flow_templates"
+        retrieve_url = f"{list_url}/{SRE_AGENT_TEMPLATE_ID}"
+
+        with patch("products.workflows.backend.templates.gated_template_enabled", return_value=False):
+            response = self.client.get(list_url)
+            assert SRE_AGENT_TEMPLATE_ID not in {template["id"] for template in response.json()["results"]}
+            assert self.client.get(retrieve_url).status_code == status.HTTP_404_NOT_FOUND
+
+        with patch("products.workflows.backend.templates.gated_template_enabled", return_value=True):
+            response = self.client.get(retrieve_url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        template = response.json()
+        trigger = next(action for action in template["actions"] if action["type"] == "trigger")
+        task = next(
+            action
+            for action in template["actions"]
+            if action.get("config", {}).get("template_id") == "template-posthog-create-task"
+        )
+        assert trigger["config"]["type"] == "internal-event"
+        assert {prop["key"] for prop in trigger["config"]["filters"]["properties"]} == {"text", "thread_ts"}
+        assert task["config"]["inputs"]["posthog_mcp_scopes"]["value"] == "read_only"
+        assert task["config"]["inputs"]["non_failure_status_codes"]["value"] == [409]
 
     def test_can_retrieve_individual_template_from_files(self):
         """Test that we can retrieve a specific template that's loaded from files"""
