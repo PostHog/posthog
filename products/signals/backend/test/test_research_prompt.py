@@ -4,8 +4,10 @@ import pytest
 
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    FixVerificationOutput,
     SignalFinding,
     _render_signal_for_research,
+    build_fix_verification_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
@@ -142,6 +144,32 @@ class TestBuildInitialResearchPrompt:
         if not has_previous_finding:
             assert "There is no previous finding for this signal" in initial_prompt
             assert "There is no previous finding for this signal" in followup_prompt
+
+
+class TestBuildFixVerificationPrompt:
+    def test_is_a_final_step_based_on_completed_research(self):
+        prompt = build_fix_verification_prompt()
+
+        assert "As the final step" in prompt
+        assert "Do not do more research in this turn" in prompt
+        assert "exact PostHog MCP command" in prompt
+        assert "what result would show that the fix worked" in prompt
+        assert '"minItems": 2' in prompt
+        assert '"maxItems": 3' in prompt
+
+    def test_formats_steps_as_a_note_with_the_expected_heading(self):
+        result = FixVerificationOutput(
+            steps=[
+                "Run query-trends for checkout_completed over the same 14-day window.",
+                "Confirm conversion returns to its pre-change baseline.",
+            ]
+        )
+
+        assert result.to_note().note == (
+            "## Steps to verify fix\n\n"
+            "1. Run query-trends for checkout_completed over the same 14-day window.\n"
+            "2. Confirm conversion returns to its pre-change baseline."
+        )
 
 
 def _make_chart() -> ReportChart:
