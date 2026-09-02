@@ -236,9 +236,8 @@ Direct calls (read-only):
 - `vision-scanners-get` (`id`, **not** `scanner_id`, unlike the `vision-scanners-observations-*` tools) — the one scanner's full row: `enabled`, `scanner_version`, `updated_at`, `last_swept_at`. The **only** place to date a config edit (scanner changes aren't in the activity log).
 - `vision-scanners-observations-list` (`scanner_id`, `status`, `verdict`, `tags`, `triggered_by`) — the **only** way to see failed/ineligible observations (footgun #5) and read `error_reason`.
 - `vision-observations-list` (`session_id`) — every scanner's observation on one session, for example links.
-  `$recording_observed` carries `session_id` and `scanner_id` but no observation id, so this is also how you get
-  one: list the session, take the matching row's `id`, then read the detail with `vision-observations-retrieve`
-  (`id`). Going straight to the detail tool from an event row fails — you never had the id it needs.
+  A `$recording_observed` event row's `uuid` is the observation id, so on the primary `execute-sql` route select `toString(uuid)` and pass it straight to `vision-observations-retrieve` (`id`).
+  Fall back to this list when you have only a session id, or to pick one scanner's observation out of a session several scanners observed.
 - `vision-quota-retrieve` — the org's credit budget for the billing period: `remaining` / `exhausted`.
 - `query-session-recordings-list` / `session-recording-get` — resolve `session_id`s to watchable recordings for a finding's example links.
 - `read-data-schema` — confirm `$recording_observed` and its `scanner_output_*` properties exist before aggregating.
