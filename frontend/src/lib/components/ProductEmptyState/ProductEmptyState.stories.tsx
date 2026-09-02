@@ -16,6 +16,7 @@ import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsE
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
 import { customerAnalyticsEmptyState } from 'products/customer_analytics/frontend/emptyState/customerAnalyticsEmptyState'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
+import { dataCatalogEmptyState } from 'products/data_catalog/frontend/emptyState/dataCatalogEmptyState'
 import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
@@ -355,6 +356,13 @@ export const AlertsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(a
         },
     },
 })
+
+// Data catalog detection counts metrics on mount - answer "none yet".
+export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    dataCatalogEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/data_catalog/metrics/': [200, emptyEntityList] } } }
+)
 
 // Notebooks detection counts notebooks on mount - answer "none yet".
 export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
