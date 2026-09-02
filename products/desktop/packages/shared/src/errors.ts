@@ -118,6 +118,9 @@ const UPSTREAM_TRANSIENT_ERROR_REGEXES = [
   /API Error:\s*(?:429|5\d\d)\b/i,
 ] as const;
 
+const TURN_ENDED_WITHOUT_RESPONSE_REGEX =
+  /\[ede_diagnostic\]\s+result_type=user\b/i;
+
 function includesAny(
   value: string | undefined,
   patterns: readonly string[],
@@ -158,6 +161,16 @@ export function isTransientUpstreamError(
   );
 }
 
+export function isTurnEndedWithoutResponseError(
+  errorMessage: string,
+  errorDetails?: string,
+): boolean {
+  return (
+    TURN_ENDED_WITHOUT_RESPONSE_REGEX.test(errorMessage) ||
+    (!!errorDetails && TURN_ENDED_WITHOUT_RESPONSE_REGEX.test(errorDetails))
+  );
+}
+
 export type PromptFailureKind =
   | "usage_limit"
   | "transient"
@@ -185,6 +198,17 @@ export function classifyPromptFailure(
       message,
       retryable: false,
       limitCause,
+    };
+  }
+  if (
+    errorType === "turn_ended_without_response" ||
+    isTurnEndedWithoutResponseError(message, errorDetails)
+  ) {
+    return {
+      kind: "transient",
+      message,
+      retryable: true,
+      limitCause: null,
     };
   }
   if (
@@ -227,6 +251,7 @@ export function isFatalSessionError(
   errorDetails?: string,
 ): boolean {
   if (isRateLimitError(errorMessage, errorDetails)) return false;
+  if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) return false;
   if (isTransientUpstreamError(errorMessage, errorDetails)) return false;
   if (classifyGatewayLimitError(errorMessage, errorDetails) === "model_gate") {
     return false;

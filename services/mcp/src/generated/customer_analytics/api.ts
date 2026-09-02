@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const AccountRelationshipDefinitionsListParams = /* @__PURE__ */ zod.object({
+export const AccountRelationshipDefinitionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const AccountRelationshipDefinitionsListParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const AccountRelationshipDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+export const AccountRelationshipDefinitionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const AccountRelationshipDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+export const AccountRelationshipDefinitionsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -33,7 +33,7 @@ export const accountRelationshipDefinitionsCreateBodyNameMax = 400
 
 export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
 
-export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
+export const AccountRelationshipDefinitionsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -54,7 +54,7 @@ export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
 
-export const AccountRelationshipDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AccountRelationshipDefinitionsRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -63,7 +63,7 @@ export const AccountRelationshipDefinitionsRetrieveParams = /* @__PURE__ */ zod.
         ),
 })
 
-export const AccountRelationshipDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const AccountRelationshipDefinitionsPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -74,7 +74,7 @@ export const AccountRelationshipDefinitionsPartialUpdateParams = /* @__PURE__ */
 
 export const accountRelationshipDefinitionsPartialUpdateBodyNameMax = 400
 
-export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+export const AccountRelationshipDefinitionsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -96,7 +96,7 @@ export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ z
     })
     .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
 
-export const AccountRelationshipDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+export const AccountRelationshipDefinitionsDestroyParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -105,7 +105,7 @@ export const AccountRelationshipDefinitionsDestroyParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const AccountsListParams = /* @__PURE__ */ zod.object({
+export const AccountsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -116,7 +116,7 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
 export const accountsListQueryIncludeChurnedDefault = false
 export const accountsListQueryIncludeIgnoredDefault = false
 
-export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
+export const AccountsListQueryParams = () => zod.object({
     all_roles_unassigned: zod
         .boolean()
         .optional()
@@ -141,7 +141,7 @@ export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsCreateParams = /* @__PURE__ */ zod.object({
+export const AccountsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -153,7 +153,7 @@ export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
 
-export const AccountsCreateBody = /* @__PURE__ */ zod
+export const AccountsCreateBody = () => zod
     .object({
         name: zod.string().max(accountsCreateBodyNameMax).describe('Human-readable name of the account.'),
         external_id: zod
@@ -214,7 +214,7 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
-export const AccountsCustomPropertyValuesListParams = /* @__PURE__ */ zod.object({
+export const AccountsCustomPropertyValuesListParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -223,7 +223,7 @@ export const AccountsCustomPropertyValuesListParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const AccountsCustomPropertyValuesCreateParams = /* @__PURE__ */ zod.object({
+export const AccountsCustomPropertyValuesCreateParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -232,7 +232,7 @@ export const AccountsCustomPropertyValuesCreateParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
+export const AccountsCustomPropertyValuesCreateBody = () => zod.object({
     definition: zod.string().describe('UUID of the custom property definition whose value to set for this account.'),
     value: zod
         .union([zod.string(), zod.number(), zod.boolean()])
@@ -241,7 +241,7 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
         ),
 })
 
-export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
+export const AccountsNotebooksListParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -250,14 +250,14 @@ export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsNotebooksListQueryParams = /* @__PURE__ */ zod.object({
+export const AccountsNotebooksListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort by creation date or author. Defaults to '-created_at'."),
     search: zod.string().optional().describe('Full-text search across notebook title and content.'),
 })
 
-export const AccountsNotebooksCreateParams = /* @__PURE__ */ zod.object({
+export const AccountsNotebooksCreateParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -268,7 +268,7 @@ export const AccountsNotebooksCreateParams = /* @__PURE__ */ zod.object({
 
 export const accountsNotebooksCreateBodyTitleMax = 256
 
-export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
+export const AccountsNotebooksCreateBody = () => zod.object({
     title: zod
         .string()
         .max(accountsNotebooksCreateBodyTitleMax)
@@ -278,7 +278,7 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
 
-export const AccountsNotebooksRetrieveParams = /* @__PURE__ */ zod.object({
+export const AccountsNotebooksRetrieveParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -288,7 +288,7 @@ export const AccountsNotebooksRetrieveParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
-export const AccountsNotebooksDestroyParams = /* @__PURE__ */ zod.object({
+export const AccountsNotebooksDestroyParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -298,7 +298,7 @@ export const AccountsNotebooksDestroyParams = /* @__PURE__ */ zod.object({
     short_id: zod.string(),
 })
 
-export const AccountsRelationshipsListParams = /* @__PURE__ */ zod.object({
+export const AccountsRelationshipsListParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -307,14 +307,14 @@ export const AccountsRelationshipsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsRelationshipsListQueryParams = /* @__PURE__ */ zod.object({
+export const AccountsRelationshipsListQueryParams = () => zod.object({
     include_history: zod
         .boolean()
         .optional()
         .describe('Include ended assignments (the full timeline), not just active ones.'),
 })
 
-export const AccountsRelationshipsCreateParams = /* @__PURE__ */ zod.object({
+export const AccountsRelationshipsCreateParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     project_id: zod
         .string()
@@ -323,14 +323,14 @@ export const AccountsRelationshipsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
+export const AccountsRelationshipsCreateBody = () => zod
     .object({
         definition: zod.string().describe('Id of the relationship definition to assign.'),
         user: zod.number().describe("PostHog user id of the assignee. Must be a member of the account's organization."),
     })
     .describe('Input for assigning a user to an account relationship.')
 
-export const AccountsRelationshipsEndCreateParams = /* @__PURE__ */ zod.object({
+export const AccountsRelationshipsEndCreateParams = () => zod.object({
     account_id: zod.string().describe('UUID of the parent account.'),
     id: zod.string(),
     project_id: zod
@@ -340,7 +340,7 @@ export const AccountsRelationshipsEndCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AccountsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
     project_id: zod
         .string()
@@ -349,7 +349,7 @@ export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const AccountsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
     project_id: zod
         .string()
@@ -362,7 +362,7 @@ export const accountsPartialUpdateBodyNameMax = 400
 
 export const accountsPartialUpdateBodyExternalIdMax = 400
 
-export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
+export const AccountsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -427,7 +427,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
-export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
+export const AccountsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
     project_id: zod
         .string()
@@ -436,7 +436,7 @@ export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsMeetingsListParams = /* @__PURE__ */ zod.object({
+export const AccountsMeetingsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
     project_id: zod
         .string()
@@ -445,13 +445,13 @@ export const AccountsMeetingsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsMeetingsListQueryParams = /* @__PURE__ */ zod.object({
+export const AccountsMeetingsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Filter meetings by title or attendee email\/name.'),
 })
 
-export const AccountsSummariesListParams = /* @__PURE__ */ zod.object({
+export const AccountsSummariesListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
     project_id: zod
         .string()
@@ -460,12 +460,12 @@ export const AccountsSummariesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AccountsSummariesListQueryParams = /* @__PURE__ */ zod.object({
+export const AccountsSummariesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const AnnouncementsListParams = /* @__PURE__ */ zod.object({
+export const AnnouncementsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -473,12 +473,12 @@ export const AnnouncementsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AnnouncementsListQueryParams = /* @__PURE__ */ zod.object({
+export const AnnouncementsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const AnnouncementsCreateParams = /* @__PURE__ */ zod.object({
+export const AnnouncementsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -486,7 +486,7 @@ export const AnnouncementsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
+export const AnnouncementsCreateBody = () => zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
     channels: zod
         .array(zod.string())
@@ -495,7 +495,7 @@ export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AnnouncementsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AnnouncementsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -507,7 +507,7 @@ export const AnnouncementsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Slack channels the SupportHog bot can post to, labeled by customer account name.
  */
-export const AnnouncementsChannelsListParams = /* @__PURE__ */ zod.object({
+export const AnnouncementsChannelsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -515,7 +515,7 @@ export const AnnouncementsChannelsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CustomPropertyDefinitionsListParams = /* @__PURE__ */ zod.object({
+export const CustomPropertyDefinitionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -523,12 +523,12 @@ export const CustomPropertyDefinitionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CustomPropertyDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+export const CustomPropertyDefinitionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const CustomPropertyDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+export const CustomPropertyDefinitionsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -545,7 +545,7 @@ export const customPropertyDefinitionsCreateBodyGroupTypeIndexMax = 4
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
 
-export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
+export const CustomPropertyDefinitionsCreateBody = () => zod
     .object({
         name: zod
             .string()
@@ -624,7 +624,7 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
         "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
-export const CustomPropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const CustomPropertyDefinitionsRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -633,7 +633,7 @@ export const CustomPropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const CustomPropertyDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const CustomPropertyDefinitionsPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -649,7 +649,7 @@ export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax = 4
 
 export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
 
-export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+export const CustomPropertyDefinitionsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -730,7 +730,7 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
-export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object({
+export const CustomPropertyDefinitionsDestroyParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -739,7 +739,7 @@ export const CustomPropertyDefinitionsDestroyParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const CustomPropertySourcesListParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -747,12 +747,12 @@ export const CustomPropertySourcesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CustomPropertySourcesListQueryParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const CustomPropertySourcesCreateParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -766,7 +766,7 @@ export const customPropertySourcesCreateBodyKeyColumnMax = 400
 
 export const customPropertySourcesCreateBodyIsEnabledDefault = true
 
-export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
+export const CustomPropertySourcesCreateBody = () => zod
     .object({
         definition: zod
             .string()
@@ -817,7 +817,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
         'Binds warehouse columns to a custom property definition. Account sources read a materialized\nview column and sync onto matching accounts; person and group sources read either an imported\nwarehouse table or a materialized view, and sync onto matching persons or groups on every\nwarehouse run of what they read.'
     )
 
-export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -826,7 +826,7 @@ export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CustomPropertySourcesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -839,7 +839,7 @@ export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
 
 export const customPropertySourcesPartialUpdateBodyKeyColumnMax = 400
 
-export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
+export const CustomPropertySourcesPartialUpdateBody = () => zod
     .object({
         source_column: zod
             .string()
@@ -860,7 +860,7 @@ export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
         "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
     )
 
-export const CustomPropertySourcesDestroyParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesDestroyParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -874,7 +874,7 @@ export const CustomPropertySourcesDestroyParams = /* @__PURE__ */ zod.object({
  * populates person or group properties for historical rows. Coalesces if one is already running
  * for the table.
  */
-export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesBackfillParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -887,7 +887,7 @@ export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
  * The source's sync history, newest first. Person and group runs require viewer access to
  * their warehouse source because the response includes row counts and sync errors.
  */
-export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesRunsListParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -896,7 +896,7 @@ export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
@@ -910,7 +910,7 @@ export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.obje
  * binding (a real, billable warehouse sync), a materialization for a view binding. The
  * incremental person/group-property update runs off that run.
  */
-export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
+export const CustomPropertySourcesSyncParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -926,7 +926,7 @@ export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
  * destination that is re-provisioned inside the same transaction as every write, so
  * config and delivery can't drift apart.
  */
-export const EventStreamsListParams = /* @__PURE__ */ zod.object({
+export const EventStreamsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -941,7 +941,7 @@ export const EventStreamsListParams = /* @__PURE__ */ zod.object({
  * destination that is re-provisioned inside the same transaction as every write, so
  * config and delivery can't drift apart.
  */
-export const EventStreamsCreateParams = /* @__PURE__ */ zod.object({
+export const EventStreamsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -958,7 +958,7 @@ export const eventStreamsCreateBodySlackChannelIdMax = 200
 export const eventStreamsCreateBodySlackChannelNameDefault = ``
 export const eventStreamsCreateBodySlackChannelNameMax = 200
 
-export const EventStreamsCreateBody = /* @__PURE__ */ zod
+export const EventStreamsCreateBody = () => zod
     .object({
         enabled: zod
             .boolean()
@@ -996,7 +996,7 @@ export const EventStreamsCreateBody = /* @__PURE__ */ zod
  * destination that is re-provisioned inside the same transaction as every write, so
  * config and delivery can't drift apart.
  */
-export const EventStreamsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const EventStreamsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this event stream.'),
     project_id: zod
         .string()
@@ -1011,7 +1011,7 @@ export const eventStreamsPartialUpdateBodySlackChannelIdMax = 200
 
 export const eventStreamsPartialUpdateBodySlackChannelNameMax = 200
 
-export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
+export const EventStreamsPartialUpdateBody = () => zod
     .object({
         enabled: zod
             .boolean()
@@ -1049,7 +1049,7 @@ export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
  * destination that is re-provisioned inside the same transaction as every write, so
  * config and delivery can't drift apart.
  */
-export const EventStreamsDestroyParams = /* @__PURE__ */ zod.object({
+export const EventStreamsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this event stream.'),
     project_id: zod
         .string()
@@ -1065,7 +1065,7 @@ export const EventStreamsDestroyParams = /* @__PURE__ */ zod.object({
  * destination that is re-provisioned inside the same transaction as every write, so
  * config and delivery can't drift apart.
  */
-export const EventStreamsAddAccountCreateParams = /* @__PURE__ */ zod.object({
+export const EventStreamsAddAccountCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this event stream.'),
     project_id: zod
         .string()
@@ -1074,7 +1074,7 @@ export const EventStreamsAddAccountCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
+export const EventStreamsAddAccountCreateBody = () => zod
     .object({
         account_id: zod.string().describe('UUID of the account to add to or remove from the stream.'),
     })
@@ -1087,7 +1087,7 @@ export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
  * destination that is re-provisioned inside the same transaction as every write, so
  * config and delivery can't drift apart.
  */
-export const EventStreamsRemoveAccountCreateParams = /* @__PURE__ */ zod.object({
+export const EventStreamsRemoveAccountCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this event stream.'),
     project_id: zod
         .string()
@@ -1096,7 +1096,7 @@ export const EventStreamsRemoveAccountCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
+export const EventStreamsRemoveAccountCreateBody = () => zod
     .object({
         account_id: zod.string().describe('UUID of the account to add to or remove from the stream.'),
     })
@@ -1109,7 +1109,7 @@ export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
  * destination that is re-provisioned inside the same transaction as every write, so
  * config and delivery can't drift apart.
  */
-export const EventStreamsSendTestMessageCreateParams = /* @__PURE__ */ zod.object({
+export const EventStreamsSendTestMessageCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this event stream.'),
     project_id: zod
         .string()
@@ -1118,7 +1118,7 @@ export const EventStreamsSendTestMessageCreateParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const FeatureRequestProductAreasListParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestProductAreasListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1128,14 +1128,14 @@ export const FeatureRequestProductAreasListParams = /* @__PURE__ */ zod.object({
 
 export const featureRequestProductAreasListQueryIncludeInactiveDefault = false
 
-export const FeatureRequestProductAreasListQueryParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestProductAreasListQueryParams = () => zod.object({
     include_inactive: zod
         .boolean()
         .default(featureRequestProductAreasListQueryIncludeInactiveDefault)
         .describe('Include inactive product areas. Defaults to false.'),
 })
 
-export const FeatureRequestProductAreasCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestProductAreasCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1150,7 +1150,7 @@ export const featureRequestProductAreasCreateBodyDisplayOrderMin = 0
 
 export const featureRequestProductAreasCreateBodyIsActiveDefault = true
 
-export const FeatureRequestProductAreasCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestProductAreasCreateBody = () => zod.object({
     name: zod.string().max(featureRequestProductAreasCreateBodyNameMax).describe('Team-maintained product area name.'),
     display_order: zod
         .number()
@@ -1163,7 +1163,7 @@ export const FeatureRequestProductAreasCreateBody = /* @__PURE__ */ zod.object({
         .describe('Whether editors can select this product area for new requests.'),
 })
 
-export const FeatureRequestProductAreasPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestProductAreasPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1176,7 +1176,7 @@ export const featureRequestProductAreasPartialUpdateBodyNameMax = 200
 
 export const featureRequestProductAreasPartialUpdateBodyDisplayOrderMin = 0
 
-export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestProductAreasPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(featureRequestProductAreasPartialUpdateBodyNameMax)
@@ -1190,7 +1190,7 @@ export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.o
     is_active: zod.boolean().optional().describe('Whether editors can select this product area for new requests.'),
 })
 
-export const FeatureRequestsListParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1201,7 +1201,7 @@ export const FeatureRequestsListParams = /* @__PURE__ */ zod.object({
 export const featureRequestsListQueryArchiveStateDefault = `active`
 export const featureRequestsListQueryRequestOrderingDefault = `-updated_at`
 
-export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsListQueryParams = () => zod.object({
     account_ids: zod
         .array(zod.string())
         .optional()
@@ -1250,7 +1250,7 @@ export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('Lifecycle statuses to include. Multiple values use OR semantics.'),
 })
 
-export const FeatureRequestsCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1270,7 +1270,7 @@ export const featureRequestsCreateBodyEvidenceOneSourceUrlOneMax = 2000
 
 export const featureRequestsCreateBodyEvidenceOneSourceUrlTwoMax = 0
 
-export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsCreateBody = () => zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
     description: zod
         .string()
@@ -1325,7 +1325,7 @@ export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional first evidence item to create for the selected account.'),
 })
 
-export const FeatureRequestsRetrieveParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsRetrieveParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1334,7 +1334,7 @@ export const FeatureRequestsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureRequestsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsPartialUpdateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1345,7 +1345,7 @@ export const FeatureRequestsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const featureRequestsPartialUpdateBodyTitleMax = 400
 
-export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsPartialUpdateBody = () => zod.object({
     expected_version: zod
         .number()
         .min(1)
@@ -1386,7 +1386,7 @@ export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureRequestsAddAccountCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsAddAccountCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1404,7 +1404,7 @@ export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneMax = 200
 
 export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlTwoMax = 0
 
-export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsAddAccountCreateBody = () => zod.object({
     expected_version: zod
         .number()
         .min(1)
@@ -1450,7 +1450,7 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional first evidence item to create for the account in the same change.'),
 })
 
-export const FeatureRequestsAddEvidenceCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsAddEvidenceCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1468,7 +1468,7 @@ export const featureRequestsAddEvidenceCreateBodySourceUrlOneMax = 2000
 
 export const featureRequestsAddEvidenceCreateBodySourceUrlTwoMax = 0
 
-export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsAddEvidenceCreateBody = () => zod.object({
     summary: zod
         .string()
         .default(featureRequestsAddEvidenceCreateBodySummaryDefault)
@@ -1503,7 +1503,7 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
     account_link_id: zod.string().describe('Active account link that owns this evidence.'),
 })
 
-export const FeatureRequestsArchiveCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsArchiveCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1512,14 +1512,14 @@ export const FeatureRequestsArchiveCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureRequestsArchiveCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsArchiveCreateBody = () => zod.object({
     expected_version: zod
         .number()
         .min(1)
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
-export const FeatureRequestsHistoryListParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsHistoryListParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1528,7 +1528,7 @@ export const FeatureRequestsHistoryListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureRequestsRemoveEvidenceCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsRemoveEvidenceCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1537,7 +1537,7 @@ export const FeatureRequestsRemoveEvidenceCreateParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const FeatureRequestsRemoveEvidenceCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsRemoveEvidenceCreateBody = () => zod.object({
     expected_version: zod
         .number()
         .min(1)
@@ -1545,7 +1545,7 @@ export const FeatureRequestsRemoveEvidenceCreateBody = /* @__PURE__ */ zod.objec
     evidence_id: zod.string().describe('Evidence item to delete.'),
 })
 
-export const FeatureRequestsRestoreCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsRestoreCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1554,14 +1554,14 @@ export const FeatureRequestsRestoreCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureRequestsRestoreCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsRestoreCreateBody = () => zod.object({
     expected_version: zod
         .number()
         .min(1)
         .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
-export const FeatureRequestsStatusHistoryListParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsStatusHistoryListParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1570,7 +1570,7 @@ export const FeatureRequestsStatusHistoryListParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const FeatureRequestsUpdateEvidenceCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureRequestsUpdateEvidenceCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()
@@ -1588,7 +1588,7 @@ export const featureRequestsUpdateEvidenceCreateBodySourceUrlOneMax = 2000
 
 export const featureRequestsUpdateEvidenceCreateBodySourceUrlTwoMax = 0
 
-export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureRequestsUpdateEvidenceCreateBody = () => zod.object({
     summary: zod
         .string()
         .default(featureRequestsUpdateEvidenceCreateBodySummaryDefault)
@@ -1626,7 +1626,7 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
 export const groupsTypesMetricsListPathGroupTypeIndexMin = -2147483648
 export const groupsTypesMetricsListPathGroupTypeIndexMax = 2147483647
 
-export const GroupsTypesMetricsListParams = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsListParams = () => zod.object({
     group_type_index: zod
         .number()
         .min(groupsTypesMetricsListPathGroupTypeIndexMin)
@@ -1638,7 +1638,7 @@ export const GroupsTypesMetricsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const GroupsTypesMetricsListQueryParams = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -1646,7 +1646,7 @@ export const GroupsTypesMetricsListQueryParams = /* @__PURE__ */ zod.object({
 export const groupsTypesMetricsCreatePathGroupTypeIndexMin = -2147483648
 export const groupsTypesMetricsCreatePathGroupTypeIndexMax = 2147483647
 
-export const GroupsTypesMetricsCreateParams = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsCreateParams = () => zod.object({
     group_type_index: zod
         .number()
         .min(groupsTypesMetricsCreatePathGroupTypeIndexMin)
@@ -1666,7 +1666,7 @@ export const groupsTypesMetricsCreateBodyDisplayDefault = `number`
 export const groupsTypesMetricsCreateBodyMathDefault = `count`
 export const groupsTypesMetricsCreateBodyMathPropertyMax = 255
 
-export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsCreateBody = () => zod.object({
     name: zod
         .string()
         .max(groupsTypesMetricsCreateBodyNameMax)
@@ -1713,7 +1713,7 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
 export const groupsTypesMetricsRetrievePathGroupTypeIndexMin = -2147483648
 export const groupsTypesMetricsRetrievePathGroupTypeIndexMax = 2147483647
 
-export const GroupsTypesMetricsRetrieveParams = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsRetrieveParams = () => zod.object({
     group_type_index: zod
         .number()
         .min(groupsTypesMetricsRetrievePathGroupTypeIndexMin)
@@ -1729,7 +1729,7 @@ export const GroupsTypesMetricsRetrieveParams = /* @__PURE__ */ zod.object({
 export const groupsTypesMetricsPartialUpdatePathGroupTypeIndexMin = -2147483648
 export const groupsTypesMetricsPartialUpdatePathGroupTypeIndexMax = 2147483647
 
-export const GroupsTypesMetricsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsPartialUpdateParams = () => zod.object({
     group_type_index: zod
         .number()
         .min(groupsTypesMetricsPartialUpdatePathGroupTypeIndexMin)
@@ -1746,7 +1746,7 @@ export const groupsTypesMetricsPartialUpdateBodyNameMax = 255
 
 export const groupsTypesMetricsPartialUpdateBodyMathPropertyMax = 255
 
-export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(groupsTypesMetricsPartialUpdateBodyNameMax)
@@ -1795,7 +1795,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const groupsTypesMetricsDestroyPathGroupTypeIndexMin = -2147483648
 export const groupsTypesMetricsDestroyPathGroupTypeIndexMax = 2147483647
 
-export const GroupsTypesMetricsDestroyParams = /* @__PURE__ */ zod.object({
+export const GroupsTypesMetricsDestroyParams = () => zod.object({
     group_type_index: zod
         .number()
         .min(groupsTypesMetricsDestroyPathGroupTypeIndexMin)
