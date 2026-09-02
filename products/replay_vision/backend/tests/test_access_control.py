@@ -408,6 +408,28 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
             self.assertEqual(self.client.get(dock_url).status_code, 200)
         self.assertEqual(len(one.captured_queries), len(six.captured_queries))
 
+    def test_dock_read_scopes_every_observation_query_to_the_session(self) -> None:
+        # The experiment-access lookup runs before the row read, so it must carry the session_id
+        # predicate too. If it doesn't, it scans the team's whole observation history and
+        # rlo_team_session_idx can't serve it. Assert every observation-table read is session-scoped.
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        scanner = self._create_scanner(name="dock")
+        ReplayObservation.objects.create(scanner=scanner, session_id="sess-1", scanner_snapshot=snapshot_for(scanner))
+        dock_url = f"/api/environments/{self.team.id}/vision/observations/?session_id=sess-1"
+
+        self.client.force_login(self.other_user)
+        self.client.get(dock_url)  # warm request-scoped caches so the capture is the read itself.
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self.client.get(dock_url).status_code, 200)
+
+        observation_reads = [
+            q["sql"] for q in queries.captured_queries if 'FROM "replay_vision_replayobservation"' in q["sql"]
+        ]
+        self.assertTrue(observation_reads, "expected the dock read to query the observation table")
+        for sql in observation_reads:
+            self.assertIn("session_id", sql, sql)
+
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
     def setUp(self) -> None:

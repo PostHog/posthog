@@ -1211,20 +1211,18 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # targeting included), then gate each row against the experiment in its own snapshot so a
         # retargeted scanner can't surface historical rows the caller can't access.
         readable_scanner_ids = readable_observation_scanner_ids(self.user_access_control, self.team_id)
-        queryset = hydrate_for_serialization(
-            accessible_observations(
-                self.user_access_control,
-                self.team_id,
-                queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids),
-            )
-        ).order_by("-created_at", "id")
-        # A bare list would scan the whole team's observation history; the replay page always has a session.
+        queryset = queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
+        # Scope to the session before the experiment gate runs: the replay page always has a session, and
+        # filtering session_id first lets both the access lookup and the row read probe rlo_team_session_idx
+        # instead of scanning the team's observation history. A bare list would scan that whole history.
         if self.action == "list":
             session_id = self.request.query_params.get("session_id")
             if not session_id:
                 raise ValidationError("The `session_id` query parameter is required.")
             queryset = queryset.filter(session_id=session_id)
-        return queryset
+        return hydrate_for_serialization(
+            accessible_observations(self.user_access_control, self.team_id, queryset)
+        ).order_by("-created_at", "id")
 
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]

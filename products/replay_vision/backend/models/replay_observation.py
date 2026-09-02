@@ -140,6 +140,10 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
+            # Serves the replay-page dock lookup: one session's observations for a team across scanners. The
+            # scanner IN list keeps Postgres off the (scanner, session_id) unique constraint, so without this
+            # the read scans the whole team's history and filters session_id away.
+            models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",
