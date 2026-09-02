@@ -382,13 +382,26 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
         field = batch.schema.field(column_name)
         column = batch.column(column_name)
 
-        if not any(t.lower() in type.lower() for t in types_to_transform) or pa.types.is_date(field.type):
+        if (
+            not any(t.lower() in type.lower() for t in types_to_transform)
+            or pa.types.is_date(field.type)
+            or pa.types.is_struct(field.type)
+            or pa.types.is_map(field.type)
+        ):
+            # A ClickHouse Tuple/Map carries its DateTime element as a timestamp already, so skip
+            # the cast the substring match would otherwise force on the whole struct.
             new_columns.append(column)
             new_fields.append(field)
             continue
 
         # Handle array/list types (e.g., Array(DateTime))
         if pa.types.is_list(field.type):
+            # A Nested column arrives as list<struct>; its elements are not integer date/datetimes.
+            if pa.types.is_struct(field.type.value_type) or pa.types.is_map(field.type.value_type):
+                new_columns.append(column)
+                new_fields.append(field)
+                continue
+
             if "datetime" in type.lower():
                 list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
                 list_type = pa.list_(list_element_type)
