@@ -48,7 +48,7 @@ from .organization_domain import OrganizationDomain
 from .organization_notification_lock import OrganizationMemberNotificationLock
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
-from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
+from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
 from .project_secret_api_key import ProjectSecretAPIKey
 from .product_intent import ProductIntent
@@ -144,8 +144,6 @@ __all__ = [
     "PersonDistinctId",
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
-    "PersonOverride",
-    "PersonOverrideMapping",
     "ProductIntent",
     "Project",
     "Property",

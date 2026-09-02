@@ -5,7 +5,6 @@ from uuid import UUID
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
 from django.db import connections, models
-from django.db.models import F, Q
 
 import structlog
 
@@ -447,59 +446,6 @@ class PersonDistinctId(models.Model):
         # migrations managed via rust/persons_migrations
         managed = False
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
-
-
-class PersonOverrideMapping(models.Model):
-    # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
-
-    id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
-    uuid = models.UUIDField()
-
-    class Meta:
-        # migrations managed via rust/persons_migrations
-        managed = False
-        constraints = [
-            models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
-        ]
-
-
-class PersonOverride(models.Model):
-    # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
-
-    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    # DO_NOTHING + db_constraint=False: Team deletion handled manually, may be cross-database
-    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
-
-    old_person_id = models.ForeignKey(
-        "PersonOverrideMapping",
-        db_column="old_person_id",
-        related_name="person_override_old",
-        on_delete=models.CASCADE,
-    )
-    override_person_id = models.ForeignKey(
-        "PersonOverrideMapping",
-        db_column="override_person_id",
-        related_name="person_override_override",
-        on_delete=models.CASCADE,
-    )
-
-    oldest_event = models.DateTimeField()
-    version = models.BigIntegerField(null=True, blank=True)
-
-    class Meta:
-        # migrations managed via rust/persons_migrations
-        managed = False
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "old_person_id"],
-                name="unique override per old_person_id",
-            ),
-            models.CheckConstraint(
-                condition=~Q(old_person_id__exact=F("override_person_id")),
-                name="old_person_id_different_from_override_person_id",
-            ),
-        ]
 
 
 class PendingPersonOverride(models.Model):

@@ -118,16 +118,14 @@ No FK — the FK to posthog_person was dropped during the partitioning migration
 
 ## posthog_personoverride
 
-| Index name                                            | Type    | Columns                                                | Notes                |
-| ----------------------------------------------------- | ------- | ------------------------------------------------------ | -------------------- |
-| `unique_override_per_old_person_id`                   | UNIQUE  | `(team_id, old_person_id)`                             | Primary lookup path  |
-| `posthog_personoverride_old_person_id_4c1deac0`       | INDEX   | `(old_person_id)`                                      | Single-column lookup |
-| `posthog_personoverride_override_person_id_9f32aab1`  | INDEX   | `(override_person_id)`                                 | Reverse lookup       |
-| `posthog_personoverride_team_id_92291e67`             | INDEX   | `(team_id)`                                            | Team-level scans     |
-| `exclude_override_person_id_from_being_old_person_id` | EXCLUDE | GiST on `(team_id, override_person_id, old_person_id)` | Integrity            |
+The table has no reader and no writer. Do not add an RPC against it.
+
+| Index name                          | Type   | Columns                    | Notes               |
+| ----------------------------------- | ------ | -------------------------- | ------------------- |
+| `unique_override_per_old_person_id` | UNIQUE | `(team_id, old_person_id)` | Primary lookup path |
 
 Constraints: `old_person_id_different_from_override_person_id` — `old_person_id != override_person_id`.
-FKs: `old_person_id` and `override_person_id` both reference `posthog_personoverridemapping(id)`.
+FKs: `old_person_id` and `override_person_id` both reference `posthog_personoverridemapping(id)`. Neither column has an index.
 
 ## If you need a new index
 
