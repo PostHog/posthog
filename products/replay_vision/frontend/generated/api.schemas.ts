@@ -8,99 +8,42 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `schedule` - Schedule
- * * `threshold` - Threshold
+ * * `metric` - Metric
+ * * `match` - Match
  */
-export type TriggerTypeEnumApi = (typeof TriggerTypeEnumApi)[keyof typeof TriggerTypeEnumApi]
+export type VisionAlertKindEnumApi = (typeof VisionAlertKindEnumApi)[keyof typeof VisionAlertKindEnumApi]
 
-export const TriggerTypeEnumApi = {
-    Schedule: 'schedule',
-    Threshold: 'threshold',
+export const VisionAlertKindEnumApi = {
+    Metric: 'metric',
+    Match: 'match',
 } as const
 
-/**
- * * `group_summary` - Group summary
- * * `alert` - Alert
- * * `per_observation` - Per observation
- */
-export type ActionModeEnumApi = (typeof ActionModeEnumApi)[keyof typeof ActionModeEnumApi]
-
-export const ActionModeEnumApi = {
-    GroupSummary: 'group_summary',
-    Alert: 'alert',
-    PerObservation: 'per_observation',
-} as const
-
-/**
- * Schedule trigger parameters. Threshold triggers are reserved and rejected at the API for now.
- */
-export interface TriggerConfigApi {
-    /** iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately). */
-    rrule?: string
-    /** IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'. */
-    timezone?: string
-}
-
-/**
- * * `yes` - yes
- * * `no` - no
- * * `inconclusive` - inconclusive
- */
-export type VerdictEnumApi = (typeof VerdictEnumApi)[keyof typeof VerdictEnumApi]
-
-export const VerdictEnumApi = {
-    Yes: 'yes',
-    No: 'no',
-    Inconclusive: 'inconclusive',
-} as const
-
-/**
- * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
- * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
- */
-export interface SelectionApi {
-    /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
-    scanner_ids?: string[]
-    /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
-    verdict?: VerdictEnumApi[]
-    /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
+export interface VisionAlertSelectionApi {
+    /**
+     * Monitor verdicts to match, e.g. ['yes'].
+     * @maxItems 10
+     * @items.maxLength 100
+     */
+    verdict?: string[]
+    /**
+     * Classifier tags to match; an observation matches when it carries any of them.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
     tags?: string[]
-    /** Only run on scorer observations with a score at or above this value (inclusive). */
+    /** Minimum scorer score (inclusive). */
     min_score?: number
-    /** Only run on scorer observations with a score at or below this value (inclusive). */
+    /** Maximum scorer score (inclusive). */
     max_score?: number
 }
 
 /**
- * Options for the group-summary synthesis step.
- */
-export interface SynthesisConfigApi {
-    /**
-     * Free-form guidance steering how the group summary is written.
-     * @maxLength 500
-     */
-    prompt_guide?: string
-}
-
-/**
- * * `every_match` - Every new match
- * * `on_breach` - When a threshold is crossed
- */
-export type AlertFrequencyEnumApi = (typeof AlertFrequencyEnumApi)[keyof typeof AlertFrequencyEnumApi]
-
-export const AlertFrequencyEnumApi = {
-    EveryMatch: 'every_match',
-    OnBreach: 'on_breach',
-} as const
-
-/**
- * * `count` - Count of matching observations
+ * * `count` - Count matching observations
  * * `avg_score` - Average score
  */
-export type VisionActionAlertMetricEnumApi =
-    (typeof VisionActionAlertMetricEnumApi)[keyof typeof VisionActionAlertMetricEnumApi]
+export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
 
-export const VisionActionAlertMetricEnumApi = {
+export const VisionAlertMetricEnumApi = {
     Count: 'count',
     AvgScore: 'avg_score',
 } as const
@@ -117,83 +60,35 @@ export const VisionAlertDirectionEnumApi = {
 } as const
 
 /**
- * * `1` - 1 day
- * * `3` - 3 days
- * * `7` - 7 days
- * * `14` - 14 days
- * * `30` - 30 days
+ * * `not_firing` - Not firing
+ * * `firing` - Firing
+ * * `pending_resolve` - Pending resolve
+ * * `errored` - Errored
+ * * `snoozed` - Snoozed
+ * * `broken` - Broken
  */
-export type WindowDaysEnumApi = (typeof WindowDaysEnumApi)[keyof typeof WindowDaysEnumApi]
+export type LogsAlertConfigurationStateEnumApi =
+    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
 
-export const WindowDaysEnumApi = {
-    Number1: 1,
-    Number3: 3,
-    Number7: 7,
-    Number14: 14,
-    Number30: 30,
+export const LogsAlertConfigurationStateEnumApi = {
+    NotFiring: 'not_firing',
+    Firing: 'firing',
+    PendingResolve: 'pending_resolve',
+    Errored: 'errored',
+    Snoozed: 'snoozed',
+    Broken: 'broken',
 } as const
 
-/**
- * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
- * notifies about each new match since the previous check; 'on_breach' compares a metric to a
- * threshold over a rolling window and notifies on the transition into breach.
- */
-export interface AlertConfigApi {
-    /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
-     *
-     * * `every_match` - Every new match
-     * * `on_breach` - When a threshold is crossed */
-    frequency?: AlertFrequencyEnumApi
-    /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
-     *
-     * * `count` - Count of matching observations
-     * * `avg_score` - Average score */
-    metric?: VisionActionAlertMetricEnumApi
-    /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
-    threshold?: number
-    /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
-     *
-     * * `above` - At or above
-     * * `below` - At or below */
-    direction?: VisionAlertDirectionEnumApi
-    /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
-     *
-     * * `1` - 1 day
-     * * `3` - 3 days
-     * * `7` - 7 days
-     * * `14` - 14 days
-     * * `30` - 30 days */
-    window_days?: WindowDaysEnumApi
-    /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
-    include_reasoning?: boolean
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
 }
 
-/**
- * * `slack` - Slack
- * * `webhook` - Webhook
- */
-export type DeliveryTargetTypeEnumApi = (typeof DeliveryTargetTypeEnumApi)[keyof typeof DeliveryTargetTypeEnumApi]
-
-export const DeliveryTargetTypeEnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
-/**
- * A single delivery destination: a Slack channel or an HTTP webhook URL.
- */
-export interface DeliveryTargetApi {
-    /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
-     *
-     * * `slack` - Slack
-     * * `webhook` - Webhook */
-    type: DeliveryTargetTypeEnumApi
-    /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
-    integration_id?: number
-    /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
-    channel?: string
-    /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
-    url?: string
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
 }
 
 /**
@@ -251,335 +146,6 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-/**
- * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
- */
-export interface VisionActionApi {
-    readonly id: string
-    /**
-     * Human-readable action name. Unique within the team.
-     * @maxLength 255
-     */
-    name: string
-    /** Scanner whose observations this action operates on. Must belong to the same team. */
-    scanner: string
-    /** When false, the scheduler skips this action. */
-    enabled?: boolean
-    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-    is_scanner_digest?: boolean
-    /** What fires the action. MVP supports 'schedule' only.
-     *
-     * * `schedule` - Schedule
-     * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
-    /** What the action produces. MVP supports 'group_summary' only.
-     *
-     * * `group_summary` - Group summary
-     * * `alert` - Alert
-     * * `per_observation` - Per observation */
-    mode?: ActionModeEnumApi
-    /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-    trigger_config?: TriggerConfigApi
-    /** Targeting predicate: which of the scanner's observations this action runs on. */
-    selection?: SelectionApi
-    /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-    synthesis_config?: SynthesisConfigApi
-    /** Alert condition; required when mode is 'alert', ignored otherwise. */
-    alert_config?: AlertConfigApi
-    /** List of delivery destinations the synthesized summary is sent to. */
-    delivery_config?: DeliveryTargetApi[]
-    /**
-     * Computed next fire time for schedule triggers; the scheduler scans this.
-     * @nullable
-     */
-    readonly next_run_at: string | null
-    /**
-     * Timestamp of the most recent run, or null if it has never run.
-     * @nullable
-     */
-    readonly last_run_at: string | null
-    /**
-     * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-     * @nullable
-     */
-    readonly hog_flow_id: string | null
-    readonly created_at: string
-    /** User who created the action. */
-    readonly created_by: UserBasicApi | null
-    readonly updated_at: string
-}
-
-export interface PaginatedVisionActionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: VisionActionApi[]
-}
-
-/**
- * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
- */
-export interface PatchedVisionActionApi {
-    readonly id?: string
-    /**
-     * Human-readable action name. Unique within the team.
-     * @maxLength 255
-     */
-    name?: string
-    /** Scanner whose observations this action operates on. Must belong to the same team. */
-    scanner?: string
-    /** When false, the scheduler skips this action. */
-    enabled?: boolean
-    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-    is_scanner_digest?: boolean
-    /** What fires the action. MVP supports 'schedule' only.
-     *
-     * * `schedule` - Schedule
-     * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
-    /** What the action produces. MVP supports 'group_summary' only.
-     *
-     * * `group_summary` - Group summary
-     * * `alert` - Alert
-     * * `per_observation` - Per observation */
-    mode?: ActionModeEnumApi
-    /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-    trigger_config?: TriggerConfigApi
-    /** Targeting predicate: which of the scanner's observations this action runs on. */
-    selection?: SelectionApi
-    /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-    synthesis_config?: SynthesisConfigApi
-    /** Alert condition; required when mode is 'alert', ignored otherwise. */
-    alert_config?: AlertConfigApi
-    /** List of delivery destinations the synthesized summary is sent to. */
-    delivery_config?: DeliveryTargetApi[]
-    /**
-     * Computed next fire time for schedule triggers; the scheduler scans this.
-     * @nullable
-     */
-    readonly next_run_at?: string | null
-    /**
-     * Timestamp of the most recent run, or null if it has never run.
-     * @nullable
-     */
-    readonly last_run_at?: string | null
-    /**
-     * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-     * @nullable
-     */
-    readonly hog_flow_id?: string | null
-    readonly created_at?: string
-    /** User who created the action. */
-    readonly created_by?: UserBasicApi | null
-    readonly updated_at?: string
-}
-
-/**
- * Async-accepted response for POST /vision/actions/{id}/run/.
- */
-export interface RunActionResponseApi {
-    /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
-    workflow_id: string
-    /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
-    already_running: boolean
-}
-
-/**
- * The shape every Replay Vision error response uses, so generated clients read one key.
- */
-export interface ReplayVisionErrorApi {
-    /** Human-readable explanation of why the request was refused. */
-    detail: string
-}
-
-/**
- * * `running` - Running
- * * `completed` - Completed
- * * `failed` - Failed
- * * `skipped` - Skipped
- */
-export type VisionActionRunStatusEnumApi =
-    (typeof VisionActionRunStatusEnumApi)[keyof typeof VisionActionRunStatusEnumApi]
-
-export const VisionActionRunStatusEnumApi = {
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-    Skipped: 'skipped',
-} as const
-
-/**
- * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
- */
-export interface VisionActionRunListApi {
-    readonly id: string
-    /** Run outcome: running, completed, failed, or skipped.
-     *
-     * * `running` - Running
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `skipped` - Skipped */
-    readonly status: VisionActionRunStatusEnumApi
-    /**
-     * The scheduled fire time this run was claimed for.
-     * @nullable
-     */
-    readonly scheduled_at: string | null
-    /** Number of observations that fed this run's summary. */
-    readonly observation_count: number
-    /**
-     * Short human-readable reason a run skipped or failed; null on success.
-     * @nullable
-     */
-    readonly error_reason: string | null
-    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-    readonly is_recovery: boolean
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedVisionActionRunListListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: VisionActionRunListApi[]
-}
-
-/**
- * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
- */
-export interface RunObservationApi {
-    /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
-    readonly index: number
-    /** Observation id; links to the observation detail view. */
-    readonly id: string
-    /** Session recording id this observation was made on. */
-    readonly session_id: string
-    /**
-     * Email of the person in the recorded session, captured at scan time; null if unidentified.
-     * @nullable
-     */
-    readonly recording_subject_email: string | null
-    /**
-     * Short title from the observation's summary; null if the observation had none.
-     * @nullable
-     */
-    readonly title: string | null
-    /** When the observation was produced. */
-    readonly created_at: string
-}
-
-/**
- * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
- */
-export interface VisionActionRunApi {
-    readonly id: string
-    /** Run outcome: running, completed, failed, or skipped.
-     *
-     * * `running` - Running
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `skipped` - Skipped */
-    readonly status: VisionActionRunStatusEnumApi
-    /**
-     * The scheduled fire time this run was claimed for.
-     * @nullable
-     */
-    readonly scheduled_at: string | null
-    /** Number of observations that fed this run's summary. */
-    readonly observation_count: number
-    /**
-     * Short human-readable reason a run skipped or failed; null on success.
-     * @nullable
-     */
-    readonly error_reason: string | null
-    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-    readonly is_recovery: boolean
-    readonly created_at: string
-    readonly updated_at: string
-    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-    readonly synthesized_markdown: string
-    /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
-    readonly observations: readonly RunObservationApi[]
-}
-
-/**
- * * `metric` - Metric
- * * `match` - Match
- */
-export type VisionAlertKindEnumApi = (typeof VisionAlertKindEnumApi)[keyof typeof VisionAlertKindEnumApi]
-
-export const VisionAlertKindEnumApi = {
-    Metric: 'metric',
-    Match: 'match',
-} as const
-
-export interface VisionAlertSelectionApi {
-    /**
-     * Monitor verdicts to match, e.g. ['yes'].
-     * @maxItems 10
-     * @items.maxLength 100
-     */
-    verdict?: string[]
-    /**
-     * Classifier tags to match; an observation matches when it carries any of them.
-     * @maxItems 20
-     * @items.maxLength 200
-     */
-    tags?: string[]
-    /** Minimum scorer score (inclusive). */
-    min_score?: number
-    /** Maximum scorer score (inclusive). */
-    max_score?: number
-}
-
-/**
- * * `count` - Count matching observations
- * * `avg_score` - Average score
- */
-export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
-
-export const VisionAlertMetricEnumApi = {
-    Count: 'count',
-    AvgScore: 'avg_score',
-} as const
-
-/**
- * * `not_firing` - Not firing
- * * `firing` - Firing
- * * `pending_resolve` - Pending resolve
- * * `errored` - Errored
- * * `snoozed` - Snoozed
- * * `broken` - Broken
- */
-export type LogsAlertConfigurationStateEnumApi =
-    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
-
-export const LogsAlertConfigurationStateEnumApi = {
-    NotFiring: 'not_firing',
-    Firing: 'firing',
-    PendingResolve: 'pending_resolve',
-    Errored: 'errored',
-    Snoozed: 'snoozed',
-    Broken: 'broken',
-} as const
-
-export interface AlertScheduleRestrictionWindowApi {
-    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
-    start: string
-    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
-    end: string
-}
-
-export interface AlertScheduleRestrictionApi {
-    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
-    blocked_windows: AlertScheduleRestrictionWindowApi[]
 }
 
 export interface VisionAlertConfigurationApi {
@@ -1090,6 +656,14 @@ export interface CreateTaskFromObservationResponseApi {
 export interface RetryResponseApi {
     /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
     workflow_id: string
+}
+
+/**
+ * The shape every Replay Vision error response uses, so generated clients read one key.
+ */
+export interface ReplayVisionErrorApi {
+    /** Human-readable explanation of why the request was refused. */
+    detail: string
 }
 
 export interface ObservationSearchResultApi {
@@ -2661,32 +2235,6 @@ export interface TagSuggestionApi {
 export interface SuggestTagsResponseApi {
     /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
     suggestions: TagSuggestionApi[]
-}
-
-export type VisionActionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter to the actions belonging to one scanner.
-     */
-    scanner?: string
-}
-
-export type VisionActionsRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type VisionAlertsListParams = {

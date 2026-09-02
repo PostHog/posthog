@@ -68,7 +68,6 @@ from products.replay_vision.backend.billing import (
     observation_credits_for_model,
     projected_monthly_credits,
 )
-from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -713,8 +712,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 self._reraise_unique_name_violation(e)
             self._attempt_set_tags(tags, scanner)
         _refresh_estimate_fail_soft(scanner)
-        # Every scanner starts with a built-in featured digest so the overview has a summary to show.
-        provision_scanner_digest(scanner, user)
         report_user_action(
             user,
             "replay_vision_scanner_created",

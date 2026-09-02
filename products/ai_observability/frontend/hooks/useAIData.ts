@@ -20,8 +20,8 @@ export interface EventData {
 }
 
 export function useAIData(eventData: EventData | undefined): UseAIDataResult {
-    const { aiDataCache, isEventLoading } = useValues(aiObservabilityAIDataLogic)
-    const { loadAIDataForEvent } = useActions(aiObservabilityAIDataLogic)
+    const { aiDataCache } = useValues(aiObservabilityAIDataLogic)
+    const { ensureAIDataLoaded } = useActions(aiObservabilityAIDataLogic)
 
     const eventId = eventData?.uuid
     const input = eventData?.input
@@ -29,27 +29,21 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
     const tools = eventData?.tools
     const traceId = eventData?.traceId
     const timestamp = eventData?.timestamp
+    // A resolved lookup caches an AIData object, or `null` when it found nothing. Both mean done.
     const cached = eventId ? aiDataCache[eventId] : undefined
-    const loading = eventId ? isEventLoading(eventId) : false
+    const resolved = !!eventId && cached !== undefined
 
     // Only fire the loader when a real fetch is possible and a heavy prop is missing.
     const canFetch = !!traceId && !!timestamp
     const shouldFetch = canFetch && (input == null || output == null)
 
     useEffect(() => {
-        if (!eventId || cached || loading || !shouldFetch) {
+        if (!eventId || resolved || !shouldFetch) {
             return
         }
 
-        loadAIDataForEvent({
-            eventId,
-            input,
-            output,
-            tools,
-            traceId,
-            timestamp,
-        })
-    }, [cached, loading, canFetch, loadAIDataForEvent, eventId, input, output, tools, traceId, timestamp, shouldFetch])
+        ensureAIDataLoaded([{ eventId, input, output, tools, traceId, timestamp }])
+    }, [resolved, canFetch, ensureAIDataLoaded, eventId, input, output, tools, traceId, timestamp, shouldFetch])
 
     if (!eventId) {
         return {
@@ -65,6 +59,6 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
         input: cached?.input ?? input,
         output: cached?.output ?? output,
         tools: cached?.tools ?? tools,
-        isLoading: shouldFetch && (loading || !cached),
+        isLoading: shouldFetch && !resolved,
     }
 }

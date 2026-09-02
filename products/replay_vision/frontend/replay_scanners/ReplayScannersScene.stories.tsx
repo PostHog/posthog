@@ -17,7 +17,6 @@ import type {
     ReplayScannerPromptSuggestionApi,
     ScannerStatsResponseApi,
     UserBasicApi,
-    VisionActionApi,
     VisionQuotaApi,
 } from '../generated/api.schemas'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -340,98 +339,6 @@ const promptSuggestion: ReplayScannerPromptSuggestionApi = {
     evaluation: null,
 } as ReplayScannerPromptSuggestionApi
 
-const digestAction: VisionActionApi = {
-    id: '00000000-0000-0000-0000-0000000000f1',
-    name: 'Daily checkout digest',
-    scanner: summarizerScanner.id,
-    enabled: true,
-    is_scanner_digest: true,
-    trigger_type: 'schedule',
-    mode: 'group_summary',
-    trigger_config: { rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0', timezone: 'UTC' },
-    selection: {},
-    synthesis_config: { prompt_guide: 'Lead with the most common friction point.' },
-    delivery_config: [{ type: 'webhook', url: 'https://hooks.example.com/replay-vision' }],
-    next_run_at: '2026-05-13T09:00:00Z',
-    last_run_at: '2026-05-12T09:00:00Z',
-    hog_flow_id: null,
-    created_at: '2026-05-01T00:00:00Z',
-    created_by: alice,
-    updated_at: '2026-05-01T00:00:00Z',
-} as VisionActionApi
-
-const alertAction: VisionActionApi = {
-    ...digestAction,
-    id: '00000000-0000-0000-0000-0000000000f2',
-    name: 'Coupon friction alert',
-    is_scanner_digest: false,
-    mode: 'alert',
-    alert_config: { frequency: 'on_breach', metric: 'count', threshold: 10, direction: 'above', window_days: 1 },
-    created_by: bob,
-} as VisionActionApi
-
-const actions = { count: 2, next: null, previous: null, results: [digestAction, alertAction] }
-
-const completedRun = {
-    id: '00000000-0000-0000-0000-0000000000a1',
-    status: 'completed',
-    scheduled_at: '2026-05-12T09:00:00Z',
-    observation_count: 12,
-    error_reason: null,
-    is_recovery: false,
-    created_at: '2026-05-12T09:00:05Z',
-    updated_at: '2026-05-12T09:01:10Z',
-}
-
-const actionRuns = {
-    count: 2,
-    next: null,
-    previous: null,
-    results: [
-        completedRun,
-        {
-            ...completedRun,
-            id: '00000000-0000-0000-0000-0000000000a2',
-            status: 'skipped',
-            scheduled_at: '2026-05-11T09:00:00Z',
-            observation_count: 0,
-            error_reason: 'No new observations in the window.',
-        },
-    ],
-}
-
-const actionRunDetail = {
-    ...completedRun,
-    synthesized_markdown:
-        '## Checkout friction, May 12\n\nCoupon validation failures dominated today [1][2]. Two sessions abandoned the cart after payment retries [3].',
-    observations: [
-        {
-            index: 1,
-            id: observations.results[0].id,
-            session_id: observations.results[0].session_id,
-            recording_subject_email: 'alice@example.com',
-            title: 'Checkout hesitation after coupon',
-            created_at: '2026-05-11T09:00:00Z',
-        },
-        {
-            index: 2,
-            id: observations.results[1].id,
-            session_id: observations.results[1].session_id,
-            recording_subject_email: 'very.long.customer.email.address@enterprise-customer-company-name.example.com',
-            title: 'Coupon validation loop at checkout',
-            created_at: '2026-05-11T10:00:00Z',
-        },
-        {
-            index: 3,
-            id: observations.results[3].id,
-            session_id: observations.results[3].session_id,
-            recording_subject_email: 'bob@example.com',
-            title: 'Cart abandoned after payment retry',
-            created_at: '2026-05-11T11:00:00Z',
-        },
-    ],
-}
-
 const estimate = {
     matched_sessions_in_window: 1840,
     window_days: 30,
@@ -506,11 +413,13 @@ const meta: Meta = {
                     rated_count: 12,
                     evaluation_session_cap: 25,
                 },
-                '/api/projects/:team_id/vision/actions/': actions,
-                '/api/projects/:team_id/vision/actions/:id/': digestAction,
-                '/api/projects/:team_id/vision/actions/:visionActionId/runs/': actionRuns,
-                '/api/projects/:team_id/vision/actions/:visionActionId/runs/:id/': actionRunDetail,
                 '/api/projects/:team_id/vision/observations/:id/': observationDetail,
+                '/api/projects/:team_id/signals/scout/configs/': [],
+                '/api/projects/:team_id/signals/scout/runs/recent-per-scout/': [],
+                '/api/projects/:team_id/signals/scout/runs/findings/summary/': [],
+                '/api/projects/:team_id/signals/scout/metadata/current/': {},
+                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [],
+                '/api/projects/:team_id/vision/alerts/': { count: 0, next: null, previous: null, results: [] },
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': observationsTrend,
@@ -640,9 +549,113 @@ export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
 }
 
-export const ScannerDigests: StoryObj = {
+const digestScoutConfig = {
+    id: '00000000-0000-0000-0000-0000000000c1',
+    skill_name: 'signals-scout-daily-digest-confused-checkout',
+    description: 'Daily digest of what the scanner observed since the last run.',
+    scout_origin: 'custom',
+    owners: [alice],
+    enabled: true,
+    status: 'active',
+    pause_reason: null,
+    source_product: 'replay_vision',
+    source_id: summarizerScanner.id,
+    cron_schedule: '0 9 * * *',
+    output_destinations: [],
+    created_at: '2026-05-02T09:00:00Z',
+}
+
+const trendScoutConfig = {
+    ...digestScoutConfig,
+    id: '00000000-0000-0000-0000-0000000000c2',
+    skill_name: 'signals-scout-checkout-trend-watch',
+    description: 'Watches for week-over-week movement in checkout friction themes.',
+    owners: [bob],
+    created_at: '2026-05-06T09:00:00Z',
+}
+
+const scoutReport = {
+    report_id: '00000000-0000-0000-0000-0000000000d1',
+    title: 'Daily digest confused checkout: 2026-05-12',
+    summary: '**TL;DR:** Checkout friction held steady; coupon box confusion dominated.',
+    skill_name: digestScoutConfig.skill_name,
+    created_at: '2026-05-12T09:03:00Z',
+    updated_at: '2026-05-12T09:03:00Z',
+}
+
+export const ScannerScouts: StoryObj = {
     parameters: {
-        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=actions`,
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/scout/configs/': [digestScoutConfig, trendScoutConfig],
+                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [scoutReport],
+            },
+        }),
+    ],
+}
+
+export const ScannerScoutsEmpty: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts`,
+    },
+}
+
+const metricAlert = {
+    id: '00000000-0000-0000-0000-0000000000e1',
+    scanner_id: summarizerScanner.id,
+    name: 'Coupon friction spike',
+    enabled: true,
+    kind: 'metric',
+    selection: {},
+    metric: 'count',
+    direction: 'above',
+    threshold: 10,
+    window_days: 1,
+    check_interval_minutes: 60,
+    state: 'not_firing',
+    evaluation_periods: 1,
+    notification_config: [],
+    created_at: '2026-05-03T00:00:00Z',
+    updated_at: '2026-05-03T00:00:00Z',
+    created_by: alice,
+}
+
+const matchAlert = {
+    ...metricAlert,
+    id: '00000000-0000-0000-0000-0000000000e2',
+    name: 'Any rage click observation',
+    kind: 'match',
+    metric: null,
+    direction: null,
+    threshold: null,
+    state: 'firing',
+    created_by: bob,
+}
+
+export const ScannerAlerts: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=alerts`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/alerts/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [metricAlert, matchAlert],
+                },
+            },
+        }),
+    ],
+}
+
+export const ScannerAlertsEmpty: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=alerts`,
     },
 }
 
@@ -680,25 +693,6 @@ export const ScannerEditorTriggers: StoryObj = {
 
 export const ScannerEditorBudget: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
-}
-
-export const ActionEditorAlert: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionActionNew(summarizerScanner.id, 'alert'),
-    },
-}
-
-// Editing the digest exercises the schedule section (weekday pills, time controls).
-export const ActionEditorDigest: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionActionEdit(digestAction.id),
-    },
-}
-
-export const ActionDetail: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionAction(digestAction.id),
-    },
 }
 
 export const ObservationDetail: StoryObj = {
