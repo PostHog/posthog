@@ -130,16 +130,58 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert data is not None
         assert data.id == account.id
 
-    def test_search_accounts_matches_name_and_external_id(self):
-        create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
+    @parameterized.expand(
+        [
+            ("name", "acme", ["Acme Corp"]),
+            ("external id", "globex-9", ["Globex"]),
+            ("known email", "AP@Billing-Provider.example", ["Acme Corp"]),
+            ("email domain of an address", "someone@acme.example", ["Acme Corp"]),
+            ("bare email domain", "acme.example", ["Acme Corp"]),
+            ("address nobody owns", "someone@elsewhere.example", []),
+        ]
+    )
+    def test_search_accounts_matches(self, _name: str, query: str, expected_names: list[str]):
+        create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-123",
+            properties={"email_domains": ["acme.example"], "known_emails": ["ap@billing-provider.example"]},
+        )
         create_account(team_id=self.team.id, name="Globex", external_id="globex-9")
 
-        rows, count = facade.search_accounts(self.team.id, "acme", self._uac(), limit=10)
+        rows, count = facade.search_accounts(self.team.id, query, self._uac(), limit=10)
+
+        assert count == len(expected_names)
+        assert [r.name for r in rows] == expected_names
+        assert all(isinstance(row, contracts.AccountRef) and isinstance(row.id, str) for row in rows)
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    @patch("products.customer_analytics.backend.logic.account_member_search.execute_hogql_query")
+    def test_search_accounts_matches_eu_organization_member_email(
+        self, mock_execute_hogql_query: MagicMock, _mock_feature_enabled: MagicMock
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        eu_organization_id = str(uuid4())
+        account = create_account(
+            team_id=self.team.id,
+            name="EU member account",
+            external_id=eu_organization_id,
+        )
+        mock_execute_hogql_query.return_value = MagicMock(results=[[eu_organization_id]])
+
+        rows, count = facade.search_accounts(
+            self.team.id,
+            "member@eu.example",
+            self._uac(),
+            limit=10,
+        )
 
         assert count == 1
-        assert [r.name for r in rows] == ["Acme Corp"]
-        assert isinstance(rows[0], contracts.AccountRef)
-        assert isinstance(rows[0].id, str)
+        assert [row.id for row in rows] == [str(account.id)]
 
     def test_search_accounts_excludes_ignored_by_default(self):
         create_account(team_id=self.team.id, name="Acme Tracked")
@@ -462,11 +504,12 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
                 required_level="viewer",
             )
 
-    def test_list_accounts_for_view_filters_by_search(self):
-        self._create(name="Acme Corp", external_id="acme-1")
+    @parameterized.expand([("name", "acme"), ("email domain", "someone@acme.example")])
+    def test_list_accounts_for_view_filters_by_search(self, _name: str, search: str):
+        self._create(name="Acme Corp", external_id="acme-1", properties={"email_domains": ["acme.example"]})
         self._create(name="Globex", external_id="glx-9")
         page, count = facade.list_accounts_for_view(
-            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search="acme"
+            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search=search
         )
         assert count == 1
         assert [a.name for a in page] == ["Acme Corp"]

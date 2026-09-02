@@ -36,6 +36,7 @@ from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.customer_analytics.backend.facade import api, contracts
+from products.customer_analytics.backend.logic.account_filters import parse_email_search
 
 ACCOUNTS_TABLE_MAX_COLUMNS = 100
 ACCOUNTS_TABLE_MAX_FILTERS = 50
@@ -48,6 +49,25 @@ ACCOUNTS_TABLE_MAX_STRING_LENGTH = 1_000
 class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse]):
     query: AccountsTableQuery
     cached_response: CachedAccountsTableQueryResponse
+
+    def _has_complete_email_search(self) -> bool:
+        return any(
+            isinstance(filter_, AccountsTableSearchFilter) and parse_email_search(filter_.query) is not None
+            for filter_ in self.query.filters or []
+        )
+
+    def requires_fresh_calculation(self) -> bool:
+        return self._has_complete_email_search()
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        if self._has_complete_email_search():
+            user = self.user
+            payload["account_member_search_principal"] = {
+                "user_id": user.id if isinstance(user, User) else None,
+                "is_staff": user.is_staff if isinstance(user, User) else False,
+            }
+        return payload
 
     def validate_query_runner_access(self, user: User) -> bool:
         return True
@@ -101,6 +121,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         query_filters = self.query.filters or []
         if len(query_filters) > ACCOUNTS_TABLE_MAX_FILTERS:
             raise ValidationError(f"Account table queries support up to {ACCOUNTS_TABLE_MAX_FILTERS} filters.")
+        if sum(isinstance(filter_, AccountsTableSearchFilter) for filter_ in query_filters) > 1:
+            raise ValidationError("Account table queries support one search filter.")
 
         filters: list[contracts.AccountTableFilter] = []
         try:

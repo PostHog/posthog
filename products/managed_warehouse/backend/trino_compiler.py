@@ -54,11 +54,13 @@ def compile_hogql_to_trino_sql(
     team: Team | None = None,
     user: User | None = None,
     bypass_warehouse_access_control: bool = False,
+    include_hogql: bool = False,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
     Set ``bypass_warehouse_access_control`` only for trusted internal callers that compile
     without a user. This entry point does not execute the returned SQL or alter query routing.
+    Set ``include_hogql`` to render normalized HogQL for diagnostics.
     """
     from posthog.hogql import ast  # noqa: PLC0415
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415
@@ -132,18 +134,20 @@ def compile_hogql_to_trino_sql(
         database=database,
         trino_table_locators=trino_table_locators,
     )
-    hogql_ast = clone_expr(parsed)
+    hogql_ast = clone_expr(parsed) if include_hogql else None
     trino_sql, _ = prepare_and_print_ast(parsed, trino_context, dialect="trino")
 
-    hogql_context = HogQLContext(
-        team_id=team_id,
-        team=team,
-        user=user,
-        enable_select_queries=True,
-        modifiers=query_modifiers,
-        # The diagnostic HogQL rendering must use the same caller-authorized access posture.
-        bypass_warehouse_access_control=bypass_warehouse_access_control,
-    )
-    hogql_pretty, _ = prepare_and_print_ast(hogql_ast, hogql_context, dialect="hogql")
+    hogql_pretty: str | None = None
+    if hogql_ast is not None:
+        hogql_context = HogQLContext(
+            team_id=team_id,
+            team=team,
+            user=user,
+            enable_select_queries=True,
+            modifiers=query_modifiers,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+            database=database,
+        )
+        hogql_pretty, _ = prepare_and_print_ast(hogql_ast, hogql_context, dialect="hogql")
 
     return TrinoCompiledQuery(sql=trino_sql, values=dict(trino_context.values), hogql=hogql_pretty)
