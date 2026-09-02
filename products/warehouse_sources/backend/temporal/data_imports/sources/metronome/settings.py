@@ -60,6 +60,10 @@ class MetronomeEndpointConfig:
     page_size: int = PAGE_SIZE
     fanout: DependentEndpointConfig | None = None
     body_fanout: BodyFanoutConfig | None = None
+    # `POST /v1/usage` needs a `starting_on`/`ending_before` window in its body. The window is
+    # computed per run — `ending_before` is the sync time — so it can't live in the static
+    # `json_body`. When set, the resource builder fills the window in.
+    window_body: bool = False
 
 
 # Customer-scoped children bind the parent's `id` into their path as `customer_id`. Every child
@@ -137,6 +141,25 @@ METRONOME_ENDPOINTS: dict[str, MetronomeEndpointConfig] = {
         name="pricing_units",
         path="/v1/credit-types/list",
         primary_key=["id"],
+    ),
+    "plans": MetronomeEndpointConfig(
+        name="plans",
+        path="/v1/plans",
+        primary_key=["id"],
+        # Deprecated by Metronome in favor of contracts, but still the only place a customer's
+        # plan is named. No created/updated filter, so every run reads the whole list.
+    ),
+    "usage": MetronomeEndpointConfig(
+        name="usage",
+        path="/v1/usage",
+        method="post",
+        # One aggregate per customer and billable metric — the endpoint carries no row id.
+        primary_key=["customer_id", "billable_metric_id"],
+        # `none` returns a single lifetime aggregate per customer/metric, so the row count stays
+        # bounded by the account. `day`/`hour` would segment the whole window into one row per
+        # period and, from the epoch start below, produce an unbounded table.
+        json_body={"window_size": "none"},
+        window_body=True,
     ),
     "audit_logs": MetronomeEndpointConfig(
         name="audit_logs",

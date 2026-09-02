@@ -6,6 +6,14 @@
 # Flox manifest version managed by Flox CLI
 schema-version = "1.10.0"
 
+# Floor, not a pin: warns when a developer's CLI predates what this
+# environment expects, which lowers the chance an older flox rewrites
+# manifest.lock differently from everyone else. It only warns, so it
+# does not prevent that. Deliberately left at schema-version
+# 1.10.0: the field works there, and bumping the schema would hard-gate
+# anyone below flox 1.11.0 for no added effect.
+minimum-cli-version = "1.15.0"
+
 # List packages you wish to install in your environment inside
 # the `[install]` section.
 [install]

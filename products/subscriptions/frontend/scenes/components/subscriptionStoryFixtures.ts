@@ -1,8 +1,8 @@
 import {
     RecurrenceIntervalEnumApi,
-    ResourceTypeEnumApi,
+    SubscriptionResourceTypeEnumApi,
     SubscriptionDeliveryStatusEnumApi,
-    TargetTypeEnumApi,
+    SubscriptionTargetEnumApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -18,14 +18,14 @@ export const MOCK_SUBSCRIPTION_USER = {
 
 export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     id: 1,
-    resource_type: ResourceTypeEnumApi.Insight,
+    resource_type: SubscriptionResourceTypeEnumApi.Insight,
     insight: 101,
     dashboard: null,
     insight_short_id: 'abc123',
     resource_name: 'North star metric',
     title: 'Weekly rollup',
     dashboard_export_insights: [],
-    target_type: TargetTypeEnumApi.Email,
+    target_type: SubscriptionTargetEnumApi.Email,
     target_value: 'matt.p@posthog.com',
     frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
@@ -49,14 +49,14 @@ export const MOCK_SUBSCRIPTION_INSIGHT_MANY_DESTINATIONS: SubscriptionApi = {
 
 export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     id: 2,
-    resource_type: ResourceTypeEnumApi.Dashboard,
+    resource_type: SubscriptionResourceTypeEnumApi.Dashboard,
     insight: null,
     dashboard: 501,
     insight_short_id: null,
     resource_name: 'Company overview',
     title: 'Dashboard digest',
     dashboard_export_insights: [101],
-    target_type: TargetTypeEnumApi.Slack,
+    target_type: SubscriptionTargetEnumApi.Slack,
     target_value: 'C12345|#alerts-analytics-platform',
     frequency: RecurrenceIntervalEnumApi.Daily,
     interval: 1,

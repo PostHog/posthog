@@ -12,9 +12,10 @@
  * * `dashboard` - Dashboard
  * * `ai_prompt` - AI prompt
  */
-export type ResourceTypeEnumApi = (typeof ResourceTypeEnumApi)[keyof typeof ResourceTypeEnumApi]
+export type SubscriptionResourceTypeEnumApi =
+    (typeof SubscriptionResourceTypeEnumApi)[keyof typeof SubscriptionResourceTypeEnumApi]
 
-export const ResourceTypeEnumApi = {
+export const SubscriptionResourceTypeEnumApi = {
     Insight: 'insight',
     Dashboard: 'dashboard',
     AiPrompt: 'ai_prompt',
@@ -25,9 +26,10 @@ export const ResourceTypeEnumApi = {
  * * `last_n_days` - Last N days
  * * `days_ago_range` - Between X and Y days ago
  */
-export type AIWindowConfigModeEnumApi = (typeof AIWindowConfigModeEnumApi)[keyof typeof AIWindowConfigModeEnumApi]
+export type SubscriptionAIWindowModeEnumApi =
+    (typeof SubscriptionAIWindowModeEnumApi)[keyof typeof SubscriptionAIWindowModeEnumApi]
 
-export const AIWindowConfigModeEnumApi = {
+export const SubscriptionAIWindowModeEnumApi = {
     SinceLastSent: 'since_last_sent',
     LastNDays: 'last_n_days',
     DaysAgoRange: 'days_ago_range',
@@ -42,7 +44,7 @@ export interface AIWindowConfigApi {
      * * `since_last_sent` - Since last report
      * * `last_n_days` - Last N days
      * * `days_ago_range` - Between X and Y days ago */
-    mode?: AIWindowConfigModeEnumApi
+    mode?: SubscriptionAIWindowModeEnumApi
     /**
      * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
      * @minimum 1
@@ -68,9 +70,9 @@ export interface AIPromptConfigApi {
  * * `email` - Email
  * * `slack` - Slack
  */
-export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
+export type SubscriptionTargetEnumApi = (typeof SubscriptionTargetEnumApi)[keyof typeof SubscriptionTargetEnumApi]
 
-export const TargetTypeEnumApi = {
+export const SubscriptionTargetEnumApi = {
     Email: 'email',
     Slack: 'slack',
 } as const
@@ -170,6 +172,14 @@ export interface UserBasicApi {
 }
 
 /**
+ * Typed view over the Subscription.delivery_config JSON blob.
+ */
+export interface DeliveryConfigApi {
+    /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
+    post_all_insights_in_main_message?: boolean
+}
+
+/**
  * Standard Subscription serializer.
  */
 export interface SubscriptionApi {
@@ -179,7 +189,7 @@ export interface SubscriptionApi {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt */
-    readonly resource_type: ResourceTypeEnumApi
+    readonly resource_type: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -207,7 +217,7 @@ export interface SubscriptionApi {
      *
      * * `email` - Email
      * * `slack` - Slack */
-    target_type: TargetTypeEnumApi
+    target_type: SubscriptionTargetEnumApi
     /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
@@ -284,6 +294,8 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -327,7 +339,7 @@ export interface PatchedSubscriptionApi {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt */
-    readonly resource_type?: ResourceTypeEnumApi
+    readonly resource_type?: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -355,7 +367,7 @@ export interface PatchedSubscriptionApi {
      *
      * * `email` - Email
      * * `slack` - Slack */
-    target_type?: TargetTypeEnumApi
+    target_type?: SubscriptionTargetEnumApi
     /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
     target_value?: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
@@ -432,6 +444,8 @@ export interface PatchedSubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 /**

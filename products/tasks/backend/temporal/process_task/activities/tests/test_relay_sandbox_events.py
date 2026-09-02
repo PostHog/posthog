@@ -285,7 +285,14 @@ class TestRelaySandboxEventsCancellation:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -335,6 +342,80 @@ class TestRelaySandboxEventsCancellation:
         redis_stream.mark_error.assert_not_awaited()
 
 
+class TestRelaySandboxEventsPresenceGating:
+    @pytest.mark.parametrize(
+        "run_state,expected_presence_gated",
+        [
+            pytest.param({"stream_presence_gated": True}, True, id="run_pinned_gated"),
+            pytest.param({"stream_presence_gated": False}, False, id="run_pinned_ungated"),
+            pytest.param({}, False, id="legacy_run_without_pin"),
+        ],
+    )
+    async def test_stream_presence_gating_follows_pinned_run_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        run_state: dict,
+        expected_presence_gated: bool,
+    ) -> None:
+        constructed: list[bool] = []
+
+        class StubTaskRunRedisStream:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
+                constructed.append(presence_gated)
+
+            async def initialize(self) -> None:
+                return None
+
+            async def mark_complete(self) -> None:
+                return None
+
+            async def mark_error(self, error: str) -> None:
+                return None
+
+        class StubTaskRunQuerySet:
+            def select_related(self, *_args: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product="slack"),
+                    state=run_state,
+                )
+
+        async def fake_relay_loop(**_kwargs: object) -> bool:
+            return False
+
+        monkeypatch.setattr(relay_sandbox_events_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(objects=StubTaskRunQuerySet()),
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "create_sandbox_connection_token", lambda **_kwargs: "token")
+        monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
+        monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", fake_relay_loop)
+
+        await relay_sandbox_events(
+            RelaySandboxEventsInput(
+                run_id="run-id",
+                task_id="task-id",
+                sandbox_url="https://sandbox.example",
+                sandbox_connect_token=None,
+                team_id=1,
+                distinct_id="distinct-id",
+            )
+        )
+
+        assert constructed == [expected_presence_gated]
+
+
 class TestRelaySandboxEventsMissingActor:
     @pytest.mark.django_db
     async def test_missing_slack_actor_fails_non_retryable_with_stream_error(
@@ -347,7 +428,14 @@ class TestRelaySandboxEventsMissingActor:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -947,7 +1035,14 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:

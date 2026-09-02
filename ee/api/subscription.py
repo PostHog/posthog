@@ -37,7 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
@@ -254,6 +254,20 @@ class AIPromptConfigSerializer(serializers.Serializer):
     )
 
 
+class DeliveryConfigSerializer(serializers.Serializer):
+    """Typed view over the Subscription.delivery_config JSON blob."""
+
+    post_all_insights_in_main_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Slack only: when true, upload all insight images together in the main Slack message "
+            "instead of posting the first image in the main message and the rest as threaded replies. "
+            "Defaults to false."
+        ),
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -261,6 +275,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         "target_value",
         "target_type",
         "integration_id",
+        "delivery_config",
         "prompt",
         "insight_id",
         "dashboard_id",
@@ -299,6 +314,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
+    )
+    delivery_config = DeliveryConfigSerializer(
+        required=False,
+        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -346,6 +365,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "send_test_now",
             "summary_enabled",
             "summary_prompt_guide",
+            "delivery_config",
         ]
         read_only_fields = [
             "id",
@@ -530,6 +550,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if "integration_id" in attrs
             else (self.instance.integration_id if self.instance else None)
         )
+        effective_delivery_config = (
+            attrs["delivery_config"]
+            if "delivery_config" in attrs
+            else (self.instance.delivery_config if self.instance else None)
+        ) or {}
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -585,6 +610,25 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+            if effective_delivery_config.get("post_all_insights_in_main_message") and SlackIntegration(
+                integration
+            ).missing_scopes({"files:write"}):
+                raise ValidationError(
+                    {
+                        "delivery_config": [
+                            "Posting all insights in the main message requires the Slack files:write permission. "
+                            "Reconnect Slack to grant it."
+                        ]
+                    }
+                )
+
+        if (
+            effective_delivery_config.get("post_all_insights_in_main_message")
+            and target_type != Subscription.SubscriptionTarget.SLACK
+        ):
+            raise ValidationError(
+                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
+            )
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
