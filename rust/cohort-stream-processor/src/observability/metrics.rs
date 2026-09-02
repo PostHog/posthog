@@ -521,8 +521,8 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// actually amortizes.
 pub const SEED_APPLY_BATCH_SIZE: &str = "cohort_seed_apply_batch_size";
 /// Wall-clock per batch stage, labelled by `kind` and `stage` (`resolve`|`read`|`fold`|
-/// `stage1_commit`|`recompute`|`produce`|`stage2_commit`) (histogram, seconds). Whichever stage
-/// dominates is the next lever.
+/// `produce_leaf`|`stage1_commit`|`recompute`|`produce_composed`|`produce_cascades`|
+/// `stage2_commit`) (histogram, seconds). Whichever stage dominates is the next lever.
 pub const SEED_APPLY_BATCH_DURATION_SECONDS: &str = "cohort_seed_apply_batch_duration_seconds";
 /// Batches that held their first offset instead of marking, labelled by `kind` and the `stage` that
 /// failed (counter). Pairs with [`SEED_HELD_OFFSET_GAUGE`], which shows the pinned floor.

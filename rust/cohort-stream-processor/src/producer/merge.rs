@@ -1,6 +1,7 @@
 //! Merge-protocol producers for `cohort_merge_state_transfer` and straggler re-keys back into
 //! `cohort_stream_events`.
 
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -105,14 +106,39 @@ fn stream_event_key(event: &CohortStreamEvent) -> Option<String> {
     }
 }
 
-const FAIL_ALWAYS: usize = usize::MAX;
+/// How a capture double fails its produces. Failing is the one thing the real producer does that a
+/// recorder cannot, so the plan is the whole of the double's behaviour beyond recording.
+#[derive(Debug, Clone, Copy)]
+enum FailurePlan {
+    /// Fail every record of `count` consecutive calls, after `skip` calls that ack.
+    Calls { skip: usize, count: usize },
+    /// On the first call, fail every `every`-th record and record and ack the rest; every later
+    /// call acks. This is the mixed acknowledgement a real broker returns.
+    PartialFirst { every: NonZeroUsize },
+}
 
-/// Shared produce recorder for test doubles: records items and can fail the next `n` (or all)
-/// produces.
+impl FailurePlan {
+    /// Whether record `record` of call `call` (both 0-based) fails.
+    fn fails(self, call: usize, record: usize) -> bool {
+        match self {
+            Self::Calls { skip, count } => (skip..skip.saturating_add(count)).contains(&call),
+            Self::PartialFirst { every } => call == 0 && (record + 1).is_multiple_of(every.get()),
+        }
+    }
+}
+
+impl Default for FailurePlan {
+    fn default() -> Self {
+        Self::Calls { skip: 0, count: 0 }
+    }
+}
+
+/// Shared produce recorder for test doubles: records the items it acks and fails the rest
+/// according to its [`FailurePlan`].
 #[derive(Debug)]
 pub(crate) struct Capture<T> {
     items: Arc<Mutex<Vec<T>>>,
-    fail_remaining: Arc<AtomicUsize>,
+    plan: FailurePlan,
     /// Produce calls, not items. Batching is only observable here: the same items over one call
     /// instead of many is exactly the change a batched apply makes.
     calls: Arc<AtomicUsize>,
@@ -122,7 +148,7 @@ impl<T> Clone for Capture<T> {
     fn clone(&self) -> Self {
         Self {
             items: self.items.clone(),
-            fail_remaining: self.fail_remaining.clone(),
+            plan: self.plan,
             calls: self.calls.clone(),
         }
     }
@@ -130,49 +156,51 @@ impl<T> Clone for Capture<T> {
 
 impl<T> Default for Capture<T> {
     fn default() -> Self {
-        Self {
-            items: Arc::default(),
-            fail_remaining: Arc::default(),
-            calls: Arc::default(),
-        }
+        Self::with_plan(FailurePlan::default())
     }
 }
 
 impl<T> Capture<T> {
-    pub(crate) fn failing_first(n: usize) -> Self {
+    fn with_plan(plan: FailurePlan) -> Self {
         Self {
             items: Arc::default(),
-            fail_remaining: Arc::new(AtomicUsize::new(n)),
+            plan,
             calls: Arc::default(),
         }
     }
 
+    pub(crate) fn failing_first(n: usize) -> Self {
+        Self::failing_calls(0, n)
+    }
+
     pub(crate) fn failing_always() -> Self {
-        Self::failing_first(FAIL_ALWAYS)
+        Self::failing_calls(0, usize::MAX)
+    }
+
+    /// Fail the `count` calls after `skip` acked ones, then ack again.
+    pub(crate) fn failing_calls(skip: usize, count: usize) -> Self {
+        Self::with_plan(FailurePlan::Calls { skip, count })
+    }
+
+    /// On the first call, fail every `every`-th record and record and ack the rest.
+    pub(crate) fn partially_failing_first(every: NonZeroUsize) -> Self {
+        Self::with_plan(FailurePlan::PartialFirst { every })
     }
 
     pub(crate) fn produce(&self, items: Vec<T>) -> Vec<Result<(), KafkaProduceError>> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        let should_fail = self
-            .fail_remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| match n {
-                0 => None,
-                FAIL_ALWAYS => Some(FAIL_ALWAYS),
-                n => Some(n - 1),
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        let mut recorded = self.items.lock().expect("Capture mutex poisoned");
+        items
+            .into_iter()
+            .enumerate()
+            .map(|(record, item)| {
+                if self.plan.fails(call, record) {
+                    return Err(KafkaProduceError::KafkaProduceCanceled);
+                }
+                recorded.push(item);
+                Ok(())
             })
-            .is_ok();
-        if should_fail {
-            return items
-                .into_iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        let acks = (0..items.len()).map(|_| Ok(())).collect();
-        self.items
-            .lock()
-            .expect("Capture mutex poisoned")
-            .extend(items);
-        acks
+            .collect()
     }
 
     /// Produce calls made so far, failed ones included.

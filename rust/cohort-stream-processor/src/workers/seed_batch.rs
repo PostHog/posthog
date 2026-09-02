@@ -3,13 +3,14 @@
 //!
 //! Applying seeds one at a time costs one awaited produce per seed that flips anything, so a worker
 //! spends its time waiting on Kafka instead of folding. A run amortizes that: one read pass, one
-//! stage-1 commit, one stage-2 recompute over the deduplicated leaves, one concurrent produce, one
-//! stage-2 commit, one mark. The recovery story is unchanged, because stage 1 is idempotent through
-//! max-merge and the stage-2 bits still commit only after the produces ack — a hold pins the run's
-//! *first* offset, and the redelivery replays the whole run.
+//! produce of the fold's own output, one stage-1 commit, one stage-2 recompute over the
+//! deduplicated leaves, one produce of the composed flips, one produce of the cascades, one stage-2
+//! commit, one mark. Every produce acks before the state it reports commits, so a failed leg holds
+//! the run's *first* offset with its durable effects either absent or idempotently re-appliable,
+//! and the redelivery replays the whole run.
 //!
 //! This module owns the run boundaries and the vocabulary both pipelines share (offsets, spans,
-//! stages, holds, the joined produce). Each fold lives with its seed kind: tiles in
+//! stages, holds, the produce legs). Each fold lives with its seed kind: tiles in
 //! [`seed_path`](super::seed_path), person seeds in [`person_seed_path`](super::person_seed_path).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,6 +22,7 @@ use cohort_core::seed::{PersonSeed, ReconcileTile, RunId, SeedTile};
 use metrics::{counter, histogram};
 use uuid::Uuid;
 
+use crate::cascade::CascadeMessage;
 use crate::consumers::seeds::{SeedSkipReason, SeedWork};
 use crate::filters::manager::CatalogHandle;
 use crate::filters::{FilterCatalog, TeamId};
@@ -41,7 +43,7 @@ use crate::workers::seed_path::{
     admit_reconcile, apply_tile_batch, hold, mark_processed, tag_seed,
 };
 use crate::workers::stage2_path::{recompute_stage2, Stage2Recompute};
-use crate::workers::worker::{first_cascades, produce_cascades, produce_membership};
+use crate::workers::worker::{produce_cascades, produce_membership};
 
 /// One message's offset on `cohort_stream_seed_events`. Distinct from every other topic's offsets,
 /// which the seed tracker must never see.
@@ -199,9 +201,15 @@ pub(crate) enum ApplyStage {
     Read,
     /// The pure fold of every seed into the overlay.
     Fold,
+    /// Leg 1: the fold's single-leaf changes and the run's re-keys, before anything commits.
+    ProduceLeaf,
     Stage1Commit,
     Recompute,
-    Produce,
+    /// Leg 2: the recompose's composed flips, before their bits commit.
+    ProduceComposed,
+    /// Leg 3: first-hop cascades for every change the run emitted, after both membership legs
+    /// acked.
+    ProduceCascades,
     Stage2Commit,
 }
 
@@ -211,9 +219,11 @@ impl ApplyStage {
             Self::Resolve => "resolve",
             Self::Read => "read",
             Self::Fold => "fold",
+            Self::ProduceLeaf => "produce_leaf",
             Self::Stage1Commit => "stage1_commit",
             Self::Recompute => "recompute",
-            Self::Produce => "produce",
+            Self::ProduceComposed => "produce_composed",
+            Self::ProduceCascades => "produce_cascades",
             Self::Stage2Commit => "stage2_commit",
         }
     }
@@ -225,20 +235,34 @@ impl std::fmt::Display for ApplyStage {
     }
 }
 
-/// Which topic a batch's produce failed on. All three are issued together, so the leg is what tells
-/// an operator where to look.
+/// Which output a batch's produce failed on. The leg names the topic for the operator and the
+/// stage for the metric, so one failure can never be filed under the wrong step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProduceLeg {
-    Membership,
+    /// Single-leaf membership, minted by the fold.
+    LeafMembership,
+    /// Composed membership, minted by the stage-2 recompose.
+    ComposedMembership,
     Cascade,
     /// The cross-partition hand-off back onto the seed topic.
     ReKey,
 }
 
+impl ProduceLeg {
+    pub(crate) fn stage(self) -> ApplyStage {
+        match self {
+            Self::LeafMembership | Self::ReKey => ApplyStage::ProduceLeaf,
+            Self::ComposedMembership => ApplyStage::ProduceComposed,
+            Self::Cascade => ApplyStage::ProduceCascades,
+        }
+    }
+}
+
 impl std::fmt::Display for ProduceLeg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Membership => "membership",
+            Self::LeafMembership => "leaf membership",
+            Self::ComposedMembership => "composed membership",
             Self::Cascade => "cascade",
             Self::ReKey => "re-key",
         })
@@ -289,7 +313,7 @@ impl SeedHold {
     pub(crate) fn stage(&self) -> ApplyStage {
         match self {
             Self::Store { stage, .. } | Self::ShortRead { stage, .. } => *stage,
-            Self::Produce { .. } => ApplyStage::Produce,
+            Self::Produce { leg, .. } => leg.stage(),
         }
     }
 }
@@ -341,36 +365,50 @@ pub(crate) enum SeedReKeys {
     Persons(Vec<PersonSeed>),
 }
 
-/// Produce a batch's membership changes, their first-hop cascades, and its re-keys concurrently,
-/// then require every leg to have fully acked.
+/// Leg 1: produce the fold's single-leaf changes and the run's re-keys together, before anything
+/// commits.
 ///
-/// The three topics are independent, so issuing them together costs one round trip instead of
-/// three. A leg that fails holds the batch: replay re-derives the stage-2 flips (their bits are
-/// still unwritten) and re-produces the re-keys, which are idempotent at the target.
-pub(crate) async fn produce_seed_output(
+/// Both are minted by the pure fold, so a failure here leaves the store untouched and the
+/// redelivery re-folds the same seeds and re-emits them. The two topics are independent, so issuing
+/// them together costs one round trip instead of two.
+pub(crate) async fn produce_leaf_output(
     deps: &SeedApplyDeps<'_>,
     changes: Vec<CohortMembershipChange>,
     re_keys: SeedReKeys,
-    source_offset: SeedOffset,
 ) -> Result<(), SeedHold> {
-    // Built from a borrow before `changes` moves into the produce; gate-off allocates nothing.
-    let cascades = first_cascades(deps.merge, &changes, source_offset.0);
-    let (membership_errors, cascade_errors, re_key_errors) = tokio::join!(
+    let (membership_errors, re_key_errors) = tokio::join!(
         produce_membership_if_any(deps.sink, changes),
-        produce_cascades(deps.merge, cascades),
         produce_re_keys(deps.merge, re_keys),
     );
+    require_acked(ProduceLeg::LeafMembership, membership_errors)?;
+    require_acked(ProduceLeg::ReKey, re_key_errors)
+}
 
-    for (leg, errors) in [
-        (ProduceLeg::Membership, membership_errors),
-        (ProduceLeg::Cascade, cascade_errors),
-        (ProduceLeg::ReKey, re_key_errors),
-    ] {
-        if errors > 0 {
-            return Err(SeedHold::Produce { leg, errors });
-        }
+/// Leg 2: produce the recompose's composed flips, after the stage-1 commit and before the stage-2
+/// commit, so a failure leaves their bits unwritten and the redelivery re-derives them.
+pub(crate) async fn produce_composed_output(
+    deps: &SeedApplyDeps<'_>,
+    changes: Vec<CohortMembershipChange>,
+) -> Result<(), SeedHold> {
+    let errors = produce_membership_if_any(deps.sink, changes).await;
+    require_acked(ProduceLeg::ComposedMembership, errors)
+}
+
+/// Leg 3: produce the first-hop cascades of every change the run emitted, once both membership
+/// legs have acked, so a referrer can never learn of a flip before the membership topic does.
+pub(crate) async fn produce_cascade_output(
+    deps: &SeedApplyDeps<'_>,
+    cascades: Vec<CascadeMessage>,
+) -> Result<(), SeedHold> {
+    let errors = produce_cascades(deps.merge, cascades).await;
+    require_acked(ProduceLeg::Cascade, errors)
+}
+
+fn require_acked(leg: ProduceLeg, errors: usize) -> Result<(), SeedHold> {
+    if errors == 0 {
+        return Ok(());
     }
-    Ok(())
+    Err(SeedHold::Produce { leg, errors })
 }
 
 async fn produce_membership_if_any(

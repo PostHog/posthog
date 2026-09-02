@@ -37,12 +37,13 @@ use crate::stage1::transition::LeafTransition;
 use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
 use crate::store::{PersonPrefix, PersonRecordKey, PersonRecords, ReadLane, StagedBatch};
 use crate::workers::seed_batch::{
-    produce_seed_output, recompose_batch, settle, Admitted, ApplyStage, SeedApplyDeps, SeedHold,
-    SeedKind, SeedReKeys, SeedRun, StageClock, TouchedPersons,
+    produce_cascade_output, produce_composed_output, produce_leaf_output, recompose_batch, settle,
+    Admitted, ApplyStage, SeedApplyDeps, SeedHold, SeedKind, SeedReKeys, SeedRun, StageClock,
+    TouchedPersons,
 };
 use crate::workers::seed_path::{route_seed, tag_seed, SeedRoute};
 use crate::workers::stage2_path::commit_stage2_writes;
-use crate::workers::worker::transition_metric_label;
+use crate::workers::worker::{first_cascades, transition_metric_label};
 
 /// Person-property seed admission for the partition workers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,8 +69,9 @@ impl Default for PersonSeedDeps {
 /// Apply one run of person seeds as a unit, then mark its whole span or hold its first offset.
 ///
 /// Shares the tile path's shape: one batched tombstone resolve, one batched record read, one
-/// stage-1 commit, one stage-2 recompose, one concurrent produce, one stage-2 commit. The overlay
-/// gives read-your-writes within the run, so a second seed for the same person merges onto the first
+/// produce of the single-leaf output, one stage-1 commit, one stage-2 recompose, one produce of the
+/// composed output, one produce of the cascades, one stage-2 commit. The overlay gives
+/// read-your-writes within the run, so a second seed for the same person merges onto the first
 /// seed's record rather than the bytes the read pass saw.
 pub(crate) async fn apply_person_batch(
     deps: &SeedApplyDeps<'_>,
@@ -104,7 +106,12 @@ async fn apply_person_seeds(
     stages.mark(ApplyStage::Read);
 
     let now_ms = Utc::now().timestamp_millis();
-    let folded = fold_person_seeds(
+    let FoldedPersonSeeds {
+        staged,
+        changes: leaf_changes,
+        touched,
+        outcomes,
+    } = fold_person_seeds(
         deps.merge.person_seed.live_margin_ms,
         &locals,
         &mut overlay,
@@ -113,22 +120,32 @@ async fn apply_person_seeds(
     );
     stages.mark(ApplyStage::Fold);
 
+    // Cascades ride the last leg, so every membership change is acked before any referrer hears
+    // of it; built here from a borrow, before the changes move into their produce.
+    let source_offset = run.span().last.0;
+    let mut cascades = first_cascades(deps.merge, &leaf_changes, source_offset);
+    produce_leaf_output(deps, leaf_changes, SeedReKeys::Persons(re_keys)).await?;
+    stages.mark(ApplyStage::ProduceLeaf);
+
     // One batch, so a register is never stranded without the matched set that justifies it.
-    if !folded.staged.is_empty() {
+    if !staged.is_empty() {
         deps.handle
-            .commit(folded.staged)
+            .commit(staged)
             .await
             .map_err(SeedHold::store(ApplyStage::Stage1Commit))?;
     }
     stages.mark(ApplyStage::Stage1Commit);
 
-    let recomposed = recompose_batch(deps, &snapshot, folded.touched, now_ms, clock).await?;
+    let mut recomposed = recompose_batch(deps, &snapshot, touched, now_ms, clock).await?;
     stages.mark(ApplyStage::Recompute);
 
-    let mut changes = folded.changes;
-    changes.extend(recomposed.changes.iter().cloned());
-    produce_seed_output(deps, changes, SeedReKeys::Persons(re_keys), run.span().last).await?;
-    stages.mark(ApplyStage::Produce);
+    let composed = std::mem::take(&mut recomposed.changes);
+    cascades.extend(first_cascades(deps.merge, &composed, source_offset));
+    produce_composed_output(deps, composed).await?;
+    stages.mark(ApplyStage::ProduceComposed);
+
+    produce_cascade_output(deps, cascades).await?;
+    stages.mark(ApplyStage::ProduceCascades);
 
     commit_stage2_writes(deps.handle, &recomposed.writes)
         .await
@@ -139,7 +156,7 @@ async fn apply_person_seeds(
     // Counted last: a failure holds the run, and the redelivery re-derives every verdict against the
     // records this attempt already wrote, so counting any earlier counts one seed twice under two
     // different arms.
-    for outcome in folded.outcomes {
+    for outcome in outcomes {
         outcome.record();
     }
     Ok(())
@@ -590,6 +607,8 @@ fn effective_hashes(filters: &TeamFilters, seed: &PersonSeed) -> Option<Effectiv
 // Tests seed and assert against `CohortStore` directly, the sanctioned direct-store surface.
 #[allow(clippy::disallowed_methods)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use chrono_tz::UTC;
     use cohort_core::seed::{ClaimEpoch, ConditionHash, RunId, ScannedAtMs};
     use serde_json::{json, Value};
@@ -1272,12 +1291,14 @@ mod tests {
         assert_eq!(shell.committable(partition_id), Some(7));
     }
 
+    /// The composed leg fails after the single-leaf leg acked and stage 1 committed, so the replay
+    /// merges to `Unchanged` and has only the composed flip left to re-derive.
     #[tokio::test]
     async fn a_failed_membership_produce_holds_and_the_replay_re_derives_the_composed_flip() {
         let (person, partition_id) = dormant_person();
         let mut shell = Shell::with_sinks(
             mixed_cohorts(),
-            CaptureSink::failing_first(1),
+            CaptureSink::failing_calls(1, 1),
             CaptureSeedTileSink::new(),
         );
         shell.live_pageview(partition_id, person, None);
@@ -1287,7 +1308,7 @@ mod tests {
         assert_eq!(shell.committable(partition_id), None, "held for redelivery");
         assert!(
             shell.record(partition_id, person).is_some(),
-            "stage 1 committed before the produce",
+            "stage 1 committed once the single-leaf leg acked",
         );
         assert!(
             shell.stage2(partition_id, person, 2).is_none(),
@@ -1298,13 +1319,82 @@ mod tests {
         let changes = shell.sink.changes();
         assert_eq!(
             changes.len(),
-            1,
+            2,
             "the Unchanged replay re-derives the composed flip only",
         );
-        assert_eq!(changes[0].cohort_id, 2);
-        assert_eq!(changes[0].origin, Some(ChangeOrigin::Seed));
+        assert_eq!(
+            changes[0].cohort_id, 1,
+            "the single-leaf leg acked first time"
+        );
+        assert_eq!(changes[1].cohort_id, 2);
+        assert_eq!(changes[1].origin, Some(ChangeOrigin::Seed));
         assert!(shell.stage2(partition_id, person, 2).unwrap().in_cohort);
         assert_eq!(shell.committable(partition_id), Some(3));
+    }
+
+    /// A broker acks per record, so a run can come back half acked. Committing stage 1 under that
+    /// would make the replay skip as live-fresh and never re-emit the records that failed. Producing
+    /// before the commit means the replay re-folds every seed and re-emits every change.
+    #[tokio::test]
+    async fn a_partially_acked_person_produce_commits_no_record_and_the_replay_re_emits_every_change(
+    ) {
+        let (person, partition_id) = dormant_person();
+        let other = (0x5EEE_u128..)
+            .map(Uuid::from_u128)
+            .find(|p| partition_of(TEAM, p, COHORT_PARTITION_COUNT) as u16 == partition_id)
+            .expect("some uuid hashes onto the same partition");
+        let mut shell = Shell::with_sinks(
+            mixed_cohorts(),
+            CaptureSink::partially_failing_first(NonZeroUsize::new(2).unwrap()),
+            CaptureSeedTileSink::new(),
+        );
+        for p in [person, other] {
+            shell.live_pageview(partition_id, p, None);
+        }
+        let scanned = now_ms();
+        let seeds = || {
+            vec![
+                (seed_for(person, &[PERSON_HASH], &[PERSON_HASH], scanned), 5),
+                (seed_for(other, &[PERSON_HASH], &[PERSON_HASH], scanned), 6),
+            ]
+        };
+
+        shell.run_batch(partition_id, seeds()).await;
+
+        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        assert_eq!(
+            shell.sink.changes().len(),
+            1,
+            "the acked record is already downstream; the failed one is what must not be lost",
+        );
+        for p in [person, other] {
+            assert!(
+                shell.record(partition_id, p).is_none(),
+                "no record for {p}: the run committed nothing",
+            );
+            assert!(
+                shell.stage2(partition_id, p, 1).is_none(),
+                "no register for {p}: the run committed nothing",
+            );
+        }
+
+        shell.run_batch(partition_id, seeds()).await;
+
+        let changes = shell.sink.changes();
+        for p in [person, other] {
+            for cohort_id in [1, 2] {
+                assert!(
+                    changes.iter().any(|change| {
+                        change.person_id == p.to_string()
+                            && change.cohort_id == cohort_id
+                            && change.status == MembershipStatus::Entered
+                    }),
+                    "the replay re-folded and re-emitted {p}'s entry into cohort {cohort_id}",
+                );
+            }
+        }
+        // The tenure-sticky hold pins the committable at the held first offset.
+        assert_eq!(shell.committable(partition_id), Some(5));
     }
 
     /// The held replay can arrive after a live event has already re-derived the same matched set.
@@ -1315,9 +1405,10 @@ mod tests {
     #[tokio::test]
     async fn a_live_fresh_skip_still_recomposes_a_stage_2_bit_a_held_attempt_never_wrote() {
         let (person, partition_id) = dormant_person();
+        // The composed leg is the one that fails, so stage 1 is committed under the hold.
         let mut shell = Shell::with_sinks(
             mixed_cohorts(),
-            CaptureSink::failing_first(1),
+            CaptureSink::failing_calls(1, 1),
             CaptureSeedTileSink::new(),
         );
         shell.live_pageview(partition_id, person, None);
@@ -1534,6 +1625,12 @@ mod tests {
             None,
             "the failed produce holds, so nothing in the batch commits",
         );
+        for p in [person, other] {
+            assert!(
+                shell.record(partition_id, p).is_none(),
+                "no record for {p}: the single-leaf leg failed before stage 1 committed",
+            );
+        }
         assert!(
             shell.stage2(partition_id, person, 2).is_none(),
             "the composed bit must stay unwritten under the failed produce",

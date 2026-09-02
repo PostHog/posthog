@@ -1,9 +1,11 @@
 //! The seed-tile apply path: a pure, clock-free core ([`merge_tile_into_leaf`]) that mirrors the
 //! live fold minus dedup (slide-before-evaluate, max-merge of the tile's absolute count,
 //! structural-equality `Unchanged` — the whole of tile idempotency), and a batched imperative shell
-//! ([`apply_tile_batch`]) ordered stage-1 commit → stage-2 recompose → produce → stage-2 commit →
-//! mark. Committing the stage-2 bits after the produces ack makes a failed produce re-derivable on
-//! replay; store/produce failures hold the batch's first seed offset.
+//! ([`apply_tile_batch`]) ordered produce single-leaf output → stage-1 commit → stage-2 recompose →
+//! produce composed output → produce cascades → stage-2 commit → mark. Every produce acks before
+//! the state it reports commits, so a failed produce replays with that state either untouched
+//! (single-leaf) or re-derivable (composed); store/produce failures hold the batch's first seed
+//! offset.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::num::NonZeroU32;
@@ -46,11 +48,12 @@ use crate::sweep::EvictionQueue;
 use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
 use crate::workers::seed_batch::{
-    produce_seed_output, recompose_batch, settle, Admitted, ApplyStage, SeedApplyDeps, SeedHold,
-    SeedKind, SeedOffset, SeedReKeys, SeedRun, StageClock, TouchedPersons,
+    produce_cascade_output, produce_composed_output, produce_leaf_output, recompose_batch, settle,
+    Admitted, ApplyStage, SeedApplyDeps, SeedHold, SeedKind, SeedOffset, SeedReKeys, SeedRun,
+    StageClock, TouchedPersons,
 };
 use crate::workers::stage2_path::commit_stage2_writes;
-use crate::workers::worker::transition_metric_label;
+use crate::workers::worker::{first_cascades, transition_metric_label};
 
 /// A seed kind that can be re-keyed onto a merge survivor.
 pub(crate) trait RekeyableSeed: Sized {
@@ -498,10 +501,12 @@ fn finish(
 
 /// Apply one run of day-tiles as a unit, then mark its whole span or hold its first offset.
 ///
-/// The run pays one batched tombstone resolve, one batched state read, one stage-1 commit, one
-/// stage-2 recompose over the deduplicated leaves, one concurrent produce and one stage-2 commit —
-/// whatever its length. Replay is unchanged: stage 1 is idempotent through max-merge, and the
-/// stage-2 bits still land only after the produces ack, so a held run re-derives its composed flips.
+/// The run pays one batched tombstone resolve, one batched state read, one produce of its
+/// single-leaf output, one stage-1 commit, one stage-2 recompose over the deduplicated leaves, one
+/// produce of its composed output, one produce of its cascades and one stage-2 commit — whatever
+/// its length. A held run replays cleanly: a leaf-leg failure committed nothing, and stage 1 is
+/// idempotent through max-merge while the stage-2 bits land only after every produce acks, so a
+/// later failure re-derives the composed flips.
 pub(crate) async fn apply_tile_batch(
     deps: &SeedApplyDeps<'_>,
     queue: &mut EvictionQueue<BehavioralKey>,
@@ -534,30 +539,43 @@ async fn apply_tiles(
     // One instant for the whole run: `last_evaluated_at_ms` is a freshness stamp, and every tile in
     // the run slides against the same "now".
     let now_ms = Utc::now().timestamp_millis();
-    let folded = fold_tiles(&locals, &mut overlay, clock, now_ms);
+    let FoldedTiles {
+        changes: leaf_changes,
+        touched,
+        schedules,
+    } = fold_tiles(&locals, &mut overlay, clock, now_ms);
     stages.mark(ApplyStage::Fold);
 
-    // Order: stage-1 commit → stage-2 recompose → produce → stage-2 commit → schedule → mark.
+    // Cascades ride the last leg, so every membership change is acked before any referrer hears
+    // of it; built here from a borrow, before the changes move into their produce.
+    let source_offset = run.span().last.0;
+    let mut cascades = first_cascades(deps.merge, &leaf_changes, source_offset);
+    produce_leaf_output(deps, leaf_changes, SeedReKeys::Tiles(re_keys)).await?;
+    stages.mark(ApplyStage::ProduceLeaf);
+
     commit_tile_stage1(deps, &overlay, now_ms).await?;
     stages.mark(ApplyStage::Stage1Commit);
+    // The rows are durable from here, so their deadlines are owed whatever the later legs do.
+    for (key, deadline) in schedules {
+        queue.schedule(key, deadline);
+    }
 
-    let recomposed = recompose_batch(deps, &snapshot, folded.touched, now_ms, clock).await?;
+    let mut recomposed = recompose_batch(deps, &snapshot, touched, now_ms, clock).await?;
     stages.mark(ApplyStage::Recompute);
 
-    let mut changes = folded.changes;
-    changes.extend(recomposed.changes.iter().cloned());
-    produce_seed_output(deps, changes, SeedReKeys::Tiles(re_keys), run.span().last).await?;
-    stages.mark(ApplyStage::Produce);
+    let composed = std::mem::take(&mut recomposed.changes);
+    cascades.extend(first_cascades(deps.merge, &composed, source_offset));
+    produce_composed_output(deps, composed).await?;
+    stages.mark(ApplyStage::ProduceComposed);
+
+    produce_cascade_output(deps, cascades).await?;
+    stages.mark(ApplyStage::ProduceCascades);
 
     commit_stage2_writes(deps.handle, &recomposed.writes)
         .await
         .map_err(SeedHold::store(ApplyStage::Stage2Commit))?;
     stages.mark(ApplyStage::Stage2Commit);
     recomposed.record_metrics();
-
-    for (key, deadline) in folded.schedules {
-        queue.schedule(key, deadline);
-    }
     Ok(())
 }
 
@@ -1026,6 +1044,7 @@ pub(crate) fn hold(tracker: &OffsetTracker, partition_id: u16, offset: SeedOffse
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::num::NonZeroUsize;
 
     use chrono_tz::America::New_York;
     use chrono_tz::UTC;
@@ -1889,9 +1908,17 @@ mod tests {
             cohorts: Vec<(i32, Value)>,
             cascade_sink: crate::producer::CaptureCascadeSink,
         ) -> Self {
+            Self::with_cascade_and_sink(cohorts, CaptureSink::new(), cascade_sink)
+        }
+
+        fn with_cascade_and_sink(
+            cohorts: Vec<(i32, Value)>,
+            sink: CaptureSink,
+            cascade_sink: crate::producer::CaptureCascadeSink,
+        ) -> Self {
             Self::build(
                 cohorts,
-                CaptureSink::new(),
+                sink,
                 CaptureSeedTileSink::new(),
                 cascade_sink,
                 crate::workers::CascadeConfig {
@@ -2400,6 +2427,115 @@ mod tests {
             )
             .await;
         assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        assert!(
+            leaf_states(&shell, partition_id, person)
+                .iter()
+                .all(Option::is_none),
+            "the single-leaf output is produced before stage 1 commits, so a failure leaves no row",
+        );
+    }
+
+    /// A broker acks per record, so a run can come back half acked. Committing stage 1 under that
+    /// would make the replay fold to `Unchanged` and never re-emit the records that failed: a
+    /// single-leaf membership lost for good. Producing before the commit means the replay re-folds
+    /// every tile and re-emits every change.
+    #[tokio::test]
+    async fn a_partially_acked_single_leaf_produce_commits_nothing_and_the_replay_re_emits_every_change(
+    ) {
+        let mut shell = Shell::with_sink(
+            vec![(1, wrap(vec![single_leaf_json(7)]))],
+            CaptureSink::partially_failing_first(NonZeroUsize::new(2).unwrap()),
+            CaptureSeedTileSink::new(),
+        );
+        // Every person on partition 0, so one worker owns the whole run.
+        shell.deps.partition_count = 1;
+        let persons: Vec<Uuid> = (0..3u128)
+            .map(|i| Uuid::from_u128(0x5EED_0000 + i))
+            .collect();
+        // Offsets start above zero: the tracker reads a zero floor as "never processed".
+        let batch = || {
+            persons
+                .iter()
+                .zip(5i64..)
+                .map(|(&person, offset)| (SeedWork::Tile(tile_for(person, today(), 1)), offset))
+                .collect::<Vec<_>>()
+        };
+        let register_key = |person: Uuid| Stage2Key {
+            partition_id: 0,
+            team_id: TEAM.0 as u64,
+            cohort_id: 1,
+            person_id: person,
+        };
+
+        shell.run_batch(0, batch()).await;
+
+        assert_eq!(shell.committable(0), None, "held for redelivery");
+        assert_eq!(
+            shell.sink.changes().len(),
+            2,
+            "the acked records are already downstream; the failed one is what must not be lost",
+        );
+        for &person in &persons {
+            assert!(
+                leaf_states(&shell, 0, person).iter().all(Option::is_none),
+                "no leaf row for {person}: the run committed nothing",
+            );
+            assert!(
+                shell
+                    .store
+                    .get_stage2(&register_key(person))
+                    .unwrap()
+                    .is_none(),
+                "no register for {person}: the run committed nothing",
+            );
+        }
+        assert!(
+            shell.queue.is_empty(),
+            "no eviction is owed for a row that was never written",
+        );
+
+        shell.run_batch(0, batch()).await;
+
+        let changes = shell.sink.changes();
+        for &person in &persons {
+            assert!(
+                changes.iter().any(|change| {
+                    change.person_id == person.to_string()
+                        && change.status == MembershipStatus::Entered
+                }),
+                "the replay re-folded and re-emitted {person}'s entry",
+            );
+        }
+        // The tenure-sticky hold pins the committable at the held first offset.
+        assert_eq!(shell.committable(0), Some(5));
+    }
+
+    /// A cascade tells a referrer about a flip the membership topic has not confirmed. Under a
+    /// joined produce the cascade leg is submitted regardless of how the membership leg fares.
+    #[tokio::test]
+    async fn a_failed_membership_produce_never_submits_the_cascade_leg() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::with_cascade_and_sink(
+            vec![(1, wrap(vec![single_leaf_json(7)]))],
+            CaptureSink::failing_first(1),
+            crate::producer::CaptureCascadeSink::new(),
+        );
+
+        shell
+            .run(
+                partition_id,
+                SeedWork::Tile(tile_for(person, today(), 1)),
+                3,
+            )
+            .await;
+
+        assert_eq!(shell.committable(partition_id), None, "held for redelivery");
+        assert_eq!(
+            shell.cascade_sink.produce_calls(),
+            0,
+            "the cascade leg runs only after the membership legs ack",
+        );
     }
 
     /// A seeded flip that never cascades leaves cohort-of-cohort referrers permanently stale.

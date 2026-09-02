@@ -93,6 +93,12 @@ impl CaptureCascadeSink {
     pub fn messages(&self) -> Vec<CascadeMessage> {
         self.0.recorded()
     }
+
+    /// Produce calls, failed ones included. A failed produce records no messages, so this is what
+    /// tells "never submitted" from "submitted and failed".
+    pub fn produce_calls(&self) -> usize {
+        self.0.calls()
+    }
 }
 
 #[async_trait]
