@@ -1860,6 +1860,8 @@ describe('the feature flag release conditions logic', () => {
             ['a key that does not end in _id', 'organization', PropertyOperator.Exact, null],
             // A partial-match operator holds a fragment of a value, so it can never hold a key.
             ['a contains operator', 'organization_id', PropertyOperator.IContains, null],
+            ['a starts-with operator', 'organization_id', PropertyOperator.StartsWith, null],
+            ['an ends-with operator', 'organization_id', PropertyOperator.EndsWith, null],
             ['a regex operator', 'organization_id', PropertyOperator.Regex, null],
             // `is set` carries a bare `true`.
             ['an is-set operator', 'organization_id', PropertyOperator.IsSet, null],

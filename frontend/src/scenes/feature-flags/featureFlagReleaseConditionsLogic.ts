@@ -65,6 +65,10 @@ function holdsWholeValues(property: AnyPropertyFilter): boolean {
             PropertyOperator.NotIContains,
             PropertyOperator.IContainsMulti,
             PropertyOperator.NotIContainsMulti,
+            PropertyOperator.StartsWith,
+            PropertyOperator.NotStartsWith,
+            PropertyOperator.EndsWith,
+            PropertyOperator.NotEndsWith,
         ].includes(operator)
     )
 }
