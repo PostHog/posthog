@@ -16,8 +16,10 @@ from posthog.helpers.email_utils import (
     EmailNormalizer,
     EmailValidationHelper,
     ESPSuppressionReason,
+    ESPSuppressionResult,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    is_email_suppressed_by_provider,
     reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
@@ -313,6 +315,29 @@ class TestESPSuppressionCheck(SimpleTestCase):
             self.assertTrue(result.is_suppressed)
             self.assertTrue(result.from_cache)
             self.assertEqual(result.reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
+
+
+class TestIsEmailSuppressedByProvider(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("confirmed_suppression", True, ESPSuppressionReason.SUPPRESSED, True),
+            ("provider_api_failure", True, ESPSuppressionReason.API_FAILURE_FALLBACK, False),
+            ("not_suppressed", False, None, False),
+        ]
+    )
+    @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
+    def test_only_a_confirmed_suppression_counts(self, _name, is_suppressed, reason, expected):
+        with patch(
+            "posthog.helpers.email_utils.check_esp_suppression",
+            return_value=ESPSuppressionResult(is_suppressed=is_suppressed, from_cache=False, reason=reason),
+        ):
+            self.assertEqual(is_email_suppressed_by_provider("test@example.com"), expected)
+
+    @override_settings(CUSTOMER_IO_API_KEY=None)
+    def test_no_provider_configured_skips_the_check(self):
+        with patch("posthog.helpers.email_utils.check_esp_suppression") as mock_check:
+            self.assertFalse(is_email_suppressed_by_provider("test@example.com"))
+            mock_check.assert_not_called()
 
 
 class TestESPSuppressionAnalytics(SimpleTestCase):

@@ -86,8 +86,10 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
+    EMAIL_SUPPRESSED_MESSAGE,
     EmailNormalizer,
     EmailValidationHelper,
+    is_email_suppressed_by_provider,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -877,6 +879,10 @@ class UserSerializer(serializers.ModelSerializer):
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
                 )
+            # Refuse before staging, so a blocked address never becomes a pending change that no
+            # code can ever complete.
+            if is_email_suppressed_by_provider(new_email):
+                raise serializers.ValidationError(EMAIL_SUPPRESSED_MESSAGE, code="email_address_suppressed")
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
             instance.pending_email = new_email
             instance.save(update_fields=["pending_email"])

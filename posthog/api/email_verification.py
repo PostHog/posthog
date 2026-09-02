@@ -4,6 +4,7 @@ import structlog
 from rest_framework import exceptions
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EMAIL_SUPPRESSED_MESSAGE, is_email_suppressed_by_provider
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     CODE_TTL_SECONDS,
@@ -20,6 +21,14 @@ VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
 
 EMAIL_CODE_STATE_REDIS_KEY_PREFIX = "email_verification_code_state"
 EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX = "email_verification_code_attempts"
+
+
+class EmailAddressSuppressed(exceptions.APIException):
+    """The provider will not deliver to this address, so no code was sent."""
+
+    status_code = 400
+    default_detail = EMAIL_SUPPRESSED_MESSAGE
+    default_code = "email_address_suppressed"
 
 
 def is_email_verification_disabled(user: User) -> bool:
@@ -62,15 +71,20 @@ class EmailVerificationCodeVerifier:
         """Issue a fresh code and email it to the address it authorizes.
 
         `target_email` is the staged address of an email change. Signup sends leave it None."""
+        # Signup verification always proves the account address. Only a verified user's
+        # email change targets the staged address; an unverified user's staged change must
+        # not let a code sent to the unverified new address verify the account.
+        # is_email_verified None marks an account from before verification existed. The login
+        # flow trusts those accounts as verified, so the email change flow does too.
+        target: str | None = target_email
+        if target is None and user.is_email_verified is not False:
+            target = user.pending_email
+        # Refuse before any state is written, so the caller can tell the person the address is
+        # blocked instead of sending them to a page that says a code is on its way.
+        if is_email_suppressed_by_provider(target or user.email):
+            logger.info("Email verification code not sent - address suppressed", user_id=user.pk)
+            raise EmailAddressSuppressed()
         try:
-            # Signup verification always proves the account address. Only a verified user's
-            # email change targets the staged address; an unverified user's staged change must
-            # not let a code sent to the unverified new address verify the account.
-            # is_email_verified None marks an account from before verification existed. The login
-            # flow trusts those accounts as verified, so the email change flow does too.
-            target: str | None = target_email
-            if target is None and user.is_email_verified is not False:
-                target = user.pending_email
             issued_at = int(time.time())
             # Bind the code to the address it is mailed to. Without this, two email changes in the
             # same second derive the same code. A code sent to an address the user owns could then

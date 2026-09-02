@@ -19,6 +19,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.email_verification import EmailAddressSuppressed
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
@@ -194,6 +195,26 @@ class TestSignupAPI(APIBaseTest):
         mock_is_email_available.assert_called()
         # Assert the email was sent.
         mock_email_verifier.assert_called_once_with(user)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch(
+        "posthog.api.signup.email_verification_code_verifier.send_code",
+        side_effect=EmailAddressSuppressed(),
+    )
+    def test_api_sign_up_with_suppressed_email_lands_on_blocked_page(self, _mock_send_code, _mock_is_email_available):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = cast(User, User.objects.order_by("-pk")[0])
+        self.assertEqual(response.json()["redirect_url"], f"/verify_email/{user.uuid}?email_blocked=1")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")

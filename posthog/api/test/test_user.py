@@ -2887,6 +2887,15 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         self.assertEqual(mock_capture.call_count, 2)
 
+    @patch("posthog.api.email_verification.is_email_suppressed_by_provider", return_value=True)
+    def test_cant_request_verification_when_the_address_is_suppressed(self, _mock_is_suppressed):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "email_address_suppressed")
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_cant_verify_if_email_is_not_configured(self):
         set_instance_setting("EMAIL_HOST", "")
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):

@@ -134,6 +134,37 @@ export const Throttled: Story = {
     },
 }
 
+export const EmailBlocked: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                    email_service_available: true,
+                },
+            },
+            post: {
+                '/api/reset': {},
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
+            passwordResetLogic.actions.setRequestPasswordResetManualErrors({ code: 'email_address_suppressed' })
+        })
+
+        return <PasswordReset />
+    },
+}
+
 export const WithEmailFromQuery: Story = {
     render: () => {
         useStorybookMocks({

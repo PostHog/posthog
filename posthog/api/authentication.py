@@ -55,7 +55,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
-from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.email_utils import EMAIL_SUPPRESSED_MESSAGE, EmailLookupHandler, is_email_suppressed_by_provider
 from posthog.helpers.sso import is_sso_reauth_begin, sso_failure_redirect_url
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
@@ -1128,6 +1128,11 @@ class PasswordResetSerializer(serializers.Serializer):
                 "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
                 code="email_not_available",
             )
+
+        # Checked on the submitted address, before the account lookup, so the answer says nothing
+        # about whether an account exists.
+        if is_email_suppressed_by_provider(email):
+            raise serializers.ValidationError(EMAIL_SUPPRESSED_MESSAGE, code="email_address_suppressed")
 
         try:
             user = User.objects.filter(is_active=True).get(email__iexact=email)

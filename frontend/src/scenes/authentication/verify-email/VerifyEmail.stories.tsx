@@ -7,7 +7,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { VerifyEmail } from './VerifyEmail'
 import { verifyEmailLogic } from './verifyEmailLogic'
 
-type VerifyEmailView = 'pending' | 'success' | 'invalid'
+type VerifyEmailView = 'pending' | 'success' | 'invalid' | 'blocked'
 
 type StoryArgs = {
     view: VerifyEmailView
@@ -24,7 +24,7 @@ const meta: Meta<StoryArgs> = {
         view: {
             control: 'select',
             name: 'View',
-            options: ['pending', 'success', 'invalid'] satisfies VerifyEmailView[],
+            options: ['pending', 'success', 'invalid', 'blocked'] satisfies VerifyEmailView[],
         },
     },
     args: {
@@ -59,3 +59,6 @@ Success.args = { view: 'success' }
 
 export const Invalid: StoryFn<StoryArgs> = Template.bind({})
 Invalid.args = { view: 'invalid' }
+
+export const Blocked: StoryFn<StoryArgs> = Template.bind({})
+Blocked.args = { view: 'blocked' }

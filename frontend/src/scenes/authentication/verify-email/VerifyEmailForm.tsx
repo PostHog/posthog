@@ -21,6 +21,7 @@ const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],
     success: ['// verified', '// go explore'],
     invalid: ['// nothing to verify', "// let's start again"],
+    blocked: ['// mail is bouncing', '// support can fix this'],
 }
 
 const CHECKLIST = [
@@ -183,6 +184,59 @@ export function VerifyEmailForm(): JSX.Element {
                             <div className="AuthScene__progress-fill w-full h-full bg-warning rounded-sm" />
                         </div>
                         <p className="m-0 text-sm text-secondary text-center">Taking you to PostHog…</p>
+                    </div>
+                </AuthSceneCard>
+            </AuthScene>
+        )
+    }
+
+    if (view === 'blocked') {
+        return (
+            <AuthScene notes={notes}>
+                <AuthSceneCard
+                    footer={
+                        <p className="mt-5 mb-0 text-sm text-secondary text-center">
+                            Wrong address?{' '}
+                            <Link
+                                to={urls.signup()}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Start over →
+                            </Link>
+                        </p>
+                    }
+                >
+                    <div className="flex flex-col items-center text-center">
+                        <SleepingHog className="block w-auto mx-auto h-28" />
+                        <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
+                            We can't email this address
+                        </h1>
+                        <p className="AuthScene__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
+                            {verificationEmail ? (
+                                <>
+                                    Earlier messages to <strong>{verificationEmail}</strong> bounced or were reported as
+                                    spam, so our email provider blocked it. Contact support and we'll unblock it.
+                                </>
+                            ) : (
+                                <>
+                                    Earlier messages to your address bounced or were reported as spam, so our email
+                                    provider blocked it. Contact support and we'll unblock it.
+                                </>
+                            )}
+                        </p>
+                        <LemonButton
+                            type="primary"
+                            size="large"
+                            center
+                            fullWidth
+                            onClick={() =>
+                                openSupportForm({
+                                    kind: 'bug',
+                                })
+                            }
+                        >
+                            Contact support
+                        </LemonButton>
                     </div>
                 </AuthSceneCard>
             </AuthScene>

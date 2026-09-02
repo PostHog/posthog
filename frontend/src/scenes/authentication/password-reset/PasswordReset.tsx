@@ -38,7 +38,8 @@ export function PasswordReset(): JSX.Element {
 
     return (
         <BridgePage view="password-reset" footer={<SupportModalButton />}>
-            {requestPasswordResetManualErrors?.code === 'throttled' ? (
+            {requestPasswordResetManualErrors?.code === 'throttled' ||
+            requestPasswordResetManualErrors?.code === 'email_address_suppressed' ? (
                 <div className="text-center ">
                     <IconErrorOutline className="text-5xl text-danger" />
                 </div>
@@ -56,6 +57,8 @@ export function PasswordReset(): JSX.Element {
                 <EmailUnavailable />
             ) : requestPasswordResetManualErrors?.code === 'throttled' ? (
                 <ResetThrottled />
+            ) : requestPasswordResetManualErrors?.code === 'email_address_suppressed' ? (
+                <ResetEmailBlocked />
             ) : requestPasswordResetSucceeded ? (
                 <ResetSuccess />
             ) : (
@@ -142,6 +145,35 @@ function ResetSuccess(): JSX.Element {
         <div className="text-center">
             Request received successfully! If the email <b>{requestPasswordReset?.email || 'you typed'}</b> exists,
             you’ll receive an email with a reset link soon.
+            <div className="mt-4">
+                <LemonButton
+                    type="primary"
+                    status="alt"
+                    data-attr="back-to-login"
+                    center
+                    fullWidth
+                    onClick={() => push('/login')}
+                    size="large"
+                >
+                    Back to login
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function ResetEmailBlocked(): JSX.Element {
+    const { requestPasswordReset } = useValues(passwordResetLogic)
+    const { push } = useActions(router)
+
+    return (
+        <div className="text-center">
+            We can't send email to <b>{requestPasswordReset?.email || 'the address you typed'}</b>, because earlier
+            messages to it bounced or were reported as spam. Contact{' '}
+            <Link to="mailto:support@posthog.com" targetBlankIcon={false}>
+                support@posthog.com
+            </Link>{' '}
+            and we'll unblock it.
             <div className="mt-4">
                 <LemonButton
                     type="primary"

@@ -546,6 +546,28 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
         return _esp_suppression_api_failure_fallback(email, "unexpected_error", str(e))
 
 
+EMAIL_SUPPRESSED_MESSAGE = (
+    "We can't send email to this address, because earlier messages to it bounced or were reported as spam. "
+    "Contact support@posthog.com and we'll unblock it."
+)
+
+
+def is_email_suppressed_by_provider(email: str) -> bool:
+    """Report whether the email provider says it will not deliver to this address.
+
+    `check_esp_suppression` also reports suppression when its own API call fails. That answer is a
+    deliberate fail-open for the login-code path, which skips the code so nobody is locked out. A
+    caller that tells a person their address is blocked must not act on it, so only an explicit
+    suppression counts here.
+    """
+    # Same condition as `is_http_email_service_available`, inlined because `posthog.email` imports
+    # this module. Without Customer.io there is no suppression list to consult.
+    if not settings.CUSTOMER_IO_API_KEY:
+        return False
+    result = check_esp_suppression(email)
+    return result.is_suppressed and result.reason == ESPSuppressionReason.SUPPRESSED
+
+
 @dataclass
 class ESPSuppressionAPIResponse:
     is_suppressed: bool

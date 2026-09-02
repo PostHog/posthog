@@ -22,7 +22,11 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    EmailAddressSuppressed,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -58,14 +62,25 @@ def _save_session_with_recovery(session: SessionBase) -> None:
         session.create()
 
 
-def verify_email_or_login(request: Request, user: User) -> None:
+def verify_email_or_login(request: Request, user: User) -> bool:
+    """Send a verification code, or sign the user in when verification is not required.
+
+    Returns True when the address is suppressed and no code was sent. The account already exists
+    at this point, so signup must still succeed; the caller routes the person to a page that says
+    the address is blocked."""
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        email_verification_code_verifier.send_code(user)
+        try:
+            email_verification_code_verifier.send_code(user)
+        except EmailAddressSuppressed:
+            return True
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return False
 
 
-def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
+def get_redirect_url(
+    uuid: str, is_email_verified: bool, next_url: str | None = None, email_suppressed: bool = False
+) -> str:
     user = User.objects.get(uuid=uuid)
 
     require_email_verification = (
@@ -78,8 +93,13 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
     if require_email_verification:
         redirect_url = "/verify_email/" + uuid
 
+        params = []
         if next_url:
-            redirect_url += "?next=" + quote(next_url, safe="")
+            params.append("next=" + quote(next_url, safe=""))
+        if email_suppressed:
+            params.append("email_blocked=1")
+        if params:
+            redirect_url += "?" + "&".join(params)
 
         return redirect_url
 
@@ -87,6 +107,9 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
 
 
 class SignupSerializer(serializers.Serializer):
+    # Set during create(): the address is on the provider's suppression list, so no code was sent.
+    _email_suppressed: bool = False
+
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
@@ -318,7 +341,7 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        verify_email_or_login(request, user)
+        self._email_suppressed = verify_email_or_login(request, user)
 
         return user
 
@@ -357,7 +380,9 @@ class SignupSerializer(serializers.Serializer):
             next_url = None
 
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
+        data["redirect_url"] = get_redirect_url(
+            data["uuid"], data["is_email_verified"], next_url, self._email_suppressed
+        )
         return data
 
 
@@ -459,6 +484,9 @@ class SignupViewset(generics.CreateAPIView):
 
 
 class InviteSignupSerializer(serializers.Serializer):
+    # Set during create(): the address is on the provider's suppression list, so no code was sent.
+    _email_suppressed: bool = False
+
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
     password: serializers.Field = serializers.CharField(max_length=72, required=False)
     role_at_organization: serializers.Field = serializers.CharField(
@@ -480,7 +508,9 @@ class InviteSignupSerializer(serializers.Serializer):
         # onboarding instead of the default post-signup landing page, otherwise the sceneLogic
         # redirect race can drop them on the homepage.
         next_url = "/onboarding" if self.context.get("delegated_onboarding") else None
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
+        data["redirect_url"] = get_redirect_url(
+            data["uuid"], data["is_email_verified"], next_url, self._email_suppressed
+        )
         return data
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -655,7 +685,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
-            verify_email_or_login(self.context["request"], user)
+            self._email_suppressed = verify_email_or_login(self.context["request"], user)
 
             report_user_signed_up(
                 user,

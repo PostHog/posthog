@@ -1667,6 +1667,17 @@ class TestPasswordResetAPI(APIBaseTest):
             },
         )
 
+    @patch("posthog.api.authentication.is_email_suppressed_by_provider", return_value=True)
+    def test_cant_reset_when_the_address_is_suppressed(self, _mock_is_suppressed):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "email_address_suppressed")
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_cant_reset_more_than_six_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")
 
