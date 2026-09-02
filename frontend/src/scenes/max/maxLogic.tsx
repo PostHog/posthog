@@ -754,15 +754,15 @@ export const maxLogic = kea<maxLogicType>([
             try {
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
-                if (err.status === 404) {
-                    // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
-                    // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
-                    // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
-                    // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
-                    return
+                if (err.status !== 404) {
+                    lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
                 }
-
-                lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
+                // A 404 is usually the not-yet-persisted race: the backend has not written the row for a
+                // conversation still being generated (e.g. a prompt handed off from another surface, or a
+                // message sent before the initial history load finished). Fall through and keep polling —
+                // bounded by the depth guard above — so the thread appears once the row lands, instead of
+                // giving up on the first miss and leaving a blank chat with no retry. No toast and no reset,
+                // so an in-flight generation is never interrupted.
             }
 
             if (conversation && conversation.status === ConversationStatus.Idle) {
