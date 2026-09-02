@@ -43,6 +43,13 @@ exclude {
     "events_main",
     "events_recent",
 
+    # --- infra-created, never by a migration ---
+    # Iceberg readers over the logs archive bucket. The bucket is per environment
+    # and named in the DDL, so declaring these would put one environment's storage
+    # layout in the schema of all of them.
+    "logs_archive",
+    "logs_archive_*",
+
     # --- out-of-band managed: real on prod, not created by the local
     #     migrate_clickhouse path, so the gate ignores them on BOTH sides until
     #     a proper OPS migration reproduces them locally. Remove each entry once
