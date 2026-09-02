@@ -35,6 +35,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
@@ -99,6 +100,13 @@ def get_organization_from_view(view) -> Organization:
     raise ValueError("View not compatible with organization-based permissions!")
 
 
+def get_required_organization_membership(request: Request, organization: Organization) -> OrganizationMembership:
+    membership = get_cached_organization_membership(organization.id, cast(User, request.user))
+    if membership is None:
+        raise NotFound("Organization not found.")
+    return membership
+
+
 class CanCreateOrg(BasePermission):
     """Whether new organizations can be created in this instances."""
 
@@ -132,15 +140,11 @@ class OrganizationMemberPermissions(BasePermission):
             return True
 
         organization = get_organization_from_view(view)
-
-        # TODO: Optimize this - we can get it from view.user_access_control
-        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
+        return get_cached_organization_membership(organization.id, cast(User, request.user)) is not None
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object, view)
-
-        # TODO: Optimize this - we can get it from view.user_access_control
-        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
+        return get_cached_organization_membership(organization.id, cast(User, request.user)) is not None
 
 
 class UserNoOrgMembershipDeletePermission(BasePermission):
@@ -173,28 +177,16 @@ class OrganizationAdminWritePermissions(BasePermission):
         if view.basename == "organizations" and view.action not in ["create"]:
             return True
 
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = get_organization_from_view(view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
@@ -209,22 +201,12 @@ class OrganizationAdminReadPermissions(BasePermission):
 
     def has_permission(self, request: Request, view) -> bool:
         organization = get_organization_from_view(view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object, view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
+        membership = get_required_organization_membership(request, organization)
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
@@ -858,16 +840,15 @@ class APIScopePermission(ScopeBasePermission):
         if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
             return
 
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
-
-            if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
-                raise PermissionDenied(
-                    f"Organization '{org.name}' does not allow using personal API keys. "
-                    f"Contact an admin to enable personal API keys for this organization."
-                )
-        except OrganizationMembership.DoesNotExist:
+        membership = get_cached_organization_membership(org.id, cast(User, request.user))
+        if membership is None:
             return
+
+        if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied(
+                f"Organization '{org.name}' does not allow using personal API keys. "
+                f"Contact an admin to enable personal API keys for this organization."
+            )
 
 
 class MCPAccessPermission(ScopeBasePermission):
@@ -1217,10 +1198,7 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+        membership = get_required_organization_membership(request, organization)
 
         members_can_invite = bool(organization.members_can_invite)
         user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
@@ -1246,10 +1224,7 @@ class UserCanCreateProjectPermission(BasePermission):
         except ValueError:
             return True
 
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+        membership = get_required_organization_membership(request, organization)
 
         if membership.level >= OrganizationMembership.Level.ADMIN:
             return True

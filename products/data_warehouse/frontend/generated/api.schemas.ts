@@ -3250,6 +3250,7 @@ export interface CredentialApi {
  * * `Anvil` - Anvil
  * * `Coolify` - Coolify
  * * `SocialPilot` - SocialPilot
+ * * `Strato` - Strato
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4580,6 +4581,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Anvil: 'Anvil',
     Coolify: 'Coolify',
     SocialPilot: 'SocialPilot',
+    Strato: 'Strato',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

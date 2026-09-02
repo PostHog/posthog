@@ -208,18 +208,36 @@ class TestRunChdbQuery:
         with pytest.raises(RuntimeError, match="timed out"):
             run_chdb_query("SELECT sleep(2)", timeout=0.5)
 
-    def test_suppressed_delta_error_classification_survives_subprocess_boundary(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=[],
-            returncode=1,
-            stdout="",
-            stderr="Code: 36. DB::Exception: Unsupported DeltaLake type: timestamp_ntz. (BAD_ARGUMENTS)",
-        )
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            "Code: 36. DB::Exception: Unsupported DeltaLake type: timestamp_ntz. (BAD_ARGUMENTS)",
+            # Emitted when a source adds a column mid-stream and the parquet parts under one
+            # table disagree on column count. Kept verbatim: the suppression matches on this
+            # wording, so a ClickHouse rephrasing has to fail the test rather than pass silently.
+            "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
+            "The table has 23 columns, which is different from 24 columns in the file. (NOT_IMPLEMENTED)",
+        ],
+    )
+    def test_suppressed_chdb_error_classification_survives_subprocess_boundary(self, stderr: str) -> None:
+        completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr)
         with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
             with pytest.raises(RuntimeError) as exc_info:
                 run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
 
         assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+    def test_unrelated_chdb_error_is_not_suppressed(self) -> None:
+        # The suppression must stay a narrow allow-list. A chdb failure the ClickHouse fallback
+        # cannot absorb has to keep reaching error tracking.
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="Code: 499. DB::Exception: Access Denied. (S3_ERROR)"
+        )
+        with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
+            with pytest.raises(RuntimeError) as exc_info:
+                run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
+
+        assert not DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):
