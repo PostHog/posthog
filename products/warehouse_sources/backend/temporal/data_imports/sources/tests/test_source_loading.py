@@ -1,5 +1,6 @@
 import ast
 from pathlib import Path
+from typing import cast
 
 import pytest
 from unittest.mock import patch
@@ -9,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources import (
     load_all_sources,
     source_module_path,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AnySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -48,6 +50,10 @@ class _FakePypiSource:
         return ExternalDataSourceType.PYPI
 
 
+def _register_fake_pypi_source(*_args) -> None:
+    SourceRegistry.register(cast(type[AnySource], _FakePypiSource))
+
+
 @pytest.fixture
 def empty_registry():
     saved_sources, saved_loaded = dict(SourceRegistry._sources), SourceRegistry._loaded
@@ -63,7 +69,7 @@ def empty_registry():
 
 def test_get_source_imports_only_the_requested_source(empty_registry):
     with (
-        patch(f"{_SOURCES}.load_source", side_effect=lambda _: SourceRegistry.register(_FakePypiSource)) as load_source,
+        patch(f"{_SOURCES}.load_source", side_effect=_register_fake_pypi_source) as load_source,
         patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")),
     ):
         source = SourceRegistry.get_source(ExternalDataSourceType.PYPI)
@@ -76,7 +82,7 @@ def test_get_source_imports_only_the_requested_source(empty_registry):
 def test_get_source_falls_back_to_the_full_load_when_the_single_import_registers_nothing(empty_registry):
     with (
         patch(f"{_SOURCES}.load_source"),
-        patch(f"{_SOURCES}.load_all_sources", side_effect=lambda: SourceRegistry.register(_FakePypiSource)),
+        patch(f"{_SOURCES}.load_all_sources", side_effect=_register_fake_pypi_source),
     ):
         source = SourceRegistry.get_source(ExternalDataSourceType.PYPI)
 
