@@ -160,6 +160,20 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         setOutcome: (proposalId: string, outcome: WorkflowProposalOutcomeApi) => ({ proposalId, outcome }),
     }),
     reducers({
+        // The server has resolved this one. Dropping it here means a reload that fails afterwards
+        // cannot leave a resolved suggestion in the queue with live buttons.
+        proposalsResponse: {
+            removeResolvedProposal: (
+                response: PaginatedWorkflowProposalListApi | null,
+                { proposalId }: { proposalId: string }
+            ): PaginatedWorkflowProposalListApi | null =>
+                response
+                    ? {
+                          ...response,
+                          results: (response.results ?? []).filter((proposal) => proposal.id !== proposalId),
+                      }
+                    : response,
+        },
         resolvingId: [
             null as string | null,
             {
@@ -215,15 +229,6 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         proposalsResponse: [
             null as PaginatedWorkflowProposalListApi | null,
             {
-                // The server has resolved this one. Dropping it here means a reload that fails
-                // afterwards cannot leave a resolved suggestion in the queue with live buttons.
-                removeResolvedProposal: (response, { proposalId }) =>
-                    response
-                        ? {
-                              ...response,
-                              results: (response.results ?? []).filter((proposal) => proposal.id !== proposalId),
-                          }
-                        : response,
                 loadProposals: async () => {
                     try {
                         return await hogFlowsProposalsList(String(values.currentTeamIdStrict), props.id, {
