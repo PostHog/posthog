@@ -1,12 +1,16 @@
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
 import type { Task } from "@posthog/shared/domain-types";
 import { getAuthIdentity, useAuthStore } from "@posthog/ui/features/auth/store";
+import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
 import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
 } from "@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner";
 import { useCallback, useMemo, useRef } from "react";
-import { buildLoopBuilderSystemInstructions } from "../loopBuilderPrompt";
+import {
+  buildLoopBuilderSystemInstructions,
+  type LoopBuilderBackend,
+} from "../loopBuilderPrompt";
 import { useLoopBuilderSessionStore } from "../loopBuilderSessionStore";
 
 interface UseLoopBuilderTaskReturn {
@@ -18,10 +22,11 @@ interface UseLoopBuilderTaskReturn {
 
 /**
  * The loops prompt box: start a cloud sandbox agent whose job is to build a Loop
- * with the user (ask clarifying questions, confirm, then create it via the PostHog
- * MCP `loops-create` tool). Mirrors `useScoutChatTask` — a repo-less, auto-mode
- * cloud task seeded with a canned instruction prompt. The user's typed text rides
- * in through a ref so the fixed `buildInput` closure reads the latest submission.
+ * with the user (ask clarifying questions, confirm, then create it through the
+ * PostHog MCP: `loops-create`, or the `workflows-*` tools when loops are
+ * workflow-backed). Mirrors `useScoutChatTask`: a repo-less, auto-mode cloud
+ * task seeded with a canned instruction prompt. The user's typed text rides in
+ * through a ref so the fixed `buildInput` closure reads the latest submission.
  */
 export function useLoopBuilderTask(context?: {
   folderId: string;
@@ -30,6 +35,9 @@ export function useLoopBuilderTask(context?: {
   const instructionsRef = useRef("");
   const contextRef = useRef(context);
   contextRef.current = context;
+  const workflowBacked = useLoopsHogFlowsEnabled();
+  const backendRef = useRef<LoopBuilderBackend>("loops");
+  backendRef.current = workflowBacked ? "workflow" : "loops";
 
   const buildInput = useCallback(
     (ctx: InboxCloudTaskInputContext): TaskCreationInput => {
@@ -38,6 +46,7 @@ export function useLoopBuilderTask(context?: {
       const systemInstructions = buildLoopBuilderSystemInstructions({
         hasSeed,
         context: contextRef.current,
+        backend: backendRef.current,
       });
       // createTask rejects empty content and the saga drops customInstructions without message text
       const taskContent = hasSeed ? userPrompt : "Build a loop";
@@ -49,8 +58,8 @@ export function useLoopBuilderTask(context?: {
           ? `Loop builder: ${userPrompt}`
           : "Loop builder",
         customInstructions: systemInstructions,
-        // Building a loop is pure PostHog-MCP work (loops-list, integrations-list,
-        // loops-create); it never touches a working tree. Run repo-less so the
+        // Building a loop is pure PostHog-MCP work (listing, then creating the
+        // loop or workflow); it never touches a working tree. Run repo-less so the
         // sandbox skips the clone and isn't tied to some arbitrary default repo.
         repository: undefined,
         githubUserIntegrationId: undefined,
