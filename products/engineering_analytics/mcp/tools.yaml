@@ -236,11 +236,13 @@ tools:
             same_commit_recovery_run_count / quarantined_failed_run_count are run counts. Each has an equal-length
             previous-window twin (*_prior) for honest deltas. Use this for "which team owns the flakiest surfaces right
             now" and to route a flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI
-            emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); spans without a stamp
+            emission time from the repo's ownership map (the distributed owners.yaml files); spans without a stamp
             aggregate under the literal team 'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team),
-            and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces,
-            never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted, so there
-            is no honest denominator.
+            and a re-stamped test lands under its latest owner only. Each row also carries test_file_count (the daily
+            owners.yaml census denominator, with a window-start twin) and merged_pr_count (merged PRs by the team's
+            members, bots excluded); teams with census counts but no CI signal appear with zero signal counts and a null
+            last_seen_at. Teams are organizational owners of code surfaces, never authors. Read all counts as absolute
+            signal, never rates: fast passing runs are not emitted, so there is no honest denominator.
         feature_flag: engineering-analytics
     engineering-analytics-team-merge-trend:
         operation: engineering_analytics_team_merge_trend
