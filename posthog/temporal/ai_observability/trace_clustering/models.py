@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.shared_activities import AnalysisLevel  # noqa: F401
 from posthog.temporal.ai_observability.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
@@ -208,7 +209,7 @@ class KMeansResult:
     centroids: list[list[float]]  # Cluster centroids
 
 
-@dataclass
+@frozen
 class HDBSCANResult:
     """Result of HDBSCAN clustering.
 

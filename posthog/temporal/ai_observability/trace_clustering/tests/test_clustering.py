@@ -25,7 +25,7 @@ skip_without_umap = pytest.mark.skipif(not umap_available, reason="UMAP threadin
 
 
 from posthog.temporal.ai_observability.trace_clustering.clustering import (  # noqa: E402
-    _is_degenerate_split,
+    _is_uninformative_split,
     calculate_distances_to_cluster_means,
     calculate_trace_distances,
     compute_2d_coordinates,
@@ -112,7 +112,7 @@ class TestPerformHDBSCANClustering:
         assert len(result.centroids) == 2
 
 
-class TestIsDegenerateSplit:
+class TestIsUninformativeSplit:
     @parameterized.expand(
         [
             ("two_clusters_only", [0] * 50 + [1] * 50, True),
@@ -120,10 +120,11 @@ class TestIsDegenerateSplit:
             ("everything_is_noise", [-1] * 100, True),
             ("balanced_split", [0] * 40 + [1] * 30 + [2] * 30, False),
             ("noise_does_not_count_as_a_cluster", [-1] * 40 + [0] * 30 + [1] * 30, True),
+            ("noise_holds_most", [-1] * 70 + [0] * 10 + [1] * 10 + [2] * 10, True),
         ]
     )
-    def test_degenerate_detection(self, _name: str, labels: list[int], expected: bool):
-        assert _is_degenerate_split(labels, len(labels)) is expected
+    def test_uninformative_detection(self, _name: str, labels: list[int], expected: bool):
+        assert _is_uninformative_split(labels, len(labels)) is expected
 
 
 class TestCalculateTraceDistances:

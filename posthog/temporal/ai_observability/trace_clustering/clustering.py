@@ -315,13 +315,12 @@ def perform_hdbscan_clustering(
 
     result = _fit_hdbscan(embeddings, min_cluster_size, effective_min_samples, "eom")
 
-    # Excess of Mass selects clusters near the root of the condensed tree. When no sub-cluster is
-    # stable - which a fresh random sample of the same traffic can cause from one run to the next -
-    # it returns the root split: every item in one or two buckets, no noise. Leaf selection takes
-    # the fine-grained clusters instead. Keep it only when it actually splits the data.
-    if _is_degenerate_split(result.labels, n_samples):
+    # EOM can select stable high-level clusters that are valid but too coarse for the clusters page.
+    # Leaf selection exposes finer groups from the same hierarchy. Keep it only when it avoids the
+    # same coarse shape without moving most items into noise.
+    if _is_uninformative_split(result.labels, n_samples):
         leaf_result = _fit_hdbscan(embeddings, min_cluster_size, effective_min_samples, "leaf")
-        if not _is_degenerate_split(leaf_result.labels, n_samples):
+        if not _is_uninformative_split(leaf_result.labels, n_samples):
             return leaf_result
 
     return result
@@ -364,24 +363,20 @@ def _fit_hdbscan(
     )
 
 
-def _is_degenerate_split(labels: list[int], n_samples: int) -> bool:
-    """Whether a clustering result says nothing about the data.
-
-    Too few clusters, or one cluster holding most of the items, both read as "clustering is
-    broken" on the clusters page - the run produced a couple of cards covering everything.
-    """
+def _is_uninformative_split(labels: list[int], n_samples: int) -> bool:
     from posthog.temporal.ai_observability.trace_clustering.constants import (
-        DEGENERATE_DOMINANT_CLUSTER_FRACTION,
-        DEGENERATE_MIN_CLUSTERS,
+        MIN_INFORMATIVE_CLUSTERS,
         NOISE_CLUSTER_ID,
+        UNINFORMATIVE_DOMINANT_BUCKET_FRACTION,
     )
 
-    cluster_sizes = Counter(label for label in labels if label != NOISE_CLUSTER_ID)
+    label_sizes = Counter(labels)
+    real_cluster_count = sum(label != NOISE_CLUSTER_ID for label in label_sizes)
 
-    if len(cluster_sizes) < DEGENERATE_MIN_CLUSTERS:
+    if real_cluster_count < MIN_INFORMATIVE_CLUSTERS:
         return True
 
-    return max(cluster_sizes.values()) / n_samples >= DEGENERATE_DOMINANT_CLUSTER_FRACTION
+    return max(label_sizes.values()) / n_samples >= UNINFORMATIVE_DOMINANT_BUCKET_FRACTION
 
 
 def calculate_distances_to_cluster_means(
