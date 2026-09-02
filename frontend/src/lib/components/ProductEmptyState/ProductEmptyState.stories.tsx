@@ -18,6 +18,7 @@ import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
+import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
@@ -323,3 +324,18 @@ export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyState
 export const WorkflowsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(workflowsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/hog_flows/': [200, { count: 0, results: [] }] } },
 })
+
+// Marketing analytics detection mirrors the scene logic's sources check; the
+// default query mocks answer its source queries with empty results.
+export const MarketingAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    marketingAnalyticsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                // nosemgrep: no-environments-api-urls-frontend -- the sources API is env-scoped, so the msw mock must match /api/environments to intercept it
+                '/api/environments/:team_id/external_data_sources/': [200, { results: [] }],
+            },
+        },
+    }
+)
