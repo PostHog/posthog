@@ -445,6 +445,7 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     decisions = find_workflow_email_decisions(now=now)
     enabled = settings.WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED
     applied: list[PauseDecision] = []
+    failed = 0
     for decision in decisions.pauses:
         if not enabled:
             workflow_email_auto_pause_total.labels(
@@ -452,7 +453,16 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
             ).inc()
             logger.info("would_pause_workflow_email_sending", **_decision_log_fields(decision))
             continue
-        if not apply_pause(decision, now=now):
+        try:
+            # One writer's Redis, database or broker error must not drop every later pause and
+            # warning in this sweep. Isolate it so the remaining workflows are still processed; the
+            # next hourly run retries the ones left at risk.
+            paused = apply_pause(decision, now=now)
+        except Exception:
+            failed += 1
+            logger.exception("pause_workflow_email_sending_failed", **_decision_log_fields(decision))
+            continue
+        if not paused:
             continue
         applied.append(decision)
         workflow_email_auto_pause_total.labels(
@@ -466,12 +476,20 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
             ).inc()
             logger.info("would_warn_workflow_email_sending", **_decision_log_fields(decision))
             continue
-        if not apply_warning(decision, now=now):
+        try:
+            warned = apply_warning(decision, now=now)
+        except Exception:
+            failed += 1
+            logger.exception("warn_workflow_email_sending_failed", **_decision_log_fields(decision))
+            continue
+        if not warned:
             continue
         workflow_email_warning_total.labels(
             signal=decision.threshold.signal, window=decision.threshold.window_label, mode="applied"
         ).inc()
         logger.warning("warned_workflow_email_sending", **_decision_log_fields(decision))
+    if failed:
+        logger.warning("workflow_email_health_sweep_partial_failure", failed=failed)
     return applied
 
 

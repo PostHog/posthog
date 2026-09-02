@@ -230,6 +230,26 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
         assert self.warning_email.call_count == 1
 
+    def test_a_failing_writer_does_not_abort_the_other_decisions(self):
+        # One workflow breaches (a pause) and another sits in the warn band. The pause loop runs
+        # before the warning loop, so a raising pause writer that was not isolated would take the
+        # warning down with it.
+        self._seed(sent=400, complaints=8)
+        other = HogFlow.objects.create(name="Newsletter", team=self.team)
+        self._seed(source_id=str(other.id), sent=10000, complaints=20)
+
+        with patch(
+            "products.workflows.backend.services.workflow_email_health.apply_pause",
+            side_effect=RuntimeError("worker reload publish failed"),
+        ):
+            applied, _ = self._sweep()
+
+        assert applied == []
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_at is None
+        assert self.warning_email.call_count == 1
+        assert self.warning_email.call_args.kwargs["hog_flow_id"] == str(other.id)
+
     @override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=False)
     def test_dry_run_does_not_warn(self):
         self._seed(sent=10000, complaints=20)
