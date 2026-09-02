@@ -101,7 +101,9 @@ export function ReportTriageFocus({
   const [expanded, setExpanded] = useState(false);
   const chatOpen = useReportChatPanelStore((state) => state.open);
   const setChatOpen = useReportChatPanelStore((state) => state.setOpen);
+  const triageIdRef = useRef(crypto.randomUUID());
   const sessionContextRef = useRef({
+    triage_id: triageIdRef.current,
     queue_size: reports.length,
     scope: inboxReviewerScopeValue(scope),
     has_active_filters: hasActiveFilters,
@@ -131,16 +133,18 @@ export function ReportTriageFocus({
   const clamped = Math.min(index, Math.max(0, reports.length - 1));
   const report = reports[clamped];
   const reportId = report?.id;
-  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
-    reportId ?? "",
-    report?.status ?? "candidate",
-  );
+  const {
+    data: reportTasks,
+    isLoading: reportTasksLoading,
+    isError: reportTasksFailed,
+  } = useReportTasks(reportId ?? "", report?.status ?? "candidate");
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr =
     report?.status === "ready" &&
     canCreateImplementationPr(report, {
       hasLiveImplementationTask: continuableTask !== null,
-      isTaskLookupPending: reportTasksLoading,
+      // A failed lookup leaves task state unknown, same as a pending one.
+      isTaskLookupPending: reportTasksLoading || reportTasksFailed,
     });
   const livePrUrl = report?.implementation_pr_merged
     ? null
@@ -185,6 +189,7 @@ export function ReportTriageFocus({
     allReports,
     report?.id ?? null,
     "triage",
+    triageIdRef.current,
   );
   const dismissPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
 
@@ -297,10 +302,15 @@ export function ReportTriageFocus({
               variant="triage-actions"
               prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
               surface="triage"
+              triageId={triageIdRef.current}
             />
           }
           reviewers={
-            <SuggestedReviewerAvatarStack report={report} surface="triage" />
+            <SuggestedReviewerAvatarStack
+              report={report}
+              surface="triage"
+              triageId={triageIdRef.current}
+            />
           }
           onExit={handleExit}
           onPrevious={goPrev}
@@ -320,7 +330,13 @@ export function ReportTriageFocus({
           />
         )}
       </div>
-      {chatOpen && <ReportChatSidebar report={report} />}
+      {chatOpen && (
+        <ReportChatSidebar
+          report={report}
+          surface="triage"
+          triageId={triageIdRef.current}
+        />
+      )}
     </div>
   );
 }

@@ -94,6 +94,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -2597,9 +2598,11 @@ export class PostHogAPIClient {
 
   async getTasksWithStatus(
     options?: TaskListOptions,
-    pagination?: { maxPages?: number },
+    pagination?: { maxPages?: number; fetchAll?: boolean },
   ): Promise<{ tasks: Task[]; isComplete: boolean }> {
-    const maxPages = pagination?.maxPages ?? 1;
+    const maxPages = pagination?.fetchAll
+      ? Number.POSITIVE_INFINITY
+      : (pagination?.maxPages ?? 1);
     const pageSize = Math.min(options?.limit ?? 100, 100);
     const tasks: Task[] = [];
     let count = 0;
@@ -3072,6 +3075,34 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelAutoArchive(
+    id: string,
+    inactivityDays: number | null,
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ auto_archive_after_days: inactivityDays }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update automatic archiving: ${response.statusText}`,
+      );
+    }
+    const updatedChannel = (await response.json()) as TaskChannel;
+    if (updatedChannel.auto_archive_after_days !== inactivityDays) {
+      throw new Error(
+        "Automatic archiving isn't available on this server yet. Try again after it has been updated.",
+      );
+    }
+    return updatedChannel;
   }
 
   async deleteTaskChannel(id: string): Promise<void> {
@@ -4971,14 +5002,25 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * The list is newest-first and truncates to the server page size, which drops the oldest
+   * rows — including the scout `task_run` written when the report was created. Pass `limit`
+   * from callers that read the whole log. Callers that need only the newest row of a
+   * latest-wins type should omit it: artefacts carry diffs and code excerpts, and list rows
+   * fetch this once per card.
+   */
   async getSignalReportArtefacts(
     reportId: string,
+    options?: { limit?: number },
   ): Promise<SignalReportArtefactsResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
+    if (options?.limit !== undefined) {
+      url.searchParams.set("limit", String(options.limit));
+    }
 
     try {
       const response = await this.api.fetcher.fetch({
@@ -6906,6 +6948,10 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id } },
         );
         return shapeTicketPreview(ticket);
+      }
+      case "report": {
+        const report = await this.getSignalReport(id);
+        return report ? shapeInboxReportPreview(report) : null;
       }
       case "person": {
         if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {

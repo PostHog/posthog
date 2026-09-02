@@ -58,8 +58,10 @@ export interface BuildBulkActionEventsInput {
   reports: SignalReport[];
   actionType: InboxBulkActionType;
   surface: InboxReportActionSurface;
-  /** Dismissal metadata, only meaningful for `dismiss`. Note is truncated to 500 chars. */
-  dismissal?: { reason?: string; note?: string };
+  triageId?: string;
+  bulkSize?: number;
+  /** Dismissal category, only meaningful for `dismiss`. */
+  dismissalReason?: string;
 }
 
 /**
@@ -74,12 +76,11 @@ export interface BuildBulkActionEventsInput {
 export function buildBulkActionEvents(
   input: BuildBulkActionEventsInput,
 ): InboxReportActionProperties[] {
-  const { reports, actionType, surface, dismissal } = input;
-  const bulkSize = reports.length;
+  const { reports, actionType, surface, triageId, dismissalReason } = input;
+  const bulkSize = input.bulkSize ?? reports.length;
   const isBulk = bulkSize > 1;
   return reports.map((report) => ({
     report_id: report.id,
-    report_title: report.title ?? null,
     report_age_hours: reportAgeHours(report.created_at),
     priority: report.priority ?? null,
     actionability: report.actionability ?? null,
@@ -89,11 +90,9 @@ export function buildBulkActionEvents(
     bulk_size: bulkSize,
     rank: 0,
     list_size: 0,
-    ...(actionType === "dismiss" && dismissal?.reason
-      ? { dismissal_reason: dismissal.reason }
-      : {}),
-    ...(actionType === "dismiss" && dismissal?.note
-      ? { dismissal_note: dismissal.note.slice(0, 500) }
+    ...(triageId ? { triage_id: triageId } : {}),
+    ...(actionType === "dismiss" && dismissalReason
+      ? { dismissal_reason: dismissalReason }
       : {}),
   }));
 }

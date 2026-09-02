@@ -119,6 +119,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
+                              |DashboardSavedView
                               |DashboardTemplate
                               |DashboardWidget
                               |DataColorTheme
@@ -322,6 +323,7 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutSuggestionSet
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -501,6 +503,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
+                        |DashboardSavedView
                         |DashboardTemplate
                         |DashboardWidget
                         |DataColorTheme
@@ -698,6 +701,7 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutSuggestionSet
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
