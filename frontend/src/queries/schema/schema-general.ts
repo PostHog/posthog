@@ -9520,6 +9520,9 @@ export const externalDataSources = [
     'SocialPilot',
     'RoktAds',
     'Strato',
+    'Medusa',
+    'Membrain',
+    'RecallAI',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

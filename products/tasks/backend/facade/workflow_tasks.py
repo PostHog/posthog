@@ -14,7 +14,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WorkflowTaskTeamRateCapped,
     WorkflowTaskUsageLimited,
     create_workflow_task,
-    validate_connectors,
+    resolve_connectors,
 )
 
 __all__ = [
@@ -28,5 +28,5 @@ __all__ = [
     "WorkflowTaskTeamRateCapped",
     "WorkflowTaskUsageLimited",
     "create_workflow_task",
-    "validate_connectors",
+    "resolve_connectors",
 ]

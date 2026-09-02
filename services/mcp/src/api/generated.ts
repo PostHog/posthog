@@ -2461,20 +2461,6 @@ export namespace Schemas {
       actionId: number;
     }
 
-    /**
-     * * `group_summary` - Group summary
-     * * `alert` - Alert
-     * * `per_observation` - Per observation
-     */
-    export type ActionModeEnum = typeof ActionModeEnum[keyof typeof ActionModeEnum];
-
-
-    export const ActionModeEnum = {
-      GroupSummary: 'group_summary',
-      Alert: 'alert',
-      PerObservation: 'per_observation',
-    } as const;
-
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -9276,6 +9262,7 @@ export namespace Schemas {
     export const AgentKeyEnum = {
       Support: 'support',
       Scout: 'scout',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -10043,95 +10030,6 @@ export namespace Schemas {
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
-    }
-
-    /**
-     * * `every_match` - Every new match
-     * * `on_breach` - When a threshold is crossed
-     */
-    export type AlertFrequencyEnum = typeof AlertFrequencyEnum[keyof typeof AlertFrequencyEnum];
-
-
-    export const AlertFrequencyEnum = {
-      EveryMatch: 'every_match',
-      OnBreach: 'on_breach',
-    } as const;
-
-    /**
-     * * `count` - Count of matching observations
-     * * `avg_score` - Average score
-     */
-    export type VisionActionAlertMetricEnum = typeof VisionActionAlertMetricEnum[keyof typeof VisionActionAlertMetricEnum];
-
-
-    export const VisionActionAlertMetricEnum = {
-      Count: 'count',
-      AvgScore: 'avg_score',
-    } as const;
-
-    /**
-     * * `above` - At or above
-     * * `below` - At or below
-     */
-    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
-
-
-    export const VisionAlertDirectionEnum = {
-      Above: 'above',
-      Below: 'below',
-    } as const;
-
-    /**
-     * * `1` - 1 day
-     * * `3` - 3 days
-     * * `7` - 7 days
-     * * `14` - 14 days
-     * * `30` - 30 days
-     */
-    export type WindowDaysEnum = typeof WindowDaysEnum[keyof typeof WindowDaysEnum];
-
-
-    export const WindowDaysEnum = {
-      Number1: 1,
-      Number3: 3,
-      Number7: 7,
-      Number14: 14,
-      Number30: 30,
-    } as const;
-
-    /**
-     * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
-     * notifies about each new match since the previous check; 'on_breach' compares a metric to a
-     * threshold over a rolling window and notifies on the transition into breach.
-     */
-    export interface AlertConfig {
-      /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
-       *
-       * * `every_match` - Every new match
-       * * `on_breach` - When a threshold is crossed */
-      frequency?: AlertFrequencyEnum;
-      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
-       *
-       * * `count` - Count of matching observations
-       * * `avg_score` - Average score */
-      metric?: VisionActionAlertMetricEnum;
-      /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
-      threshold?: number;
-      /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
-       *
-       * * `above` - At or above
-       * * `below` - At or below */
-      direction?: VisionAlertDirectionEnum;
-      /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
-       *
-       * * `1` - 1 day
-       * * `3` - 3 days
-       * * `7` - 7 days
-       * * `14` - 14 days
-       * * `30` - 30 days */
-      window_days?: WindowDaysEnum;
-      /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
-      include_reasoning?: boolean;
     }
 
     export interface AlertSimulate {
@@ -24214,6 +24112,9 @@ export namespace Schemas {
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
      * * `Strato` - Strato
+     * * `Medusa` - Medusa
+     * * `Membrain` - Membrain
+     * * `RecallAI` - RecallAI
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25545,6 +25446,9 @@ export namespace Schemas {
       Coolify: 'Coolify',
       SocialPilot: 'SocialPilot',
       Strato: 'Strato',
+      Medusa: 'Medusa',
+      Membrain: 'Membrain',
+      RecallAI: 'RecallAI',
     } as const;
 
     /**
@@ -26889,7 +26793,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27274,35 +27181,6 @@ export namespace Schemas {
       stages: DeliveryStageTiming[];
       /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
       merged_pr_count: number;
-    }
-
-    /**
-     * * `slack` - Slack
-     * * `webhook` - Webhook
-     */
-    export type DeliveryTargetTypeEnum = typeof DeliveryTargetTypeEnum[keyof typeof DeliveryTargetTypeEnum];
-
-
-    export const DeliveryTargetTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
-    /**
-     * A single delivery destination: a Slack channel or an HTTP webhook URL.
-     */
-    export interface DeliveryTarget {
-      /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
-       *
-       * * `slack` - Slack
-       * * `webhook` - Webhook */
-      type: DeliveryTargetTypeEnum;
-      /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
-      integration_id?: number;
-      /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
-      channel?: string;
-      /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
-      url?: string;
     }
 
     export interface DependentFlag {
@@ -28946,7 +28824,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -29880,7 +29761,7 @@ export namespace Schemas {
       /** Number of events matching this element chain */
       count: number;
       /**
-         * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+         * Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages
          * @nullable
          */
       hash: string | null;
@@ -37511,7 +37392,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -38876,7 +38760,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -50487,6 +50374,8 @@ export namespace Schemas {
       name: string;
       /** Server description. */
       description: string;
+      /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+      url: string;
       /** Deprecated brand icon key. Empty for custom servers. */
       icon_key: string;
       /** Brand domain. Empty for custom servers. */
@@ -50499,6 +50388,8 @@ export namespace Schemas {
        * * `disabled` - disabled
        * * `missing_credential` - missing_credential */
       connection_state: ConnectionStateEnum;
+      /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+      reachable: boolean;
     }
 
     export interface MCPServiceAccount {
@@ -57247,6 +57138,11 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /**
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -59384,192 +59280,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `schedule` - Schedule
-     * * `threshold` - Threshold
-     */
-    export type TriggerTypeEnum = typeof TriggerTypeEnum[keyof typeof TriggerTypeEnum];
-
-
-    export const TriggerTypeEnum = {
-      Schedule: 'schedule',
-      Threshold: 'threshold',
-    } as const;
-
-    /**
-     * Schedule trigger parameters. Threshold triggers are reserved and rejected at the API for now.
-     */
-    export interface TriggerConfig {
-      /** iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately). */
-      rrule?: string;
-      /** IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'. */
-      timezone?: string;
-    }
-
-    /**
-     * * `yes` - yes
-     * * `no` - no
-     * * `inconclusive` - inconclusive
-     */
-    export type VerdictEnum = typeof VerdictEnum[keyof typeof VerdictEnum];
-
-
-    export const VerdictEnum = {
-      Yes: 'yes',
-      No: 'no',
-      Inconclusive: 'inconclusive',
-    } as const;
-
-    /**
-     * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
-     * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
-     */
-    export interface Selection {
-      /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
-      scanner_ids?: string[];
-      /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
-      verdict?: VerdictEnum[];
-      /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
-      tags?: string[];
-      /** Only run on scorer observations with a score at or above this value (inclusive). */
-      min_score?: number;
-      /** Only run on scorer observations with a score at or below this value (inclusive). */
-      max_score?: number;
-    }
-
-    /**
-     * Options for the group-summary synthesis step.
-     */
-    export interface SynthesisConfig {
-      /**
-         * Free-form guidance steering how the group summary is written.
-         * @maxLength 500
-         */
-      prompt_guide?: string;
-    }
-
-    /**
-     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
-     */
-    export interface VisionAction {
-      readonly id: string;
-      /**
-         * Human-readable action name. Unique within the team.
-         * @maxLength 255
-         */
-      name: string;
-      /** Scanner whose observations this action operates on. Must belong to the same team. */
-      scanner: string;
-      /** When false, the scheduler skips this action. */
-      enabled?: boolean;
-      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-      is_scanner_digest?: boolean;
-      /** What fires the action. MVP supports 'schedule' only.
-       *
-       * * `schedule` - Schedule
-       * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
-      /** What the action produces. MVP supports 'group_summary' only.
-       *
-       * * `group_summary` - Group summary
-       * * `alert` - Alert
-       * * `per_observation` - Per observation */
-      mode?: ActionModeEnum;
-      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-      trigger_config?: TriggerConfig;
-      /** Targeting predicate: which of the scanner's observations this action runs on. */
-      selection?: Selection;
-      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-      synthesis_config?: SynthesisConfig;
-      /** Alert condition; required when mode is 'alert', ignored otherwise. */
-      alert_config?: AlertConfig;
-      /** List of delivery destinations the synthesized summary is sent to. */
-      delivery_config?: DeliveryTarget[];
-      /**
-         * Computed next fire time for schedule triggers; the scheduler scans this.
-         * @nullable
-         */
-      readonly next_run_at: string | null;
-      /**
-         * Timestamp of the most recent run, or null if it has never run.
-         * @nullable
-         */
-      readonly last_run_at: string | null;
-      /**
-         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-         * @nullable
-         */
-      readonly hog_flow_id: string | null;
-      readonly created_at: string;
-      /** User who created the action. */
-      readonly created_by: UserBasic | null;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedVisionActionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: VisionAction[];
-    }
-
-    /**
-     * * `running` - Running
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `skipped` - Skipped
-     */
-    export type VisionActionRunStatusEnum = typeof VisionActionRunStatusEnum[keyof typeof VisionActionRunStatusEnum];
-
-
-    export const VisionActionRunStatusEnum = {
-      Running: 'running',
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-    } as const;
-
-    /**
-     * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
-     */
-    export interface VisionActionRunList {
-      readonly id: string;
-      /** Run outcome: running, completed, failed, or skipped.
-       *
-       * * `running` - Running
-       * * `completed` - Completed
-       * * `failed` - Failed
-       * * `skipped` - Skipped */
-      readonly status: VisionActionRunStatusEnum;
-      /**
-         * The scheduled fire time this run was claimed for.
-         * @nullable
-         */
-      readonly scheduled_at: string | null;
-      /** Number of observations that fed this run's summary. */
-      readonly observation_count: number;
-      /**
-         * Short human-readable reason a run skipped or failed; null on success.
-         * @nullable
-         */
-      readonly error_reason: string | null;
-      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-      readonly is_recovery: boolean;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedVisionActionRunListList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: VisionActionRunList[];
-    }
-
-    /**
      * * `metric` - Metric
      * * `match` - Match
      */
@@ -59610,6 +59320,18 @@ export namespace Schemas {
     export const VisionAlertMetricEnum = {
       Count: 'count',
       AvgScore: 'avg_score',
+    } as const;
+
+    /**
+     * * `above` - At or above
+     * * `below` - At or below
+     */
+    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
+
+
+    export const VisionAlertDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
     } as const;
 
     export interface VisionAlertConfiguration {
@@ -68291,64 +68013,6 @@ export namespace Schemas {
       configuration?: unknown;
     }
 
-    /**
-     * A Replay Vision action: a scheduled "and then…" automation over a scanner's observations.
-     */
-    export interface PatchedVisionAction {
-      readonly id?: string;
-      /**
-         * Human-readable action name. Unique within the team.
-         * @maxLength 255
-         */
-      name?: string;
-      /** Scanner whose observations this action operates on. Must belong to the same team. */
-      scanner?: string;
-      /** When false, the scheduler skips this action. */
-      enabled?: boolean;
-      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
-      is_scanner_digest?: boolean;
-      /** What fires the action. MVP supports 'schedule' only.
-       *
-       * * `schedule` - Schedule
-       * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
-      /** What the action produces. MVP supports 'group_summary' only.
-       *
-       * * `group_summary` - Group summary
-       * * `alert` - Alert
-       * * `per_observation` - Per observation */
-      mode?: ActionModeEnum;
-      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
-      trigger_config?: TriggerConfig;
-      /** Targeting predicate: which of the scanner's observations this action runs on. */
-      selection?: Selection;
-      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
-      synthesis_config?: SynthesisConfig;
-      /** Alert condition; required when mode is 'alert', ignored otherwise. */
-      alert_config?: AlertConfig;
-      /** List of delivery destinations the synthesized summary is sent to. */
-      delivery_config?: DeliveryTarget[];
-      /**
-         * Computed next fire time for schedule triggers; the scheduler scans this.
-         * @nullable
-         */
-      readonly next_run_at?: string | null;
-      /**
-         * Timestamp of the most recent run, or null if it has never run.
-         * @nullable
-         */
-      readonly last_run_at?: string | null;
-      /**
-         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
-         * @nullable
-         */
-      readonly hog_flow_id?: string | null;
-      readonly created_at?: string;
-      /** User who created the action. */
-      readonly created_by?: UserBasic | null;
-      readonly updated_at?: string;
-    }
-
     export interface PatchedVisionAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id?: string;
@@ -75787,16 +75451,6 @@ export namespace Schemas {
       reference: RoleExternalReference | null;
     }
 
-    /**
-     * Async-accepted response for POST /vision/actions/{id}/run/.
-     */
-    export interface RunActionResponse {
-      /** Temporal workflow id for the run; the resulting run appears under the action's run history. */
-      workflow_id: string;
-      /** True when a run for this action was already in progress (scheduled or manual), so this request coalesced onto it rather than starting a second run. */
-      already_running: boolean;
-    }
-
     export interface RunFailureLogs {
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
@@ -75811,30 +75465,6 @@ export namespace Schemas {
     export interface RunInsightsResponse {
       /** Results for each insight tile on the dashboard. */
       results: DashboardTileResult[];
-    }
-
-    /**
-     * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
-     */
-    export interface RunObservation {
-      /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
-      readonly index: number;
-      /** Observation id; links to the observation detail view. */
-      readonly id: string;
-      /** Session recording id this observation was made on. */
-      readonly session_id: string;
-      /**
-         * Email of the person in the recorded session, captured at scan time; null if unidentified.
-         * @nullable
-         */
-      readonly recording_subject_email: string | null;
-      /**
-         * Short title from the observation's summary; null if the observation had none.
-         * @nullable
-         */
-      readonly title: string | null;
-      /** When the observation was produced. */
-      readonly created_at: string;
     }
 
     export interface RunRequest {
@@ -79571,7 +79201,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -80952,7 +80585,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -82315,7 +81951,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -86879,40 +86518,6 @@ export namespace Schemas {
     }
 
     /**
-     * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
-     */
-    export interface VisionActionRun {
-      readonly id: string;
-      /** Run outcome: running, completed, failed, or skipped.
-       *
-       * * `running` - Running
-       * * `completed` - Completed
-       * * `failed` - Failed
-       * * `skipped` - Skipped */
-      readonly status: VisionActionRunStatusEnum;
-      /**
-         * The scheduled fire time this run was claimed for.
-         * @nullable
-         */
-      readonly scheduled_at: string | null;
-      /** Number of observations that fed this run's summary. */
-      readonly observation_count: number;
-      /**
-         * Short human-readable reason a run skipped or failed; null on success.
-         * @nullable
-         */
-      readonly error_reason: string | null;
-      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
-      readonly is_recovery: boolean;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-      readonly synthesized_markdown: string;
-      /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
-      readonly observations: readonly RunObservation[];
-    }
-
-    /**
      * * `slack` - slack
      * * `webhook` - webhook
      */
@@ -91096,6 +90701,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -91193,6 +90799,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     /**
@@ -91276,6 +90883,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -91361,6 +90969,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -100061,6 +99670,7 @@ export namespace Schemas {
 
 
     export const UploadedMediaListPurpose = {
+      Canvas: 'canvas',
       Email: 'email',
     } as const;
 
@@ -100072,6 +99682,7 @@ export namespace Schemas {
 
     export const UploadedMediaCreateBodyPurpose = {
       Email: 'email',
+      Canvas: 'canvas',
     } as const;
 
     export type UploadedMediaCreateBody = {
@@ -100126,32 +99737,6 @@ export namespace Schemas {
     };
 
     export type UserProductListListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type VisionActionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter to the actions belonging to one scanner.
-     */
-    scanner?: string;
-    };
-
-    export type VisionActionsRunsListParams = {
     /**
      * Number of results to return per page.
      */
