@@ -973,12 +973,16 @@ class SessionRecordingViewSet(
         Gets a list of event ids that match the given session recording filter.
         The filter must include a single session ID.
         And must include at least one event or action filter.
+        POST sends the query in a JSON body, so a large saved filter does not overflow the URI limit.
         This API is intended for internal use and might have unannounced breaking changes.""",
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
-        data_dict = query_as_params_to_dict(request.GET.dict())
+        if request.method == "POST":
+            data_dict = request.data
+        else:
+            data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
 
         if not query.session_ids or len(query.session_ids) != 1:

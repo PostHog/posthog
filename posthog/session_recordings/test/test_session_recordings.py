@@ -1214,6 +1214,33 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results[0]["uuid"] == event_id
         assert "timestamp" in results[0]
 
+    def test_post_matching_events_with_query_body(self) -> None:
+        """A POST sends the query in a JSON body, so a large saved filter does not overflow the URI limit."""
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        matching_events_session = str(uuid7())
+        self.produce_replay_summary("user", matching_events_session, base_time)
+        event_id = _create_event(
+            event="$pageview",
+            properties={"$session_id": matching_events_session},
+            team=self.team,
+            distinct_id=str(uuid7()),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events",
+            {
+                "session_ids": [matching_events_session],
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["uuid"] == event_id
+
     def test_get_matching_events(self) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 

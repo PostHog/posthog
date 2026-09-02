@@ -127,7 +127,6 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                'api/environments/:team_id/session_recordings/matching_events': () => [200, { results: [] }],
                 '/api/projects/:team_id/groups/related': () => [200, []],
                 '/api/projects/:team_id/groups/:group_type_index': () => [200, groupData],
                 '/api/projects/:team_id/groups/find': () => [200, groupData],
@@ -160,6 +159,7 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
+                'api/environments/:team_id/session_recordings/matching_events': () => [200, { results: [] }],
             },
         }),
     ],

@@ -9,7 +9,6 @@ import api from 'lib/api'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { toParams } from 'lib/utils/url'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import 'scenes/session-recordings/playlist/SessionRecordingPreview.scss'
 import {
@@ -81,7 +80,7 @@ function SessionReplayWidgetRecordingRow({
         setIsOpening(true)
         try {
             const query: RecordingsQuery = { ...matchingEventsQuery, session_ids: [recording.id] }
-            const response = await api.recordings.getMatchingEvents(toParams(query))
+            const response = await api.recordings.getMatchingEvents(query)
             openSessionPlayer({
                 id: recording.id,
                 matching_events: [{ session_id: recording.id, events: response.results }],

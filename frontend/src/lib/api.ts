@@ -4524,8 +4524,10 @@ const api = {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
-        async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
-            return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
+        async getMatchingEvents(query: RecordingsQuery): Promise<MatchingEventsResponse> {
+            // POST the query in a JSON body. A large saved filter carries many events, actions, or
+            // property values, so a GET query string overflows the server URI limit and returns 414.
+            return await new ApiRequest().recordingMatchingEvents().create({ data: query })
         },
         async getCaptureDiagnostics(
             recordingId: SessionRecordingType['id']
