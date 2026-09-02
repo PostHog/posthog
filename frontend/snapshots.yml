@@ -7400,6 +7400,10 @@ snapshots:
         hash: v1.k794b7964.f4936fcab5d19e24e39b7357d24c643c328e82c47034adcf33502b3633e947c6.XqPeVTdmBJnXEJoF-pLRkGnvEg_7rSzZwKjW3Tc1AQk
     scenes-app-inbox-usagewidget--within-free-tier--light:
         hash: v1.k794b7964.85e2806575ce497e93a6c3dc95a39e6093f85422566cf852ea3d518569d29fc8.M8JloRqQpx2F1SkNFosfCxdACXJGX7FCxiv4421FROU
+    scenes-app-inbox-validatelocallysection--with-prompt--dark:
+        hash: v1.k794b7964.12002819c8483337f1651472d55fac2a9738a71b8b7d3defc8ba5a651f80a593.3k3_3hrMKBNpwzo6tTL86s7dEdJpYe0auMYKtJJevV4
+    scenes-app-inbox-validatelocallysection--with-prompt--light:
+        hash: v1.k794b7964.10a34865c76b8c254080fee89f5363e36c021e8802d357bf5176fc4c8d169649.O5XpBCYjM-W1pduPBnXhrOf4YsMFEgqkgJpon93pzV0
     scenes-app-insights-error-empty-states--empty--dark:
         hash: v1.k794b7964.76b9de5735e998cd0643b9122af225ede95128f8d1087f438a8f13179a2cd314.j-ZaK3wWdoYedOoS0uqock8iOi4qHvyFl7W8j59NzPM
     scenes-app-insights-error-empty-states--empty--light:
