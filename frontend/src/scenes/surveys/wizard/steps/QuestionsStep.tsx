@@ -65,6 +65,21 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
         }))
         const scaleOptions = isEmoji ? emojiScales : numberScales
 
+        const setDisplay = (display: RatingSurveyQuestion['display']): void => {
+            if (ratingQuestion.display === display) {
+                return
+            }
+            // Keep the chosen scale if the new display supports it, so 1-7 survives a display switch
+            const allowedScales: number[] =
+                display === 'emoji'
+                    ? emojiScales.map((option) => option.value)
+                    : numberScales.map((option) => option.value)
+            const scale = allowedScales.includes(ratingQuestion.scale)
+                ? ratingQuestion.scale
+                : SURVEY_RATING_SCALE.LIKERT_5_POINT
+            onUpdate({ display, scale } as Partial<RatingSurveyQuestion>)
+        }
+
         return (
             <div className="space-y-3 pt-3 border-t border-border mt-3">
                 <div className="flex items-start gap-6">
@@ -74,12 +89,10 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                         <div className="flex rounded-md border border-border overflow-hidden">
                             <button
                                 type="button"
-                                onClick={() =>
-                                    onUpdate({
-                                        display: 'emoji',
-                                        scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
-                                    } as Partial<RatingSurveyQuestion>)
-                                }
+                                aria-label="Emojis"
+                                aria-pressed={isEmoji}
+                                title="Emojis"
+                                onClick={() => setDisplay('emoji')}
                                 className={`px-3 py-2 transition-colors ${
                                     isEmoji ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
                                 }`}
@@ -88,17 +101,15 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                             </button>
                             <button
                                 type="button"
-                                onClick={() =>
-                                    onUpdate({
-                                        display: 'number',
-                                        scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
-                                    } as Partial<RatingSurveyQuestion>)
-                                }
+                                aria-label="Numbers"
+                                aria-pressed={!isEmoji}
+                                title="Numbers"
+                                onClick={() => setDisplay('number')}
                                 className={`px-3 py-2 text-sm font-medium border-l border-border transition-colors ${
                                     !isEmoji ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
                                 }`}
                             >
-                                1-5
+                                123
                             </button>
                         </div>
                     </div>
@@ -111,6 +122,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                 <button
                                     key={option.value}
                                     type="button"
+                                    aria-pressed={ratingQuestion.scale === option.value}
                                     onClick={() => onUpdate({ scale: option.value } as Partial<RatingSurveyQuestion>)}
                                     className={`px-3 py-1.5 text-center transition-colors ${
                                         idx > 0 ? 'border-l border-border' : ''
