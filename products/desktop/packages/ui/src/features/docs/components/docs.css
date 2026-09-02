@@ -410,10 +410,23 @@
   color: var(--gray-10);
 }
 
-/* The dossier: the record of a watch, with room to read. The case on the
-   left, the history in a rail on the right; one column when narrow. */
+/* The dossier: the record of a watch as one ledger. A label column on the
+   left, the content on the right, for the terms and the history alike. */
 .doc-dossier {
-  max-width: min(58rem, calc(100vw - 3rem));
+  max-width: min(42rem, calc(100vw - 3rem));
+}
+
+.doc-dossier-scroll {
+  container-type: inline-size;
+}
+
+.doc-ledger-eyebrow {
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gray-9);
 }
 
 .doc-dossier-title {
@@ -423,436 +436,212 @@
   color: var(--gray-12);
 }
 
-.doc-dossier-scroll {
-  container-type: inline-size;
+/* The state line: a dot, the state word, then the facts, dot-separated. */
+.doc-ledger-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--gray-10);
+  --state: var(--blue-9);
+  --state-text: var(--blue-11);
 }
 
-.doc-dossier-body {
+.doc-ledger-state[data-verdict="moved"],
+.doc-ledger-state[data-verdict="stale"] {
+  --state: var(--amber-9);
+  --state-text: var(--amber-11);
+}
+
+.doc-ledger-state[data-verdict="confirmed"] {
+  --state: var(--green-9);
+  --state-text: var(--green-11);
+}
+
+.doc-ledger-state[data-verdict="refuted"] {
+  --state: var(--red-9);
+  --state-text: var(--red-11);
+}
+
+.doc-ledger-state[data-verdict="pending"],
+.doc-ledger-state[data-status="paused"],
+.doc-ledger-state[data-status="stopped"]:not([data-verdict="confirmed"]):not(
+    [data-verdict="refuted"]
+  ) {
+  --state: var(--gray-8);
+  --state-text: var(--gray-11);
+}
+
+.doc-ledger-dot {
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--state);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state) 18%, transparent);
+}
+
+.doc-ledger-state-word {
+  font-weight: 600;
+  color: var(--state-text);
+}
+
+.doc-ledger-state-part::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--gray-7);
+}
+
+/* One block of rows. Blocks stack with a hairline between them. */
+.doc-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0;
+}
+
+.doc-ledger + .doc-ledger {
+  border-top: 1px solid var(--gray-4);
+}
+
+.doc-ledger-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 15rem;
-  gap: 0 28px;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 16px;
+  margin: 0 -8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--gray-12);
 }
 
-@container (max-width: 44rem) {
-  .doc-dossier-body {
+@container (max-width: 30rem) {
+  .doc-ledger-row {
     grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
+    gap: 2px;
   }
 }
 
-.doc-dossier-main {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
+.doc-ledger-label {
   min-width: 0;
-}
-
-.doc-dossier-rail {
-  min-width: 0;
-  padding-left: 24px;
-  border-left: 1px solid var(--gray-4);
-}
-
-@container (max-width: 44rem) {
-  .doc-dossier-rail {
-    padding-left: 0;
-    border-left: 0;
-  }
-}
-
-.doc-dossier-heading {
-  margin: 0 0 8px 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--gray-9);
-}
-
-.doc-dossier-heading-note {
-  margin-left: 8px;
-  font-weight: 400;
-  letter-spacing: normal;
-  text-transform: none;
-  color: var(--amber-11);
-}
-
-/* The hero: the pill, large, and one sentence on where the claim stands. */
-.doc-hero {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: var(--radius-3);
-  background: var(--gray-2);
-}
-
-.doc-verdict-lg {
-  flex-shrink: 0;
-  margin-top: 1px;
-  padding: 2px 10px;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.doc-hero-line {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--gray-12);
-}
-
-.doc-hero-meta {
-  margin-top: 3px;
-  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--gray-10);
 }
 
-/* The two doors: how the claim settles. The chosen one lights up. */
-.doc-doors {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.doc-door {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid var(--gray-4);
-  border-radius: var(--radius-3);
-  background: transparent;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  --door: var(--green-9);
-  --door-text: var(--green-11);
-}
-
-.doc-door[data-side="refuted"] {
-  --door: var(--red-9);
-  --door-text: var(--red-11);
-}
-
-button.doc-door {
-  cursor: pointer;
-  transition:
-    border-color 120ms ease,
-    background-color 120ms ease;
-}
-
-button.doc-door:hover {
-  border-color: color-mix(in srgb, var(--door) 45%, transparent);
-  background: color-mix(in srgb, var(--door) 5%, transparent);
-}
-
-.doc-door[data-lit="true"] {
-  border-color: color-mix(in srgb, var(--door) 40%, transparent);
-  background: color-mix(in srgb, var(--door) 9%, transparent);
-}
-
-.doc-door[data-lit="false"] {
-  opacity: 0.45;
-}
-
-.doc-door-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.doc-door-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--door) 16%, transparent);
-  color: var(--door-text);
-}
-
-.doc-door-label {
-  font-size: 12.5px;
+.doc-ledger-label b {
   font-weight: 600;
-  color: var(--door-text);
 }
 
-.doc-door-if {
-  font-weight: 400;
+.doc-ledger-row[data-tone="confirmed"] .doc-ledger-label b {
+  color: var(--green-11);
+}
+
+.doc-ledger-row[data-tone="refuted"] .doc-ledger-label b {
+  color: var(--red-11);
+}
+
+.doc-ledger-row[data-tone="confirmed"][data-decided="lit"] {
+  background: color-mix(in srgb, var(--green-9) 9%, transparent);
+}
+
+.doc-ledger-row[data-tone="refuted"][data-decided="lit"] {
+  background: color-mix(in srgb, var(--red-9) 8%, transparent);
+}
+
+.doc-ledger-row[data-decided="dim"] {
+  opacity: 0.5;
+}
+
+.doc-ledger-row[data-kind="next"] {
   color: var(--gray-10);
 }
 
-.doc-door-text {
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--gray-11);
-}
-
-.doc-door-foot {
-  margin-top: 2px;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--door-text);
-}
-
-.doc-door-cta {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--door-text);
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-button.doc-door:hover .doc-door-cta,
-button.doc-door:focus-visible .doc-door-cta {
-  opacity: 1;
-}
-
-/* The numbers as tiles: figure, change, and the line of checks. */
-.doc-tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: 10px;
-}
-
-.doc-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--gray-4);
-  border-radius: var(--radius-3);
-  background: var(--gray-2);
-}
-
-.doc-tile-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.doc-tile-label {
+.doc-ledger-content {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--gray-10);
 }
 
-.doc-tile-sql {
-  flex-shrink: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+.doc-ledger-clock {
   color: var(--gray-8);
-  cursor: pointer;
 }
 
-.doc-tile-sql:hover {
-  color: var(--gray-11);
-}
-
-.doc-tile-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.doc-tile-figure {
-  font-variant-numeric: tabular-nums;
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.1;
-  letter-spacing: -0.01em;
-  color: var(--gray-12);
-}
-
-.doc-tile-change {
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--gray-10);
-}
-
-.doc-tile[data-moved="true"] .doc-tile-change {
-  color: var(--amber-11);
-}
-
-.doc-tile-chart {
-  display: block;
-  width: 100%;
-  height: 44px;
-  margin-top: 6px;
-  stroke: var(--gray-8);
-  overflow: visible;
-}
-
-.doc-tile[data-moved="true"] .doc-tile-chart {
-  stroke: var(--amber-9);
-}
-
-.doc-tile-foot {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 2px;
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--gray-9);
-}
-
-.doc-tile-code {
-  max-height: 7rem;
-  margin-top: 6px;
-  overflow: hidden;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-/* The rail: everything that happened, newest first, one dot per kind. */
-.doc-timeline {
-  position: relative;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.doc-timeline::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 4px;
-  width: 1px;
-  background: var(--gray-4);
-}
-
-.doc-timeline-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: 9px minmax(0, 1fr);
-  gap: 12px;
-  padding: 0 0 16px 0;
-}
-
-.doc-timeline-row:last-child {
-  padding-bottom: 0;
-}
-
-.doc-timeline-dot {
-  width: 9px;
-  height: 9px;
-  margin-top: 4px;
-  border-radius: 999px;
-  border: 2px solid var(--gray-2);
-  box-shadow: 0 0 0 1px var(--gray-4);
-  background: var(--gray-7);
-}
-
-.doc-timeline-row[data-kind="next"] .doc-timeline-dot {
-  background: transparent;
-  box-shadow: 0 0 0 1px var(--gray-7);
-}
-
-.doc-timeline-row[data-kind="next"] .doc-timeline-text {
-  color: var(--gray-10);
-}
-
-.doc-timeline-row[data-kind="moved"] .doc-timeline-dot,
-.doc-timeline-row[data-kind="stale"] .doc-timeline-dot {
-  background: var(--amber-9);
-}
-
-.doc-timeline-row[data-kind="report"] .doc-timeline-dot,
-.doc-timeline-row[data-kind="brief"] .doc-timeline-dot,
-.doc-timeline-row[data-kind="scout"] .doc-timeline-dot {
-  background: var(--primary);
-}
-
-.doc-timeline-row[data-kind="stopped"] .doc-timeline-dot {
-  background: var(--gray-11);
-}
-
-.doc-timeline[data-verdict="confirmed"]
-  .doc-timeline-row[data-kind="verdict"]
-  .doc-timeline-dot {
-  background: var(--green-9);
-}
-
-.doc-timeline[data-verdict="refuted"]
-  .doc-timeline-row[data-kind="verdict"]
-  .doc-timeline-dot {
-  background: var(--red-9);
-}
-
-.doc-timeline-text {
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--gray-12);
-}
-
-.doc-timeline-text[data-open="false"] {
+.doc-ledger-text[data-open="false"] {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
 
-.doc-timeline-more {
+.doc-ledger-text[data-open="true"] {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.doc-ledger-muted {
+  font-size: 11.5px;
+  color: var(--gray-9);
+}
+
+.doc-ledger-warn {
+  margin-top: 4px;
+  color: var(--amber-11);
+}
+
+.doc-ledger-more {
   margin-left: 6px;
   padding: 0;
   border: 0;
   background: none;
-  font-size: 11px;
+  font: inherit;
   color: var(--gray-10);
   cursor: pointer;
 }
 
-.doc-timeline-more:hover {
+.doc-ledger-more:hover {
   color: var(--gray-12);
 }
 
-.doc-timeline-meta {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--gray-9);
-}
-
-/* What the scout follows: a compact, quiet list. */
-.doc-watch-signals {
+/* A number: the figure, its line, and its change, then its label under. */
+.doc-ledger-number-line {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.doc-ledger-figure {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--gray-12);
+}
+
+.doc-ledger-spark {
+  display: block;
+  width: 72px;
+  height: 18px;
+  stroke: var(--gray-8);
+  overflow: visible;
+}
+
+.doc-ledger-change {
+  font-variant-numeric: tabular-nums;
+  color: var(--gray-10);
+}
+
+.doc-ledger-number[data-moved="true"] .doc-ledger-spark {
+  stroke: var(--amber-9);
+}
+
+.doc-ledger-number[data-moved="true"] .doc-ledger-change {
+  color: var(--amber-11);
+}
+
+.doc-ledger-footer {
   gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--gray-11);
-}
-
-.doc-watch-signal {
-  position: relative;
-  padding-left: 14px;
-}
-
-.doc-watch-signal::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 7px;
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--gray-7);
 }
 
 /* A SQL block: the query above, coloured like code, and the result under it.

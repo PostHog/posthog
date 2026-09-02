@@ -1,13 +1,13 @@
-import { CheckIcon, XIcon } from "@phosphor-icons/react";
 import type { DocSchemas } from "@posthog/api-client/docs";
 import {
+  Button,
   Dialog,
   DialogBody,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
-import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { useMemo, useRef, useState } from "react";
 import { Spark } from "../extensions/DataValue";
 import {
@@ -16,16 +16,11 @@ import {
   watchTimeline,
 } from "../hooks/watchTimeline";
 import { personName } from "./DocPostRow";
-import {
-  DecideDialog,
-  type Decision,
-  VerdictPill,
-  WatchHeaderActions,
-} from "./DocWatchCard";
+import { DecideDialog, type Decision } from "./DocWatchCard";
 
 type Watch = DocSchemas.DocWatch;
 
-const CHART = { width: 240, height: 44 };
+const SPARK = { width: 72, height: 18 };
 
 const STOP_LABEL: Record<DocSchemas.WatchStopReason, string> = {
   section_removed: "the words left the page",
@@ -40,6 +35,21 @@ const BY_LABEL: Record<DocSchemas.WatchActor, string> = {
   agent: "the agent",
   person: "a person",
   page: "the numbers",
+};
+
+const KIND_LABEL: Record<TimelineKind, string> = {
+  started: "Watch started",
+  brief: "Brief",
+  check: "Check",
+  moved: "Moved",
+  stale: "Could not check",
+  report: "Scout report",
+  verdict: "Decision",
+  scout: "Scout",
+  stopped: "Stopped",
+  paused: "Paused",
+  resumed: "Resumed",
+  comment: "",
 };
 
 function formatNumber(value: number | null): string {
@@ -57,13 +67,11 @@ function dayLabel(iso: string | null): string {
     : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function timeLabel(iso: string): string {
+function clockLabel(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime())
     ? ""
-    : date.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
+    : date.toLocaleTimeString(undefined, {
         hour: "numeric",
         minute: "2-digit",
       });
@@ -73,250 +81,176 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-/** The hero: where the claim stands, in one sentence, and one line of when. */
-function standing(
+function lowerFirst(text: string): string {
+  return text ? text.charAt(0).toLowerCase() + text.slice(1) : text;
+}
+
+function change(evidence: DocSchemas.WatchEvidence): string {
+  if (evidence.error) return "could not check";
+  if (evidence.baseline === null || evidence.value === null) return "";
+  const delta = evidence.value - evidence.baseline;
+  if (delta === 0) return "unchanged";
+  const share = evidence.baseline
+    ? Math.round((Math.abs(delta) / Math.abs(evidence.baseline)) * 100)
+    : 0;
+  const sign = delta > 0 ? "+" : "−";
+  return share > 0
+    ? `${sign}${share}%`
+    : `${sign}${formatNumber(Math.abs(delta))}`;
+}
+
+/** The state line: the state word, then the facts behind it, in one line. */
+function stateLine(
   watch: Watch,
   since: string,
   decider: string,
-): { line: string; meta: string } {
+): { word: string; rest: string[] } {
   const verdict = watch.verdict;
-  const decidedAt = dayLabel(verdict.at);
   if (watch.status === "stopped" && watch.stopped_reason === "verdict") {
     return {
-      line: verdict.reason || "The claim was decided.",
-      meta: `Decided by ${decider}${decidedAt ? ` · ${decidedAt}` : ""}`,
+      word: verdict.verdict === "confirmed" ? "Confirmed" : "Refuted",
+      rest: [
+        decider ? `by ${decider}` : "",
+        dayLabel(verdict.at),
+        lowerFirst(verdict.reason),
+      ].filter(Boolean),
     };
   }
   if (watch.status === "stopped") {
     const why = watch.stopped_reason ? STOP_LABEL[watch.stopped_reason] : "";
-    return {
-      line: why ? `Stopped, ${why}.` : "Stopped.",
-      meta: `Watched since ${dayLabel(since)}`,
-    };
+    return { word: "Stopped", rest: [why].filter(Boolean) };
   }
   if (watch.status === "paused") {
-    return {
-      line: "Paused while the page is done.",
-      meta: "Reopen the page to watch again",
-    };
+    return { word: "Paused", rest: ["the page is done"] };
   }
   if (!watch.brief) {
     return {
-      line: "The agent is turning the claim into checks.",
-      meta: "A brief lands here in a minute",
+      word: "Compiling",
+      rest: ["the agent is turning the claim into checks"],
     };
   }
-  const numbers = watch.brief.evidence.length;
   const next = watch.next_check_at
-    ? `Next check ${timeLabel(watch.next_check_at)}`
+    ? `next check ${dayLabel(watch.next_check_at)} ${clockLabel(watch.next_check_at)}`
     : "";
-  const scout = watch.evidence_only
-    ? ""
-    : watch.scout
-      ? "The scout looks daily"
-      : watch.scout_error
-        ? "No scout"
-        : "The scout is starting";
-  const meta = [next, scout].filter(Boolean).join(" · ");
   if (verdict.verdict === "moved") {
     return {
-      line: `${verdict.reason || "A number left its baseline."}${watch.scout ? " The scout is looking into why." : ""}`,
-      meta,
+      word: "Moved",
+      rest: [
+        lowerFirst(verdict.reason),
+        watch.scout ? "the scout is looking into why" : "",
+      ].filter(Boolean),
     };
   }
   if (verdict.verdict === "stale") {
     return {
-      line: verdict.reason
-        ? `Could not check: ${verdict.reason}`
-        : "The last check could not run.",
-      meta,
+      word: "Could not check",
+      rest: [lowerFirst(verdict.reason), next].filter(Boolean),
     };
   }
+  const numbers = watch.brief.evidence.length;
   return {
-    line:
+    word: "Holding",
+    rest: [
       numbers > 0
-        ? `${numbers === 1 ? "The number holds" : `All ${plural(numbers, "number")} hold`} since ${dayLabel(since)}.`
-        : `No numbers to recheck. The claim holds since ${dayLabel(since)}.`,
-    meta,
+        ? `${numbers === 1 ? "the number holds" : `all ${plural(numbers, "number")} hold`} since ${dayLabel(since)}`
+        : `nothing has moved since ${dayLabel(since)}`,
+      next,
+    ].filter(Boolean),
   };
 }
 
-/** One of the two outcomes: what settles the claim that way, and who chose it. */
-function Door({
-  side,
-  text,
-  watch,
-  onDecide,
+/** One row of the ledger: what kind of thing on the left, the thing on the right. */
+function Row({
+  label,
+  children,
+  tone,
+  ...rest
 }: {
-  side: Decision;
-  text: string;
-  watch: Watch;
-  onDecide: (side: Decision) => void;
-}) {
-  const decided =
-    watch.status === "stopped" &&
-    (watch.verdict.verdict === "confirmed" ||
-      watch.verdict.verdict === "refuted");
-  const lit = decided ? watch.verdict.verdict === side : null;
-  const clickable = watch.status === "active" && !!watch.brief;
-  const body = (
-    <>
-      <span className="doc-door-head">
-        <span className="doc-door-icon">
-          {side === "confirmed" ? (
-            <CheckIcon size={12} weight="bold" />
-          ) : (
-            <XIcon size={12} weight="bold" />
-          )}
-        </span>
-        <span className="doc-door-label">
-          {side === "confirmed" ? "Confirmed" : "Refuted"}
-          <span className="doc-door-if"> if</span>
-        </span>
-        {clickable ? <span className="doc-door-cta">Decide →</span> : null}
-      </span>
-      <span className="doc-door-text">{text || "Not written yet."}</span>
-      {lit ? (
-        <span className="doc-door-foot">
-          Decided{watch.verdict.at ? ` · ${dayLabel(watch.verdict.at)}` : ""}
-        </span>
-      ) : null}
-    </>
-  );
-  if (clickable) {
-    return (
-      <button
-        type="button"
-        className="doc-door"
-        data-side={side}
-        onClick={() => onDecide(side)}
-      >
-        {body}
-      </button>
-    );
-  }
+  label: React.ReactNode;
+  children: React.ReactNode;
+  tone?: "confirmed" | "refuted";
+} & Omit<React.HTMLAttributes<HTMLDivElement>, "children">) {
   return (
-    <div className="doc-door" data-side={side} data-lit={lit ?? undefined}>
-      {body}
+    <div className="doc-ledger-row" data-tone={tone} {...rest}>
+      <div className="doc-ledger-label">{label}</div>
+      <div className="doc-ledger-content">{children}</div>
     </div>
   );
 }
 
-/** One number as a tile: the figure, its change, and the line of its checks. */
-function NumberTile({ evidence }: { evidence: DocSchemas.WatchEvidence }) {
-  const [showSql, setShowSql] = useState(false);
+function NumberLine({ evidence }: { evidence: DocSchemas.WatchEvidence }) {
   const points = evidence.history
     .map((entry) => entry[1])
     .filter((value): value is number => typeof value === "number");
-  const delta =
-    evidence.baseline !== null && evidence.value !== null
-      ? evidence.value - evidence.baseline
-      : null;
-  const share =
-    delta !== null && evidence.baseline
-      ? Math.round((Math.abs(delta) / Math.abs(evidence.baseline)) * 100)
-      : null;
-  const change = evidence.error
-    ? "could not check"
-    : delta === null
-      ? ""
-      : delta === 0
-        ? "unchanged"
-        : `${delta > 0 ? "+" : "−"}${share ? `${share}%` : formatNumber(Math.abs(delta))}`;
   return (
-    <div className="doc-tile" data-moved={evidence.moved}>
-      <div className="doc-tile-head">
-        <span className="doc-tile-label">{evidence.label || "evidence"}</span>
-        <button
-          type="button"
-          className="doc-tile-sql"
-          onClick={() => setShowSql((open) => !open)}
-        >
-          SQL
-        </button>
+    <div className="doc-ledger-number" data-moved={evidence.moved}>
+      <div className="doc-ledger-number-line">
+        <span className="doc-ledger-figure">
+          {formatNumber(evidence.value)}
+        </span>
+        {points.length > 1 ? (
+          <Spark points={points} size={SPARK} className="doc-ledger-spark" />
+        ) : null}
+        <span className="doc-ledger-change">
+          {[
+            change(evidence),
+            evidence.baseline !== null && evidence.value !== evidence.baseline
+              ? `from ${formatNumber(evidence.baseline)}`
+              : "",
+            plural(Math.max(points.length, 1), "check"),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
       </div>
-      <div className="doc-tile-row">
-        <span className="doc-tile-figure">{formatNumber(evidence.value)}</span>
-        {change ? <span className="doc-tile-change">{change}</span> : null}
-      </div>
-      {points.length > 1 ? (
-        <Spark points={points} size={CHART} className="doc-tile-chart" />
-      ) : null}
-      <div className="doc-tile-foot">
-        <span>from {formatNumber(evidence.baseline)}</span>
-        <span>{plural(Math.max(points.length, 1), "check")}</span>
-      </div>
-      {showSql ? (
-        <div className="doc-tile-code">
-          <HighlightedCode code={evidence.query} language="sql" />
-        </div>
-      ) : null}
+      <div className="doc-ledger-muted">{evidence.label || "evidence"}</div>
     </div>
   );
 }
 
-const KIND_LABEL: Record<TimelineKind, string> = {
-  started: "Started",
-  brief: "Brief",
-  check: "Check",
-  moved: "Moved",
-  stale: "Could not check",
-  report: "Scout report",
-  verdict: "Decision",
-  scout: "Scout",
-  stopped: "Stopped",
-  paused: "Paused",
-  resumed: "Resumed",
-  comment: "Comment",
-};
-
-function TimelineRow({ entry }: { entry: TimelineEntry }) {
+function HistoryRow({ entry }: { entry: TimelineEntry }) {
   const [open, setOpen] = useState(false);
+  const body = entry.body?.replace(/\*\*/g, "");
   const expandable =
-    (!!entry.body && entry.body.trim() !== entry.title.trim()) ||
-    entry.title.length > 90;
-  const kind =
-    entry.kind === "started" || entry.kind === "comment"
-      ? ""
-      : KIND_LABEL[entry.kind];
-  const meta = [kind, entry.who, timeLabel(entry.at)]
-    .filter(Boolean)
-    .join(" · ");
+    (!!body && body.trim() !== entry.title.trim()) || entry.title.length > 110;
+  const head = KIND_LABEL[entry.kind];
+  const text =
+    entry.kind === "started" ? head : open && body ? body : entry.title;
   return (
-    <li className="doc-timeline-row" data-kind={entry.kind}>
-      <span className="doc-timeline-dot" />
-      <div className="min-w-0">
-        <div className="doc-timeline-text" data-open={open}>
-          {open && entry.body ? (
-            <span className="whitespace-pre-wrap break-words">
-              {entry.body.replace(/\*\*/g, "")}
-            </span>
-          ) : (
-            entry.title
-          )}
-        </div>
-        <div className="doc-timeline-meta">
-          {meta}
-          {expandable ? (
-            <button
-              type="button"
-              className="doc-timeline-more"
-              onClick={() => setOpen((value) => !value)}
-            >
-              {open ? "less" : "more"}
-            </button>
-          ) : null}
-        </div>
+    <Row
+      label={
+        <>
+          {dayLabel(entry.at)}{" "}
+          <span className="doc-ledger-clock">{clockLabel(entry.at)}</span>
+        </>
+      }
+      data-kind={entry.kind}
+    >
+      <div className="doc-ledger-text" data-open={open}>
+        {text}
       </div>
-    </li>
+      <div className="doc-ledger-muted">
+        {[entry.kind === "started" ? "" : head, entry.who]
+          .filter(Boolean)
+          .join(" · ")}
+        {expandable ? (
+          <button
+            type="button"
+            className="doc-ledger-more"
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? "less" : "more"}
+          </button>
+        ) : null}
+      </div>
+    </Row>
   );
 }
 
 /**
- * The whole of a watch with room to read: where it stands, the two ways it
- * settles, the numbers as tiles, what the scout follows, and everything that
- * happened in a rail on the right. The thread stays a conversation; this is
- * the record.
+ * The record of a watch as one ledger: a label column on the left, the
+ * content on the right, for the terms and for the history alike. The state
+ * sits under the claim; the decisions sit in the footer.
  */
 export function DocWatchDossier({
   thread,
@@ -340,6 +274,11 @@ export function DocWatchDossier({
   );
   if (!watch) return null;
   const brief = watch.brief;
+  const active = watch.status === "active";
+  const decided =
+    watch.status === "stopped" &&
+    (watch.verdict.verdict === "confirmed" ||
+      watch.verdict.verdict === "refuted");
   const decidedAt = Date.parse(watch.verdict.at ?? "");
   const decider =
     entries
@@ -348,131 +287,189 @@ export function DocWatchDossier({
         (left, right) =>
           Math.abs(Date.parse(left.at) - decidedAt) -
           Math.abs(Date.parse(right.at) - decidedAt),
-      )[0]?.who || (watch.verdict.by ? BY_LABEL[watch.verdict.by] : "");
-  const hero = standing(watch, thread.created_at, decider);
+      )[0]?.who ||
+    (watch.verdict.by && watch.verdict.by !== "person"
+      ? BY_LABEL[watch.verdict.by]
+      : "");
+  const state = stateLine(watch, thread.created_at, decider);
   const busy = pendingAction !== null && pendingAction !== "arm";
+  const nextCheck = active && brief ? watch.next_check_at : null;
   const focusPopup = (): boolean | HTMLElement | null => popupRef.current;
-  const nextCheck =
-    watch.status === "active" && brief && watch.next_check_at
-      ? watch.next_check_at
-      : null;
+  const tone = (side: Decision) =>
+    decided ? (watch.verdict.verdict === side ? "lit" : "dim") : undefined;
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           ref={popupRef}
-          size="wide"
           className="doc-dossier"
           initialFocus={focusPopup}
         >
           <DialogHeader>
-            <div className="flex items-start gap-3 pr-8">
-              <DialogTitle className="doc-dossier-title min-w-0 flex-1">
-                “{thread.anchor_text || "a section"}”
-              </DialogTitle>
-              <div className="flex shrink-0 items-center gap-1">
-                <WatchHeaderActions
-                  watch={watch}
-                  onAction={onAction}
-                  pendingAction={pendingAction}
-                />
-              </div>
+            <div className="doc-ledger-eyebrow">Watch</div>
+            <DialogTitle className="doc-dossier-title">
+              “{thread.anchor_text || "a section"}”
+            </DialogTitle>
+            <div
+              className="doc-ledger-state"
+              data-verdict={watch.verdict.verdict}
+              data-status={watch.status}
+            >
+              <span className="doc-ledger-dot" />
+              <span className="doc-ledger-state-word">{state.word}</span>
+              {state.rest.map((part) => (
+                <span key={part} className="doc-ledger-state-part">
+                  {part}
+                </span>
+              ))}
             </div>
           </DialogHeader>
 
           <DialogBody className="doc-dossier-scroll">
-            <div className="doc-dossier-body">
-              <div className="doc-dossier-main">
-                <div className="doc-hero">
-                  <VerdictPill watch={watch} className="doc-verdict-lg" />
-                  <div className="min-w-0">
-                    <div className="doc-hero-line">{hero.line}</div>
-                    {hero.meta ? (
-                      <div className="doc-hero-meta">{hero.meta}</div>
-                    ) : null}
-                  </div>
-                </div>
-
-                {brief && (brief.confirms || brief.refutes) ? (
-                  <section>
-                    <h4 className="doc-dossier-heading">How it settles</h4>
-                    <div className="doc-doors">
-                      <Door
-                        side="confirmed"
-                        text={brief.confirms}
-                        watch={watch}
-                        onDecide={setDeciding}
-                      />
-                      <Door
-                        side="refuted"
-                        text={brief.refutes}
-                        watch={watch}
-                        onDecide={setDeciding}
-                      />
-                    </div>
-                  </section>
+            {brief &&
+            (brief.confirms ||
+              brief.refutes ||
+              brief.evidence.length > 0 ||
+              brief.signals.length > 0) ? (
+              <div className="doc-ledger">
+                {brief.confirms ? (
+                  <Row
+                    tone="confirmed"
+                    data-decided={tone("confirmed")}
+                    label={
+                      <>
+                        <b>Confirmed</b> if
+                      </>
+                    }
+                  >
+                    {brief.confirms}
+                  </Row>
                 ) : null}
-
-                {brief && brief.evidence.length > 0 ? (
-                  <section>
-                    <h4 className="doc-dossier-heading">Numbers</h4>
-                    <div className="doc-tiles">
+                {brief.refutes ? (
+                  <Row
+                    tone="refuted"
+                    data-decided={tone("refuted")}
+                    label={
+                      <>
+                        <b>Refuted</b> if
+                      </>
+                    }
+                  >
+                    {brief.refutes}
+                  </Row>
+                ) : null}
+                {brief.evidence.length > 0 ? (
+                  <Row label="Numbers">
+                    <div className="flex flex-col gap-3">
                       {brief.evidence.map((evidence) => (
-                        <NumberTile
+                        <NumberLine
                           key={`${evidence.label}:${evidence.query}`}
                           evidence={evidence}
                         />
                       ))}
                     </div>
-                  </section>
+                  </Row>
                 ) : null}
-
-                {brief && brief.signals.length > 0 ? (
-                  <section>
-                    <h4 className="doc-dossier-heading">
-                      Scout follows
-                      {watch.scout_error ? (
-                        <span className="doc-dossier-heading-note">
-                          {watch.scout_error}
-                        </span>
-                      ) : null}
-                    </h4>
-                    <ul className="doc-watch-signals">
+                {brief.signals.length > 0 ? (
+                  <Row
+                    label={
+                      <>
+                        Scout
+                        <br />
+                        follows
+                      </>
+                    }
+                  >
+                    <div className="flex flex-col gap-1">
                       {brief.signals.map((signal) => (
-                        <li key={signal} className="doc-watch-signal">
-                          {signal}
-                        </li>
+                        <div key={signal}>{signal}</div>
                       ))}
-                    </ul>
-                  </section>
+                    </div>
+                    {watch.scout_error ? (
+                      <div className="doc-ledger-muted doc-ledger-warn">
+                        {watch.scout_error}
+                      </div>
+                    ) : null}
+                  </Row>
                 ) : null}
               </div>
+            ) : null}
 
-              <aside className="doc-dossier-rail">
-                <h4 className="doc-dossier-heading">History</h4>
-                <ul
-                  className="doc-timeline"
-                  data-verdict={watch.verdict.verdict}
+            <div className="doc-ledger">
+              {nextCheck ? (
+                <Row
+                  data-kind="next"
+                  label={
+                    <>
+                      {dayLabel(nextCheck)}{" "}
+                      <span className="doc-ledger-clock">
+                        {clockLabel(nextCheck)}
+                      </span>
+                    </>
+                  }
                 >
-                  {nextCheck ? (
-                    <li className="doc-timeline-row" data-kind="next">
-                      <span className="doc-timeline-dot" />
-                      <div className="min-w-0">
-                        <div className="doc-timeline-text">Next check</div>
-                        <div className="doc-timeline-meta">
-                          {timeLabel(nextCheck)}
-                        </div>
-                      </div>
-                    </li>
-                  ) : null}
-                  {entries.map((entry) => (
-                    <TimelineRow key={entry.id} entry={entry} />
-                  ))}
-                </ul>
-              </aside>
+                  <div className="doc-ledger-text">Next check</div>
+                </Row>
+              ) : null}
+              {entries.map((entry) => (
+                <HistoryRow key={entry.id} entry={entry} />
+              ))}
             </div>
           </DialogBody>
+
+          {decided ? null : (
+            <DialogFooter className="doc-ledger-footer">
+              <div className="flex flex-1 items-center gap-1">
+                {active && brief && brief.evidence.length > 0 ? (
+                  <Button
+                    variant="link-muted"
+                    disabled={busy}
+                    onClick={() => onAction({ action: "check" })}
+                  >
+                    {pendingAction === "check" ? "Checking…" : "Check now"}
+                  </Button>
+                ) : null}
+              </div>
+              {decided ? null : active ? (
+                <>
+                  <Button
+                    variant="link-muted"
+                    disabled={busy}
+                    onClick={() => onAction({ action: "stop" })}
+                  >
+                    Stop watching
+                  </Button>
+                  {brief ? (
+                    <>
+                      <Button
+                        variant="default"
+                        disabled={busy}
+                        onClick={() => setDeciding("refuted")}
+                      >
+                        Refute
+                      </Button>
+                      <Button
+                        variant="default"
+                        disabled={busy}
+                        onClick={() => setDeciding("confirmed")}
+                      >
+                        Confirm
+                      </Button>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <Button
+                  variant="default"
+                  disabled={busy}
+                  onClick={() => onAction({ action: "resume" })}
+                >
+                  Watch again
+                </Button>
+              )}
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
       <DecideDialog
