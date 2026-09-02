@@ -39,7 +39,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -73,6 +73,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
+from products.event_definitions.backend.property_type import PropertyType
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
@@ -535,6 +536,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[0]["aggregations"]["occurrences"], 1)
         self.assertEqual(results[0]["aggregations"]["sessions"], 0)
         self.assertEqual(results[0]["aggregations"]["users"], 1)
+
+    @parameterized.expand([("event", PropertyDefinition.Type.EVENT), ("person", PropertyDefinition.Type.PERSON)])
+    @freeze_time("2022-01-10 12:11:00")
+    def test_search_with_non_string_property_definition(self, _name, definition_type):
+        # A Boolean definition makes the property swapper cast `email` away from
+        # String, which used to make `lower()` reject it and fail the query.
+        PropertyDefinition.objects.create(
+            team=self.team, name="email", type=definition_type, property_type=PropertyType.Boolean
+        )
+        self.create_events_and_issue(
+            issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+            fingerprint="fingerprint_DatabaseNotFoundX",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(searchQuery="databasenotfoundx")["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
 
     @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries

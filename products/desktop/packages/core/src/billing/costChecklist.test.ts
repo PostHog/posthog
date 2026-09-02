@@ -43,6 +43,15 @@ describe("buildCostChecklist", () => {
     ).toEqual([]);
   });
 
+  it("reflects the Simplified Technical English setting", () => {
+    expect(
+      buildCostChecklist({ ...base, ste100Enabled: false }),
+    ).toContainEqual({ kind: "ste100", done: false });
+    expect(buildCostChecklist({ ...base, ste100Enabled: true })).toContainEqual(
+      { kind: "ste100", done: true },
+    );
+  });
+
   it("keeps a completed item as a checked record and sinks it below active work", () => {
     const items = buildCostChecklist({
       ...base,
