@@ -5507,8 +5507,8 @@ class TestCreateTaskActionValidation(APIBaseTest):
     def test_accepts_a_connector_the_workflow_owner_can_mount(self):
         # products.workflows may not depend on products.mcp_store's models directly (tach
         # boundary) - mocking at the same seam the model-catalogue tests below use.
-        with patch("products.workflows.backend.api.hog_flow.validate_connectors", return_value=None):
-            response = self._post_flow({"connectors": {"value": ["some-installation-id"]}})
+        with patch("products.workflows.backend.api.hog_flow.resolve_connectors", return_value=["some-server-id"]):
+            response = self._post_flow({"connectors": {"value": ["some-server-id"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
