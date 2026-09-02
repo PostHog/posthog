@@ -6,7 +6,7 @@ Hog function and workflow inputs can use tenant-authored Liquid templates. These
 
 - Template source: 100 KiB across all string values in one input build.
 - Render duration: 500 ms across all Liquid strings in one input build.
-- LiquidJS allocation estimate: 4 MiB per rendered string.
+- LiquidJS allocation estimate: 4 MiB across all Liquid strings in one input build.
 - Rendered output: 4 MiB across one input build.
 
 The runtime applies these limits to stored configurations, reruns, and unsaved test configurations. Django also rejects oversized source on create, configuration edits, enable, and publish, including when publishing a restored revision. Disabling or deleting a legacy oversized function remains possible.
@@ -19,4 +19,4 @@ After every Node process role has run with the telemetry for seven days, inspect
 
 ## Known limits
 
-LiquidJS checks render duration cooperatively between template operations, and its memory limit is an allocation estimate rather than a V8 heap limit. The source and output byte limits provide independent bounds around those library controls.
+LiquidJS checks render duration cooperatively between template operations, and its memory limit is an allocation estimate rather than a V8 heap limit. The output emitter checks each chunk before adding it to the result, so repeated static content cannot materialize an oversized output first.

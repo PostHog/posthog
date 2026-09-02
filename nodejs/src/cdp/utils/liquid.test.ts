@@ -2,12 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
-import {
-    LIQUID_RENDER_LIMITS,
-    LiquidRenderBudget,
-    LiquidRenderLimits,
-    LiquidRenderer,
-} from './liquid'
+import { LIQUID_RENDER_LIMITS, LiquidRenderBudget, LiquidRenderLimits, LiquidRenderer } from './liquid'
 
 describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
@@ -348,14 +343,24 @@ describe('LiquidRenderer', () => {
         })
 
         it.each([
-            ['source', limits({ maxSourceBytes: 10 }), '123456', '123456'],
-            ['output', limits({ maxOutputBytes: 10 }), '123456', '123456'],
-        ] as const)('shares the %s budget across rendered strings', (resource, renderLimits, first, second) => {
-            const budget = new LiquidRenderBudget(renderLimits)
+            ['source', limits({ maxSourceBytes: 10 }), '123456', '123456', '123456'],
+            ['output', limits({ maxOutputBytes: 10 }), '123456', '123456', '123456'],
+            [
+                'memory',
+                limits({ maxMemoryUnits: 1000 }),
+                '{% assign value = (1..600) %}',
+                '{% assign value = (1..600) %}',
+                '',
+            ],
+        ] as const)(
+            'shares the %s budget across rendered strings',
+            (resource, renderLimits, first, second, expected) => {
+                const budget = new LiquidRenderBudget(renderLimits)
 
-            expect(budget.render(first, globals)).toBe(first)
-            expect(() => budget.render(second, globals)).toThrow(expect.objectContaining({ resource }))
-        })
+                expect(budget.render(first, globals)).toBe(expected)
+                expect(() => budget.render(second, globals)).toThrow(expect.objectContaining({ resource }))
+            }
+        )
 
         it('stops exponential string growth at the memory limit', () => {
             const budget = new LiquidRenderBudget(limits({ maxMemoryUnits: 1024 }))
@@ -363,6 +368,14 @@ describe('LiquidRenderer', () => {
                 "{% assign value = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign value = value | append: value %}{% endfor %}{{ value | size }}"
 
             expect(() => budget.render(template, globals)).toThrow(expect.objectContaining({ resource: 'memory' }))
+        })
+
+        it('stops repeated static output before it is fully materialized', () => {
+            const budget = new LiquidRenderBudget(limits({ maxOutputBytes: 1024 }))
+            const template = `{% for i in (1..100) %}${'x'.repeat(256)}{% endfor %}`
+
+            expect(() => budget.render(template, globals)).toThrow(expect.objectContaining({ resource: 'output' }))
+            expect(budget.getStats().outputBytes).toBeLessThanOrEqual(1024)
         })
 
         it('stops nested loops at the shared render deadline', () => {

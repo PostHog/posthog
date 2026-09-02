@@ -32,12 +32,14 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
+    MAX_LIQUID_TEMPLATE_SOURCE_BYTES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     MappingsSerializer,
     compile_hog,
     generate_template_bytecode,
+    liquid_inputs_source_bytes,
     masked_secret_input_keys,
     reserved_functions_used,
 )
@@ -600,7 +602,23 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     data["description"] = data.get("description") or template.description
                     data["name"] = data.get("name") or template.name
 
-        return super().to_internal_value(data)
+        result = super().to_internal_value(data)
+        if not self.context["allow_oversized_liquid_templates"]:
+            base_inputs = result.get("inputs") or {}
+            mappings = result.get("mappings")
+            if mappings is None and liquid_configuration_activated:
+                mappings = instance.mappings
+            mappings = mappings or []
+            possible_inputs = [base_inputs, *({**base_inputs, **(mapping.get("inputs") or {})} for mapping in mappings)]
+            if any(liquid_inputs_source_bytes(inputs) > MAX_LIQUID_TEMPLATE_SOURCE_BYTES for inputs in possible_inputs):
+                raise serializers.ValidationError(
+                    {
+                        "inputs": (
+                            "Liquid template inputs are larger than the 100 KB total limit. Shorten them and try again."
+                        )
+                    }
+                )
+        return result
 
     def validate_type(self, value):
         if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:

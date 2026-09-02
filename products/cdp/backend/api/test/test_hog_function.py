@@ -2690,6 +2690,27 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "100 KB total limit" in response.json()["detail"]
 
+    def test_rejects_liquid_inputs_over_aggregate_mapping_limit(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Large mapped Liquid template function",
+                "type": "destination",
+                "hog": "return event",
+                "inputs_schema": [{"key": "payload", "type": "string", "templating": "liquid"}],
+                "inputs": {"payload": {"value": "x" * 60000}},
+                "mappings": [
+                    {
+                        "inputs_schema": [{"key": "mapped", "type": "string", "templating": "liquid"}],
+                        "inputs": {"mapped": {"value": "x" * 60000}},
+                    }
+                ],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "100 KB total limit" in response.json()["detail"]
+
     @parameterized.expand(
         [
             ("disable", True, {"enabled": False}, status.HTTP_200_OK),
@@ -2723,6 +2744,36 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert "100 KB total limit" in response.json()["detail"]
+
+    def test_oversized_legacy_liquid_mapping_cannot_be_activated(self):
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy large mapped Liquid template",
+            type="destination",
+            hog="return event",
+            enabled=False,
+            inputs_schema=[],
+            inputs={},
+            mappings=[
+                {
+                    "inputs_schema": [{"key": "payload", "type": "string", "templating": "liquid"}],
+                    "inputs": {
+                        "payload": {
+                            "value": "x" * (MAX_LIQUID_TEMPLATE_SOURCE_BYTES + 1),
+                            "templating": "liquid",
+                        }
+                    },
+                }
+            ],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}/",
+            data={"enabled": True},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "100 KB total limit" in response.json()["detail"]
 
     def test_transformation_undeletion_puts_at_end(self, *args):
         """Test that undeleted transformation functions are placed at the end of the execution order sequence."""

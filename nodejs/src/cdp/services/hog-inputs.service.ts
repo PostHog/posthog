@@ -42,6 +42,8 @@ export class HogInputsService {
             ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
         }
         const liquidRenderBudget = new LiquidRenderBudget()
+        let liquidEmailRecipient: unknown
+        let liquidEmailInputKey: string | undefined
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             const templating = input.templating ?? 'hog'
@@ -61,14 +63,25 @@ export class HogInputsService {
             const emailInputSchema = hogFunction.inputs_schema?.find((input) =>
                 ['native_email', 'email'].includes(input.type)
             )
-            const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
+            const emailInput = inputs?.[emailInputSchema?.key ?? '']
 
             if (emailInputSchema && emailInput) {
                 if (!this.recipientTokensService) {
                     throw new Error('HogInputsService was constructed without messaging preference URL support')
                 }
-                // If we have an email value then we template it out to get the email address
-                const emailValue = await _formatInput(emailInput, emailInputSchema.key)
+                const isLiquidEmail = emailInput.templating === 'liquid'
+                liquidEmailRecipient = isLiquidEmail
+                    ? formatLiquidInput(
+                          emailInput.value?.to?.email,
+                          newGlobals,
+                          emailInputSchema.key,
+                          liquidRenderBudget
+                      )
+                    : undefined
+                liquidEmailInputKey = isLiquidEmail ? emailInputSchema.key : undefined
+                const emailValue = isLiquidEmail
+                    ? { to: { email: liquidEmailRecipient } }
+                    : await _formatInput(emailInput, emailInputSchema.key)
                 if (emailValue?.to?.email) {
                     newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
                         team_id: hogFunction.team_id,
@@ -96,7 +109,17 @@ export class HogInputsService {
                     continue
                 }
 
-                let inputsResult = await _formatInput(input, key)
+                let inputsResult: any
+                if (key === liquidEmailInputKey && input.value?.to) {
+                    const inputWithoutRecipient = {
+                        ...input,
+                        value: { ...input.value, to: { ...input.value.to, email: null } },
+                    }
+                    inputsResult = await _formatInput(inputWithoutRecipient, key)
+                    inputsResult.to.email = liquidEmailRecipient
+                } else {
+                    inputsResult = await _formatInput(input, key)
+                }
 
                 // Safety net: coerce string results to booleans for boolean schema fields.
                 // Handles edge cases where Liquid templating returns strings for boolean fields.
@@ -113,22 +136,6 @@ export class HogInputsService {
             const stats = liquidRenderBudget.getStats()
             const limits = liquidRenderBudget.getLimits()
             recordLiquidRenderBudget(stats, limits)
-
-            const crossedSoftLimit =
-                stats.renderDurationMs > limits.softRenderDurationMs || stats.outputBytes > limits.softOutputBytes
-            if (stats.hardLimit || crossedSoftLimit) {
-                logger.warn('Liquid template render budget crossed', {
-                    hogFunctionId: hogFunction.id,
-                    teamId: hogFunction.team_id,
-                    sourceBytes: stats.sourceBytes,
-                    renderDurationMs: stats.renderDurationMs,
-                    outputBytes: stats.outputBytes,
-                    level: stats.hardLimit ? 'hard' : 'soft',
-                    resource:
-                        stats.hardLimit ??
-                        (stats.renderDurationMs > limits.softRenderDurationMs ? 'render' : 'output'),
-                })
-            }
         }
     }
 

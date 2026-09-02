@@ -39,7 +39,7 @@ MAX_LIQUID_TEMPLATE_SOURCE_BYTES = 100 * 1024
 MASKED_SECRET_VALUE = "********"
 
 
-def liquid_template_source_bytes(value: Any) -> int:
+def liquid_template_source_bytes(value: object) -> int:
     total = 0
     stack = [value]
     while stack:
@@ -51,6 +51,16 @@ def liquid_template_source_bytes(value: Any) -> int:
         elif isinstance(item, list):
             stack.extend(item)
     return total
+
+
+def liquid_inputs_source_bytes(inputs: object) -> int:
+    if not isinstance(inputs, dict):
+        return 0
+    return sum(
+        liquid_template_source_bytes(item.get("value"))
+        for item in inputs.values()
+        if isinstance(item, dict) and item.get("templating") == HogFunctionTemplating.LIQUID
+    )
 
 
 def masked_secret_input_keys(stored_inputs: object) -> list[str]:
@@ -908,11 +918,7 @@ class InputsSerializer(serializers.DictField):
         # Rebuild in sorted order
         result = {key: result[key] for key in sorted_keys}
 
-        liquid_source_bytes = sum(
-            liquid_template_source_bytes(item.get("value"))
-            for item in result.values()
-            if item.get("templating") == HogFunctionTemplating.LIQUID
-        )
+        liquid_source_bytes = liquid_inputs_source_bytes(result)
         if liquid_source_bytes > MAX_LIQUID_TEMPLATE_SOURCE_BYTES and not self.context.get(
             "allow_oversized_liquid_templates", False
         ):

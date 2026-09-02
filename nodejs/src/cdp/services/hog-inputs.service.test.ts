@@ -281,12 +281,15 @@ describe('Hog Inputs', () => {
         })
 
         it('should add unsubscribe url if email input is present', async () => {
+            const emailBody = 'x'.repeat(60 * 1024)
             hogFunction.inputs = {
                 email: {
                     templating: 'liquid',
                     value: {
                         to: { email: '{{person.properties.email}}' },
-                        html: '<div>Manage subscription preferences here <a href="{{unsubscribe_url}}">here</a>Or, click <a href="{{unsubscribe_url_one_click}}">here</a> to immediately unsubscribe from all marketing emails</div>',
+                        html:
+                            '<div>Manage subscription preferences here <a href="{{unsubscribe_url}}">here</a>Or, click <a href="{{unsubscribe_url_one_click}}">here</a> to immediately unsubscribe from all marketing emails</div>' +
+                            emailBody,
                     },
                 },
             }
@@ -297,7 +300,7 @@ describe('Hog Inputs', () => {
             expect(inputs.email.to.email).toEqual('test@posthog.com')
             const recipient = { team_id: team.id, identifier: 'test@posthog.com' }
             expect(inputs.email.html).toEqual(
-                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}">here</a> to immediately unsubscribe from all marketing emails</div>`
+                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}">here</a> to immediately unsubscribe from all marketing emails</div>${emailBody}`
             )
         })
 

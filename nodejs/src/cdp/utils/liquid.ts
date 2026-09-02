@@ -1,4 +1,4 @@
-import { Liquid } from 'liquidjs'
+import { Context, type Emitter, Liquid, toValue, toValueSync } from 'liquidjs'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 
@@ -46,6 +46,41 @@ export class LiquidTemplateResourceLimitError extends Error {
     }
 }
 
+class BoundedLiquidEmitter implements Emitter {
+    public buffer = ''
+
+    constructor(
+        private maxOutputBytes: number,
+        private readonly recordOutputBytes: (bytes: number) => void
+    ) {}
+
+    write(value: unknown): void {
+        const unwrapped = toValue(value)
+        if (Array.isArray(unwrapped)) {
+            for (const item of unwrapped) {
+                this.write(item)
+            }
+            return
+        }
+        const chunk = unwrapped === null || unwrapped === undefined ? '' : String(unwrapped)
+        const chunkBytes = Buffer.byteLength(chunk, 'utf8')
+        if (chunkBytes > this.maxOutputBytes) {
+            throw new LiquidTemplateResourceLimitError('output')
+        }
+        this.maxOutputBytes -= chunkBytes
+        this.recordOutputBytes(chunkBytes)
+        this.buffer += chunk
+    }
+}
+
+interface LiquidRenderOptions {
+    renderLimitMs?: number
+    memoryLimit?: number
+    memoryLimitContext?: Context
+    maxOutputBytes?: number
+    recordOutputBytes?: (bytes: number) => void
+}
+
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
 
@@ -67,8 +102,7 @@ export class LiquidRenderer {
     static renderWithHogFunctionGlobals(
         template: string,
         globals: HogFunctionInvocationGlobalsWithInputs,
-        renderLimitMs: number = LIQUID_RENDER_LIMITS.maxRenderDurationMs,
-        memoryLimit: number = LIQUID_RENDER_LIMITS.maxMemoryUnits
+        options: LiquidRenderOptions = {}
     ): string {
         const context = {
             ...globals,
@@ -86,8 +120,27 @@ export class LiquidRenderer {
                 .replace(/&amp;/g, '&') // NOTE: This should always be last
         })
 
-        return this.liquid.parseAndRenderSync(decodedTemplate, context, {
-            renderLimit: renderLimitMs,
+        const renderContext = new Context(
+            context,
+            this.liquid.options,
+            {
+                sync: true,
+                renderLimit: options.renderLimitMs ?? LIQUID_RENDER_LIMITS.maxRenderDurationMs,
+                memoryLimit: options.memoryLimit ?? LIQUID_RENDER_LIMITS.maxMemoryUnits,
+            },
+            options.memoryLimitContext ? { memoryLimit: options.memoryLimitContext.memoryLimit } : undefined
+        )
+        const emitter = new BoundedLiquidEmitter(
+            options.maxOutputBytes ?? LIQUID_RENDER_LIMITS.maxOutputBytes,
+            options.recordOutputBytes ?? (() => {})
+        )
+        const templates = this.liquid.parse(decodedTemplate)
+        toValueSync(this.liquid.renderer.renderTemplates(templates, renderContext, emitter))
+        return emitter.buffer
+    }
+
+    static createMemoryLimitContext(memoryLimit: number): Context {
+        return new Context({}, this.liquid.options, {
             memoryLimit,
         })
     }
@@ -104,6 +157,9 @@ function liquidLimitFromError(error: unknown): LiquidResourceLimit | null {
     if (message.includes('memory alloc limit exceeded')) {
         return 'memory'
     }
+    if (message.includes(LIQUID_LIMIT_MESSAGES.output) || message.includes('Invalid string length')) {
+        return 'output'
+    }
     return null
 }
 
@@ -113,8 +169,11 @@ export class LiquidRenderBudget {
     private renderDurationMs = 0
     private outputBytes = 0
     private hardLimit?: LiquidResourceLimit
+    private readonly memoryLimitContext: Context
 
-    constructor(private readonly limits: LiquidRenderLimits = LIQUID_RENDER_LIMITS) {}
+    constructor(private readonly limits: LiquidRenderLimits = LIQUID_RENDER_LIMITS) {
+        this.memoryLimitContext = LiquidRenderer.createMemoryLimitContext(limits.maxMemoryUnits)
+    }
 
     render(template: string, globals: HogFunctionInvocationGlobalsWithInputs): string {
         this.attempted = true
@@ -131,12 +190,15 @@ export class LiquidRenderBudget {
         const startedAt = performance.now()
         let result: string
         try {
-            result = LiquidRenderer.renderWithHogFunctionGlobals(
-                template,
-                globals,
-                remainingRenderMs,
-                this.limits.maxMemoryUnits
-            )
+            result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals, {
+                renderLimitMs: remainingRenderMs,
+                memoryLimit: this.limits.maxMemoryUnits,
+                memoryLimitContext: this.memoryLimitContext,
+                maxOutputBytes: this.limits.maxOutputBytes - this.outputBytes,
+                recordOutputBytes: (bytes) => {
+                    this.outputBytes += bytes
+                },
+            })
         } catch (error) {
             this.renderDurationMs += performance.now() - startedAt
             const resource = liquidLimitFromError(error)
@@ -151,10 +213,6 @@ export class LiquidRenderBudget {
             this.throwLimit('render')
         }
 
-        this.outputBytes += Buffer.byteLength(result, 'utf8')
-        if (this.outputBytes > this.limits.maxOutputBytes) {
-            this.throwLimit('output')
-        }
         return result
     }
 
