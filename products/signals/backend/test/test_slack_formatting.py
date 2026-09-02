@@ -8,7 +8,7 @@ from products.signals.backend.slack_formatting import (
     SLACK_SECTION_TEXT_MAX_LEN,
     chunk_slack_mrkdwn,
     markdown_to_slack_mrkdwn,
-    split_markdown_by_headings,
+    split_markdown_by_sections,
     strip_chart_references,
 )
 
@@ -93,10 +93,10 @@ class TestStripChartReferences(SimpleTestCase):
         assert time.perf_counter() - started < 0.5
 
 
-class TestSplitMarkdownByHeadings(SimpleTestCase):
+class TestSplitMarkdownBySections(SimpleTestCase):
     def test_lead_precedes_one_segment_per_heading(self) -> None:
         summary = "Intro line.\n\n## First\nbody one\n\n## Second\nbody two"
-        segments = split_markdown_by_headings(summary)
+        segments = split_markdown_by_sections(summary)
 
         assert segments[0].strip() == "Intro line."
         assert segments[1].startswith("## First")
@@ -107,7 +107,7 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
         # A split at every level bursts a sub-headed report into a segment per sub-point, which the
         # reader gets as one Slack reply each. The split runs at the level the summary repeats at.
         summary = "## First\nbody one\n\n### Detail\nmore\n\n## Second\nbody two"
-        segments = split_markdown_by_headings(summary)
+        segments = split_markdown_by_sections(summary)
 
         assert segments == ["", "## First\nbody one\n\n### Detail\nmore\n\n", "## Second\nbody two"]
 
@@ -115,7 +115,7 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
         # A level used once is the summary's own title. Splitting there returns everything under it
         # as a single segment, which is the wall of text threading exists to break up.
         summary = "# Title\n\nIntro line.\n\n## First\nbody one\n\n## Second\nbody two"
-        segments = split_markdown_by_headings(summary)
+        segments = split_markdown_by_sections(summary)
 
         assert segments[0].strip() == "# Title\n\nIntro line."
         assert segments[1].startswith("## First")
@@ -123,31 +123,122 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
         assert len(segments) == 3
 
     def test_leading_heading_yields_empty_lead(self) -> None:
-        segments = split_markdown_by_headings("## Only\nbody")
+        segments = split_markdown_by_sections("## Only\nbody")
 
         assert segments[0] == ""
         assert segments[1].startswith("## Only")
 
-    def test_summary_without_headings_stays_one_segment(self) -> None:
-        assert split_markdown_by_headings("no headings here") == ["no headings here"]
+    def test_summary_without_seams_stays_one_segment(self) -> None:
+        assert split_markdown_by_sections("no headings here") == ["no headings here"]
 
     def test_empty_summary_yields_no_segments(self) -> None:
-        assert split_markdown_by_headings("   ") == []
+        assert split_markdown_by_sections("   ") == []
 
     @parameterized.expand([("backtick_fence", "```"), ("tilde_fence", "~~~")])
     def test_column_zero_hash_inside_a_fence_does_not_split(self, _name: str, fence: str) -> None:
         # The bug this guards: a `# ` line inside a fenced code block used to be read as a heading and
         # split there, orphaning the fence and mangling the snippet when each segment was converted.
         summary = f"Intro.\n\n{fence}\n# not a heading\nconfig value\n{fence}\n\nTail."
-        assert split_markdown_by_headings(summary) == [summary]
+        assert split_markdown_by_sections(summary) == [summary]
 
     def test_real_heading_after_a_fence_still_splits(self) -> None:
         summary = "```\n# in code\n```\n\n## Real heading\nbody"
-        segments = split_markdown_by_headings(summary)
+        segments = split_markdown_by_sections(summary)
 
         assert segments[0].strip() == "```\n# in code\n```"
         assert segments[1].startswith("## Real heading")
         assert len(segments) == 2
+
+    @parameterized.expand(
+        [
+            ("asterisks", "**Evidence**", "**Recommended next step**"),
+            ("underscores", "__Evidence__", "__Recommended next step__"),
+            ("colon_inside_the_marker", "**Evidence:**", "**Recommended next step:**"),
+            ("colon_after_the_marker", "**Evidence**:", "**Recommended next step**:"),
+        ]
+    )
+    def test_bold_labels_are_seams(self, _name: str, first: str, second: str) -> None:
+        # The bug this guards: a scout marks its sections with a bold label far more often than with
+        # a heading, and a summary with no heading used to have no seam, so a threaded delivery put
+        # the whole report in the channel as one message.
+        summary = f"Outcome sentence.\n\n{first}\n- one\n- two\n\n{second}\nDo the thing."
+        segments = split_markdown_by_sections(summary)
+
+        assert segments[0].strip() == "Outcome sentence."
+        assert segments[1].startswith(first)
+        assert segments[2].startswith(second)
+        assert len(segments) == 3
+
+    @parameterized.expand(
+        [
+            ("en_dash", " – "),
+            ("em_dash", " — "),
+            ("hyphen", " - "),
+            ("colon", ": "),
+        ]
+    )
+    def test_bold_lead_paragraphs_are_seams(self, _name: str, separator: str) -> None:
+        # The shape the daily repo summary uses: a bold section name, a separator, then prose on the
+        # same line, with a bullet list under it.
+        summary = (
+            "Outcome sentence.\n\n"
+            f"**Signals**{separator}the team shipped threading.\n- one\n\n"
+            f"**Tasks**{separator}runs are faster.\n- two\n\n"
+            f"**Docs**{separator}pages moved.\n- three"
+        )
+        segments = split_markdown_by_sections(summary)
+
+        assert segments[0].strip() == "Outcome sentence."
+        assert [segment.split(separator)[0] for segment in segments[1:]] == ["**Signals**", "**Tasks**", "**Docs**"]
+        assert len(segments) == 4
+
+    @parameterized.expand(
+        [
+            # A bold run that only opens a sentence is prose, not a label for the rest of the report.
+            ("bold_word_opening_a_paragraph", "Lead.\n\n**31** organizations reported it.\n\n**12** did not."),
+            ("bold_run_inside_a_paragraph", "Some text **bold** more text.\n\nAnd **bold** again here."),
+            # Without a blank line before it, the bold run continues the paragraph above it.
+            ("bold_line_continuing_a_paragraph", "Lead line.\n**Evidence**\nbody"),
+        ]
+    )
+    def test_bold_run_that_is_not_a_section_label_is_not_a_seam(self, _name: str, summary: str) -> None:
+        assert split_markdown_by_sections(summary) == [summary]
+
+    @parameterized.expand([("backtick_fence", "```"), ("tilde_fence", "~~~")])
+    def test_bold_label_inside_a_fence_does_not_split(self, _name: str, fence: str) -> None:
+        summary = f"Intro.\n\n{fence}\n**not a label**\n\n**nor this**\n{fence}\n\nTail."
+
+        assert split_markdown_by_sections(summary) == [summary]
+
+    def test_headings_outrank_bold_labels(self) -> None:
+        # A summary that marks sections both ways splits at its headings, so the bold labels stay
+        # inside the section a reader sees them in.
+        summary = "## First\n\n**Evidence**\none\n\n## Second\n\n**Evidence**\ntwo"
+        segments = split_markdown_by_sections(summary)
+
+        assert segments[0] == ""
+        assert segments[1].startswith("## First")
+        assert segments[2].startswith("## Second")
+        assert len(segments) == 3
+
+    def test_lone_title_leaves_repeated_bold_labels_as_the_seam(self) -> None:
+        # A heading used once is the summary's own title, so the split descends to the bold labels.
+        summary = "# Title\n\nIntro line.\n\n**Evidence**\none\n\n**Next step**\ntwo"
+        segments = split_markdown_by_sections(summary)
+
+        assert segments[0].strip() == "# Title\n\nIntro line."
+        assert segments[1].startswith("**Evidence**")
+        assert segments[2].startswith("**Next step**")
+        assert len(segments) == 3
+
+    def test_standalone_bold_labels_outrank_bold_lead_paragraphs(self) -> None:
+        summary = "Lead.\n\n**Evidence**\n\n**Signals** – one\n\n**Next step**\n\n**Tasks** – two"
+        segments = split_markdown_by_sections(summary)
+
+        assert segments[0].strip() == "Lead."
+        assert segments[1].startswith("**Evidence**")
+        assert segments[2].startswith("**Next step**")
+        assert len(segments) == 3
 
 
 class TestChunkSlackMrkdwn(SimpleTestCase):

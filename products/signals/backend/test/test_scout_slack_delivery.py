@@ -410,15 +410,56 @@ class TestScoutSlackDelivery(BaseTest):
         assert "Second" in second_reply["blocks"][0]["text"]["text"]
         assert calls[3].kwargs["blocks"][0]["type"] == "context"
 
-    def test_threaded_report_without_headings_posts_a_single_message(self) -> None:
-        # Headings are the seams threading splits on. A summary with none has nothing to split, so it
-        # stays one channel message rather than being cut mid-prose.
+    def test_threaded_short_report_posts_one_reply_per_bold_label_section(self) -> None:
+        # The bug: a scout that marks its sections with a bold label instead of a heading had no
+        # seam, so a threaded delivery posted the whole report as one channel message.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             title="Checkout failures",
-            summary="One paragraph of prose.\n\nAnd a second one, still without a heading.",
+            summary="Lead line.\n\n**Evidence**\n- one\n\n**Recommended next step**\nDo the thing.",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000800"}
+        delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527266"
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        # The lead, one reply per bold section, then the unconditional @PostHog follow-up.
+        calls = fake_client.chat_postMessage.call_args_list
+        assert len(calls) == 4
+        lead_sections = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
+        assert lead_sections == ["Lead line."]
+        first_reply, second_reply = calls[1].kwargs, calls[2].kwargs
+        assert first_reply["thread_ts"] == "1785418710.000800"
+        assert first_reply["client_msg_id"] == f"{delivery_id}:0"
+        assert "Evidence" in first_reply["blocks"][0]["text"]["text"]
+        assert second_reply["client_msg_id"] == f"{delivery_id}:1"
+        assert "Recommended next step" in second_reply["blocks"][0]["text"]["text"]
+        assert calls[3].kwargs["blocks"][0]["type"] == "context"
+
+    def test_threaded_report_without_seams_posts_a_single_message(self) -> None:
+        # Headings and bold section labels are the seams threading splits on. A summary with none has
+        # nothing to split, so it stays one channel message rather than being cut mid-prose.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="One paragraph of prose.\n\nAnd a second one, still without a section label.",
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()

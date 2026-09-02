@@ -133,21 +133,59 @@ _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+\S")
 # `# ` line inside a fence is code, not a heading: splitting there would orphan the fence and hand
 # the snippet to the mrkdwn converter as prose.
 _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# A bold run opening a line, as in `**Evidence**` or `__Evidence__`. Scouts mark a section with a
+# bold label far more often than with a heading, so a bold label is a seam too. Each delimiter
+# closes on its own kind, and a run cannot open on a space, as CommonMark requires.
+_BOLD_RUN_RE = re.compile(r"^[ \t]*(?:\*\*(?!\s)((?:[^*\n]|\*(?!\*))+)\*\*|__(?!\s)((?:[^_\n]|_(?!_))+)__)")
+# What follows the bold run of a section label that carries its prose on the same line. A separator
+# is required, so a bold word that only opens a sentence (`**31** organizations reported …`) is
+# prose rather than a label.
+_BOLD_LEAD_SEPARATOR_RE = re.compile(r"(?::[ \t]|[ \t][-–—][ \t])\S")
+_MAX_ATX_LEVEL = 6
+# How far below the deepest heading present a bold seam ranks. A heading therefore always outranks a
+# bold label, and a label alone on its line outranks one that shares the line with prose.
+_BOLD_LABEL_DEPTH = 1
+_BOLD_LEAD_DEPTH = 2
 
 
 @frozen
-class _MarkdownHeading:
-    """Where an ATX heading starts in the text, and how deep it is. Both fields are plain ints, so a
+class _MarkdownSeam:
+    """Where a section seam starts in the text, and how deep it is. Both fields are plain ints, so a
     tuple would let a call site read the level as an offset."""
 
     offset: int
     level: int
 
 
-def _markdown_headings(text: str) -> list[_MarkdownHeading]:
-    """Every ATX heading in the text, skipping any inside a fenced code block."""
-    headings: list[_MarkdownHeading] = []
+def _bold_seam_depth(line: str) -> int | None:
+    """How deep the line's bold section label ranks, or None when the line holds no label.
+
+    A label alone on its line ranks shallower than one followed by prose, so a summary that marks
+    sections both ways splits at the labels and keeps the bold-led paragraphs under them."""
+    match = _BOLD_RUN_RE.match(line)
+    if not match:
+        return None
+    label = match.group(1) or match.group(2)
+    rest = line[match.end() :]
+    if rest.strip() in ("", ":"):
+        return _BOLD_LABEL_DEPTH
+    # A colon inside the run (`**Evidence:** the count fell`) already separates label from prose.
+    if label.endswith(":") and rest[:1] in (" ", "\t") and rest.strip():
+        return _BOLD_LEAD_DEPTH
+    if _BOLD_LEAD_SEPARATOR_RE.match(rest):
+        return _BOLD_LEAD_DEPTH
+    return None
+
+
+def _markdown_seams(text: str) -> list[_MarkdownSeam]:
+    """Every section seam in the text, in the order it reads: ATX headings and bold section labels.
+
+    Seams inside a fenced code block are skipped, so a `# ` or `**…**` line of a snippet stays code.
+    A bold label counts only where a paragraph opens, so a bold run inside a paragraph is prose."""
+    headings: list[_MarkdownSeam] = []
+    bold: list[tuple[int, int]] = []
     fence: str | None = None  # marker of the currently open fence, else None
+    after_blank = True  # the start of the text opens a paragraph, the same as a blank line does
     offset = 0
     for line in text.split("\n"):
         fence_match = _MARKDOWN_FENCE_RE.match(line)
@@ -160,13 +198,22 @@ def _markdown_headings(text: str) -> list[_MarkdownHeading]:
         else:
             heading_match = _MARKDOWN_HEADING_RE.match(line)
             if heading_match:
-                headings.append(_MarkdownHeading(offset=offset, level=len(heading_match.group(1))))
+                headings.append(_MarkdownSeam(offset=offset, level=len(heading_match.group(1))))
+            elif after_blank:
+                depth = _bold_seam_depth(line)
+                if depth is not None:
+                    bold.append((offset, depth))
         offset += len(line) + 1  # +1 for the "\n" that split dropped
-    return headings
+        after_blank = not line.strip()
+    # Ranking bold below every heading present, rather than at a fixed level, keeps a summary that
+    # mixes both splitting at its headings whatever depth those headings sit at.
+    base_level = max((heading.level for heading in headings), default=_MAX_ATX_LEVEL)
+    seams = headings + [_MarkdownSeam(offset=start, level=base_level + depth) for start, depth in bold]
+    return sorted(seams, key=lambda seam: seam.offset)
 
 
-def _split_heading_level(levels: list[int]) -> int:
-    """The shallowest heading level the text repeats at, else the shallowest level present.
+def _split_seam_level(levels: list[int]) -> int:
+    """The shallowest seam level the text repeats at, else the shallowest level present.
 
     A level that appears once is the summary's own title rather than a seam between sections, so
     splitting there would return the whole summary as one segment."""
@@ -175,21 +222,23 @@ def _split_heading_level(levels: list[int]) -> int:
     return repeated[0] if repeated else min(levels)
 
 
-def split_markdown_by_headings(text: str) -> list[str]:
-    """Split a Markdown summary into the lead and one segment per top-level heading.
+def split_markdown_by_sections(text: str) -> list[str]:
+    """Split a Markdown summary into the lead and one segment per top-level section.
 
-    The first element is the text before the first split point (empty when the summary opens with a
-    heading of that level). Each later element is a heading and everything under it, including its
-    sub-headings, so a segment holds the same block a reader folds shut. Headings inside fenced code
-    blocks are left in place, so a snippet is never split mid-fence. No content is dropped."""
+    A section opens at an ATX heading or at a bold section label, since a scout marks its sections
+    either way. The first element is the text before the first split point (empty when the summary
+    opens with a seam of that level). Each later element is a seam and everything under it,
+    including its own sub-sections, so a segment holds the same block a reader folds shut. Seams
+    inside fenced code blocks are left in place, so a snippet is never split mid-fence. No content
+    is dropped."""
     text = text.strip()
     if not text:
         return []
-    headings = _markdown_headings(text)
-    if not headings:
+    seams = _markdown_seams(text)
+    if not seams:
         return [text]
-    split_level = _split_heading_level([heading.level for heading in headings])
-    starts = [heading.offset for heading in headings if heading.level == split_level]
+    split_level = _split_seam_level([seam.level for seam in seams])
+    starts = [seam.offset for seam in seams if seam.level == split_level]
     segments = [text[: starts[0]]]
     for index, start in enumerate(starts):
         end = starts[index + 1] if index + 1 < len(starts) else len(text)

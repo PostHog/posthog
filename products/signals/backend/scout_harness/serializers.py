@@ -1133,7 +1133,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "The report body the inbox shows. Markdown is supported (headings, lists, code, links; "
             "images are not rendered). Lead with one plain declarative sentence — the inbox card uses "
             "your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the "
-            "full markdown in the detail view."
+            "full markdown in the detail view. A heading, or a bold label on its own line, marks the "
+            "sections a threaded Slack delivery splits into replies."
         ),
     )
     evidence = serializers.ListField(
@@ -1265,7 +1266,8 @@ class EditReportRequestSerializer(serializers.Serializer):
         help_text=(
             "Optional new summary. Markdown is supported (headings, lists, code, links; images are not "
             "rendered); lead with one plain declarative sentence — it becomes the inbox card headline. "
-            "The pipeline may later re-research and overwrite it."
+            "A heading, or a bold label on its own line, marks the sections a threaded Slack delivery "
+            "splits into replies. The pipeline may later re-research and overwrite it."
         ),
     )
     append_note = serializers.CharField(
