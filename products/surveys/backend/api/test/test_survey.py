@@ -550,6 +550,21 @@ class TestSurvey(APIBaseTest):
         assert "<strong>Welcome</strong>" in serialized_survey["appearance"]["introScreenDescription"]
         assert "onerror" not in serialized_survey["appearance"]["introScreenDescription"]
 
+    def test_detail_payload_sanitizes_stored_appearance_html(self) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Survey with stored appearance text",
+            type="popover",
+            questions=[],
+            appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "<strong>Welcome</strong>" in response.json()["appearance"]["introScreenDescription"]
+        assert "onerror" not in response.json()["appearance"]["introScreenDescription"]
+
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
         self.team.save(update_fields=["survey_config"])

@@ -885,6 +885,20 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
     def get_conditions(self, survey: Survey):
         return get_survey_conditions_with_actions(survey)
 
+    def validate_appearance(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Appearance must be an object")
+        return sanitize_survey_appearance(value)
+
+    def to_representation(self, instance: Survey) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        appearance = data.get("appearance")
+        if isinstance(appearance, dict):
+            data["appearance"] = sanitize_survey_appearance(appearance)
+        return data
+
 
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -2129,7 +2143,6 @@ class SurveyFilterSet(FilterSet):
 
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
-    update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     list=extend_schema(
         parameters=[
@@ -2150,9 +2163,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     filterset_class = SurveyFilterSet
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
-        if self.request.method in ("POST", "PUT", "PATCH"):
+        if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
-        return SurveySerializer
+        else:
+            return SurveySerializer
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.exclude(product_tour__isnull=False)
