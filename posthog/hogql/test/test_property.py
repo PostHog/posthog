@@ -1641,6 +1641,15 @@ class TestProperty(BaseTest):
         with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
 
+        # float("NaN") parses without error, and float(bool) silently coerces to 0.0/1.0, so both need an
+        # explicit reject to match rust/feature-flags/src/properties/property_matching.rs, which refuses
+        # both as filter bounds.
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": ["NaN", 100]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [False, True]})
+
     @parameterized.expand(
         [
             ("trailing_backslash", "^abc\\"),
@@ -2542,6 +2551,13 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
                 {"present_nonmatch", "missing"},
             ),
             (
+                # present_nonmatch matches the "enterprise" needle and present_match matches the "free"
+                # needle, so both rows must drop and only "missing" can stay.
+                "event_not_icontains_multi_two_needles",
+                {"type": "event", "key": "plan", "value": ["free", "enterprise"], "operator": "not_icontains_multi"},
+                {"missing"},
+            ),
+            (
                 "event_not_between",
                 {"type": "event", "key": "score", "value": [0, 100], "operator": "not_between"},
                 {"present_match", "missing"},
@@ -2612,6 +2628,14 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             (
                 "not_icontains_multi",
                 {"value": ["ReferenceError"], "operator": "not_icontains_multi"},
+                ARRAYS_WITHOUT_MATCH,
+            ),
+            # "TypeError" never appears in the fixture, so this needle alone matches nothing: the
+            # expected set stays identical to the single-needle case above only if the two needles
+            # combine with AND instead of OR.
+            (
+                "not_icontains_multi_two_needles",
+                {"value": ["ReferenceError", "TypeError"], "operator": "not_icontains_multi"},
                 ARRAYS_WITHOUT_MATCH,
             ),
             (

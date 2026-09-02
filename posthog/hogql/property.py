@@ -1,4 +1,5 @@
 import re
+import math
 from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
@@ -548,11 +549,18 @@ def _force_datetime(expr: ast.Expr) -> ast.Expr:
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
+    # Bools pass float() silently (False/True -> 0.0/1.0) and "NaN" parses to a real NaN, but the
+    # Rust evaluator (rust/feature-flags/src/properties/property_matching.rs) rejects both as bounds.
+    if isinstance(value[0], bool) or isinstance(value[1], bool):
+        raise QueryError(f"{operator} operator requires numeric values")
     try:
-        if float(value[0]) > float(value[1]):
-            raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
+        low, high = float(value[0]), float(value[1])
     except (ValueError, TypeError):
         raise QueryError(f"{operator} operator requires numeric values")
+    if math.isnan(low) or math.isnan(high):
+        raise QueryError(f"{operator} operator requires numeric values")
+    if low > high:
+        raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
     return True
 
 
@@ -1368,6 +1376,11 @@ def property_to_expr(
             PropertyOperator.NOT_BETWEEN,
             PropertyOperator.ICONTAINS,
             PropertyOperator.NOT_ICONTAINS,
+            # ICONTAINS_MULTI/NOT_ICONTAINS_MULTI already combine every value into one
+            # multiSearchAnyCaseInsensitive call in _expr_to_compare_op; per-value expansion below
+            # would instead OR together separate negations, keeping a row that matches only one needle.
+            PropertyOperator.ICONTAINS_MULTI,
+            PropertyOperator.NOT_ICONTAINS_MULTI,
             # starts_with/ends_with intentionally excluded: no ClickHouse anchored multi-search
             # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
