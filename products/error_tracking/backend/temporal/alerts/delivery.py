@@ -61,9 +61,11 @@ ROOT_EDIT_EVENTS = {
 
 DELIVERED_NOTIFICATION_IDS_CAP = 200
 # A send claim older than this belongs to a holder that died between posting and
-# saving; the next delivery takes over. Longer than a Slack call can take, shorter
-# than the activity retry schedule so a busy loser is still retrying when it expires.
-PENDING_CLAIM_TTL = timedelta(seconds=60)
+# saving; the next delivery takes over. A live holder makes at most two Slack calls
+# per thread (post, then root edit), each bounded by the SDK's 30s default timeout,
+# so 120s cannot expire under a live holder. It must stay shorter than the activity
+# retry schedule (workflow.py) so a busy loser is still retrying when it expires.
+PENDING_CLAIM_TTL = timedelta(seconds=120)
 
 
 class AlertThreadBusyError(Exception):
@@ -208,10 +210,10 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
     except Exception:
         # A failed post frees the thread for whoever comes next; this notification's
         # retry then lands wherever the thread is by that time.
-        _release_thread(thread, inputs)
+        _release_thread(thread, inputs, claimed_at)
         raise
     if not posted:
-        _release_thread(thread, inputs)
+        _release_thread(thread, inputs, claimed_at)
     return posted
 
 
@@ -292,9 +294,13 @@ def _claim_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflo
     return now
 
 
-def _release_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs) -> None:
+def _release_thread(
+    thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs, claimed_at: datetime
+) -> None:
+    # Fenced like the finalize: a newer attempt of the same notification may have
+    # re-claimed, and this attempt must not release on its behalf.
     ErrorTrackingAlertThread.objects.for_team(thread.team_id, canonical=True).filter(
-        id=thread.id, pending_notification_id=inputs.notification_id
+        id=thread.id, pending_notification_id=inputs.notification_id, pending_claimed_at=claimed_at
     ).update(pending_notification_id=None, pending_claimed_at=None)
 
 
