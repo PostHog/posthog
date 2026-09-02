@@ -65,6 +65,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         credits_this_month: 0,
         observations_this_month: 0,
         credits_per_observation: 1,
+        estimated_monthly_observations: null,
+        estimated_monthly_credits: null,
         user_access_level: 'editor',
         ...overrides,
     }) as ReplayScannerApi
@@ -79,6 +81,8 @@ const scanners = {
             name: 'Confused checkout',
             credits_this_month: 1250,
             observations_this_month: 1250,
+            estimated_monthly_observations: 3100,
+            estimated_monthly_credits: 3100,
             description: 'Flags sessions where the user hesitated at payment.',
             tags: ['checkout', 'core flows'],
             scanner_type: 'monitor',
@@ -100,6 +104,8 @@ const scanners = {
             name: 'Session summary',
             credits_this_month: 5,
             observations_this_month: 5,
+            estimated_monthly_observations: 40,
+            estimated_monthly_credits: 40,
             scanner_type: 'summarizer',
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
             sampling_rate: 0.05,
@@ -111,6 +117,8 @@ const scanners = {
             credits_this_month: 320,
             observations_this_month: 160,
             credits_per_observation: 2,
+            estimated_monthly_observations: 1000,
+            estimated_monthly_credits: 2000,
             scanner_type: 'scorer',
             scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
             sampling_rate: 1,
@@ -448,6 +456,22 @@ const observationsTrend = {
     ],
 }
 
+// Cumulative 2,400 credits over the 11 mocked-period days, weekends dipping. Carries days and
+// labels too, since the generic query endpoint also serves the overview's observations chart.
+const spendDays = Array.from({ length: 11 }, (_, i) => `2026-05-${String(i + 1).padStart(2, '0')}`)
+const dailySpendTrend = {
+    results: [
+        {
+            action: { id: '$recording_observed', type: 'events', order: 0, name: '$recording_observed' },
+            label: 'Spend',
+            count: 2400,
+            data: [150, 190, 230, 260, 90, 80, 250, 280, 310, 120, 440],
+            labels: spendDays,
+            days: spendDays,
+        },
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
@@ -489,6 +513,7 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': observationsTrend,
+                '/api/environments/:team_id/query/': dailySpendTrend,
                 '/api/projects/:team_id/vision/scanners/estimate/': estimate,
             },
         }),
