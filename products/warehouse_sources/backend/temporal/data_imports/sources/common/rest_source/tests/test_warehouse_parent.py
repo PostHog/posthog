@@ -1,5 +1,4 @@
 import json
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -181,11 +180,6 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
     v0_table = deltalake.DeltaTable(uri)
     v0 = v0_table.version()
     v0_timestamp = datetime.fromtimestamp(v0_table.history()[0]["timestamp"] / 1000, tz=UTC)
-
-    # Delta commit timestamps have millisecond precision. On a fast runner the overwrite below can
-    # land in v0's millisecond, and pinning at v0_timestamp then resolves to the overwrite.
-    while datetime.now(tz=UTC) - v0_timestamp < timedelta(milliseconds=2):
-        time.sleep(0.001)
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
