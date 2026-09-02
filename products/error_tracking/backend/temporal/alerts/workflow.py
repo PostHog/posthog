@@ -11,10 +11,14 @@ from products.error_tracking.backend.temporal.alerts.types import (
 
 WORKFLOW_NAME = "error-tracking-alert-delivery"
 
+# The retry schedule must outlast the thread send claim TTL (delivery.py): a
+# delivery that loses the claim to a holder that then dies keeps retrying until
+# the claim goes stale and it can take over.
 ACTIVITY_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=2),
+    initial_interval=timedelta(seconds=5),
+    backoff_coefficient=2.0,
     maximum_interval=timedelta(seconds=60),
-    maximum_attempts=5,
+    maximum_attempts=8,
 )
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
 

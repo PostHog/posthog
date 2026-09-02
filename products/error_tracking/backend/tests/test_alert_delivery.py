@@ -24,6 +24,7 @@ from products.error_tracking.backend.temporal.alerts.delivery import (
 )
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
+from products.error_tracking.backend.temporal.alerts.workflow import ACTIVITY_RETRY_POLICY
 
 
 class AlertTestMixin(BaseTest):
@@ -296,6 +297,40 @@ class TestSlackThreadDelivery(AlertTestMixin):
         thread.refresh_from_db()
         assert thread.pending_notification_id is None
         assert thread.delivered_notification_ids == ["notif-1"]
+
+    def test_superseded_holder_does_not_overwrite_the_successor(self):
+        # A holder that stalls past the TTL loses the claim; when it resumes and
+        # finishes posting, its save must not clobber whatever the successor wrote.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        thread = self._thread(alert, rooted=False)
+
+        def takeover_during_post(**kwargs):
+            with team_scope(self.team.id):
+                ErrorTrackingAlertThread.objects.filter(id=thread.id).update(
+                    pending_notification_id="notif-successor", pending_claimed_at=timezone.now()
+                )
+            return {"channel": "C0123", "ts": "111.222"}
+
+        client.chat_postMessage.side_effect = takeover_during_post
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+
+        thread.refresh_from_db()
+        assert thread.pending_notification_id == "notif-successor"
+        assert thread.external_ref == {}
+        assert thread.delivered_notification_ids == []
+
+    def test_retry_schedule_outlasts_the_claim_ttl(self):
+        # A busy loser must still be retrying when a dead holder's claim goes stale,
+        # otherwise the notification is dropped for good.
+        policy = ACTIVITY_RETRY_POLICY
+        assert policy.maximum_interval is not None
+        interval = policy.initial_interval
+        total = timedelta(0)
+        for _ in range(policy.maximum_attempts - 1):
+            total += interval
+            interval = min(interval * policy.backoff_coefficient, policy.maximum_interval)
+        assert total > PENDING_CLAIM_TTL
 
     def test_failed_post_releases_the_claim(self):
         client = self._mock_slack()
