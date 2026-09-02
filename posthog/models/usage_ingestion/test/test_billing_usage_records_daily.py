@@ -27,7 +27,8 @@ class TestBillingUsageRecordsDaily(ClickhouseTestMixin, SimpleTestCase):
             f"""
             CREATE TABLE IF NOT EXISTS {SOURCE_TABLE}
             ({BASE_BILLING_USAGE_RECORDS_COLUMNS})
-            ENGINE = MergeTree() ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
+            ENGINE = ReplacingMergeTree(inserted_at)
+            ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
             """
         )
         sync_execute(BILLING_USAGE_RECORDS_DAILY_DATA_TABLE_SQL(TARGET_TABLE))

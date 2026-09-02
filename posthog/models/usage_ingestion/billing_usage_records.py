@@ -121,33 +121,27 @@ def BILLING_USAGE_RECORDS_DAILY_ROLLUP_SQL(
     source_table: str = BILLING_USAGE_RECORDS_TABLE,
     target_table: str = BILLING_USAGE_RECORDS_DAILY_TABLE,
 ) -> str:
-    """Roll one complete UTC day into a replaceable daily snapshot."""
+    """Roll one complete UTC day into a replaceable daily snapshot.
+
+    FINAL is safe here because the replacement key includes toDate(timestamp).
+    Do not reuse this query for a rolling window.
+    """
     return f"""
 INSERT INTO {target_table}
 SELECT
-    day,
+    toDate(timestamp) AS day,
     team_id,
-    latest.1 AS organization_id,
+    organization_id,
     producer_id,
     usage_key,
-    latest.2 AS unit,
-    sum(latest.3) AS quantity,
+    unit,
+    sum(quantity) AS quantity,
     %(rolled_up_at)s AS rolled_up_at
-FROM
-(
-    SELECT
-        toDate(timestamp) AS day,
-        team_id,
-        producer_id,
-        usage_key,
-        record_id,
-        argMax(tuple(organization_id, unit, quantity), inserted_at) AS latest
-    FROM {source_table}
-    WHERE timestamp >= %(day_start)s
-      AND timestamp < %(day_end)s
-    GROUP BY day, team_id, producer_id, usage_key, record_id
-)
-GROUP BY day, team_id, producer_id, usage_key, latest.1, latest.2
+FROM {source_table} FINAL
+WHERE timestamp >= %(day_start)s
+  AND timestamp < %(day_end)s
+GROUP BY day, team_id, organization_id, producer_id, usage_key, unit
+SETTINGS do_not_merge_across_partitions_select_final = 1
 """
 
 
