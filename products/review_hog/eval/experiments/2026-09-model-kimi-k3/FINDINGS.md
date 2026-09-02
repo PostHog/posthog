@@ -85,16 +85,23 @@ ak-…"}`. The GLM-era `LLM_GATEWAY_MODAL_KEY`/`SECRET` (the `wk-`/`ws-` pair) a
    model's catalog default (`low` for `gpt-5.6-sol`, `medium` for terra/luna). The claude adapter passes
    effort through session meta and is unaffected (so Kimi@max is fine). #88893 fixes it upstream with one
    line: put `reasoning_effort` into that settings object.
-   The `Dockerfile.sandbox-base` sed the sol experiment used patches the _installed npm_ agent, which the
-   overlay REPLACES — so it does nothing for a Kimi run. Patch the overlay source instead: in
-   `$LOCAL_POSTHOG_CODE_MONOREPO_ROOT/packages/agent/src/adapters/codex-app-server/session-config.ts`,
-`collaborationModeForTurn()`returns`settings: { model: this.\_model }`(verified here at`session-config.ts:371`); change it to `settings: { model: this.\_model, reasoning_effort: this.\_effort }`
-(`\_effort`is already a field on the class), then rebuild —`pnpm --filter @posthog/agent build`, the
-same build the overlay needs for kimi (FINDINGS 1). Verify on the first Codex call with
-`kafka_ai_usage.py`: `$ai_effort`must read`xhigh`, and Sol's review + blind-spot cost/volume should
-jump to ~$26 / ~22 findings (vs `low`'s ~$3-6 / 8-11). The clean alternative is to update the monorepo
-past 2026-08-26 for #88893 itself (`git pull`+`pnpm install`+ rebuild), preserving the local`gateway.ts`edit and re-adding the kimi`models.ts` entry. Either touches the Desktop monorepo, so it
-   is a deliberate operator step, not an experiment default.
+   The `Dockerfile.sandbox-base` sed the sol experiment used patches the installed npm agent, which the
+   overlay REPLACES, so it does nothing for a Kimi run. Patch the overlay source instead, at
+   `packages/agent/src/adapters/codex-app-server/session-config.ts` under the monorepo root (verified
+   here at `session-config.ts:371`). In `collaborationModeForTurn()`, add the effort to the settings:
+
+   ```ts
+   // was:  settings: { model: this._model }
+   settings: { model: this._model, reasoning_effort: this._effort }
+   ```
+
+   Then rebuild with `pnpm --filter @posthog/agent build` (the same build the overlay needs for kimi,
+   FINDINGS 1). Verify on the first Codex call via `kafka_ai_usage.py`: the effort must read `xhigh`,
+   and Sol's review plus blind-spot cost and volume should jump to ~$26 / ~22 findings (vs low's
+   ~$3-6 / 8-11). The clean alternative is to update the monorepo past 2026-08-26 for #88893 itself
+   (git pull, pnpm install, rebuild), preserving the local gateway edit and re-adding the kimi models
+   entry. Either touches the Desktop monorepo, so it is a deliberate operator step, not an experiment
+   default.
 
 ## Worker-churn discipline (cost us a smoke here)
 
