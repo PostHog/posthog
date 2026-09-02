@@ -8,15 +8,19 @@ import {
   type ResolveReportDialogResult,
 } from "@posthog/ui/features/inbox/components/ResolveReportDialog";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import {
+  useReportActionResultTracker,
+  useReportActionTracker,
+} from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactElement, useCallback, useState } from "react";
+import { type ReactElement, useCallback, useRef, useState } from "react";
 
 export function useInboxReportResolveAction(
   report: SignalReport,
   surface: InboxReportActionSurface = "detail_pane",
+  triageId?: string,
 ): {
   isPending: boolean;
   dialog: ReactElement | null;
@@ -27,7 +31,10 @@ export function useInboxReportResolveAction(
   const [initialReason, setInitialReason] =
     useState<ResolveReasonOptionValue>();
   const queryClient = useQueryClient();
-  const fireAction = useReportActionTracker(report, surface);
+  const fireAction = useReportActionTracker(report, surface, triageId);
+  const trackResult = useReportActionResultTracker(report, surface, triageId);
+  const inFlightRef = useRef(false);
+  const startedAtRef = useRef<number | null>(null);
   const hasOpenPr =
     Boolean(report.implementation_pr_url) &&
     report.implementation_pr_merged !== true;
@@ -39,6 +46,9 @@ export function useInboxReportResolveAction(
       ),
     {
       onSuccess: async () => {
+        if (startedAtRef.current !== null) {
+          trackResult("resolve", "succeeded", startedAtRef.current);
+        }
         await queryClient.invalidateQueries({
           queryKey: reportKeys.all,
           exact: false,
@@ -55,7 +65,19 @@ export function useInboxReportResolveAction(
         );
       },
       onError: (error) => {
+        if (startedAtRef.current !== null) {
+          trackResult(
+            "resolve",
+            "failed",
+            startedAtRef.current,
+            "request_failed",
+          );
+        }
         toast.error(error.message || "Failed to resolve report");
+      },
+      onSettled: () => {
+        inFlightRef.current = false;
+        startedAtRef.current = null;
       },
     },
   );
@@ -66,6 +88,9 @@ export function useInboxReportResolveAction(
   }, []);
   const resolveWithReason = useCallback(
     (reason: ResolveReasonOptionValue, note = "") => {
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      startedAtRef.current = Date.now();
       fireAction("resolve", { dismissal_reason: reason });
       mutation.mutate({ reason, note });
     },
@@ -83,7 +108,7 @@ export function useInboxReportResolveAction(
   ) : null;
 
   return {
-    isPending: mutation.isPending,
+    isPending: mutation.isPending || inFlightRef.current,
     dialog,
     openDialog,
     resolveWithReason,

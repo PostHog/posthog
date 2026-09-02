@@ -33,6 +33,8 @@ export interface ReportsInboxViewPresentationProps {
   triageReportCount: number;
   isLoading: boolean;
   isFetchingNextPage: boolean;
+  hasNextPage: boolean;
+  isError: boolean;
   isEmpty: boolean;
   hasActiveFilters: boolean;
   triageEnabled: boolean;
@@ -42,6 +44,8 @@ export interface ReportsInboxViewPresentationProps {
   onConfigureAgents: () => void;
   onEnterTriage: () => void;
   onClearFilters: () => void;
+  onLoadMore: () => void;
+  onRetry: () => void;
 }
 
 export function ReportsInboxViewPresentation({
@@ -49,6 +53,8 @@ export function ReportsInboxViewPresentation({
   triageReportCount,
   isLoading,
   isFetchingNextPage,
+  hasNextPage,
+  isError,
   isEmpty,
   hasActiveFilters,
   triageEnabled,
@@ -58,6 +64,8 @@ export function ReportsInboxViewPresentation({
   onConfigureAgents,
   onEnterTriage,
   onClearFilters,
+  onLoadMore,
+  onRetry,
 }: ReportsInboxViewPresentationProps): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
@@ -123,6 +131,23 @@ export function ReportsInboxViewPresentation({
                 </div>
               ))}
             </div>
+          ) : isError ? (
+            <Empty className="mx-auto max-w-md flex-none border-0 py-12">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <EnvelopeSimpleIcon size={24} />
+                </EmptyMedia>
+                <EmptyTitle>Couldn't load reports</EmptyTitle>
+                <EmptyDescription>
+                  Try loading the inbox again.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button variant="outline" size="default" onClick={onRetry}>
+                  Retry
+                </Button>
+              </EmptyContent>
+            </Empty>
           ) : isEmpty ? (
             <Empty className="mx-auto max-w-md flex-none border-0 py-12">
               <EmptyHeader>
@@ -164,6 +189,13 @@ export function ReportsInboxViewPresentation({
               {isFetchingNextPage && (
                 <div className="flex justify-center py-2">
                   <Spinner />
+                </div>
+              )}
+              {hasNextPage && !isFetchingNextPage && (
+                <div className="flex justify-center py-2">
+                  <Button variant="outline" size="sm" onClick={onLoadMore}>
+                    Load more
+                  </Button>
                 </div>
               )}
             </>

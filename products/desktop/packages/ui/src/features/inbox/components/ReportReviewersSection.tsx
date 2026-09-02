@@ -19,11 +19,15 @@ import {
   useInboxReportArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import {
+  useReportActionResultTracker,
+  useReportActionTracker,
+} from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useMemo, useState } from "react";
 
 export function ReportReviewersSection({ report }: { report: SignalReport }) {
   const fireAction = useReportActionTracker(report);
+  const trackResult = useReportActionResultTracker(report);
   const { data } = useInboxReportArtefacts(report.id);
   const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
   const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
@@ -32,7 +36,7 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
     report.id,
   );
 
-  if (!artefact) return null;
+  if (!data) return null;
 
   const removeReviewer = (reviewer: SuggestedReviewer): void => {
     const next = reviewers.filter((candidate) => candidate !== reviewer);
@@ -40,11 +44,24 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
       suggested_reviewer_login: reviewer.github_login || undefined,
       suggested_reviewer_uuid: reviewer.user?.uuid,
     });
-    updateReviewers({
-      artefactId: artefact.id,
-      content: toSuggestedReviewerWriteContent(next),
-      optimisticReviewers: next,
-    });
+    const startedAt = Date.now();
+    updateReviewers(
+      {
+        content: toSuggestedReviewerWriteContent(next),
+        optimisticReviewers: next,
+      },
+      {
+        onSuccess: () =>
+          trackResult("remove_suggested_reviewer", "succeeded", startedAt),
+        onError: () =>
+          trackResult(
+            "remove_suggested_reviewer",
+            "failed",
+            startedAt,
+            "request_failed",
+          ),
+      },
+    );
   };
 
   return (

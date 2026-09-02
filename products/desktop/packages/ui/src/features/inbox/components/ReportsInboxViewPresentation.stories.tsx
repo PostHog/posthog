@@ -94,6 +94,8 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
     triageReportCount: reviewAndMerge.length + needsPr.length,
     isLoading: false,
     isFetchingNextPage: false,
+    hasNextPage: false,
+    isError: false,
     isEmpty: false,
     hasActiveFilters: false,
     triageEnabled: true,
@@ -103,6 +105,8 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
     onConfigureAgents: () => {},
     onEnterTriage: () => {},
     onClearFilters: () => {},
+    onLoadMore: () => {},
+    onRetry: () => {},
   },
 };
 
@@ -134,5 +138,13 @@ export const Loading: Story = {
     triageReportCount: 0,
     isLoading: true,
     isEmpty: false,
+  },
+};
+
+export const LoadError: Story = {
+  args: {
+    reports: [],
+    triageReportCount: 0,
+    isError: true,
   },
 };

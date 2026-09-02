@@ -43,6 +43,10 @@ export function InboxReportRowView({
   const pr = prUrl ? parsePrUrl(prUrl) : null;
   const isTerminal =
     report.status === "resolved" || report.status === "suppressed";
+  const isShipped =
+    report.status === "resolved" &&
+    (report.implementation_pr_merged === true ||
+      report.dismissal_reason === "pr_merged");
   const borderClass =
     pr || report.status === "resolved"
       ? "border-(--gray-6) border-solid hover:border-(--accent-9) focus-visible:border-(--accent-9)"
@@ -78,20 +82,39 @@ export function InboxReportRowView({
             {headline}
           </span>
         )}
-        <span className="flex items-center gap-1.5 text-[12.5px] text-gray-10">
-          {pr && <span className="shrink-0 font-medium">{pr.repoSlug}</span>}
+        <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[12.5px] text-gray-10">
+          {pr && (
+            <span title={pr.repoSlug} className="max-w-48 truncate font-medium">
+              {pr.repoSlug}
+            </span>
+          )}
           <InboxMetaSourceStack sourceProducts={report.source_products} />
-          {report.status === "suppressed" && report.dismissal_reason && (
+          {report.status === "suppressed" && (
             <span
               title={report.dismissal_note ?? undefined}
               className="flex min-w-0 items-center gap-1.5"
             >
               <span className="size-1.5 shrink-0 rounded-full bg-(--red-9)" />
               <span className="truncate">
-                {dismissalReasonLabel(report.dismissal_reason)}
+                {report.dismissal_reason
+                  ? dismissalReasonLabel(report.dismissal_reason)
+                  : "Archived"}
               </span>
             </span>
           )}
+          {report.status === "resolved" &&
+            !isShipped &&
+            report.dismissal_reason && (
+              <span
+                title={report.dismissal_note ?? undefined}
+                className="flex min-w-0 items-center gap-1.5"
+              >
+                <span className="size-1.5 shrink-0 rounded-full bg-(--green-9)" />
+                <span className="truncate">
+                  {dismissalReasonLabel(report.dismissal_reason)}
+                </span>
+              </span>
+            )}
           <RelativeTimestamp
             timestamp={report.created_at}
             className="shrink-0 text-[12.5px]"
@@ -100,7 +123,7 @@ export function InboxReportRowView({
       </div>
       <span className="flex shrink-0 items-center gap-2">
         {report.status === "resolved" &&
-          (report.implementation_pr_merged ? (
+          (isShipped ? (
             <span
               title="The fix shipped and this report closed"
               className="flex items-center gap-1 rounded border border-(--green-6) bg-(--green-2) px-1.5 py-0.5 text-[12px] text-green-11"
@@ -111,9 +134,10 @@ export function InboxReportRowView({
           ) : (
             <span
               title={
-                report.dismissal_reason
+                report.dismissal_note ||
+                (report.dismissal_reason
                   ? `Resolved: ${dismissalReasonLabel(report.dismissal_reason)}`
-                  : "This report was resolved"
+                  : "This report was resolved")
               }
               className="flex items-center gap-1 rounded border border-(--gray-6) bg-(--gray-2) px-1.5 py-0.5 text-[12px] text-gray-11"
             >

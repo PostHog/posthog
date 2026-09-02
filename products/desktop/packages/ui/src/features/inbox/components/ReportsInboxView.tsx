@@ -1,5 +1,9 @@
-import { buildStatusFilterParam } from "@posthog/core/inbox/reportFiltering";
-import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
+import {
+  buildStatusFilterParam,
+  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+  sortInboxReports,
+} from "@posthog/core/inbox/reportFiltering";
 import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
 import type { SignalReportStatus } from "@posthog/shared/types";
 import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
@@ -10,7 +14,6 @@ import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/compone
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
-import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
   DEFAULT_INBOX_REPORT_STATE_FILTER,
@@ -45,32 +48,47 @@ export function ReportsInboxView(): React.JSX.Element {
   const showResolved = showAllStates || reportStateFilter.includes("resolved");
   const showDismissed =
     showAllStates || reportStateFilter.includes("dismissed");
-  const statusFilter = useMemo(() => {
+  const terminalStatusFilter = useMemo(() => {
     const statuses: SignalReportStatus[] = [];
-    if (showReviewAndMerge || showNeedsDecision) statuses.push("ready");
-    if (showNeedsDecision) statuses.push("pending_input");
     if (showResolved) statuses.push("resolved");
     if (showDismissed) statuses.push("suppressed");
     return buildStatusFilterParam(statuses);
-  }, [showDismissed, showNeedsDecision, showResolved, showReviewAndMerge]);
-  const {
-    scopedReports,
-    allReports,
-    isLoading,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-    searchQuery,
-    scope,
-    isSuccess,
-    sourceProductFilter,
-    priorityFilter,
-  } = useInboxAllReports({
-    statusFilter,
+  }, [showDismissed, showResolved]);
+  const reviewAndMergeQuery = useInboxAllReports({
+    enabled: showReviewAndMerge,
+    statusFilter: "ready",
+    hasImplementationPr: true,
     applySourceFilter: false,
     applySearchFilter: false,
     groupByStatus: false,
+    withPullRequestCount: false,
   });
+  const needsDecisionQuery = useInboxAllReports({
+    enabled: showNeedsDecision,
+    statusFilter: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+    actionabilityFilter: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+    hasImplementationPr: false,
+    applySourceFilter: false,
+    applySearchFilter: false,
+    groupByStatus: false,
+    withPullRequestCount: false,
+  });
+  const terminalQuery = useInboxAllReports({
+    enabled: showResolved || showDismissed,
+    statusFilter: terminalStatusFilter,
+    applySourceFilter: false,
+    applySearchFilter: false,
+    groupByStatus: false,
+    withPullRequestCount: false,
+  });
+  const {
+    searchQuery,
+    scope,
+    sourceProductFilter,
+    priorityFilter,
+    sortField,
+    sortDirection,
+  } = reviewAndMergeQuery;
   const triageFocusEnabled = useTriageFocusEnabled();
   const triageOrigin = useInboxTriageOrigin();
   const navigate = useNavigate();
@@ -89,11 +107,6 @@ export function ReportsInboxView(): React.JSX.Element {
     });
   }, [navigate, triageOrigin]);
 
-  const sections = useMemo(
-    () => partitionInboxReports(scopedReports),
-    [scopedReports],
-  );
-  const serverCounts = useInboxSectionCounts();
   const hasActiveFilters = useInboxSignalsFilterStore((state) =>
     hasActiveInboxFilters(state, {
       includePrFilter: false,
@@ -106,42 +119,67 @@ export function ReportsInboxView(): React.JSX.Element {
     (state) => state.resetFilters,
   );
   const reviewAndMergeCount = showReviewAndMerge
-    ? serverCounts.reviewAndMerge
+    ? reviewAndMergeQuery.totalCount
     : 0;
-  const needsPrCount = showNeedsDecision ? serverCounts.needsPr : 0;
-  const triageReports = showNeedsDecision ? sections.needsPr : [];
+  const needsPrCount = showNeedsDecision ? needsDecisionQuery.totalCount : 0;
+  const triageReports = showNeedsDecision
+    ? needsDecisionQuery.scopedReports
+    : [];
   const visibleReports = useMemo(() => {
-    const visibleIds = new Set([
-      ...(showReviewAndMerge
-        ? sections.reviewAndMerge.map((report) => report.id)
-        : []),
-      ...(showNeedsDecision ? sections.needsPr.map((report) => report.id) : []),
-    ]);
-    return scopedReports.filter(
-      (report) =>
-        visibleIds.has(report.id) ||
-        (showResolved && report.status === "resolved") ||
-        (showDismissed && report.status === "suppressed"),
+    const reports = [
+      ...(showReviewAndMerge ? reviewAndMergeQuery.scopedReports : []),
+      ...(showNeedsDecision ? needsDecisionQuery.scopedReports : []),
+      ...(showResolved || showDismissed ? terminalQuery.scopedReports : []),
+    ];
+    return sortInboxReports(
+      Array.from(
+        new Map(reports.map((report) => [report.id, report])).values(),
+      ),
+      sortField === "priority" ||
+        sortField === "created_at" ||
+        sortField === "total_weight"
+        ? sortField
+        : "created_at",
+      sortDirection,
     );
   }, [
-    scopedReports,
-    sections.needsPr,
-    sections.reviewAndMerge,
+    needsDecisionQuery.scopedReports,
+    reviewAndMergeQuery.scopedReports,
     showDismissed,
     showNeedsDecision,
     showResolved,
     showReviewAndMerge,
+    sortDirection,
+    sortField,
+    terminalQuery.scopedReports,
   ]);
 
   const terminalCount =
-    (showResolved ? serverCounts.resolved : 0) +
-    (showDismissed ? serverCounts.dismissed : 0);
+    showResolved || showDismissed ? terminalQuery.totalCount : 0;
   const reportCount = reviewAndMergeCount + needsPrCount + terminalCount;
+  const selectedQueries = [
+    ...(showReviewAndMerge ? [reviewAndMergeQuery] : []),
+    ...(showNeedsDecision ? [needsDecisionQuery] : []),
+    ...(showResolved || showDismissed ? [terminalQuery] : []),
+  ];
+  const allReports = visibleReports;
+  const isLoading = selectedQueries.some((query) => query.isPending);
+  const isSuccess = selectedQueries.every((query) => query.isSuccess);
+  const isError =
+    visibleReports.length === 0 &&
+    selectedQueries.some((query) => query.isError);
+  const isFetchingNextPage = selectedQueries.some(
+    (query) => query.isFetchingNextPage,
+  );
+  const hasNextPage = selectedQueries.some(
+    (query) =>
+      query.hasNextPage && query.allReports.length >= AUTOPAGE_REPORT_LIMIT,
+  );
 
   useTrackReportsInboxViewed({
     reports: visibleReports,
     totalCount: reportCount,
-    isReady: isSuccess && !serverCounts.isLoading,
+    isReady: isSuccess,
     sourceProductFilter,
     priorityFilter,
     searchQuery,
@@ -152,21 +190,75 @@ export function ReportsInboxView(): React.JSX.Element {
 
   useEffect(() => {
     if (
-      !hasNextPage ||
-      isFetchingNextPage ||
-      isLoading ||
-      allReports.length >= AUTOPAGE_REPORT_LIMIT
+      !showReviewAndMerge ||
+      !reviewAndMergeQuery.hasNextPage ||
+      reviewAndMergeQuery.isFetchingNextPage ||
+      reviewAndMergeQuery.isLoading ||
+      reviewAndMergeQuery.allReports.length >= AUTOPAGE_REPORT_LIMIT
     ) {
       return;
     }
-    fetchNextPage();
+    void reviewAndMergeQuery.fetchNextPage();
   }, [
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    allReports.length,
-    fetchNextPage,
+    reviewAndMergeQuery.allReports.length,
+    reviewAndMergeQuery.fetchNextPage,
+    reviewAndMergeQuery.hasNextPage,
+    reviewAndMergeQuery.isFetchingNextPage,
+    reviewAndMergeQuery.isLoading,
+    showReviewAndMerge,
   ]);
+
+  useEffect(() => {
+    if (
+      !showNeedsDecision ||
+      !needsDecisionQuery.hasNextPage ||
+      needsDecisionQuery.isFetchingNextPage ||
+      needsDecisionQuery.isLoading ||
+      needsDecisionQuery.allReports.length >= AUTOPAGE_REPORT_LIMIT
+    ) {
+      return;
+    }
+    void needsDecisionQuery.fetchNextPage();
+  }, [
+    needsDecisionQuery.allReports.length,
+    needsDecisionQuery.fetchNextPage,
+    needsDecisionQuery.hasNextPage,
+    needsDecisionQuery.isFetchingNextPage,
+    needsDecisionQuery.isLoading,
+    showNeedsDecision,
+  ]);
+
+  useEffect(() => {
+    if (
+      (!showResolved && !showDismissed) ||
+      !terminalQuery.hasNextPage ||
+      terminalQuery.isFetchingNextPage ||
+      terminalQuery.isLoading ||
+      terminalQuery.allReports.length >= AUTOPAGE_REPORT_LIMIT
+    ) {
+      return;
+    }
+    void terminalQuery.fetchNextPage();
+  }, [
+    showDismissed,
+    showResolved,
+    terminalQuery.allReports.length,
+    terminalQuery.fetchNextPage,
+    terminalQuery.hasNextPage,
+    terminalQuery.isFetchingNextPage,
+    terminalQuery.isLoading,
+  ]);
+
+  const loadMore = (): void => {
+    for (const query of selectedQueries) {
+      if (query.hasNextPage && !query.isFetchingNextPage) {
+        void query.fetchNextPage();
+      }
+    }
+  };
+  const retry = (): void => {
+    for (const query of selectedQueries) void query.refetch();
+  };
 
   useEffect(() => {
     if (!triageFocusEnabled || focusMode) return;
@@ -197,7 +289,7 @@ export function ReportsInboxView(): React.JSX.Element {
     );
   }
 
-  const isEmpty = !serverCounts.isLoading && reportCount === 0;
+  const isEmpty = isSuccess && reportCount === 0;
 
   return (
     <ReportsInboxViewPresentation
@@ -205,6 +297,8 @@ export function ReportsInboxView(): React.JSX.Element {
       triageReportCount={needsPrCount}
       isLoading={isLoading}
       isFetchingNextPage={isFetchingNextPage}
+      hasNextPage={hasNextPage}
+      isError={isError}
       isEmpty={isEmpty}
       hasActiveFilters={hasActiveFilters}
       triageEnabled={triageFocusEnabled}
@@ -216,6 +310,8 @@ export function ReportsInboxView(): React.JSX.Element {
       onConfigureAgents={navigateToAgents}
       onEnterTriage={() => setFocusMode(true)}
       onClearFilters={resetFilters}
+      onLoadMore={loadMore}
+      onRetry={retry}
     />
   );
 }

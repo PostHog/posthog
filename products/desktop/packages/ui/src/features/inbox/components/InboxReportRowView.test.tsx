@@ -54,4 +54,16 @@ describe("InboxReportRowView resolved badge", () => {
     expect(screen.getByText("Resolved")).toBeTruthy();
     expect(screen.queryByText("Shipped")).toBeNull();
   });
+
+  it("labels a reasonless suppressed report Archived", () => {
+    render(
+      <InboxReportRowView
+        report={fakeReport({ status: "suppressed" })}
+        onOpen={vi.fn()}
+        onOpenPr={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Archived")).toBeTruthy();
+  });
 });

@@ -46,6 +46,9 @@ export function useInboxAllReports(options?: {
   ignoreScope?: boolean;
   ignoreFilters?: boolean;
   pullRequestsOnly?: boolean;
+  hasImplementationPr?: boolean;
+  actionabilityFilter?: string;
+  withPullRequestCount?: boolean;
   withReportsCount?: boolean;
   refetchIntervalMs?: number;
   /**
@@ -76,6 +79,7 @@ export function useInboxAllReports(options?: {
   // sitting past the broad list's first page no longer renders an empty tab
   // under a positive badge.
   const pullRequestsOnly = options?.pullRequestsOnly ?? false;
+  const withPullRequestCount = options?.withPullRequestCount ?? true;
   const withReportsCount = options?.withReportsCount ?? false;
   const scope = useInboxReviewerScopeStore((s) => s.scope);
   const searchQuery = useInboxSignalsFilterStore((s) =>
@@ -116,7 +120,9 @@ export function useInboxAllReports(options?: {
       status: pullRequestsOnly
         ? INBOX_PULL_REQUEST_STATUS_FILTER
         : (options?.statusFilter ?? INBOX_PIPELINE_STATUS_FILTER),
-      has_implementation_pr: pullRequestsOnly ? true : undefined,
+      has_implementation_pr:
+        options?.hasImplementationPr ?? (pullRequestsOnly ? true : undefined),
+      actionability: options?.actionabilityFilter,
       ordering: groupByStatus
         ? buildSignalReportListOrdering(sortField, sortDirection)
         : buildArchiveListOrdering(sortField, sortDirection),
@@ -163,7 +169,8 @@ export function useInboxAllReports(options?: {
       count_only: true,
     },
     {
-      enabled: enabled && (!isForYou || reviewerUuid != null),
+      enabled:
+        enabled && withPullRequestCount && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
       refetchIntervalInBackground: false,
     },
@@ -219,7 +226,7 @@ export function useInboxAllReports(options?: {
   // in flight and `counts` still reads 0. Anything that records the counts once
   // and never revises them has to wait for this rather than for the list.
   const countsReady =
-    pullRequestCountQuery.isSuccess &&
+    (!withPullRequestCount || pullRequestCountQuery.isSuccess) &&
     (!withReportsCount || reportsCountQuery.isSuccess);
 
   return {
@@ -235,5 +242,7 @@ export function useInboxAllReports(options?: {
     searchQuery,
     sourceProductFilter,
     priorityFilter,
+    sortField,
+    sortDirection,
   };
 }

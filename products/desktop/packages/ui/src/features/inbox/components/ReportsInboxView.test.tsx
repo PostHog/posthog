@@ -21,12 +21,18 @@ const mocks = vi.hoisted(() => ({
     inboxTriageOrigin?: { reportId: string };
   },
   navigate: vi.fn(),
-  allReportsOptions: null as {
+  fetchNextPage: vi.fn(),
+  pagedStatus: null as string | null,
+  allReportsOptions: [] as {
     applySourceFilter?: boolean;
     applySearchFilter?: boolean;
     groupByStatus?: boolean;
     statusFilter?: string;
-  } | null,
+    enabled?: boolean;
+    hasImplementationPr?: boolean;
+    actionabilityFilter?: string;
+    withPullRequestCount?: boolean;
+  }[],
 }));
 
 vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
@@ -45,22 +51,51 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
     applySearchFilter?: boolean;
     groupByStatus?: boolean;
     statusFilter?: string;
+    enabled?: boolean;
+    hasImplementationPr?: boolean;
+    actionabilityFilter?: string;
+    withPullRequestCount?: boolean;
   }) => {
-    mocks.allReportsOptions = options;
+    mocks.allReportsOptions.push(options);
+    const statuses = new Set(options.statusFilter?.split(",") ?? []);
+    const actionability = new Set(
+      options.actionabilityFilter?.split(",") ?? [],
+    );
+    const reports =
+      options.enabled === false
+        ? []
+        : mocks.activeReports.filter(
+            (report) =>
+              (statuses.size === 0 || statuses.has(report.status)) &&
+              (options.hasImplementationPr === undefined ||
+                options.hasImplementationPr ===
+                  Boolean(report.implementation_pr_url)) &&
+              (actionability.size === 0 ||
+                (report.actionability != null &&
+                  actionability.has(report.actionability))),
+          );
     return {
-      scopedReports: mocks.activeReports,
-      allReports: mocks.activeReports,
+      scopedReports: reports,
+      allReports:
+        options.statusFilter === mocks.pagedStatus
+          ? Array.from({ length: 400 }, () => reports[0]).filter(Boolean)
+          : reports,
       isLoading: false,
-      hasNextPage: false,
+      isPending: false,
+      isError: false,
+      hasNextPage: options.statusFilter === mocks.pagedStatus,
       isFetchingNextPage: false,
-      fetchNextPage: vi.fn(),
+      fetchNextPage: mocks.fetchNextPage,
+      refetch: vi.fn(),
       searchQuery: options.applySearchFilter === false ? "" : mocks.searchQuery,
-      totalCount: 0,
+      totalCount: reports.length,
       scope: "entire_project",
       isSuccess: true,
       sourceProductFilter: [],
       priorityFilter: [],
       prFilter: "all",
+      sortField: "created_at",
+      sortDirection: "desc",
     };
   },
 }));
@@ -178,7 +213,8 @@ describe("ReportsInboxView", () => {
     mocks.triageFocusEnabled = false;
     mocks.triageProps = null;
     mocks.locationState = {};
-    mocks.allReportsOptions = null;
+    mocks.allReportsOptions = [];
+    mocks.pagedStatus = null;
     useInboxSignalsFilterStore.setState({
       searchQuery: "checkout",
       sourceProductFilter: [],
@@ -206,9 +242,9 @@ describe("ReportsInboxView", () => {
     expect(screen.getByText("Slow dashboards")).toBeInTheDocument();
     expect(screen.queryByText("Review and merge")).toBeNull();
     expect(screen.queryByText("Resolved and dismissed")).toBeNull();
-    expect(mocks.allReportsOptions?.statusFilter).toBe(
-      "ready,pending_input,resolved,suppressed",
-    );
+    expect(
+      mocks.allReportsOptions.map((options) => options.statusFilter),
+    ).toEqual(["ready", "ready,pending_input", "resolved,suppressed"]);
   });
 
   it("shows the empty state when no selected reports exist", () => {
@@ -249,6 +285,21 @@ describe("ReportsInboxView", () => {
     expect(screen.queryByText(/Show more/)).toBeNull();
   });
 
+  it("lets the user load reports after the automatic paging limit", async () => {
+    mocks.activeReports = [
+      {
+        ...activeReport("with-pr", "Report with PR"),
+        implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
+      },
+    ];
+    mocks.pagedStatus = "ready";
+
+    render(<ReportsInboxView />);
+    await userEvent.click(screen.getByText("Load more"));
+
+    expect(mocks.fetchNextPage).toHaveBeenCalledOnce();
+  });
+
   it("shows actionable reports in one list and omits pipeline reports", () => {
     mocks.activeReports = [
       {
@@ -273,10 +324,27 @@ describe("ReportsInboxView", () => {
     expect(screen.queryByText(/need a decision/)).toBeNull();
     expect(screen.queryByText("Review")).toBeNull();
     expect(screen.queryByLabelText(/Archive this report/)).toBeNull();
-    expect(mocks.allReportsOptions?.applySourceFilter).toBe(false);
-    expect(mocks.allReportsOptions?.applySearchFilter).toBe(false);
-    expect(mocks.allReportsOptions?.groupByStatus).toBe(false);
-    expect(mocks.allReportsOptions?.statusFilter).toBe("ready,pending_input");
+    const reviewQuery = mocks.allReportsOptions[0];
+    const decisionQuery = mocks.allReportsOptions[1];
+    expect(reviewQuery).toMatchObject({
+      statusFilter: "ready",
+      hasImplementationPr: true,
+      withPullRequestCount: false,
+    });
+    expect(decisionQuery).toMatchObject({
+      statusFilter: "ready,pending_input",
+      hasImplementationPr: false,
+      actionabilityFilter: "immediately_actionable,requires_human_input",
+      withPullRequestCount: false,
+    });
+    expect(
+      mocks.allReportsOptions.every(
+        (options) =>
+          options.applySourceFilter === false &&
+          options.applySearchFilter === false &&
+          options.groupByStatus === false,
+      ),
+    ).toBe(true);
   });
 
   it("returns to the same report in triage mode", () => {

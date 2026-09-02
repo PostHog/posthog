@@ -1,7 +1,7 @@
 import { CheckIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { toSuggestedReviewerWriteContent } from "@posthog/core/inbox/artefacts";
 import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
-import { Spinner } from "@posthog/quill";
+import { Button, Spinner } from "@posthog/quill";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type {
   AvailableSuggestedReviewer,
@@ -20,7 +20,10 @@ import {
   useInboxReportArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import {
+  useReportActionResultTracker,
+  useReportActionTracker,
+} from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useDeferredValue, useMemo, useState } from "react";
 
 function reviewerMatchesAvailable(
@@ -46,11 +49,14 @@ export function ReviewerSearchList({
 }): React.JSX.Element {
   const client = useOptionalAuthenticatedClient();
   const fireAction = useReportActionTracker(report, surface);
+  const trackResult = useReportActionResultTracker(report, surface);
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
-  const { data, isLoading: artefactsLoading } = useInboxReportArtefacts(
-    report.id,
-    { enabled },
-  );
+  const {
+    data,
+    isLoading: artefactsLoading,
+    isError: artefactsError,
+    refetch: refetchArtefacts,
+  } = useInboxReportArtefacts(report.id, { enabled });
   const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
   const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
   const [query, setQuery] = useState("");
@@ -58,11 +64,15 @@ export function ReviewerSearchList({
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
-  const { data: availableReviewers, isFetching } =
-    useInboxAvailableSuggestedReviewers({
-      enabled: !!client && enabled,
-      query: deferredQuery,
-    });
+  const {
+    data: availableReviewers,
+    isFetching,
+    isError: availableReviewersError,
+    refetch: refetchAvailableReviewers,
+  } = useInboxAvailableSuggestedReviewers({
+    enabled: !!client && enabled,
+    query: deferredQuery,
+  });
   const options = useMemo(() => {
     const built = buildSuggestedReviewerFilterOptions(
       availableReviewers?.results ?? [],
@@ -79,7 +89,6 @@ export function ReviewerSearchList({
   }, [availableReviewers?.results, currentUser, deferredQuery]);
 
   const toggleReviewer = (option: AvailableSuggestedReviewer): void => {
-    if (!artefact) return;
     const existing = reviewers.find((reviewer) =>
       reviewerMatchesAvailable(reviewer, option),
     );
@@ -89,11 +98,24 @@ export function ReviewerSearchList({
         suggested_reviewer_login: existing.github_login || undefined,
         suggested_reviewer_uuid: existing.user?.uuid,
       });
-      updateReviewers({
-        artefactId: artefact.id,
-        content: toSuggestedReviewerWriteContent(next),
-        optimisticReviewers: next,
-      });
+      const startedAt = Date.now();
+      updateReviewers(
+        {
+          content: toSuggestedReviewerWriteContent(next),
+          optimisticReviewers: next,
+        },
+        {
+          onSuccess: () =>
+            trackResult("remove_suggested_reviewer", "succeeded", startedAt),
+          onError: () =>
+            trackResult(
+              "remove_suggested_reviewer",
+              "failed",
+              startedAt,
+              "request_failed",
+            ),
+        },
+      );
       return;
     }
 
@@ -113,15 +135,32 @@ export function ReviewerSearchList({
       suggested_reviewer_login: option.github_login || undefined,
       suggested_reviewer_uuid: option.uuid,
     });
-    updateReviewers({
-      artefactId: artefact.id,
-      content: [
-        ...toSuggestedReviewerWriteContent(reviewers),
-        { user_uuid: option.uuid },
-      ],
-      optimisticReviewers: [...reviewers, optimisticEntry],
-    });
+    const startedAt = Date.now();
+    updateReviewers(
+      {
+        content: [
+          ...toSuggestedReviewerWriteContent(reviewers),
+          { user_uuid: option.uuid },
+        ],
+        optimisticReviewers: [...reviewers, optimisticEntry],
+      },
+      {
+        onSuccess: () =>
+          trackResult("add_suggested_reviewer", "succeeded", startedAt),
+        onError: () =>
+          trackResult(
+            "add_suggested_reviewer",
+            "failed",
+            startedAt,
+            "request_failed",
+          ),
+      },
+    );
   };
+
+  const failedWithoutData =
+    (artefactsError && !data) ||
+    (availableReviewersError && !availableReviewers);
 
   return (
     // Keep typing in the search field out of the parent menu's typeahead handler.
@@ -136,6 +175,7 @@ export function ReviewerSearchList({
         <MagnifyingGlassIcon size={12} className="shrink-0 text-gray-10" />
         <input
           type="search"
+          aria-label="Search users"
           // biome-ignore lint/a11y/noAutofocus: opening the submenu is an explicit search action
           autoFocus
           placeholder="Search users…"
@@ -150,10 +190,23 @@ export function ReviewerSearchList({
           <div className="flex items-center justify-center py-3">
             <Spinner />
           </div>
-        ) : !artefact ? (
-          <span className="block px-1 py-2 text-[13px] text-gray-10">
-            Reviewer suggestions aren't available.
-          </span>
+        ) : failedWithoutData ? (
+          <div className="flex flex-col items-start gap-2 px-1 py-2">
+            <span className="text-[13px] text-gray-10">
+              Couldn't load reviewers. Try again.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                if (artefactsError) void refetchArtefacts();
+                if (availableReviewersError) void refetchAvailableReviewers();
+              }}
+            >
+              Retry
+            </Button>
+          </div>
         ) : options.length === 0 ? (
           <span className="block px-1 py-2 text-[13px] text-gray-10">
             No users found.

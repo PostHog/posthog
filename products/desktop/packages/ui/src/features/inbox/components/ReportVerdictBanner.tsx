@@ -213,7 +213,7 @@ export function ReportVerdictBanner({
     dialog: resolveDialog,
     isPending: resolvePending,
     openDialog: openResolveDialog,
-  } = useInboxReportResolveAction(report, surface);
+  } = useInboxReportResolveAction(report, surface, triageId);
   const canDismissHere =
     report.status === "ready" ||
     report.status === "failed" ||

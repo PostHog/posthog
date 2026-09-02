@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   copyLink: vi.fn(),
   createPr: vi.fn(),
-  createPrSurface: undefined as string | undefined,
+  createPrOptions: undefined as
+    | { surface?: string; reportId: string }
+    | undefined,
   dismissWithReason: vi.fn(),
   openDismissDialog: vi.fn(),
   openResolveDialog: vi.fn(),
@@ -14,15 +16,22 @@ const mocks = vi.hoisted(() => ({
   restore: vi.fn(),
   trackerSurface: undefined as string | undefined,
   trackAction: vi.fn(),
+  actionHooksMounted: 0,
+  reportTasks: undefined as
+    | { purpose: string; task: { latest_run?: { status?: string } } }[]
+    | undefined,
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportResolveAction", () => ({
-  useInboxReportResolveAction: () => ({
-    dialog: null,
-    isPending: false,
-    openDialog: mocks.openResolveDialog,
-    resolveWithReason: mocks.resolveWithReason,
-  }),
+  useInboxReportResolveAction: () => {
+    mocks.actionHooksMounted += 1;
+    return {
+      dialog: null,
+      isPending: false,
+      openDialog: mocks.openResolveDialog,
+      resolveWithReason: mocks.resolveWithReason,
+    };
+  },
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
@@ -42,13 +51,24 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxRestoreReport", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useCreatePrReport", () => ({
-  useCreatePrReport: (options: { surface?: string }) => {
-    mocks.createPrSurface = options.surface;
+  useCreatePrReport: (options: { surface?: string; reportId: string }) => {
+    mocks.createPrOptions = options;
     return {
       createPrReport: mocks.createPr,
       isCreatingPr: false,
     };
   },
+}));
+
+vi.mock("@posthog/ui/features/inbox/hooks/useReportTasks", () => ({
+  useReportTasks: () => ({
+    data: mocks.reportTasks,
+    isLoading: false,
+    isError: false,
+  }),
+  findContinuableImplementationTask: (
+    tasks: { purpose: string; task: unknown }[] | undefined,
+  ) => tasks?.find((entry) => entry.purpose === "implementation")?.task ?? null,
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
@@ -107,6 +127,9 @@ describe("InboxReportContextMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.trackerSurface = undefined;
+    mocks.createPrOptions = undefined;
+    mocks.actionHooksMounted = 0;
+    mocks.reportTasks = undefined;
   });
   afterEach(cleanup);
 
@@ -150,6 +173,7 @@ describe("InboxReportContextMenu", () => {
   ])("keeps the native context menu for terminal report %#", (report) => {
     openMenu(report);
     expect(menuItemText()).toEqual([]);
+    expect(mocks.actionHooksMounted).toBe(0);
   });
 
   it("applies resolve and dismiss reasons directly", async () => {
@@ -178,6 +202,20 @@ describe("InboxReportContextMenu", () => {
       has_feedback: false,
     });
     expect(mocks.trackerSurface).toBe("context_menu");
+    expect(mocks.createPrOptions?.surface).toBe("context_menu");
+  });
+
+  it("hides Create PR while linked implementation work is active", () => {
+    mocks.reportTasks = [
+      {
+        purpose: "implementation",
+        task: { latest_run: { status: "in_progress" } },
+      },
+    ];
+
+    openMenu(makeReport());
+
+    expect(screen.queryByText("Create PR")).toBeNull();
   });
 
   it("opens a preselected dialog for other reasons and open pull requests", async () => {
@@ -197,6 +235,11 @@ describe("InboxReportContextMenu", () => {
     fireEvent.click(await screen.findByText("Something else…"));
     expect(mocks.openDismissDialog).toHaveBeenCalledWith("other");
     expect(mocks.dismissWithReason).not.toHaveBeenCalled();
+
+    fireEvent.contextMenu(screen.getByText("Report one"));
+    fireEvent.click(screen.getByText("Dismiss"));
+    fireEvent.click(await screen.findByText("Already fixed"));
+    expect(mocks.openDismissDialog).toHaveBeenCalledWith("already_fixed");
   });
 
   it("wires restore and copy link actions", async () => {
@@ -214,13 +257,5 @@ describe("InboxReportContextMenu", () => {
     await user.click(screen.getByText("Copy link"));
     expect(mocks.copyLink).toHaveBeenCalledWith(report);
     expect(mocks.trackAction).toHaveBeenCalledWith("copy_link");
-  });
-
-  it("creates PR reports on the context_menu surface", () => {
-    openMenu(makeReport());
-
-    // Result telemetry comes from useCreatePrReport, so it must carry the same
-    // surface as the click event or an action splits across two surfaces.
-    expect(mocks.createPrSurface).toBe("context_menu");
   });
 });

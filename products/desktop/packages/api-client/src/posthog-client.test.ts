@@ -1954,6 +1954,54 @@ describe("PostHogAPIClient", () => {
         client.updateSignalReportState("abc", { state: "suppressed" }),
       ).rejects.toThrow("[409]");
     });
+
+    it.each([
+      {
+        name: "accepts matching dismissal feedback",
+        current: {
+          dismissal_reason: "wontfix_intentional",
+          dismissal_note: "Expected behavior",
+        },
+        rejects: false,
+      },
+      {
+        name: "rejects feedback another dismissal did not save",
+        current: {
+          dismissal_reason: "analysis_wrong",
+          dismissal_note: "Different feedback",
+        },
+        rejects: true,
+      },
+    ])("$name after a suppression conflict", async ({ current, rejects }) => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ id: "abc", status: "suppressed", ...current }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      const request = makeClient(fetch).updateSignalReportState("abc", {
+        state: "suppressed",
+        dismissal_reason: "wontfix_intentional",
+        dismissal_note: " Expected behavior ",
+      });
+
+      if (rejects) {
+        await expect(request).rejects.toThrow("[409]");
+      } else {
+        await expect(request).resolves.toMatchObject({ status: "suppressed" });
+      }
+    });
   });
 
   describe("clearTaskRunConversation", () => {
@@ -2521,6 +2569,30 @@ describe("PostHogAPIClient", () => {
       await expect(
         client.updateSignalReportArtefact("report-1", "art-1", []),
       ).rejects.toThrow("Unexpected response");
+    });
+
+    it("sets the first reviewer through the report-level endpoint", async () => {
+      const content = [{ user_uuid: "uuid-1" }];
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "art-1",
+          type: "suggested_reviewers",
+          created_at: "2024-01-01T00:00:00Z",
+          content: [OCTOCAT_REVIEWER],
+        }),
+      });
+      const client = makeClient(fetch);
+
+      await client.setSignalReportReviewers("report-1", content);
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "put",
+          path: "/api/projects/123/signals/reports/report-1/reviewers/",
+          overrides: { body: JSON.stringify({ content }) },
+        }),
+      );
     });
   });
 

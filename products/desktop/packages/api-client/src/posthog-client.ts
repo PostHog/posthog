@@ -5154,7 +5154,15 @@ export class PostHogAPIClient {
         const currentReport = await this.getSignalReport(reportId).catch(
           () => null,
         );
-        if (currentReport?.status === "suppressed") {
+        const requestedReason = input.dismissal_reason ?? null;
+        const requestedNote = input.dismissal_note?.trim() ?? "";
+        const feedbackMatches =
+          currentReport?.dismissal_reason === requestedReason &&
+          (currentReport?.dismissal_note?.trim() ?? "") === requestedNote;
+        if (
+          currentReport?.status === "suppressed" &&
+          ((!requestedReason && !requestedNote) || feedbackMatches)
+        ) {
           return currentReport;
         }
       }
@@ -5221,6 +5229,34 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/${artefactId}/`;
 
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ content }),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to update suggested reviewers");
+    }
+
+    const parsed = normalizeSignalReportArtefact(await response.json());
+    if (!parsed || parsed.type !== "suggested_reviewers") {
+      throw new Error("Unexpected response updating suggested reviewers");
+    }
+    return parsed as SuggestedReviewersArtefact;
+  }
+
+  async setSignalReportReviewers(
+    reportId: string,
+    content: SuggestedReviewerWriteEntry[],
+  ): Promise<SuggestedReviewersArtefact> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
     const response = await this.api.fetcher.fetch({
       method: "put",
       url,
