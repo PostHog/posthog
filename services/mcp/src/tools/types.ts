@@ -105,6 +105,14 @@ export type Context = {
      */
     getDistinctId: () => Promise<string>
     /**
+     * Best-effort distinct ID for analytics attribution and UI metadata only. Falls
+     * back to the token hash when resolution fails, so a persistent `GET /api/users/@me/`
+     * failure degrades attribution instead of failing the tool call. Never use it where
+     * the ID must be the real, stable one across requests (e.g. signing a confirmed-action
+     * payload) — call `getDistinctId` there and let a failure surface.
+     */
+    getDistinctIdBestEffort: () => Promise<string>
+    /**
      * Capture a PostHog analytics event with the same context (mcp_client_name,
      * session id, $groups, etc.) that the MCP class attaches to its own events.
      * Best-effort — never throws and silently swallows failures so analytics

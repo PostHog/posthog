@@ -39,6 +39,7 @@ function createContext(request: ReturnType<typeof vi.fn>): Context {
         sessionManager: {} as any,
         cache: {} as any,
         getDistinctId: async () => 'distinct-id',
+        getDistinctIdBestEffort: async () => 'distinct-id',
         trackEvent: async () => {},
     }
 }

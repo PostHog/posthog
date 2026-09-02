@@ -69,6 +69,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         stateManager,
         sessionManager,
         getDistinctId: () => stateManager.getDistinctId(),
+        getDistinctIdBestEffort: () => stateManager.getDistinctId().catch(() => fallbackDistinctId),
         trackEvent: (event: AnalyticsEvent, properties: Record<string, unknown> = {}) => {
             const capture = (async (): Promise<void> => {
                 try {

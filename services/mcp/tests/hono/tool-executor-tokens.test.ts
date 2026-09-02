@@ -47,6 +47,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             stateManager: {},
             sessionManager: {},
             getDistinctId: vi.fn(),
+            getDistinctIdBestEffort: vi.fn(),
             trackEvent: vi.fn(),
         } as any,
         useSingleExec: false,

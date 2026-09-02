@@ -151,6 +151,7 @@ function createMockContext(state: MockState): Context {
         sessionManager: {} as any,
         cache: {} as any,
         getDistinctId: async () => 'test',
+        getDistinctIdBestEffort: async () => 'test',
         trackEvent: async () => {},
     }
 }

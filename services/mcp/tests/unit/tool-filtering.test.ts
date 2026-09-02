@@ -263,6 +263,7 @@ const createMockContext = (
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
+    getDistinctIdBestEffort: async () => 'test-distinct-id',
     trackEvent: async () => {},
 })
 
@@ -666,6 +667,7 @@ describe('Tool Filtering - AI Consent', () => {
             } as any,
             sessionManager: new SessionManager({} as any),
             getDistinctId: async () => 'test-distinct-id',
+            getDistinctIdBestEffort: async () => 'test-distinct-id',
             trackEvent: async () => {},
         }
         const tools = await getToolsFromContext(context)
@@ -693,6 +695,7 @@ describe('Tool Filtering - AI Consent', () => {
             } as any,
             sessionManager: new SessionManager({} as any),
             getDistinctId: async () => 'test-distinct-id',
+            getDistinctIdBestEffort: async () => 'test-distinct-id',
             trackEvent: async () => {},
         }
         const tools = await getToolsFromContext(context)

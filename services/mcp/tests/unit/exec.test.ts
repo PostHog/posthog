@@ -52,6 +52,7 @@ function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObje
 
 const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
+    getDistinctIdBestEffort: async () => 'test-distinct-id',
 } as unknown as Context
 
 function createExec(
@@ -953,6 +954,7 @@ describe('exec tool', () => {
                 } as any,
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
+                getDistinctIdBestEffort: async () => 'test-distinct-id',
                 trackEvent: async () => {},
             }
             const v2Tools = await getToolsFromContext(context)
@@ -1019,6 +1021,7 @@ describe('exec tool', () => {
                 } as any,
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
+                getDistinctIdBestEffort: async () => 'test-distinct-id',
                 trackEvent: async () => {},
             }
             const v2Tools = await getToolsFromContext(context)
@@ -1328,6 +1331,7 @@ describe('exec tool', () => {
                 } as any,
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
+                getDistinctIdBestEffort: async () => 'test-distinct-id',
                 trackEvent: async () => {},
             }
         }

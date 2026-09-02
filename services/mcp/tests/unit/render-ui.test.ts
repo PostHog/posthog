@@ -9,6 +9,7 @@ import { type Context, type Tool, type ZodObjectAny } from '@/tools/types'
 
 const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
+    getDistinctIdBestEffort: async () => 'test-distinct-id',
 } as unknown as Context
 
 function makeTool(name: string, resourceUri?: string): Tool<ZodObjectAny> {
