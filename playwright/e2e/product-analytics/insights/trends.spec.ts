@@ -299,7 +299,8 @@ test.describe('Trends insights', () => {
             await insight.trends.addBreakdown('Browser')
             await insight.trends.waitForChart()
             await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
-            await insight.trends.waitForChart()
+            await insight.trends.expectRowTotal('Chrome', customEventsWithBreakdown.expected.chromeCount)
+            await insight.trends.expectRowTotal('Firefox', customEventsWithBreakdown.expected.firefoxCount)
             await insight.trends.hoverChartAt(0.5, 0.5)
             const multiText = await insight.trends.tooltip.textContent()
             expect(multiText).toContain('Chrome')
@@ -308,7 +309,7 @@ test.describe('Trends insights', () => {
 
         await test.step('navigate away and verify no orphaned tooltip', async () => {
             await insight.goToList()
-            await expect(page.locator('table')).toBeVisible()
+            await expect(insight.topBarName).toBeVisible()
             await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
     })
