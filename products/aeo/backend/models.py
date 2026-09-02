@@ -31,7 +31,10 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
         # Hand-written control set, the baseline first-party seeding must beat.
         MANUAL = "manual", "Manual"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # related_name="+" on both core relations: nothing outside this product may
+    # traverse into AEO prompts from a Team or User.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     prompt = models.TextField(help_text="The question to ask the answer engines, as a user would phrase it.")
     prompt_hash = models.CharField(

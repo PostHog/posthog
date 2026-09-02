@@ -8,7 +8,7 @@ Everything is built from existing machinery:
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
 - **Storage**: the citation records are ordinary events (one `$aeo_citation_check` per prompt × engine × run); the prompt set is one small Postgres table (`posthog_aeo_prompt`). No new event/ClickHouse tables.
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads those events and files inbox/Slack reports on citation-rate drops or spikes.
-- **Data handling**: `user_reported` prompts are real signup free-text (`referral_source_ai_prompt`). They are forwarded to the answer engines (Claude, OpenAI, and Exa act as sub-processors) and stored in `prompt_text`. Seeding drops any candidate over 500 characters, so an oversized capture payload cannot reach an engine. This is acceptable for the posthog.com-scoped POC; revisit the raw-text capture and egress before any rollout beyond PostHog's own team.
+- **Data handling**: `user_reported` prompts are real signup free-text (`referral_source_ai_prompt`). They are forwarded to the answer engines (Claude, OpenAI, and Exa act as sub-processors) and stored in `prompt_text`. Seeding drops any candidate longer than a real prompt (`MAX_PROMPT_LENGTH`), so an oversized capture payload cannot reach an engine. This is acceptable for the posthog.com-scoped POC; revisit the raw-text capture and egress before any rollout beyond PostHog's own team.
 
 ## Setup
 
@@ -80,7 +80,7 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
 
 ## Cost
 
-Roughly $2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search fees + tokens (attributed as `$ai_web_search_cost_usd`/`$ai_total_cost_usd` on the `$ai_generation` event) plus Exa at $5 per 1,000 requests (`cost_usd` on the check event).
+Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search fees + tokens (attributed as `$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event) plus Exa at \$5 per 1,000 requests (`cost_usd` on the check event).
 
 ## Out of scope
 

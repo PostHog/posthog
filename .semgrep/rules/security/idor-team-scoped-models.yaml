@@ -61,6 +61,7 @@ rules:
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
                               |Action
+                              |AEOPrompt
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential

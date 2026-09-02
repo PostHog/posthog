@@ -42,6 +42,11 @@ OPENAI_MAX_OUTPUT_TOKENS = 12000
 MAX_URLS_PER_CHECK = 40
 MAX_QUERIES_PER_CHECK = 10
 MAX_ERROR_LENGTH = 500
+# Longest prompt seeding will keep and a check event will record. Above the
+# signup free-text limit, so no real user-reported prompt is dropped, and far
+# below anything that would inflate an engine call. Seeding imports this, so the
+# recorded prompt_text is always the whole prompt that ran.
+MAX_PROMPT_LENGTH = 2000
 
 
 @frozen
@@ -269,7 +274,7 @@ def build_check_properties(
     properties: dict[str, Any] = {
         "aeo_run_id": run_id,
         "prompt_id": prompt_id,
-        "prompt_text": prompt_text[:500],
+        "prompt_text": prompt_text[:MAX_PROMPT_LENGTH],
         "prompt_source": prompt_source,
         "prompt_hash": prompt_hash,
         "engine": check.engine,

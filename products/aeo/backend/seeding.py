@@ -34,18 +34,14 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.models.team import Team
 
-from products.aeo.backend.engines import gateway_post_json
+from products.aeo.backend.engines import MAX_PROMPT_LENGTH, gateway_post_json
 from products.aeo.backend.models import AEOPrompt
 
 logger = structlog.get_logger(__name__)
 
 EXPANSION_TIMEOUT_SECONDS = 120
 EXPANSION_MAX_TOKENS = 2000
-# A question a person types is short. Analytics sources reach this module from
-# public-token capture, which enforces no size limit of its own, so bound every
-# candidate before it is persisted or sent to an engine. 500 characters is what
-# a check event records for prompt_text, so nothing useful is lost.
-MAX_PROMPT_LENGTH = 500
+# Observed paths only ever name a page, so a longer one is not a real path.
 MAX_PATH_LENGTH = 200
 # Words that make a search query look like a question an answer engine would get.
 QUESTION_MARKERS = ("how", "what", "which", "why", "best", "vs", "versus", "compare", "alternative", "should")
@@ -121,6 +117,9 @@ def collect_candidates(
         elif crawled_paths:
             notes.append("pass expand=True (--expand) to turn AI-crawled paths into prompts")
 
+    # Analytics sources reach this module from public-token capture, which enforces
+    # no size limit of its own, so bound every candidate before it is persisted or
+    # sent to an engine.
     bounded = [candidate for candidate in candidates if len(candidate.text) <= MAX_PROMPT_LENGTH]
     if dropped := len(candidates) - len(bounded):
         notes.append(f"dropped {dropped} candidate(s) over {MAX_PROMPT_LENGTH} characters")

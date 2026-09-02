@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 from posthog.models.team import Team
 
-from products.aeo.backend.seeding import MAX_PROMPT_LENGTH, collect_candidates
+from products.aeo.backend.engines import MAX_PROMPT_LENGTH
+from products.aeo.backend.seeding import collect_candidates
 
 # Only the id is read by the code under test, so a stub keeps these cases off the database.
 TEAM = cast(Team, SimpleNamespace(id=1))
@@ -54,4 +55,4 @@ def test_oversized_candidate_is_dropped(tmp_path: Path) -> None:
         candidates, notes = collect_candidates(TEAM, source="all", csv_path=str(path), expand=False)
 
     assert [c.text for c in candidates] == ["What is the best web analytics tool?"]
-    assert any("over 500 characters" in note for note in notes)
+    assert any(f"over {MAX_PROMPT_LENGTH} characters" in note for note in notes)
