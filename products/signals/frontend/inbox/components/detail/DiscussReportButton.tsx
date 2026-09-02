@@ -12,7 +12,7 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 
 // How much of a suggestion a draft has to keep, at one end or the other, to still count as an edit
-// of it. Long enough that two questions opening on the same few words ("Which teams…", "Why did…")
+// of it. Long enough that two suggestions opening on the same few words ("Which teams…", "Why did…")
 // don't read as one, short enough that a heavy rewrite around a kept phrase still does.
 const RECOGNIZABLE_RUN = 10
 
@@ -100,7 +100,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                 <div className="flex flex-col gap-2 p-2 w-[22rem]">
                     {suggestions.length > 0 && (
                         <div className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-tertiary">Suggested questions</span>
+                            <span className="text-xs font-semibold text-tertiary">Suggestions</span>
                             {suggestions.map((suggestion) => (
                                 <LemonButton
                                     key={suggestion}
@@ -126,8 +126,8 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                         onPressCmdEnter={submit}
                         placeholder={
                             suggestions.length > 0
-                                ? 'Pick a question above, or ask your own'
-                                : 'What would you like to ask about this report?'
+                                ? 'Pick a suggestion above, or write your own'
+                                : 'Ask a question, or tell AI what to do next'
                         }
                         maxLength={4000}
                         rows={4}

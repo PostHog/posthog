@@ -33,9 +33,10 @@ import { aiConsentDisabledReason } from './utils/aiConsent'
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
 
-// Discuss is a short question-and-answer about a report rather than a long implementation run, so it
-// pins the stronger model instead of taking the server-side default of Sonnet: the answer quality is
-// what the user is here for, and the extra cost is bounded by the length of the conversation.
+// Discuss is a focused exchange about a report (a question to answer, or a suggested next step to
+// carry out) rather than a scheduled implementation run, so it pins the stronger model instead of
+// taking the server-side default of Sonnet: the answer quality is what the user is here for, and
+// the extra cost is bounded by the length of the conversation.
 const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
     model: 'claude-opus-5',
@@ -64,8 +65,11 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
 
 function buildDiscussReportPrompt(reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
-    // the full report itself. The user's question follows after a blank line for clear separation.
-    return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
+    // the full report itself. The user's message follows after a blank line for clear separation.
+    // Framed as question-or-action because a report's suggested prompts include next-step requests
+    // ("fix X, then mark this report resolved"); "answer this question" would pin the agent to
+    // replying instead of acting.
+    return `A user sent this about the PostHog Inbox report at ${reportUrl}. If it is a question, answer it; if it asks for action, carry the action out and summarize what you did:\n\n${question.trim()}`
 }
 
 // The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`

@@ -138,6 +138,6 @@ describe('DiscussReportButton', () => {
         // did — the section is not an empty state.
         await openPopover(makeReport())
 
-        expect(screen.queryByText('Suggested questions')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggestions')).not.toBeInTheDocument()
     })
 })

@@ -171,7 +171,7 @@ class EditReportResult:
     # because taking a report's charts down is itself a real outcome, and 0 would otherwise mean both
     # "cleared" and "never touched".
     charts_set: int | None = None
-    # How many questions the report now suggests, or None when the edit left them as they were.
+    # How many prompts the report now suggests, or None when the edit left them as they were.
     # Nullable for the same reason `charts_set` is: taking the suggestions down reports 0, and 0
     # would otherwise mean both "cleared" and "never touched".
     suggested_prompts_set: int | None = None
@@ -191,7 +191,7 @@ class EditReportResult:
         report moved.
 
         `charts_set` / `suggested_prompts_set` are checked against None, not truthiness: an edit that
-        took the report's charts or questions down reports 0, and reading that as "nothing happened"
+        took the report's charts or prompts down reports 0, and reading that as "nothing happened"
         would keep the retraction off the run tally and out of both event streams."""
         return (
             bool(self.updated_fields or self.note_appended or self.reviewers_set)
@@ -284,7 +284,7 @@ def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChar
 
 
 def _build_suggested_prompts(suggested_prompts: list[str] | None) -> list[str]:
-    """Trim the scout's suggested questions and refuse a set the report can't carry.
+    """Trim the scout's suggested prompts and refuse a set the report can't carry.
 
     Runs before the safety judge, like `_build_charts`, so a set past its bounds fails the call
     outright instead of paying for the judge and then rolling back mid-persist.
@@ -298,9 +298,9 @@ def _build_suggested_prompts(suggested_prompts: list[str] | None) -> list[str]:
 
 
 def _build_edit_suggested_prompts(suggested_prompts: list[str] | None) -> list[str] | None:
-    """The suggested questions an edit should write, or None when the edit supplied none at all.
+    """The suggested prompts an edit should write, or None when the edit supplied none at all.
 
-    The same third state `_build_edit_charts` draws: None leaves the report's questions alone, while
+    The same third state `_build_edit_charts` draws: None leaves the report's prompts alone, while
     an explicit empty list takes them down. Collapsing the two would make a suggestion unretractable
     once written, since every clear would read as "the scout didn't mention them".
     """
@@ -1064,7 +1064,7 @@ async def emit_report(
     open a draft PR. They're only resolved/written when the report actually surfaces.
 
     `charts` are the optional queries the inbox renders on the report, and `suggested_prompts` the
-    optional questions it offers above the report's "Ask AI" box."""
+    optional prompts (questions or next-step actions) it offers above the report's "Ask AI" box."""
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
@@ -1381,7 +1381,7 @@ def _do_edit_report(
                 author=run.skill_name,
             )
         # Same replace-don't-append contract as the charts above: omitting the field keeps the
-        # report's questions, an explicit empty list takes them down.
+        # report's prompts, an explicit empty list takes them down.
         if suggested_prompts is not None:
             prompts_changed = set_report_suggested_prompts(
                 team_id=team.id,

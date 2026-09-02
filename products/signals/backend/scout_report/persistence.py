@@ -155,8 +155,9 @@ def create_scout_report(
     Unlike the autostart inputs they're written whatever the judged status, so a suppressed report
     keeps the exhibits behind it for whoever reviews the suppression.
 
-    `suggested_prompts`, when supplied, become the questions the inbox offers above the report's
-    "Ask AI" box. Written on the same terms as `charts`, and for the same reason.
+    `suggested_prompts`, when supplied, become the prompts (questions or next-step actions) the
+    inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
+    the same reason.
 
     `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
     defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
@@ -472,11 +473,11 @@ def set_report_suggested_prompts(
 
     The same contract `set_report_charts` has, one level down: team-scoped fail-closed, the sequence
     is the full set the report should offer rather than an addition, and an empty sequence is a real
-    write that takes the questions down. A caller that means "leave them alone" does not call this.
+    write that takes the prompts down. A caller that means "leave them alone" does not call this.
 
     Returns whether the stored set actually changed, so a re-send of what is already there doesn't
     count as an edit and notify the report's destination a second time about nothing. Compared after
-    normalizing, since a question that differs only in trailing whitespace is the same question.
+    normalizing, since a prompt that differs only in trailing whitespace is the same prompt.
     """
     _validate_report_id(report_id)
     payload = normalize_suggested_prompts(suggested_prompts)
