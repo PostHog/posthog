@@ -11,6 +11,7 @@ import { formatResponse } from '@/lib/response'
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
+import { appendAgentNote } from './tool-utils'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -1049,7 +1050,10 @@ export function createExecTool(
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        outputText =
+                            typeof formattedOverride === 'string'
+                                ? appendAgentNote(formattedOverride, result)
+                                : formatResponse(result)
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

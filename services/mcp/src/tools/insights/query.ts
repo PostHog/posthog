@@ -4,22 +4,39 @@ import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api
 import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withAgentNote, withPostHogUrl, type WithAgentNote, type WithPostHogUrl } from '@/tools/tool-utils'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } from '@/tools/types'
 
 import { analyzeQuery } from '../shared'
 
 const schema = InsightQueryInputSchema
 
+/** The insight kinds `alert-create` accepts. Anything else cannot carry an alert. */
+const ALERTABLE_QUERY_KINDS = new Set(['TrendsQuery', 'FunnelsQuery', 'HogQLQuery'])
+
+const ALERT_AGENT_NOTE =
+    "This response carries the insight's current value, so it is a good moment to offer an alert when the metric " +
+    'is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or ' +
+    'failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to ' +
+    'alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a ' +
+    'strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute ' +
+    'number fits, offer a relative-change alert, or preview an anomaly detector with alert-simulate and say how ' +
+    'often it would have fired. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and ' +
+    'skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the ' +
+    'user just asked to see, is not throwaway for that reason. If the user already declined an alert in this ' +
+    'conversation, do not offer again.'
+
 type Params = z.infer<typeof schema>
 
-type Result = WithPostHogUrl<{
+type Payload = WithPostHogUrl<{
     query: unknown
     insight: Insight & { url: string }
     results: unknown
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }>
+
+type Result = Payload | WithAgentNote<Payload>
 
 // Accept either a pre-encoded JSON string or a plain object for the override
 // params. LLM agents reading the insight-get response see `variables` as an
@@ -104,7 +121,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     // the text payload) rather than overwriting `results` with it — mirrors query-wrapper-factory.
     const surfaceFormatted = output_format === 'optimized' && queryResult.data.formatted_results != null
 
-    return withPostHogUrl(
+    const payload = await withPostHogUrl(
         context,
         {
             query: queryInfo.innerQuery || insightResult.data.query,
@@ -120,6 +137,14 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         },
         path
     )
+
+    // The note offers an alert, so it is noise on an insight that already has one or cannot have one.
+    const alerts = insightResult.data.alerts
+    const hasAlert = Array.isArray(alerts) && alerts.length > 0
+    if (hasAlert || !ALERTABLE_QUERY_KINDS.has(queryInfo.innerKind)) {
+        return payload
+    }
+    return withAgentNote(payload, ALERT_AGENT_NOTE)
 }
 
 export default (): ToolBase<typeof schema, Result> =>

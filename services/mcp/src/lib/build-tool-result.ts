@@ -4,6 +4,7 @@ import { getDiscoveryHint } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
+import { appendAgentNote } from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
@@ -204,10 +205,19 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         }
     }
 
+    // A formatted table replaces the serialized result in the text channel, so `_agentNote` only
+    // reaches the model when structuredContent carries it instead. Append it when neither channel
+    // would. Never on the structuredContent pointer: the payload carries the note there, and
+    // `estimateResponseTokens` keys off that exact string.
+    const structuredContentReachesModel = hasUiResource && !suppressStructuredContent
+    if (!isStringResult && !useJson && formattedResults !== undefined && !structuredContentReachesModel) {
+        text = appendAgentNote(text, handlerResult)
+    }
+
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
     }
-    if (hasUiResource && !suppressStructuredContent) {
+    if (structuredContentReachesModel) {
         payload.structuredContent = structuredContent as Record<string, unknown>
     }
     if (includeUiResponseMeta && resourceUri) {

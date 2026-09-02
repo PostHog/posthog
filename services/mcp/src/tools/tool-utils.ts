@@ -1,5 +1,15 @@
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
 
+export const AGENT_NOTE_KEY = '_agentNote'
+
+/**
+ * Results this module attached a note to. `appendAgentNote` promotes a note into the model's
+ * instruction channel, so it must only ever promote a note a tool declared. Generated handlers
+ * spread API responses at the top level, and a server field named `_agentNote` would otherwise
+ * reach the model as a directive.
+ */
+const NOTED_RESULTS = new WeakSet<object>()
+
 /**
  * Adds a _posthogUrl field to a result. For object results it's a sibling field; for raw
  * array results the array is wrapped as `{ results, _posthogUrl }` — spreading an array into
@@ -32,12 +42,33 @@ export type WithAgentNote<T = unknown> = T extends readonly (infer U)[]
     ? { results: U[]; _agentNote: string }
     : T & { _agentNote: string }
 
+/**
+ * Re-attaches a result's agent note to text that replaced the serialized result, such as a
+ * backend-formatted table. Both the exec path and buildToolResultPayload make that swap, and
+ * the note is the only part of the payload the model would otherwise never see.
+ */
+export function appendAgentNote(text: string, result: unknown): string {
+    if (typeof result !== 'object' || result === null || !NOTED_RESULTS.has(result)) {
+        return text
+    }
+    const note = (result as Record<string, unknown>)[AGENT_NOTE_KEY]
+    if (typeof note !== 'string' || note.length === 0) {
+        return text
+    }
+    // Rendered as the same labelled field the serialized payload carries. Appended as bare prose
+    // it reads as text smuggled into the data, and agents refuse it as a prompt injection.
+    return `${text}\n\n${AGENT_NOTE_KEY}: ${JSON.stringify(note)}`
+}
+
 /** Adds `_agentNote` to a result. Wraps raw arrays in `{ results, _agentNote }` (see type above). */
 export function withAgentNote<T>(result: T, note: string): WithAgentNote<T> {
-    if (Array.isArray(result)) {
-        return { results: result, _agentNote: note } as unknown as WithAgentNote<T>
+    const noted = Array.isArray(result)
+        ? ({ results: result, _agentNote: note } as unknown as WithAgentNote<T>)
+        : ({ ...result, _agentNote: note } as WithAgentNote<T>)
+    if (typeof noted === 'object' && noted !== null) {
+        NOTED_RESULTS.add(noted)
     }
-    return { ...result, _agentNote: note } as WithAgentNote<T>
+    return noted
 }
 
 const INFORMATIONAL_RESPONSE_NOTICE =
