@@ -85,6 +85,11 @@ class RunAgenticReportOutput:
     # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
     # (the safe skip value) so an older workflow history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # The local validation prompt to store with the title/summary, or `None` to leave the column
+    # untouched (also the replay-safe default for a history that predates this field). Applied by
+    # the same transition activity as `charts`, for the same reason: it is written against this
+    # run's prose.
+    validation_prompt: str | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -107,7 +112,9 @@ def _parse_artefact_content(
 
 async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
     """Reconstruct the previous report state."""
-    report = await SignalReport.objects.filter(id=report_id).only("title", "summary", "charts").afirst()
+    report = (
+        await SignalReport.objects.filter(id=report_id).only("title", "summary", "charts", "validation_prompt").afirst()
+    )
     if report is None or not report.title or not report.summary:
         logger.info(
             "load previous research: no report or missing title/summary, treating as first run",
@@ -161,6 +168,9 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
         # chart that no longer validates (a tightened schema, a legacy shape) is dropped from the
         # context rather than failing the run — the agent just won't be offered that one to re-send.
         charts=_parse_stored_charts(report.charts, report_id),
+        # Shown to the re-research the same way, so it can re-send the prompt that still holds
+        # instead of the reader losing it whenever a run rewrites the prose.
+        validation_prompt=report.validation_prompt or "",
         # Reconstructed from already-persisted artefacts, so everything is "old" — a re-research that
         # reuses these writes nothing; only what it changes lands in new_artefacts.
         old_artefacts=[*findings, actionability, *([priority] if priority else [])],
@@ -685,6 +695,10 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             already_addressed=actionability.already_addressed,
             repository=repository,
             charts=charts_payload,
+            # An empty prompt means the run authored none, which must not wipe a prompt a previous
+            # run wrote against prose this one is keeping — so it skips the write rather than
+            # clearing the column.
+            validation_prompt=result.validation_prompt or None,
         )
     except Exception as error:
         logger.exception(

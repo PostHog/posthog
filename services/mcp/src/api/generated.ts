@@ -56613,6 +56613,11 @@ export namespace Schemas {
       /** Follow-up questions the report's author suggests asking about it, in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
       /**
+         * A prompt to copy into a coding agent on your own machine to recreate this finding and test a fix. Null when the report's research could not work out how to reproduce it. Report-only by design: it may name internal hosts and tools, so it is never carried into the implementation PR.
+         * @nullable
+         */
+      readonly validation_prompt: string | null;
+      /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
          */

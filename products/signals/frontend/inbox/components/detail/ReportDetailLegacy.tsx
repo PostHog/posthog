@@ -10,7 +10,6 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
-import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
@@ -18,6 +17,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { reportAbsoluteUrl } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -319,7 +319,7 @@ function InboxDetailFrameLegacy({
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
-    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
+    const reportUrl = reportAbsoluteUrl(report.id, tab)
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.

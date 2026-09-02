@@ -496,6 +496,16 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
         ),
     )
+    validation_prompt = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "A prompt to copy into a coding agent on your own machine to recreate this finding and "
+            "test a fix. Null when the report's research could not work out how to reproduce it. "
+            "Report-only by design: it may name internal hosts and tools, so it is never carried "
+            "into the implementation PR."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -565,6 +575,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "artefact_count",
             "charts",
             "suggested_prompts",
+            "validation_prompt",
             "priority",
             "actionability",
             "already_addressed",

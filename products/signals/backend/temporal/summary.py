@@ -135,6 +135,10 @@ class ReportDecision:
     # questions about the old report under the new one. Not a constant so the pipeline can author its
     # own set later without moving the write.
     suggested_prompts: list[str] = field(default_factory=list)
+    # Local validation prompt to store with the title/summary, or `None` to leave the column alone
+    # (see `RunAgenticReportOutput.validation_prompt`). `None` for the no-repo branch, which does no
+    # research and so has nothing to say about reproducing anything.
+    validation_prompt: str | None = None
     # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
@@ -430,6 +434,7 @@ class SignalReportSummaryWorkflow:
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
+                    validation_prompt=agentic_result.validation_prompt,
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
@@ -468,6 +473,7 @@ class SignalReportSummaryWorkflow:
                         source_products=source_products,
                         charts=decision.charts,
                         suggested_prompts=decision.suggested_prompts,
+                        validation_prompt=decision.validation_prompt,
                         pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
@@ -488,6 +494,7 @@ class SignalReportSummaryWorkflow:
                     source_products=source_products,
                     charts=decision.charts,
                     suggested_prompts=decision.suggested_prompts,
+                    validation_prompt=decision.validation_prompt,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -772,6 +779,9 @@ class MarkReportReadyInput:
     # default. The research pipeline passes `[]`: it doesn't author questions yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
     suggested_prompts: list[str] | None = None
+    # Local validation prompt to write alongside title/summary. `None` leaves the column untouched,
+    # so a run that authored none keeps the prompt a previous run wrote rather than wiping it.
+    validation_prompt: str | None = None
 
 
 @temporalio.activity.defn
@@ -796,6 +806,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
+            if input.validation_prompt is not None:
+                report.validation_prompt = input.validation_prompt
+                updated_fields = [*updated_fields, "validation_prompt"]
             report.save(update_fields=updated_fields)
             # Loop to re-research only if new signals arrived and we're within the cap; past
             # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
@@ -985,6 +998,8 @@ class MarkReportPendingInput:
     charts: list[dict[str, Any]] | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
+    # See MarkReportReadyInput.validation_prompt — same transaction, `None` leaves the column alone.
+    validation_prompt: str | None = None
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
@@ -1011,6 +1026,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
+            if input.validation_prompt is not None:
+                report.validation_prompt = input.validation_prompt
+                updated_fields = [*updated_fields, "validation_prompt"]
             # Read by capture_status_change_analytics's post_save receiver (same instance, same
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]

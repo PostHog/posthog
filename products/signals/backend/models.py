@@ -266,6 +266,12 @@ class SignalReport(UUIDModel):
     # leaving a stale question beside fresh prose. The inbox offers them above the "Ask AI" box.
     # `db_default` alongside `default` for the reason spelled out on `charts`.
     suggested_prompts = models.JSONField(default=list, db_default=[], blank=True)
+    # A prompt the reader copies into a coding agent on their own machine to recreate this finding
+    # and test a fix (see report_validation.py). Content rather than log for the reason
+    # `suggested_prompts` is, and deliberately absent from the implementation task description: the
+    # steps that make a finding reproducible often name internal hosts and tools, and the repository
+    # the PR lands in is usually public.
+    validation_prompt = models.TextField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

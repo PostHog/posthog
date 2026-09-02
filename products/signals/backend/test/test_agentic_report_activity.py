@@ -720,6 +720,43 @@ async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, ex
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "validation_prompt,expected",
+    [
+        ("Run EXPLAIN on the replica.", "Run EXPLAIN on the replica."),
+        # None means "leave alone": a run that authored no prompt must not take down the one a
+        # previous run wrote, so the reader doesn't lose it whenever research repeats.
+        (None, "Reproduce with the old steps."),
+    ],
+)
+async def test_mark_report_ready_activity_applies_validation_prompt(ateam, validation_prompt, expected):
+    # The transition saves with `update_fields`, which silently discards any column the activity
+    # forgot to list — so the prompt would look written in memory and be gone on the next read.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        validation_prompt="Reproduce with the old steps.",
+    )
+
+    await mark_report_ready_activity(
+        MarkReportReadyInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            title="Title",
+            summary="Summary",
+            processed_signal_count=2,
+            validation_prompt=validation_prompt,
+        )
+    )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).validation_prompt)()
+    assert stored == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(monkeypatch, ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,

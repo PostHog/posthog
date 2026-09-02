@@ -24,6 +24,7 @@ import {
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
+import { buildCreatePrReportPrompt, buildDiscussReportPrompt } from './utils/kickoffPrompts'
 
 // Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
 // task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
@@ -49,23 +50,6 @@ const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
     model: 'claude-opus-5',
     reasoning_effort: ReasoningEffortEnumApi.High,
-}
-
-function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
-    const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${
-        report.summary ? `\n\nReport summary:\n${report.summary}` : ''
-    }`
-    const trimmed = feedback?.trim()
-    if (!trimmed) {
-        return base
-    }
-    return `${base}\n\nAdditional feedback from the user (take this into account):\n${trimmed}`
-}
-
-function buildDiscussReportPrompt(reportUrl: string, question: string): string {
-    // The task is already linked to the report, but including the URL lets the agent open and read
-    // the full report itself. The user's question follows after a blank line for clear separation.
-    return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
 }
 
 // The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`

@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { InboxTabKey } from '../types'
@@ -42,4 +43,12 @@ export function inboxTabRedirectPath(tab: string | undefined, redesign: boolean)
         default:
             return null
     }
+}
+
+/**
+ * A report's detail page as an absolute URL. Absolute because it leaves the app: pasted into a
+ * coding agent's prompt, written into a PR footer, or handed to a colleague.
+ */
+export function reportAbsoluteUrl(reportId: string, tab: InboxTabKey = 'reports'): string {
+    return `${window.location.origin}${addProjectIdIfMissing(inboxReportDetailUrl(reportId, undefined, tab))}`
 }

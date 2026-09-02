@@ -79,8 +79,8 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
  * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
  * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
- * section widening its window), and the section expand/collapse pair (desktop splits those per
- * section instead).
+ * section widening its window), the section expand/collapse pair (desktop splits those per
+ * section instead), and `copy_validation_prompt` (only cloud renders the local validation prompt).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -97,6 +97,7 @@ export type InboxReportActionType =
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+    | 'copy_validation_prompt'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as

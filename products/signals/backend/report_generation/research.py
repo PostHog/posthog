@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -22,6 +23,13 @@ from products.signals.backend.artefact_schemas import (
 # `posthog.schema` onto the research path.
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_validation import (
+    MAX_VALIDATION_PROMPT_LENGTH,
+    VALIDATION_PROMPT_GUIDANCE,
+    normalize_validation_prompt,
+    render_previous_validation_prompt,
+    source_validation_guidance,
+)
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
 # eager-imports agentic -> report -> back into this module, forming a circular import.
@@ -101,6 +109,17 @@ Hard rules:
         ),
     )
 
+    validation_prompt: str = Field(
+        default="",
+        description=(
+            "A prompt the reader copies into a coding agent on their own machine to recreate this "
+            "finding and test a fix. Stays on the report and never reaches the pull request, so it "
+            "may name internal hosts, replicas, and tools. Empty when you could not work out how to "
+            f"reproduce the finding. Keep it under {MAX_VALIDATION_PROMPT_LENGTH} characters — a "
+            "longer one is dropped."
+        ),
+    )
+
     @field_validator("title", "summary")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
@@ -120,6 +139,12 @@ class ReportResearchOutput(BaseModel):
         default_factory=list,
         description="Charts the summary illustrates itself with. The report's whole set — the caller "
         "replaces `SignalReport.charts` with it, the way it replaces title/summary.",
+    )
+    validation_prompt: str = Field(
+        default="",
+        description="The prompt a reader pastes into a local coding agent to recreate the finding "
+        "and test a fix. Normalized — empty when the run authored none, or authored one too long to "
+        "store.",
     )
     research_task_id: str | None = Field(
         default=None,
@@ -655,6 +680,8 @@ def build_report_presentation_prompt(
     previous_summary: str | None = None,
     previous_charts: list[ReportChart] | None = None,
     charts_enabled: bool = False,
+    source_products: Sequence[str] = (),
+    previous_validation_prompt: str | None = None,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not charts_enabled:
@@ -675,10 +702,16 @@ def build_report_presentation_prompt(
         if previous_charts_context:
             charts_sections += "\n\n" + previous_charts_context
 
+    validation_sections = "\n\n" + VALIDATION_PROMPT_GUIDANCE
+    if per_source := source_validation_guidance(source_products):
+        validation_sections += "\n\n" + per_source
+    if previous_context := render_previous_validation_prompt(previous_validation_prompt):
+        validation_sections += "\n\n" + previous_context
+
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
 Style rules:
-{previous_presentation_context}{charts_sections}
+{previous_presentation_context}{charts_sections}{validation_sections}
 
 Respond with a JSON object matching this schema:
 
@@ -920,6 +953,10 @@ async def run_multi_turn_research(
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
             previous_charts=previous_report_research.charts if previous_report_research else None,
             charts_enabled=charts_enabled,
+            source_products=[signal.source_product for signal in signals],
+            previous_validation_prompt=(
+                previous_report_research.validation_prompt if previous_report_research else None
+            ),
         )
         presentation_result = await session.send_followup(
             presentation_prompt,
@@ -947,6 +984,7 @@ async def run_multi_turn_research(
         # guard alongside the gated schema/guidance, so the capability can't leak even if a future
         # change reintroduces the field into a disabled prompt.
         charts=presentation_result.charts if charts_enabled else [],
+        validation_prompt=normalize_validation_prompt(presentation_result.validation_prompt),
         research_task_id=str(session.task.id),
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,

@@ -137,6 +137,9 @@ class Command(BaseCommand):
         with transaction.atomic():
             report.refresh_from_db()
             ready_fields = report.transition_to(SignalReport.Status.READY, title=result.title, summary=result.summary)
+            if result.validation_prompt:
+                report.validation_prompt = result.validation_prompt
+                ready_fields = [*ready_fields, "validation_prompt"]
             report.save(update_fields=ready_fields)
 
     def _warn_if_autonomy_not_configured(self, team: Team) -> None:
