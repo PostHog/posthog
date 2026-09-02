@@ -116,8 +116,11 @@ class BigQueryDestinationWriter:
     def _schema_label(self) -> str:
         # BigQuery labels only allow lowercase letters, digits, underscores and dashes, at most
         # 63 bytes, and `schema_id` carries no such guarantee. Hashing sidesteps that validation
-        # entirely while staying specific to the schema that owns the table.
-        return hashlib.sha256(self._ctx.schema_id.encode()).hexdigest()
+        # entirely while staying specific to the schema that owns the table. A hex digest is
+        # already within the allowed character set, but a sha256 one is 64 characters long — one
+        # over the limit — so it is truncated; 63 hex characters carries far more than enough
+        # entropy left to stay collision-free for this many schemas.
+        return hashlib.sha256(self._ctx.schema_id.encode()).hexdigest()[:63]
 
     def _check_owned_or_absent(self, client: bigquery.Client, table_ref: str, action: str) -> bool:
         """Whether `table_ref` does not exist yet.
