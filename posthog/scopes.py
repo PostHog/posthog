@@ -121,7 +121,7 @@ APIScopeObject = Literal[
     "usage_metric",
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
-    "vision_action",
+    "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
     "warehouse_objects",
