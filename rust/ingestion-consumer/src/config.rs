@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
@@ -6,6 +8,30 @@ use tracing::info;
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
+
+/// Whether the offset ledger observes the commit path or owns it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LedgerMode {
+    /// Compare the ledger frontier to the existing commit path.
+    #[default]
+    Shadow,
+    /// Commit the ledger frontier after the comparison.
+    Commit,
+}
+
+impl FromStr for LedgerMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "shadow" => Ok(Self::Shadow),
+            "commit" => Ok(Self::Commit),
+            other => Err(format!(
+                "unknown consumer offset ledger mode '{other}' (expected 'shadow' or 'commit')"
+            )),
+        }
+    }
+}
 
 /// Configuration for the ingestion consumer.
 ///
@@ -167,6 +193,12 @@ pub struct Config {
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    /// The source of offset commits. `shadow` compares the shared ledger
+    /// frontier with the current calculation, while `commit` commits the
+    /// frontier after that comparison.
+    #[envconfig(from = "CONSUMER_OFFSET_LEDGER_MODE", default = "shadow")]
+    pub consumer_offset_ledger_mode: LedgerMode,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -472,5 +504,18 @@ impl Config {
         builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LedgerMode;
+    use std::str::FromStr;
+
+    #[test]
+    fn ledger_mode_parses_known_values() {
+        assert_eq!(LedgerMode::from_str(" SHADOW "), Ok(LedgerMode::Shadow));
+        assert_eq!(LedgerMode::from_str("commit"), Ok(LedgerMode::Commit));
+        assert!(LedgerMode::from_str("off").is_err());
     }
 }
