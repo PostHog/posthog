@@ -4012,17 +4012,41 @@
             "ignored_in_assistant": true,
             "label": "Element viewed"
         },
+        "$error_tracking_issue_assigned": {
+            "description": "Fires when an error tracking issue is assigned to a user or role.",
+            "label": "Error tracking issue assigned"
+        },
         "$error_tracking_issue_created": {
             "description": "Fires when a new error tracking issue is created from an incoming exception.",
             "label": "Error tracking issue created"
+        },
+        "$error_tracking_issue_merged": {
+            "description": "Fires when error tracking issues are merged into another issue.",
+            "label": "Error tracking issue merged"
         },
         "$error_tracking_issue_reopened": {
             "description": "Fires when a previously resolved error tracking issue is seen again and reopened.",
             "label": "Error tracking issue reopened"
         },
+        "$error_tracking_issue_resolved": {
+            "description": "Fires when an error tracking issue is marked as resolved.",
+            "label": "Error tracking issue resolved"
+        },
         "$error_tracking_issue_spiking": {
             "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
             "label": "Error tracking issue spiking"
+        },
+        "$error_tracking_issue_split": {
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
+            "label": "Error tracking issue split"
+        },
+        "$error_tracking_issue_suppressed": {
+            "description": "Fires when an error tracking issue is marked as suppressed.",
+            "label": "Error tracking issue suppressed"
+        },
+        "$error_tracking_issue_unassigned": {
+            "description": "Fires when an error tracking issue's assignee is removed.",
+            "label": "Error tracking issue unassigned"
         },
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
