@@ -1776,6 +1776,10 @@ snapshots:
         hash: v1.k794b7964.83b26d21c2c1d191e3c7f6aa34bd3d8d24e9d6002d3e1369bf5b6a049f757758.PhaOyvOdwWsqT3HArkFs-5X-Bcgx3hwAnlhBFYnJUQo
     components-product-empty-state--cohorts-needs-setup--light:
         hash: v1.k794b7964.b827ea6e4b03f02c32a32b12c618f75a69ad0b2b58f913fe7d5c334c0ae5cac9.fKm3ytRKGmpO82oUS7SSw9GbRTxgdtlygk9c3Cmcd60
+    components-product-empty-state--customer-analytics-needs-setup--dark:
+        hash: v1.k794b7964.019d4465129ae3debfa6287a1ed62c2521a7ec42adb10702d0df81e0a116f0df.YMvw7NwMw84MxuQDNkMkXP0whmcHalLe4DmiiQCYGN4
+    components-product-empty-state--customer-analytics-needs-setup--light:
+        hash: v1.k794b7964.37874200d15c611b25896fca3b82ee1d073f66b2738f7d9007012a91ccfd6c2c.dJOr1_tfAOmuS3_T5eeBTS58lTIOztYjcSU01T4Knx4
     components-product-empty-state--dashboards-needs-setup--dark:
         hash: v1.k794b7964.b3a148d96ca0b54ca8929084054b91f4e52ae02160039f3a47ee04db7aeb62cc.SH8xd4Ro7F3Zuetn_B_qgVFVbWtT__aDzaW2YOr-Eac
     components-product-empty-state--dashboards-needs-setup--light:
@@ -1836,6 +1840,10 @@ snapshots:
         hash: v1.k794b7964.96e30395bc4290ad188a84e94f5d40d46f545a3223e4d13fe44737d322129e2f.kj5dwA7EuPOvu6YfDc2jc2s38u8BfXT1EcfPAMPztuM
     components-product-empty-state--logs-needs-setup--light:
         hash: v1.k794b7964.e48c85227bbcc871026a1cdf096c1cf21ab5a0504983d138048258516841b153.p74Gybn8AxHmoKKMNcSfmx6gTus5K56ARAEhsPYcxDY
+    components-product-empty-state--marketing-analytics-needs-setup--dark:
+        hash: v1.k794b7964.ce0aac7a759743749623867c4cea9529ecb3738a6f43eec92e962b4f6c1f1564.EM_vzdZrvKmEbge1FryouAY6DqEN4P1sL_eBrOWTZcY
+    components-product-empty-state--marketing-analytics-needs-setup--light:
+        hash: v1.k794b7964.0d1f0a6d68cc64cc406dbc57510707e9fcafd6a315193e6345e7168e9a38fe24.SeOl-kOg6cQqIgJKNCTRiXiSRvIv-2KHhg6y5hzhMe4
     components-product-empty-state--mcp-analytics-needs-setup--dark:
         hash: v1.k794b7964.96d4c2d4afe9d7834d3667aa266bafdcb7f8192e4c51927b7661824c9f982d97.leY0JcEWIDNFZQl9s4uuj96BWBHxb3cYGMaU3rJ0g0k
     components-product-empty-state--mcp-analytics-needs-setup--light:
