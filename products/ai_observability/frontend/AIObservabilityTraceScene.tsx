@@ -1736,16 +1736,15 @@ const EventContent = React.memo(
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="This trace doesn't have its own input and output"
+                                                    heading="No trace-level input and output captured"
                                                     detail={
                                                         <>
-                                                            This trace groups the events in the tree, and the content is
-                                                            on those events. Select an event to view its input and
-                                                            output.
+                                                            This trace's content is on the events in the tree. Select an
+                                                            event to view its input and output.
                                                             <br />
-                                                            To record an input and output for the whole trace, capture a{' '}
+                                                            To show a conversation here, capture a{' '}
                                                             <Link
-                                                                to="https://posthog.com/docs/ai-observability/installation/manual-capture"
+                                                                to="https://posthog.com/docs/ai-observability/traces"
                                                                 target="_blank"
                                                             >
                                                                 <code>$ai_trace</code> event
