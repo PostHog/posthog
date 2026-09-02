@@ -111,11 +111,16 @@ if (empty(channelId)) {
 
 let schemaId := inputs.schema_mapping?.[channelId]
 
+// Every channel the bot is in should have a schema, so an unmapped channel means the mapping
+// went stale and messages are being dropped. Other sources map fixed resource types and see
+// unmapped events as normal, but here a 200 hides a broken channel behind an apparent success.
+// A client error makes the source-webhooks consumer log a warning with this reason, so the
+// stale channel is visible instead of looking quiet.
 if (empty(schemaId)) {
   return {
     'httpResponse': {
-      'status': 200,
-      'body': f'No schema mapping for channel: {channelId}, skipping'
+      'status': 422,
+      'body': f'No schema mapping for channel {channelId}. The channel schema is stale. Re-sync the source to restore ingestion.'
     }
   }
 }

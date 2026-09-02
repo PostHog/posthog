@@ -208,7 +208,9 @@ class TestSlackWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result == {"httpResponse": {"status": 200, "body": "No channel found in event, skipping"}}
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
-    def test_unmapped_channel_is_skipped(self):
+    def test_unmapped_channel_returns_client_error(self):
+        # A stale mapping drops the channel's messages. The client-error status makes the
+        # consumer log a warning that names the channel, so the loss is visible.
         secret = "slack_signing_secret"
         globals = self._make_signed_request(secret)
         res = self.run_function(
@@ -221,8 +223,8 @@ class TestSlackWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         )
         assert res.result == {
             "httpResponse": {
-                "status": 200,
-                "body": "No schema mapping for channel: C123, skipping",
+                "status": 422,
+                "body": "No schema mapping for channel C123. The channel schema is stale. Re-sync the source to restore ingestion.",
             }
         }
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
