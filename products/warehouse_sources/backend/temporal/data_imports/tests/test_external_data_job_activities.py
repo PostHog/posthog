@@ -19,8 +19,10 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
+    Any_Source_Errors,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
+    _friendly_error_override,
     _is_app_db_failure,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
@@ -74,6 +76,36 @@ class TestIsAppDbFailure(SimpleTestCase):
         # str(ApplicationError) is what the workflow stores as internal_error, so build the input
         # the same way rather than hand-writing the prefix this depends on.
         assert _is_app_db_failure(str(ApplicationError(message, type=exc_type))) is expected
+
+
+class TestFriendlyErrorOverride(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # A decimal column that outgrew its stored type keeps the raw error, because that one
+            # names the column and its stored type and gives the remedy for a source column too wide
+            # to store at all. The general entry would replace it with advice to reset and re-sync,
+            # which recreates the same clamped column. Ordering in the map is what decides this.
+            (
+                "decimal",
+                "Source column type changed: 'unit_price' has decimal values that no longer fit its "
+                "stored type decimal256(30, 12).",
+                None,
+            ),
+            # Every other shape of the same failure still gets the general message.
+            (
+                "widened_int",
+                "Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
+                "A column's type changed in your source",
+            ),
+        ]
+    )
+    def test_the_decimal_case_keeps_the_raw_error(self, _name: str, internal_error: str, expected: str | None) -> None:
+        override = _friendly_error_override(internal_error, Any_Source_Errors)
+
+        if expected is None:
+            assert override is None
+        else:
+            assert override is not None and override.startswith(expected)
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):

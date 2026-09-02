@@ -1135,7 +1135,8 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
     exact stored type makes the merge cast a no-op: fitting values are rounded to the column's
     scale, and a value whose integer part can't fit is surfaced as SchemaColumnTypeChangedException
     so the sync stops and the table can be reset and re-synced (which recreates the column with
-    adequate integer headroom).
+    adequate integer headroom, as long as the source column fits the 76-digit ceiling that
+    ``build_pyarrow_decimal_type`` clamps to).
     """
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
     for delta_field in delta_arrow_schema:
@@ -1161,8 +1162,10 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
         if aligned is None:
             raise SchemaColumnTypeChangedException(
                 f"Source column type changed: '{delta_field.name}' has decimal values that no longer "
-                f"fit its stored type {delta_field.type}. Reset and fully re-sync this table to adopt "
-                f"a wider type."
+                f"fit its stored type {delta_field.type}. We store decimals with up to 76 total digits "
+                f"and 32 decimal places. If the column in your source fits within that, reset and fully "
+                f"re-sync this table to adopt the wider type. If it doesn't, reduce its precision and "
+                f"scale in your source, or cast it to text in a view."
             )
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 
