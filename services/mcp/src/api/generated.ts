@@ -57235,6 +57235,11 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /**
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -91084,6 +91089,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -91181,6 +91187,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     /**
@@ -91264,6 +91271,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -91349,6 +91357,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
