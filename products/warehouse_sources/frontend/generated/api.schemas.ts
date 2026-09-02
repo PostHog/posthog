@@ -4701,7 +4701,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato */
+     * * `Strato` - Strato
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI */
@@ -6268,7 +6268,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato */
+     * * `Strato` - Strato
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI */
@@ -7631,7 +7631,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato */
+     * * `Strato` - Strato
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI */
@@ -8969,7 +8969,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato */
+     * * `Strato` - Strato
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI */
@@ -10392,7 +10392,7 @@ export interface SourcePreviewRequestApi {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato */
+     * * `Strato` - Strato
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI */
@@ -11765,7 +11765,7 @@ export interface SourceSetupApi {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato */
+     * * `Strato` - Strato
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI */
@@ -13145,7 +13145,7 @@ export interface SourceCredentialCreateApi {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
-     * * `Strato` - Strato */
+     * * `Strato` - Strato
      * * `Medusa` - Medusa
      * * `Membrain` - Membrain
      * * `RecallAI` - RecallAI */

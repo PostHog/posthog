@@ -26895,7 +26895,7 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI */
@@ -28955,7 +28955,7 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI */
@@ -37508,7 +37508,7 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI */
@@ -38876,7 +38876,7 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI */
@@ -79572,7 +79572,7 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI */
@@ -80956,7 +80956,7 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI */
@@ -82322,7 +82322,7 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
        * * `Medusa` - Medusa
        * * `Membrain` - Membrain
        * * `RecallAI` - RecallAI */
