@@ -2211,9 +2211,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "goal_flow": goal_flow,
             "monthly_credit_budget": monthly_credit_budget,
         }
-        # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
-        # receive its content through the draft either.
-        include_business_context = get_authenticator_scopes(request.successful_authenticator) is None
+        # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
+        # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
+        # actions) is gated per resource against these scopes inside the drafter.
+        allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
+        include_business_context = allowed_scopes is None
 
         try:
             if goal_flow:
@@ -2224,6 +2226,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     monthly_credit_budget=cast(int, monthly_credit_budget),
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
+                    allowed_scopes=allowed_scopes,
                 )
             else:
                 drafted = draft_scanner_from_goal(

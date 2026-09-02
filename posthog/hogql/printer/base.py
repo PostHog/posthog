@@ -1549,9 +1549,13 @@ class BasePrinter(Visitor[str]):
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
             return "UTC"
+        if self.context.timezone is not None:
+            return self.context.timezone
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:
+        if self.context.week_start_day is not None:
+            return self.context.week_start_day
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
