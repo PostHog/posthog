@@ -187,10 +187,10 @@ describe('pagePerformanceLogic', () => {
                 comparedWindow
             )
 
-            expect(mergePagePerformanceSeries(human, crawler, 'day')).toEqual([
-                { label: 'Aug 3', visitors: 50, google: 20, llm: 3, crawls: 0 },
-                { label: 'Aug 4', visitors: 0, google: 0, llm: 0, crawls: 700 },
-                { label: 'Aug 5', visitors: 40, google: 10, llm: 2, crawls: 0 },
+            expect(mergePagePerformanceSeries(human, crawler)).toEqual([
+                { label: '2026-08-03T05:00:00.000Z', visitors: 50, google: 20, llm: 3, crawls: 0 },
+                { label: '2026-08-04T05:00:00.000Z', visitors: 0, google: 0, llm: 0, crawls: 700 },
+                { label: '2026-08-05T05:00:00.000Z', visitors: 40, google: 10, llm: 2, crawls: 0 },
             ])
         })
 

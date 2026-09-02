@@ -1217,10 +1217,10 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert [agent["agent_key"] for agent in results] == ["support", "scout"]
-        assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout"]
+        assert [agent["agent_key"] for agent in results] == ["support", "scout", "workflow"]
+        assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout", "posthog-workflow"]
         assert all(agent["status"] == "active" for agent in results)
-        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
     def test_list_reconciles_legacy_built_in_agent_handles(self) -> None:
         self._make_admin()
@@ -1237,7 +1237,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.json()["results"][0]["id"] == str(support_account.id)
         # Reconciliation renames the legacy row in place (keyed on token_hash),
         # so the catalog stays at exactly one row per built-in agent.
-        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
     def test_agents_cannot_be_created_or_deleted(self) -> None:
         self._make_admin()
@@ -1434,10 +1434,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(server.id),
                 "name": "Personal Notion",
                 "description": "",
+                "url": "https://mcp.personal-notion.example.com/mcp",
                 "icon_key": "",
                 "icon_domain": "",
                 "connection_state": "ready",
                 "scope": "personal",
+                "reachable": True,
             }
         ]
 
@@ -1877,10 +1879,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(server.id),
                 "name": "Notion",
                 "description": "Notion workspace",
+                "url": "https://mcp.notion-agent-summary.example.com/mcp",
                 "icon_key": "notion",
                 "icon_domain": "notion.so",
                 "connection_state": "missing_credential",
                 "scope": "personal",
+                "reachable": True,
             }
         ]
 
@@ -2273,10 +2277,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(granted_server.id),
                 "name": "Agent only",
                 "description": "",
+                "url": "https://mcp.agent-only.example.com/mcp",
                 "icon_key": "",
                 "icon_domain": "",
                 "connection_state": "ready",
                 "scope": "personal",
+                "reachable": False,
             }
         ]
 
@@ -2307,6 +2313,37 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert str(granted_server.id) not in revoke_response.json()["server_ids"]
         assert revoked_catalog_response.status_code == status.HTTP_200_OK
         assert revoked_catalog_response.json()["results"] == []
+
+    def test_revoked_grant_owner_serializes_reachable_false_for_their_grant_only(self) -> None:
+        account = self._active_scout_account()
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Team Notion",
+            url="https://mcp.revoked-grant-owner.example.com/mcp",
+        )
+        revoked_member = self._create_user("revoked-gateway-member@posthog.com")
+        for grant_user in (self.user, revoked_member):
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+                team=self.team,
+                user=grant_user,
+                service_account=account,
+                gateway_server=server,
+                scope="team",
+                granted_by=grant_user,
+            )
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            user=revoked_member,
+            revoked_by=self.user,
+        )
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        scout = next(row for row in response.json()["results"] if row["agent_key"] == "scout")
+        reachable_by_owner = {row["shared_by"]["id"]: row["reachable"] for row in scout["servers"]}
+        assert reachable_by_owner == {self.user.id: True, revoked_member.id: False}
 
     def test_agent_catalog_query_count_does_not_grow_with_accessible_servers(self) -> None:
         account = self._active_scout_account()

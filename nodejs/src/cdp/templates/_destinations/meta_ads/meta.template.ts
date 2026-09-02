@@ -37,6 +37,20 @@ const multiContents =
     "{arrayMap(x -> ({'id': x.sku ?? x.product_id, 'quantity': x.quantity, 'item_price': x.price}), arrayFilter(x -> (not empty(x.sku) or not empty(x.product_id)) and not empty(x.quantity), event.properties.products ?? []))}"
 const numItems = '{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}'
 
+// Meta's _fbc cookie value, `fb.<subdomainIndex>.<clickTimeMs>.<fbclid>`. Sources in order: a value
+// the site stores itself, the $fbc PostHog stamps when it sees the fbclid, and an fbclid on this
+// event. The last one only applies when the person holds no $fbc, because a click PostHog already
+// dated must not come back undated. The code drops a value Meta would reject as too old.
+const fbc =
+    "{person.properties.fbc ?? person.properties.$fbc ?? (not empty(event.properties.fbclid) ? f'fb.1.{toUnixTimestampMilli(event.timestamp)}.{event.properties.fbclid}' : '')}"
+
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
+
+// Meta's _fbp cookie value, `fb.<subdomainIndex>.<creationTimeMs>.<randomNumber>`. It identifies a
+// browser rather than a click, so PostHog cannot derive it and this reads a value the site mints.
+const fbp = "{person.properties.fbp ?? ''}"
+
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'alpha',
@@ -89,9 +103,29 @@ fn parseValueIfArray(value) {
     return value
 }
 
+// Meta rejects an ad click older than 90 days, the lifetime of the pixel's _fbc cookie, so a stale
+// click is dropped instead of sent. The value states its own click time, in segment 3. Meta's
+// parameter builder library appends a fifth segment, which stays on the value it sends back.
+fn freshClickId(value) {
+    if (typeof(value) != 'string') {
+        return null
+    }
+    if (not match(value, '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)?\$')) {
+        return null
+    }
+    // A click cannot precede the conversion it caused. The tolerance holds a click and the pageview
+    // that reports it, stamped from one browser clock, in either order.
+    let ageMs := toUnixTimestampMilli(event.timestamp) - toFloat(splitByString('.', value)[3])
+    if (ageMs < ${-CLOCK_SKEW_TOLERANCE_MS} or ageMs >= ${NINETY_DAYS_MS}) {
+        return null
+    }
+    return value
+}
+
 for (let key, value in inputs.userData) {
-    if (not empty(value)) {
-        body.data.1.user_data[key] := parseValueIfArray(value)
+    let cleaned := key == 'fbc' ? freshClickId(value) : parseValueIfArray(value)
+    if (not empty(cleaned)) {
+        body.data.1.user_data[key] := cleaned
     }
 }
 
@@ -202,7 +236,8 @@ if (res.status >= 400) {
                 em: '{sha256Hex(lower(person.properties.email))}',
                 fn: '{sha256Hex(lower(person.properties.first_name))}',
                 ln: '{sha256Hex(lower(person.properties.last_name))}',
-                fbc: "{match(person.properties.fbclid ?? person.properties.$initial_fbclid ?? '', '^fb[.][0-9]+[.][0-9]+[.][A-Za-z0-9_-]+$') ? person.properties.fbclid ?? person.properties.$initial_fbclid : (match(person.properties.fbclid ?? person.properties.$initial_fbclid ?? '', '^[A-Za-z0-9_-]+$') ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : '')}",
+                fbc,
+                fbp,
                 client_user_agent: '{event.properties.$raw_user_agent}',
             },
             secret: false,
