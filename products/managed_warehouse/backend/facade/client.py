@@ -82,6 +82,7 @@ def compile_hogql_to_trino_sql(
     team: Team | None = None,
     user: User | None = None,
     bypass_warehouse_access_control: bool = False,
+    include_hogql: bool = False,
 ) -> TrinoCompiledQuery:
     from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keep the optional compiler off startup paths
         compile_hogql_to_trino_sql as _compile_hogql_to_trino_sql,
@@ -93,6 +94,7 @@ def compile_hogql_to_trino_sql(
         team=team,
         user=user,
         bypass_warehouse_access_control=bypass_warehouse_access_control,
+        include_hogql=include_hogql,
     )
 
 
