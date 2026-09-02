@@ -861,7 +861,6 @@ const DJANGO_SEGMENTS = {
         // ci-backend.yml's "Run Core tests" step.
         include: [
             'posthog/clickhouse/',
-            'posthog/queries/',
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
