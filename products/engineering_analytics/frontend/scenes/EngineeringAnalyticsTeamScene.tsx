@@ -15,7 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EntityHeader } from '../components/EntityHeader'
-import { CountWithDelta } from '../components/MetricTile'
+import { CountWithPrior } from '../components/MetricTile'
 import { Section } from '../components/Section'
 import { compactHoursLabel } from '../lib/format'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
@@ -65,7 +65,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             width: 140,
             align: 'right',
             sorter: (a, b) => a.signalCount - b.signalCount,
-            render: (_, row) => <CountWithDelta current={row.signalCount} prior={row.signalCountPrior} />,
+            render: (_, row) => <CountWithPrior current={row.signalCount} prior={row.signalCountPrior} />,
         },
         {
             title: 'Last seen',

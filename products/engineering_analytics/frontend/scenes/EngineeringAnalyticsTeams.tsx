@@ -7,7 +7,7 @@ import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { urls } from 'scenes/urls'
 
-import { CountWithDelta } from '../components/MetricTile'
+import { CountWithPrior } from '../components/MetricTile'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { rowNavigationProps } from '../lib/rowNavigation'
 import {
@@ -69,7 +69,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             tooltip:
                 'Owned tests one commit was seen both failing and passing in this window, vs the previous one. Only tests with that recovery proof count as flaky.',
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
-            render: (_, row) => <CountWithDelta current={row.flakyTestCount} prior={row.flakyTestCountPrior} />,
+            render: (_, row) => <CountWithPrior current={row.flakyTestCount} prior={row.flakyTestCountPrior} />,
         },
         {
             title: 'Regressions',
@@ -80,7 +80,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 'Owned tests that failed with no recorded recovery and still hit several PRs or master. Treat as real breaks until a recovery proves otherwise.',
             sorter: (a, b) => a.regressionTestCount - b.regressionTestCount,
             render: (_, row) => (
-                <CountWithDelta current={row.regressionTestCount} prior={row.regressionTestCountPrior} />
+                <CountWithPrior current={row.regressionTestCount} prior={row.regressionTestCountPrior} />
             ),
         },
         {
@@ -91,7 +91,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             tooltip:
                 'CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded.',
             sorter: (a, b) => a.failedRunCount - b.failedRunCount,
-            render: (_, row) => <CountWithDelta current={row.failedRunCount} prior={row.failedRunCountPrior} />,
+            render: (_, row) => <CountWithPrior current={row.failedRunCount} prior={row.failedRunCountPrior} />,
         },
         {
             title: 'Recoveries',
@@ -102,7 +102,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 'Runs where one commit both failed and passed an owned test (a re-run went green, or an in-job retry recovered it). This is what proves a flake.',
             sorter: (a, b) => a.sameCommitRecoveryRunCount - b.sameCommitRecoveryRunCount,
             render: (_, row) => (
-                <CountWithDelta current={row.sameCommitRecoveryRunCount} prior={row.sameCommitRecoveryRunCountPrior} />
+                <CountWithPrior current={row.sameCommitRecoveryRunCount} prior={row.sameCommitRecoveryRunCountPrior} />
             ),
         },
     ]
@@ -117,8 +117,8 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                         Team CI health
                     </h3>
                     <p className="m-0 text-xs text-tertiary">
-                        The CI test surfaces each team owns (flaky tests and failures), with the change vs the previous
-                        window. Ownership comes from the repo's ownership map, never from authorship.
+                        The CI test surfaces each team owns (flaky tests and failures), with the previous window for
+                        comparison. Ownership comes from the repo's owners.yaml files, never from authorship.
                     </p>
                 </div>
                 <DateFilter
@@ -137,7 +137,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 rowClassName="cursor-pointer"
                 onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, teamsWindow, sourceId))}
                 loading={teamsLoading}
-                pagination={{ pageSize: 25 }}
+                pagination={{ pageSize: 10 }}
                 useURLForSorting={false}
                 emptyState="No team-attributed CI signal in this window. Signal appears once CI emits test spans with ownership stamps."
                 nouns={['team', 'teams']}
