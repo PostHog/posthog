@@ -34,13 +34,13 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from . import contracts
 
 if TYPE_CHECKING:
+    from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
     from products.endpoints.backend.logic.ai_materialization_fix import (
         REWRITE_CONTRACT,
         live_materialization_conditions_source,
         materialization_fix_enabled,
         suggest_materialization_fix,
     )
-    from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
     from products.endpoints.backend.logic.crud import EndpointCrudService
     from products.endpoints.backend.logic.execution import EndpointExecutionService
     from products.endpoints.backend.logic.materialization import (
@@ -154,6 +154,7 @@ __all__ = [
     "EndpointCrudService",
     "EndpointExecutionService",
     "EndpointMaterializationService",
+    "build_endpoint_hogql",
     "build_materialization_info",
     "generate_openapi_spec",
     "get_endpoint",
@@ -164,6 +165,7 @@ __all__ = [
     "live_materialization_conditions_source",
     "materialization_fix_enabled",
     "suggest_materialization_fix",
+    "transform_materialized_insight_response",
     "validate_bucket_overrides",
     "validate_endpoint_request",
     "validate_update_request",

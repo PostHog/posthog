@@ -674,12 +674,6 @@ product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
 product_analytics.Insight surveys.Survey.linked_insight reverse-accessor(surveys_linked_insight) 1
-product_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(FunnelsQuery) 1
-product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_materialization drives(LifecycleQuery) 1
-product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_materialization drives(RetentionQuery) 1
-product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(LifecycleQuery) 1
-product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(RetentionQuery) 1
-product_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(FunnelsQuery) 1
 replay_vision.ReplayScanner posthog.TaggedItem.replay_scanner reverse-accessor(tagged_items) 1
 signals.SignalReport tasks.Task.signal_report reverse-accessor(task) 1
 surveys.Survey product_tours.ProductTour.linked_surveys reverse-accessor(product_tours) 1
