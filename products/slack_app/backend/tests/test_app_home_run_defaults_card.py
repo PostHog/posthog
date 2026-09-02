@@ -5,7 +5,7 @@ from posthog.models.integration import Integration
 
 from products.slack_app.backend.models import SlackSettings
 from products.slack_app.backend.services.slack_app_home import _resolve_run_defaults_state
-from products.tasks.backend.models import TeamTasksConfig
+from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences
 
 WORKSPACE = "TWORKSPACE"
 
@@ -20,14 +20,8 @@ class TestRunDefaultsCardRouting(APIBaseTest):
         self.int_b = Integration.objects.create(
             team=self.team_b, kind="slack", integration_id=WORKSPACE, sensitive_config={"access_token": "x"}
         )
-        TeamTasksConfig.objects.update_or_create(
-            team=self.team,
-            defaults={"ai_run_preferences": {"runtime_adapter": "claude", "model": "model-a"}},
-        )
-        TeamTasksConfig.objects.update_or_create(
-            team=self.team_b,
-            defaults={"ai_run_preferences": {"runtime_adapter": "claude", "model": "model-b"}},
-        )
+        update_team_ai_run_preferences(self.team.id, runtime_adapter="claude", model="model-a", reasoning_effort=None)
+        update_team_ai_run_preferences(self.team_b.id, runtime_adapter="claude", model="model-b", reasoning_effort=None)
 
     # The card must never read a project outside the viewer's accessible set — the
     # install's own team and even the workspace default can both point at a project

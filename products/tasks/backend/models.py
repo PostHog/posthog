@@ -3809,7 +3809,7 @@ class TeamTasksConfig(models.Model):
 
     # db_constraint=False: adding an FK constraint to the hot posthog_team table takes a
     # SHARE ROW EXCLUSIVE lock on it; app-level integrity is enough here.
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+", db_constraint=False)
     # {"runtime_adapter": str, "model": str, "reasoning_effort": str} — keys absent when unset.
     # Same shape as SlackSettings.ai_preferences; validated as a whole triple on write
     # (see logic/services/ai_run_defaults.py).

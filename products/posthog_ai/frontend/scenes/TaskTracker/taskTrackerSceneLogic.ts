@@ -158,6 +158,7 @@ export interface taskTrackerSceneLogicValues {
     tasks: Task[] // tasksLogic
     overrideHeadlines: string[] | null // welcomeOverrideLogic
     activeSuggestionGroup: SuggestionGroup | null
+    composerAdapter: string
     consentBlocked: boolean
     desktopAccess: LegacyDesktopAccessResponseApi | null
     desktopAccessLoading: boolean
@@ -166,7 +167,6 @@ export interface taskTrackerSceneLogicValues {
     displayModel: string
     hasDesktopAccess: boolean
     headlineSeed: number
-    composerAdapter: string
     isDefaultSelection: boolean
     isSubmittingTask: boolean
     newTaskData: TaskCreateForm
@@ -416,18 +416,18 @@ export interface taskTrackerSceneLogicMeta {
         hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
         displayModel: (newTaskData: TaskCreateForm, defaultModel: string | null) => string
-        composerAdapter: (
-            newTaskData: TaskCreateForm,
-            displayModel: string,
-            defaultRuntimeAdapter: string | null,
-            catalogue: ModelChoiceApi[]
-        ) => string
         displayEffort: (
             newTaskData: TaskCreateForm,
             defaultEffort: string | null,
             displayModel: string,
             catalogue: ModelChoiceApi[]
         ) => ReasoningEffortEnumApi
+        composerAdapter: (
+            newTaskData: TaskCreateForm,
+            displayModel: string,
+            defaultRuntimeAdapter: string | null,
+            catalogue: ModelChoiceApi[]
+        ) => string
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
     }
 }
