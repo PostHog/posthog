@@ -39,6 +39,15 @@ const insightLogicProps: InsightLogicProps = {
     } as unknown as QueryBasedInsightModel,
 }
 
+const openInsightIdentity: Pick<QueryBasedInsightModel, 'id' | 'short_id'> = {
+    id: 42,
+    short_id: 'abc123' as InsightShortId,
+}
+const numericShortIdInsightIdentity: Pick<QueryBasedInsightModel, 'id' | 'short_id'> = {
+    id: 42,
+    short_id: '999' as InsightShortId,
+}
+
 describe('insightAiSyncLogic', () => {
     let logic: ReturnType<typeof insightAiSyncLogic.build>
     let insightSceneLogic: ReturnType<typeof insightLogic.build>
@@ -107,16 +116,16 @@ describe('insightAiSyncLogic', () => {
     test.each(['id', 'insightId', 'insight_id', 'short_id', 'shortId'])(
         'accepts the generated MCP %s alias when it names the open insight',
         (alias) => {
-            expect(insightToolTargetsCurrentInsight({ [alias]: 'abc123' }, { id: 42, short_id: 'abc123' })).toBe(true)
+            expect(insightToolTargetsCurrentInsight({ [alias]: 'abc123' }, openInsightIdentity)).toBe(true)
         }
     )
 
     it('prefers a numeric primary key and fails closed for an ambiguous numeric short ID', () => {
-        expect(insightToolTargetsCurrentInsight({ shortId: '42' }, { id: 42, short_id: '999' })).toBe(true)
-        expect(insightToolTargetsCurrentInsight({ shortId: '999' }, { id: 42, short_id: '999' })).toBe(false)
-        expect(
-            insightToolTargetsCurrentInsight({ id: 42, short_id: 'another-insight' }, { id: 42, short_id: 'abc123' })
-        ).toBe(false)
+        expect(insightToolTargetsCurrentInsight({ shortId: '42' }, numericShortIdInsightIdentity)).toBe(true)
+        expect(insightToolTargetsCurrentInsight({ shortId: '999' }, numericShortIdInsightIdentity)).toBe(false)
+        expect(insightToolTargetsCurrentInsight({ id: 42, short_id: 'another-insight' }, openInsightIdentity)).toBe(
+            false
+        )
     })
 
     it('keeps a metadata draft when PostHog AI updates the insight', async () => {

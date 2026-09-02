@@ -37,7 +37,7 @@ describe('dashboardAiSyncLogic', () => {
             },
         })
         initKeaTests()
-        subscriptionsListSpy = jest.spyOn(api.subscriptions, 'list').mockResolvedValue({ results: [], count: 0 })
+        subscriptionsListSpy = jest.spyOn(api.subscriptions, 'list').mockResolvedValue({ results: [] })
         alertsListSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
         logic = dashboardAiSyncLogic({ dashboardId: 5 })
         logic.mount()
