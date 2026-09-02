@@ -230,11 +230,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                             status: 'suggested',
                         })
                     } catch (error) {
-                        // A panel nobody asked for must not shout. The endpoint 404s wherever the flag is
-                        // off, and the loader's default failure toast would put "Load proposals failed" in
-                        // front of every user the backend rollout hasn't reached. But a 5xx or a dropped
-                        // connection is a real failure: let it reject so the loader keeps the last known
-                        // list and surfaces it, rather than erasing pending suggestions on a failed reload.
+                        // A 404 is the flag being off, which must not toast at every user the rollout
+                        // has not reached. Anything else rejects, so the loader keeps the last known list.
                         if (error instanceof ApiError && error.status === 404) {
                             return { count: 0, results: [] }
                         }
@@ -379,10 +376,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         },
     })),
     listeners(({ actions, values, props }) => ({
-        // Publishing, discarding and restoring all resolve through the workflow, not through this
-        // panel, and each one changes what the panel should say: a suggestion becomes applied, an
-        // approved one returns to the queue, and a pending one written against the old version
-        // becomes out of date. The version moving is the one signal that covers all three, and it
+        // Publishing, discarding and restoring happen outside this panel and each one changes what it
+        // should say, so a version move reloads the queue. The version moving is the one signal that covers all three, and it
         // keeps an ordinary reload from refetching the queue.
         [workflowLogic({ id: props.id }).actionTypes.loadWorkflowSuccess]: () => {
             const version = values.originalWorkflow?.version ?? null
