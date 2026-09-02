@@ -11,7 +11,7 @@ from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.utils.timezone import now
 
 import structlog
@@ -560,6 +560,11 @@ class RedshiftCopyInputsSerializer(serializers.Serializer):
     )
 
 
+class RedshiftExportMode(models.TextChoices):
+    INSERT = "INSERT", "INSERT"
+    COPY = "COPY", "COPY"
+
+
 class RedshiftDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a Redshift batch-export destination.
 
@@ -598,7 +603,7 @@ class RedshiftDestinationConfigSerializer(serializers.Serializer):
         help_text="Data type used for JSON-like columns such as event properties.",
     )
     mode = serializers.ChoiceField(
-        choices=["INSERT", "COPY"],
+        choices=RedshiftExportMode.choices,
         required=False,
         default="INSERT",
         help_text="How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.",
