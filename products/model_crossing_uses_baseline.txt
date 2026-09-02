@@ -359,7 +359,6 @@ posthog.Team pulse.ProductBrief.team reverse-accessor(productbrief_set) 1
 posthog.Team pulse.ResourceLink.team reverse-accessor(resourcelink_set) 1
 posthog.Team reminders.Reminder.team reverse-accessor(reminder_set) 1
 posthog.Team replay.ExportedRecording.team reverse-accessor(exported_recordings) 1
-posthog.Team replay_vision.VisionAction.team reverse-accessor(vision_actions) 1
 posthog.Team signals.SignalEmissionRecord.team reverse-accessor(signalemissionrecord_set) 1
 posthog.Team signals.SignalProjectProfile.team reverse-accessor(signal_project_profiles) 1
 posthog.Team signals.SignalReport.team reverse-accessor(signalreport_set) 1
@@ -384,6 +383,7 @@ posthog.Team tasks.SandboxEnvironment.team reverse-accessor(sandboxenvironment_s
 posthog.Team tasks.Task.team reverse-accessor(task_set) 1
 posthog.Team tasks.TaskRun.team reverse-accessor(taskrun_set) 1
 posthog.Team tasks.TaskWorkflowDispatch.team reverse-accessor(taskworkflowdispatch_set) 1
+posthog.Team tracing.TeamTracingConfig.team reverse-accessor(teamtracingconfig) 1
 posthog.Team tracing.TracingView.team reverse-accessor(tracingview_set) 1
 posthog.Team user_interviews.IntervieweeContext.team reverse-accessor(intervieweecontext_set) 1
 posthog.Team user_interviews.UserInterview.team reverse-accessor(userinterview_set) 1

@@ -158,13 +158,15 @@ def dag_can_bootstrap_to_tiers(dag: DAG) -> bool:
 
     A DAG carrying live v1 schedules is deliberately left alone — tiers next to them would
     materialize everything twice. It stays for a migration command to convert and sweep.
+
+    Deliberately not gated on `data-modeling-tiered-schedules`. Nothing mints v1 schedules any
+    more, so a DAG this declines gets no scheduler at all rather than the older one, and the flag
+    evaluates false for every self-hosted deployment.
     """
-    if not tiered_schedules_enabled(dag.team):
-        return False
     return not dag_has_live_v1_schedules(dag)
 
 
-def bootstrap_dag_to_tiers(dag: DAG) -> None:
+def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     """Seed the DAG's targets and queue the reconcile that creates its first tier schedules.
 
     Everything here is a side effect, and `transaction.on_commit` runs the callback immediately
@@ -175,17 +177,26 @@ def bootstrap_dag_to_tiers(dag: DAG) -> None:
     Reconciles without `require_tiered`, because this is the pass that creates the DAG's first
     tier schedules: `maybe_reconcile_dag` cannot stand in for it, since it declines a DAG that
     has no tier schedule yet.
+
+    `requested_by` is the saved query whose enable triggered this, and is marked not materialized
+    if the reconcile fails.
     """
     persist_seed_targets(dag)
-    transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag))
+    transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag, requested_by))
 
 
-def _bootstrap_dag_best_effort(dag: DAG) -> None:
+def _bootstrap_dag_best_effort(dag: DAG, requested_by: "DataWarehouseSavedQuery | None" = None) -> None:
     try:
         reconcile_dag_schedules(dag)
     except Exception as error:
         logger.exception("Freshness schedule bootstrap failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
+        if requested_by is not None:
+            # A bootstrap that fails creates no schedule, so nothing will ever run the query that
+            # asked for one. Retract the claim here rather than re-raise: this runs after the
+            # caller's transaction committed, so there is no longer a caller to catch it.
+            requested_by.is_materialized = False
+            requested_by.save(update_fields=["is_materialized"])
 
 
 def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> None:
