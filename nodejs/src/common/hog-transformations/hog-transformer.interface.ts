@@ -14,6 +14,10 @@ export interface HogTransformationResult {
     invocationResults: unknown[]
     // Set when `event` is null: the transformation that dropped the event.
     droppedBy?: { id: string; name: string }
+    // Transformations that ran but returned a malformed result, so their changes
+    // were discarded while the event still ingested. Ingestion surfaces these as
+    // warnings so the silent property loss is detectable.
+    invalidTransformations?: { id: string; name: string; reason: string }[]
 }
 
 export interface HogTransformer {

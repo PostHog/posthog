@@ -63,6 +63,12 @@ export const hogTransformationUnexpectedErrors = new Counter({
     help: 'Number of unexpected errors during transformation execution. Any occurrence should trigger an alert as the transformation is skipped.',
 })
 
+export const hogTransformationInvalidResults = new Counter({
+    name: 'hog_transformation_invalid_results_total',
+    help: 'Number of transformation results discarded because the returned event was malformed. The event is ingested without the transformation applied, so its changes are lost.',
+    labelNames: ['reason'],
+})
+
 export interface TransformationResult extends HogTransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -178,6 +184,23 @@ export class HogTransformerService implements HogTransformer {
         }
 
         const results: CyclotronJobInvocationResult[] = []
+        const invalidTransformations: NonNullable<TransformationResult['invalidTransformations']> = []
+
+        // A transformation ran but returned a malformed event. Its changes are discarded and the
+        // event keeps its previous values. Record a signal so this silent loss is detectable.
+        const recordInvalidResult = (
+            hogFunction: HogFunctionType,
+            result: CyclotronJobInvocationResult,
+            reason: string
+        ): void => {
+            hogTransformationInvalidResults.inc({ reason })
+            // Mark the buffered invocation as failed rather than queueing a 'failed' app metric here.
+            // The batch flush derives one terminal metric per invocation, treating a finished result
+            // with no error as 'succeeded'. Queueing 'failed' here as well would count the same
+            // invocation twice with opposite outcomes, so its success rate would not move.
+            result.error = `Invalid transformation result: ${reason}`
+            invalidTransformations.push({ id: hogFunction.id, name: hogFunction.name, reason })
+        }
 
         // Create globals once and update the event properties after each transformation
         const globals = this.createInvocationGlobals(event)
@@ -245,6 +268,12 @@ export class HogTransformerService implements HogTransformer {
                     },
                     'hog_function'
                 )
+                // The event is dropped here, so invalidTransformations is intentionally not
+                // returned. The transformation_result_invalid warning states that the event
+                // ingested unchanged, which is false for a dropped event, so raising it would
+                // contradict itself. recordInvalidResult already recorded each invalid result on
+                // the Grafana counter and the per-function failure metric, so only the sampled
+                // ingestion warning is skipped for this event.
                 return {
                     event: null,
                     invocationResults: results,
@@ -264,6 +293,7 @@ export class HogTransformerService implements HogTransformer {
                 logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                     function_id: hogFunction.id,
                 })
+                recordInvalidResult(hogFunction, result, 'missing_properties')
                 continue
             }
 
@@ -276,6 +306,7 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         event: transformedEvent.event,
                     })
+                    recordInvalidResult(hogFunction, result, 'invalid_event_name')
                     continue
                 }
                 event.event = transformedEvent.event
@@ -287,6 +318,7 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         distinct_id: transformedEvent.distinct_id,
                     })
+                    recordInvalidResult(hogFunction, result, 'invalid_distinct_id')
                     continue
                 }
                 event.distinct_id = transformedEvent.distinct_id
@@ -301,6 +333,7 @@ export class HogTransformerService implements HogTransformer {
         return {
             event,
             invocationResults: results,
+            invalidTransformations,
         }
     }
 

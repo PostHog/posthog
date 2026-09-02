@@ -106,6 +106,11 @@ export const INGESTION_WARNING_TYPES = {
 
     // Transformations — user-configured hog transformations
     event_dropped_by_transformation: { category: 'transformation', severity: 'info' },
+    // A transformation ran but returned a malformed result, so its changes were
+    // discarded and the event was ingested unchanged. Severity is 'warning'
+    // because the event still ingests, but without the properties the
+    // transformation should have set.
+    transformation_result_invalid: { category: 'transformation', severity: 'warning' },
 
     // Session replay — rejected or suspicious replay messages
     replay_lib_version_too_old: { category: 'replay', severity: 'info' },

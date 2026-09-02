@@ -717,6 +717,18 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).toEqual({
                 success: true,
             })
+
+            // The discarded result is reported so the silent property loss stays detectable
+            expect(result.invalidTransformations).toEqual([
+                { id: failFunction.id, name: failFunction.name, reason: 'missing_properties' },
+            ])
+
+            // The discarded invocation is marked as failed so the batch flush derives a single
+            // 'failed' terminal metric for it rather than counting it as a success.
+            const failInvocation = result.invocationResults.find(
+                (invocationResult) => invocationResult.invocation.functionId === failFunction.id
+            )
+            expect(failInvocation?.error).toBeTruthy()
         })
 
         it('should pull from inputs and encrypted_inputs', async () => {
