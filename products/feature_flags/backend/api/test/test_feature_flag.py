@@ -7999,6 +7999,33 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # The lifecycle actions declare feature_flag:write, so viewer access reads the flag but
+        # cannot flip its state.
+        viewable_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="read-only flag",
+            key="read-only-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=viewable_flag.id, team=self.team, access_level="viewer"
+        )
+
+        assert (
+            self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{viewable_flag.id}/").status_code
+            == status.HTTP_200_OK
+        )
+        for lifecycle_action in ("enable", "disable", "archive", "unarchive"):
+            lifecycle_response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{viewable_flag.id}/{lifecycle_action}/",
+                {},
+                format="json",
+            )
+            assert lifecycle_response.status_code == status.HTTP_403_FORBIDDEN, lifecycle_action
+        viewable_flag.refresh_from_db()
+        assert viewable_flag.active is True
+        assert viewable_flag.archived is False
+
     def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
         # Regression: a flag with a team-wide "none" default plus a single explicit
         # editor grant becomes invisible to everyone once the grantee is removed
