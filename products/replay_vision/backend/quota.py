@@ -415,7 +415,7 @@ def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanne
     capped_ids = [scanner_id for scanner_id, _, _, credit_limit in rows if credit_limit is not None]
     budgets = compute_scanner_budgets(organization_id, capped_ids) if capped_ids else {}
     now = datetime.now(UTC)
-    total = 0
+    total = 0.0
     for scanner_id, model, estimate, _credit_limit in rows:
         rate = observation_credits_for_model(model) * (estimate or 0)
         budget = budgets.get(scanner_id)
