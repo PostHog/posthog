@@ -3081,7 +3081,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "mcp_vendor_client": {
             "label": "MCP vendor client (legacy)",
-            "description": "Older unprefixed variant of $mcp_vendor_client. Stamped only by PostHog's hosted MCP server; prefer $mcp_vendor_client for new queries.",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "mcp_session_client_name": {

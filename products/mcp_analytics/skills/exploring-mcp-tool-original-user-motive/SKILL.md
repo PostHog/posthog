@@ -124,15 +124,18 @@ SELECT
     -- Caller and org are client-controlled and end up transcribed into Python
     -- source, so they are constrained here rather than trusted later. The
     -- charset excludes quotes, backslashes, newlines and the pipe delimiter.
+    -- The vendor outranks the client name: Anthropic's pooled surfaces all
+    -- report the generic "Anthropic/ClaudeAI" client name, and only the vendor
+    -- header separates Claude Code from Cowork from Claude.ai.
     if(match(multiIf(
             o.consumer != '', concat('consumer:', o.consumer),
-            o.client != '', o.client,
             o.vendor != '', o.vendor,
+            o.client != '', o.client,
             'unattributed'), '^[A-Za-z0-9 ()._:/-]{1,60}$'),
        multiIf(
             o.consumer != '', concat('consumer:', o.consumer),
-            o.client != '', o.client,
             o.vendor != '', o.vendor,
+            o.client != '', o.client,
             'unattributed'),
        'unsafe-caller-value') AS caller,
     if(match(o.org, '^[0-9a-fA-F-]{1,40}$'), o.org, 'unsafe-org-value') AS org,
@@ -213,8 +216,8 @@ Caller identity is spread across four properties, and you have to check all of t
 | ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------ |
 | `$mcp_client_user_agent` | PostHog's own programs | `posthog/wizard; version: 2.45.0; program: nextjs`                                               |
 | `$mcp_consumer`          | the upstream surface   | `posthog-code` (Desktop), `slack`, `plugin`, `posthog-cli`                                       |
-| `$mcp_client_name`       | the calling agent      | `claude-code`, `cowork`, `claude-ai`, `cursor-vscode`, `codex-mcp-client`                        |
 | `$mcp_vendor_client`     | vendor identity        | `ClaudeCode`, `Cowork`, `ClaudeAI` (coalesce the legacy `mcp_vendor_client` for historical rows) |
+| `$mcp_client_name`       | the calling agent      | `claude-code`, `cowork`, `claude-ai`, `cursor-vscode`, `codex-mcp-client`                        |
 
 **Checking only `$mcp_client_name` will mislead you.** The setup wizard sets none of client, consumer, or vendor — it identifies itself solely in the user agent. Group by client alone and every wizard session collapses into an `unknown` bucket that looks like missing instrumentation — on a wizard-heavy tool that bucket is the largest row in the table.
 
