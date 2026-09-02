@@ -97,7 +97,10 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
     def save(self, *args, **kwargs):
         # Invalidate cache when key is updated (e.g., scopes changed, key rolled)
         # We need to invalidate the OLD secure_value in case it was changed (key rolled)
-        if self.pk:
+        # Skip DB fetch for updates that don't affect cached data (e.g., last_used_at)
+        update_fields = kwargs.get("update_fields")
+        needs_invalidation = update_fields is None or "secure_value" in update_fields or "scopes" in update_fields
+        if self.pk and needs_invalidation:
             try:
                 old_instance = ProjectSecretAPIKey.objects.get(pk=self.pk)
                 if old_instance.secure_value:
