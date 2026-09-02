@@ -507,7 +507,7 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
 
 # NOTE: Keep the AD IDs in sync with `products.web_analytics.backend.hogql_queries.session_attribution_explorer_query_runner.py`
 def finalize_aggregation(column: str) -> ast.Expr:
-    return ast.Call(name="finalizeAggregation", args=[ast.Field(chain=[column])])
+    return ast.Call(name="_finalizeAggregation", args=[ast.Field(chain=[column])])
 
 
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR: dict[str, ast.Expr] = {

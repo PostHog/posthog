@@ -25,12 +25,12 @@ from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HOGQL_PYTHON_ONLY_FUNCTIONS, HogQLParserBackend
-from posthog.hogql.errors import BaseHogQLError, QueryError, SyntaxError
+from posthog.hogql.constants import HogQLParserBackend
+from posthog.hogql.errors import BaseHogQLError, SyntaxError
 from posthog.hogql.json_ast import deserialize_ast
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.visitor import TraversingVisitor, clear_locations
+from posthog.hogql.visitor import clear_locations
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -476,30 +476,6 @@ _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.BUILTIN).set(_BUILTIN_CACHE_SIZE)
 _PARSE_CACHE_MAXSIZE.labels(cache=CacheOrigin.USER).set(_USER_CACHE_SIZE)
 
 
-_PYTHON_ONLY_FUNCTION_NAMES_LOWER = frozenset(name.lower() for name in HOGQL_PYTHON_ONLY_FUNCTIONS)
-
-
-class _PythonOnlyFunctionGuard(TraversingVisitor):
-    """Rejects calls to HOGQL_PYTHON_ONLY_FUNCTIONS in parser output.
-
-    Parser output is the only way HogQL text becomes AST, so this one check keeps those
-    functions out of every user-written query on every backend. AST that Python code builds
-    (placeholders, query runners) never passes through here."""
-
-    def visit_call(self, node: ast.Call) -> None:
-        self._check(node.name)
-        super().visit_call(node)
-
-    def visit_window_function(self, node: ast.WindowFunction) -> None:
-        self._check(node.name)
-        super().visit_window_function(node)
-
-    @staticmethod
-    def _check(name: str) -> None:
-        if name.lower() in _PYTHON_ONLY_FUNCTION_NAMES_LOWER:
-            raise QueryError(f"Function {name}() is not available in HogQL")
-
-
 def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str, start: int | None) -> Any:
     fn = RULE_TO_PARSE_FUNCTION[backend][rule]
     # Histogram wraps only the parse so `parse_*_seconds` stays a parser-perf
@@ -507,13 +483,9 @@ def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str,
     # `PROGRAM` is the only rule without a histogram.
     histogram = RULE_TO_HISTOGRAM.get(rule)
     if histogram is None:
-        node = fn(statement)
-    else:
-        with histogram.labels(backend=backend, version=_BACKEND_VERSION.get(backend, "unknown")).time():
-            node = fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
-    # Runs before the result is cached and before placeholders are spliced in.
-    _PythonOnlyFunctionGuard().visit(node)
-    return node
+        return fn(statement)
+    with histogram.labels(backend=backend, version=_BACKEND_VERSION.get(backend, "unknown")).time():
+        return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
 
 
 def _parse_cached(

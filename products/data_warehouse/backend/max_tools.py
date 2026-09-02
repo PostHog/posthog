@@ -3,7 +3,6 @@ from typing import Any
 from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from posthog.hogql.constants import HOGQL_PYTHON_ONLY_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import get_direct_connection_source
@@ -28,8 +27,7 @@ def get_hogql_functions() -> str:
     if _hogql_functions is not None:
         return _hogql_functions
 
-    # Python-only functions never parse in user-written HogQL, so the fixer must not see them either.
-    ch_functions = [name for name in HOGQL_CLICKHOUSE_FUNCTIONS if name not in HOGQL_PYTHON_ONLY_FUNCTIONS]
+    ch_functions = list(HOGQL_CLICKHOUSE_FUNCTIONS.keys())
     ch_aggregations = list(HOGQL_AGGREGATIONS.keys())
     # Underscore-prefixed functions are internal/preview (matching ALL_EXPOSED_FUNCTION_NAMES): the fixer must not
     # write them into user queries — some are env-gated or temporary and would error or break at removal.

@@ -12,7 +12,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.functions.aggregations import generate_combinator_suffix_combinations
 from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
-    ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_CLICKHOUSE_FUNCTIONS,
     find_hogql_aggregation,
     find_hogql_function,
@@ -61,10 +60,6 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
         self.assertEqual(find_hogql_function("functionThatDoesntExist"), None)
         self.assertEqual(find_hogql_aggregation("functionThatDoesntExist"), None)
         self.assertEqual(find_hogql_posthog_function("functionThatDoesntExist"), None)
-
-    def test_python_only_functions_are_registered_but_not_exposed(self):
-        self.assertIsNotNone(find_hogql_function("finalizeAggregation"))
-        self.assertNotIn("finalizeAggregation", ALL_EXPOSED_FUNCTION_NAMES)
 
     def test_compare_types(self):
         res = compare_types([IntegerType()], (IntegerType(),))

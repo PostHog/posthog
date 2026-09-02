@@ -25,11 +25,6 @@ DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
 # Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
 MAX_SELECT_RETURNED_ROWS = 50000
-# Functions the printer accepts only from AST that Python code builds. The parser rejects them in HogQL
-# text, so a user-written query can never call them. They live here rather than on HogQLFunctionMeta
-# because posthog.hogql.parser cannot import the functions package: its __init__ imports survey.py,
-# which imports the parser.
-HOGQL_PYTHON_ONLY_FUNCTIONS: frozenset[str] = frozenset({"finalizeAggregation"})
 # Max limit for retention queries.
 MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 # Max limit for heatmaps which don't really need 1 billion so have their own max

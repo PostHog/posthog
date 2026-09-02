@@ -42,7 +42,7 @@ from posthog.hogql.ast import (
     WhileStatement,
 )
 from posthog.hogql.constants import HogQLParserBackend
-from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, QueryError, SyntaxError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clear_locations
@@ -1396,21 +1396,6 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
                     right=ast.Constant(value=123),
                 ),
             )
-
-        def test_python_only_functions_are_rejected_in_text_but_not_in_placeholders(self):
-            for source in (
-                "finalizeAggregation(x)",
-                "FINALIZEAGGREGATION(x)",
-                "1 + finalizeAggregation(x) OVER ()",
-            ):
-                with self.assertRaises(QueryError) as e:
-                    self._expr(source)
-                self.assertIn("is not available in HogQL", str(e.exception))
-            with self.assertRaises(QueryError):
-                self._select("SELECT x FROM (SELECT finalizeAggregation(y) AS x FROM raw_sessions)")
-
-            call = ast.Call(name="finalizeAggregation", args=[ast.Field(chain=["x"])])
-            self.assertEqual(self._expr("{value} != ''", {"value": call}).left, call)
 
         def test_intervals(self):
             self.assertEqual(

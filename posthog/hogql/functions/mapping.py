@@ -4,7 +4,6 @@ from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.ast import IntegerType, StringType
 from posthog.hogql.base import UnknownType
-from posthog.hogql.constants import HOGQL_PYTHON_ONLY_FUNCTIONS
 from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
 
 from .aggregations import HOGQL_AGGREGATIONS
@@ -260,9 +259,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         ],
         signatures=[((StringType(),), StringType())],
     ),
-    # Reads an aggregate function state as a plain value. Only Python-built AST may call it; the parser
-    # rejects it in HogQL text (see HOGQL_PYTHON_ONLY_FUNCTIONS).
-    "finalizeAggregation": HogQLFunctionMeta("finalizeAggregation", 1, 1),
+    # Reads an aggregate function state as a plain value. The underscore keeps it out of autocomplete and
+    # marks it private: Python-built queries over the raw sessions tables use it, and it can change or go
+    # away without notice.
+    "_finalizeAggregation": HogQLFunctionMeta("finalizeAggregation", 1, 1),
 }
 
 
@@ -275,7 +275,7 @@ ALL_EXPOSED_FUNCTION_NAMES = [
         HOGQL_AGGREGATIONS.keys(),
         HOGQL_POSTHOG_FUNCTIONS.keys(),
     )
-    if not name.startswith("_") and name not in HOGQL_PYTHON_ONLY_FUNCTIONS
+    if not name.startswith("_")
 ]
 
 
