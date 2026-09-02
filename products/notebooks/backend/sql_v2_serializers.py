@@ -314,6 +314,20 @@ class NotebookSQLV2RunResponseSerializer(serializers.Serializer):
     run_id = serializers.UUIDField(
         help_text="Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal."
     )
+    starts_sandbox = serializers.BooleanField(
+        help_text=(
+            "True when this run has to provision a sandbox because none is live for the caller, checked here "
+            "rather than inferred from a client's cached kernel status. Tell the user what that costs."
+        )
+    )
+    sandbox_hourly_price = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the sandbox this run provisions costs per hour in USD. Null when the run needs no new "
+            "sandbox, or when the backend is not charged."
+        ),
+    )
 
 
 class NotebookSQLV2RunStatusResponseSerializer(serializers.Serializer):

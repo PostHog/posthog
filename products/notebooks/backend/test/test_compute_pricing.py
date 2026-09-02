@@ -285,6 +285,56 @@ class TestComputeOptionsEndpoint(APIBaseTest):
 
         assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=8, memory_gb=16)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        return_value=True,
+    )
+    def test_a_run_reusing_a_live_sandbox_discloses_nothing(
+        self, _flag: MagicMock, _alive: MagicMock, _workflow: MagicMock
+    ) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        self._live_kernel(notebook)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/run/",
+            {"node_id": "n1", "code": "print(1)", "node_type": "python"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["starts_sandbox"] is False
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    def test_a_run_with_no_live_sandbox_discloses_the_start(self, _flag: MagicMock, _workflow: MagicMock) -> None:
+        # The client used to answer this from a kernel poll up to ten seconds old, which stayed
+        # silent through a sandbox that timed out between polls.
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/run/",
+            {"node_id": "n1", "code": "print(1)", "node_type": "python"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["starts_sandbox"] is True
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_a_pure_hogql_run_never_discloses_a_sandbox(self, _flag: MagicMock, _direct: MagicMock) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sql_v2/run/",
+            {"node_id": "n1", "code": "select 1", "node_type": "hogql"},
+        )
+
+        assert response.status_code == 200, response.json()
+        payload = response.json()
+        assert payload["starts_sandbox"] is False
+        assert payload["sandbox_hourly_price"] is None
+
     def test_a_new_sandbox_gets_the_default_preset_shape(self) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)
         default_preset = get_default_compute_preset()
