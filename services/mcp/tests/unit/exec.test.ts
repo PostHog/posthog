@@ -1107,8 +1107,10 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
-        it('reminds agents to search the catalog before matching data-domain tools', async () => {
+        it('reminds agents to inspect the catalog before matching data-domain tools', async () => {
             const exec = createExec([
+                makeMockTool({ name: 'metric-list' }),
+                makeMockTool({ name: 'metric-describe' }),
                 makeMockTool({ name: 'data-catalog-metric-run' }),
                 makeMockTool({ name: 'billing-usage-get', title: 'Get billable usage' }),
             ])
@@ -1116,7 +1118,8 @@ describe('exec tool', () => {
             const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
 
             expect(result.matches).toEqual(['billing-usage-get'])
-            expect(result.hint).toContain('metric-search')
+            expect(result.hint).toContain('metric-list')
+            expect(result.hint).toContain('metric-describe')
             expect(result.hint).toContain('data-catalog-metric-run')
         })
 

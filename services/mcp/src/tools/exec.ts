@@ -48,15 +48,19 @@ const MAX_RANKED_SEARCH_RESULTS = 25
 
 const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
 
-function catalogSearchHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
-    const hasMetricRunner = allTools.some((tool) => tool.name === 'data-catalog-metric-run')
+function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
+    const availableToolNames = new Set(allTools.map((tool) => tool.name))
+    const hasMetricCatalog =
+        availableToolNames.has('metric-list') &&
+        availableToolNames.has('metric-describe') &&
+        availableToolNames.has('data-catalog-metric-run')
     const hasDataDomainMatch = matches.some((name) =>
         DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
     )
-    if (!hasMetricRunner || !hasDataDomainMatch) {
+    if (!hasMetricCatalog || !hasDataDomainMatch) {
         return undefined
     }
-    return 'For a named business or telemetry measure, search the governed catalog with metric-search before using a domain tool or raw SQL, then run an approved match with data-catalog-metric-run.'
+    return 'For a named business or telemetry measure, list the complete governed catalog with metric-list, inspect a candidate with metric-describe, then run an approved match with data-catalog-metric-run.'
 }
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
@@ -781,7 +785,7 @@ export function createExecTool(
                         })
                     }
                     if (truncatedFrom > 0) {
-                        const catalogHint = catalogSearchHint(allTools, matches)
+                        const catalogHint = catalogDiscoveryHint(allTools, matches)
                         return JSON.stringify({
                             matches,
                             truncated: true,
@@ -793,7 +797,7 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogSearchHint(allTools, matches)
+                    const catalogHint = catalogDiscoveryHint(allTools, matches)
                     if (catalogHint) {
                         return JSON.stringify({ matches, hint: catalogHint })
                     }
