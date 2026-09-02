@@ -38,6 +38,8 @@ export interface EmailSenderFormType {
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
+// Must stay in step with MAIL_FROM_SUBDOMAIN_PATTERN in posthog/api/integration.py
+const MAIL_FROM_SUBDOMAIN_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i
 
 export const parseHostname = (hostname: string, rootDomain: string): { subdomain: string; rootDomain: string } => {
     if (hostname === '@') {
@@ -58,7 +60,8 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
         email: integration.config.email,
         name: integration.config.name,
         provider: integration.config.provider,
-        mail_from_subdomain: integration.config.mail_from_subdomain,
+        // Senders saved before this field existed carry no value, so show the default the backend applies
+        mail_from_subdomain: integration.config.mail_from_subdomain || 'feedback',
     }
 }
 
@@ -207,10 +210,11 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     email: emailError,
                     name: !name ? 'Name is required' : undefined,
                     provider: !provider ? 'Provider is required' : undefined,
-                    mail_from_subdomain:
-                        values.savedIntegration === null && !mail_from_subdomain
-                            ? 'MAIL FROM subdomain is required for new senders'
-                            : undefined,
+                    mail_from_subdomain: !mail_from_subdomain
+                        ? 'Enter a MAIL FROM subdomain, for example "feedback".'
+                        : !MAIL_FROM_SUBDOMAIN_REGEX.test(mail_from_subdomain)
+                          ? 'Use only letters, numbers, and hyphens, for example "feedback". Leave out your domain.'
+                          : undefined,
                 }
             },
             submit: async (config) => {

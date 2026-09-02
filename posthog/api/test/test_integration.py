@@ -555,6 +555,70 @@ class TestEmailIntegration:
         assert not integrationOtherDomain.config["verified"]
 
 
+class TestEmailIntegrationAPIValidation(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("blank", ""),
+            ("whole_email_address", "someone@example.com"),
+            ("dotted", "mail.feedback"),
+            ("leading_hyphen", "-feedback"),
+        ]
+    )
+    @patch("posthog.models.integration.email.SESProvider")
+    def test_create_rejects_unusable_mail_from_subdomain(self, _name, subdomain, mock_ses_provider_class):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "email",
+                "config": {
+                    "email": "sender@posthog.com",
+                    "name": "Sender",
+                    "provider": "ses",
+                    "mail_from_subdomain": subdomain,
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "mail_from_subdomain" in response.json()["attr"]
+        mock_ses_provider_class.return_value.create_email_domain.assert_not_called()
+
+    @patch("posthog.models.integration.email.SESProvider")
+    def test_update_rejects_blank_mail_from_subdomain(self, mock_ses_provider_class):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="sender@posthog.com",
+            config={
+                "email": "sender@posthog.com",
+                "name": "Sender",
+                "domain": "posthog.com",
+                "mail_from_subdomain": "feedback",
+                "provider": "ses",
+                "verified": True,
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/integrations/{integration.pk}/email",
+            {
+                "config": {
+                    "email": "sender@posthog.com",
+                    "name": "Sender",
+                    "provider": "ses",
+                    "mail_from_subdomain": "",
+                }
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        mock_ses_provider_class.return_value.update_mail_from_subdomain.assert_not_called()
+        integration.refresh_from_db()
+        assert integration.config["mail_from_subdomain"] == "feedback"
+
+
 class TestDatabricksIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
