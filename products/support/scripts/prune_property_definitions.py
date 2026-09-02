@@ -48,7 +48,7 @@ from urllib.parse import urlencode
 import requests
 from lib.console import confirm, format_status_counts, log, printable
 from lib.errors import PostHogScriptError
-from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
+from lib.posthog_api import log_session_expiry, request_with_retries, resolve_host, setup_session_auth
 
 
 def iter_property_definitions(
@@ -142,6 +142,7 @@ def prune_definitions(
                 failures.append(f"{definition['name']} ({definition['id']}): HTTP {code} {response.text[:200]}")
         if index % batch_size == 0 or index == total:
             log(f"  deletes {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
+            log_session_expiry(session, host)
             batch_counts = Counter()
             batch_start = index + 1
     return status_counts, failures

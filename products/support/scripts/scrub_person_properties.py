@@ -51,6 +51,7 @@ from lib.console import confirm, format_status_counts, log, printable
 from lib.errors import PostHogScriptError
 from lib.posthog_api import (
     hogql_string_literal,
+    log_session_expiry,
     request_with_retries,
     resolve_host,
     run_hogql_query,
@@ -249,6 +250,7 @@ def scrub_via_api(
                 failures.append(f"{person['uuid']} / {', '.join(props)}: HTTP {code} {response.text[:200]}")
         if index % API_REPORT_EVERY == 0 or index == total:
             log(f"  persons {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
+            log_session_expiry(session, host)
             batch_counts = Counter()
             batch_start = index + 1
     return status_counts, failures, values_deleted

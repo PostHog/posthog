@@ -21,7 +21,7 @@ from lib.posthog_api import request_with_retries, resolve_host, setup_session_au
 
 - `lib.errors` - `PostHogScriptError`.
 - `lib.console` - `log` (stderr output), `printable` (escape untrusted text), `confirm` (typed-keyword prompt, EOF-safe), `format_status_counts` (status histogram).
-- `lib.posthog_api` - `resolve_host`, `request_with_retries` (every HTTP call), `setup_session_auth` (browser-session/impersonation auth), plus `MAX_RETRIES`.
+- `lib.posthog_api` - `resolve_host`, `request_with_retries` (every HTTP call), `setup_session_auth` (browser-session/impersonation auth), `log_session_expiry` (logs the impersonated session's remaining idle-timeout time; no-op for personal-API-key auth), plus `MAX_RETRIES`.
 
 Never re-implement retries, host resolution, auth, output, or the error type inside a script.
 If a second script needs a new shared helper, add it to `lib/` (`errors` / `console` / `posthog_api`) instead of copying it.

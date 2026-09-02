@@ -4,10 +4,13 @@ A tiny PostHog REST client: region/host resolution, a request wrapper that retri
 limits and 5xx, and session-cookie authentication for impersonated staff sessions. Both
 scripts hit the same API surface, so keeping retry/backoff, defensive Retry-After parsing,
 cookie scoping, and the acting-user safety check here means every script gets them.
+`log_session_expiry` also lets a long batch run confirm the impersonated session's idle
+timer is resetting as expected.
 """
 
 import time
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -131,3 +134,34 @@ def setup_session_auth(session: requests.Session, host: str, session_id: str) ->
         raise PostHogScriptError("Could not determine the session's authenticated user")
     confirm_acting_user(email)
     log(f"Authenticated via session as {email}")
+
+
+def get_session_expiry(session: requests.Session, host: str) -> Optional[datetime]:
+    """Return when the current impersonated session expires, or None if it isn't impersonated.
+
+    Reads `is_impersonated_until` from /api/users/@me/ - the same value
+    AutoLogoutImpersonateMiddleware enforces server-side. Always None for personal-API-key
+    auth, which isn't impersonation.
+    """
+    response = request_with_retries(session, "GET", f"{host}/api/users/@me/", max_retries=1)
+    if response.status_code != 200:
+        return None
+    expires_at = response.json().get("is_impersonated_until")
+    return datetime.fromisoformat(expires_at) if expires_at else None
+
+
+def log_session_expiry(session: requests.Session, host: str) -> None:
+    """Log how much time an impersonated session has left; no-op for personal-API-key auth.
+
+    Meant to be called from a batch-report checkpoint so a long run can confirm the idle
+    timer is resetting as expected instead of silently counting down.
+    """
+    try:
+        expires_at = get_session_expiry(session, host)
+    except PostHogScriptError as err:
+        log(f"  could not check session expiry: {err}")
+        return
+    if expires_at is None:
+        return
+    minutes_left = max(int((expires_at - datetime.now(UTC)).total_seconds() // 60), 0)
+    log(f"  session active for {minutes_left}m more (expires {expires_at.isoformat()})")
