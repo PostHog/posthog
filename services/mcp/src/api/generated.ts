@@ -90749,7 +90749,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Case-insensitive substring search across account name and external ID.
+     * Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.
      */
     search?: string;
     /**
