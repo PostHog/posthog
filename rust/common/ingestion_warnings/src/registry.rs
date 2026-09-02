@@ -127,7 +127,13 @@ mod tests {
     }
 
     // Excluded on purpose: intentional drops, auth/transport/server errors, and
-    // post-validation drops are not data-quality signals for the v2 surface.
+    // ops-imposed drops are not data-quality signals for the v2 surface.
+    //
+    // "Post-validation" is not itself the test -- customer-actionable is.
+    // `event_restriction` is excluded because the operator caused it and the
+    // project owner cannot act on it; `ai_event_too_big` is included, after the
+    // same stage, because the customer sent an oversized event and v0 already
+    // tells them so.
     #[rstest]
     #[case::intentional_drop("dropped_performance_event")]
     #[case::auth("invalid_api_token")]

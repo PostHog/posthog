@@ -457,4 +457,33 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
+
+    /// Every registered route must map to its own `&'static` label. The
+    /// fallback is silent apart from a log line, so a route registered without
+    /// being added to `CAPTURE_V1_PATHS` would quietly report AI traffic under
+    /// the analytics path -- on metrics and on ingestion warnings alike.
+    #[rstest::rstest]
+    #[case(CAPTURE_V1_PATH)]
+    #[case(crate::v1::analytics::constants::CAPTURE_V1_PATH_TRAILING)]
+    #[case(crate::v1::analytics::constants::CAPTURE_V1_AI_PATH)]
+    #[case(crate::v1::analytics::constants::CAPTURE_V1_AI_PATH_TRAILING)]
+    fn pin_static_path_round_trips_every_registered_route(#[case] path: &str) {
+        assert_eq!(super::pin_static_path(path), path);
+    }
+
+    /// The AI path must not collapse onto the analytics label, which is what
+    /// the fallback would do.
+    #[test]
+    fn pin_static_path_keeps_the_ai_path_distinct() {
+        let ai = super::pin_static_path(crate::v1::analytics::constants::CAPTURE_V1_AI_PATH);
+        assert_ne!(ai, CAPTURE_V1_PATH);
+        assert_eq!(ai, "/i/v1/ai/events");
+    }
+
+    /// An unregistered pattern falls back rather than panicking, so a routing
+    /// mistake degrades a metric label instead of dropping the request.
+    #[test]
+    fn pin_static_path_falls_back_for_an_unregistered_route() {
+        assert_eq!(super::pin_static_path("/i/v1/not/a/route"), CAPTURE_V1_PATH);
+    }
 }

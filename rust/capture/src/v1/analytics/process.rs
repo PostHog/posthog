@@ -4615,7 +4615,7 @@ mod tests {
 
         let dropped: Vec<_> = resp
             .entries()
-            .into_iter()
+            .iter()
             .filter(|(_, e)| e.result == EventResult::Drop)
             .collect();
         assert_eq!(dropped.len(), 1, "only the oversized event drops");

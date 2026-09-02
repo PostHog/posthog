@@ -277,6 +277,14 @@ Callers have two orthogonal ways to prevent an event from being produced:
 | `should_publish() == false` | Pipeline validation (e.g. `EventResult != Ok`) | Silently skipped, no `SinkResult` returned |
 | `Destination::Drop` | Routing logic (e.g. quota limiter) | `topic_for()` returns `None`, event skipped |
 
+`Destination::Drop` is the only destination allowed to skip. `topic_for()` can
+also return `None` for a destination whose topic is unset -- eight of them can,
+now that the analytics topics are per-mode optional -- and that is a
+misconfiguration rather than an instruction. The sink reports it as a fatal
+`KafkaSinkError::UnmappedDestination` with a counter, because an event skipped
+without a `SinkResult` keeps its incoming `Ok` in `merge_sink_results` and the
+client is told 200 for something never produced.
+
 ### Header construction
 
 Each `Event` implementation builds the full `CapturedEventHeaders`
