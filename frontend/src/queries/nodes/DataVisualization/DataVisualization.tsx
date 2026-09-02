@@ -233,6 +233,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     query={props.query}
                     excludeDetail
                     cancelled={queryCancelled}
+                    // A stopped query is not a failure, so don't offer the query debugger for it.
+                    excludeActions={queryCancelled}
                     title={response && 'error' in response ? (response as any).error : responseError}
                 />
             </div>
