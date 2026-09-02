@@ -305,14 +305,24 @@ class TestClusteringJobViewSet(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "event_filters")
+        self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 0)
 
-    def test_list_still_serializes_a_row_holding_a_malformed_shape(self):
+    @parameterized.expand(
+        [
+            ("bare_string", "$ai_model"),
+            ("list_holding_a_string", ["$ai_model"]),
+        ]
+    )
+    def test_list_still_serializes_a_row_holding_a_malformed_shape(self, name, stored_filters):
         # The column is an unvalidated JSONField and the config writer only checks for a
-        # list, so an existing row can hold a shape the write path now rejects.
-        self._create_job(name="Legacy", event_filters="$ai_model")
+        # list, so an existing row can hold a shape the write path now rejects. The
+        # config-to-job migration copied those values across, which is how a stored list
+        # can hold a non-dict element.
+        self._create_job(name=f"Legacy {name}", event_filters=stored_filters)
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"][0]["event_filters"], "$ai_model")
+        self.assertEqual(response.json()["results"][0]["event_filters"], stored_filters)
 
     def test_partial_update_rejects_missing_cohort_filter(self):
         job = self._create_job(name="Will be broken")
