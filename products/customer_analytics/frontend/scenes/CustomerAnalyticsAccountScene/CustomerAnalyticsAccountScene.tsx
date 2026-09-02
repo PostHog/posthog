@@ -1,8 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -11,15 +10,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
+import { AccountDetailCanvas } from './canvas/AccountDetailCanvas'
 import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
 } from './customerAnalyticsAccountSceneLogic'
+import { AccountIdentityRail } from './rail/AccountIdentityRail'
 
 export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
     component: CustomerAnalyticsAccountScene,
@@ -28,7 +28,7 @@ export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
     paramsToProps: ({ params: { accountId } }) => ({ accountId: accountId ?? '' }),
 }
 
-export function CustomerAnalyticsAccountScene(): JSX.Element {
+export function CustomerAnalyticsAccountScene({ accountId }: CustomerAnalyticsAccountSceneLogicProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]) {
@@ -41,7 +41,9 @@ export function CustomerAnalyticsAccountScene(): JSX.Element {
 
     return (
         <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
-            <CustomerAnalyticsAccountSceneContent />
+            <BindLogic logic={customerAnalyticsAccountSceneLogic} props={{ accountId }}>
+                <CustomerAnalyticsAccountSceneContent />
+            </BindLogic>
         </FeaturePreviewSceneGate>
     )
 }
@@ -82,19 +84,11 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
         )
     }
 
+    // The scene fills the main column: the rail and the canvas scroll on their own, the page does not.
     return (
-        <SceneContent>
-            <SceneTitleSection name={account.name} resourceType={{ type: 'cohort' }} />
-            <LemonCard hoverEffect={false} className="flex flex-col gap-1 max-w-xl">
-                <span className="text-xs text-secondary">External ID</span>
-                {account.external_id ? (
-                    <CopyToClipboardInline explicitValue={account.external_id} description="external ID">
-                        {account.external_id}
-                    </CopyToClipboardInline>
-                ) : (
-                    <span className="text-secondary">Not set</span>
-                )}
-            </LemonCard>
-        </SceneContent>
+        <div className="flex flex-1 min-h-0 h-full overflow-hidden" data-attr="customer-analytics-account-scene">
+            <AccountIdentityRail account={account} />
+            <AccountDetailCanvas account={account} />
+        </div>
     )
 }
