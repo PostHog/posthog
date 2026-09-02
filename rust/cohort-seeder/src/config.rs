@@ -257,6 +257,18 @@ pub struct Config {
     #[envconfig(default = "true")]
     pub seeder_person_emit_nonmatchers: bool,
 
+    /// Run the legacy wide scan alongside the projected scan and diff the resulting tiles.
+    ///
+    /// On by default, because taking this measurement is the only reason the layer exists and a
+    /// run that silently skipped it reads exactly like a clean one. Nothing downstream depends on
+    /// it either way: the projected arm's tiles are what a chunk emits regardless.
+    ///
+    /// Turn it off in charts to finish a long reseed at full speed once the measurement is in
+    /// hand, then delete the layer. While it is on a chunk pays its projected scan plus a full
+    /// wide one.
+    #[envconfig(default = "true")]
+    pub seeder_scan_shadow_compare: bool,
+
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
 
@@ -442,6 +454,15 @@ mod tests {
         let config = default_config();
         assert!(config.clickhouse_verify);
         assert!(config.clickhouse_ca.is_empty());
+    }
+
+    /// A default of off would make the validation run a silent no-op: the compare emits nothing,
+    /// so its counters are absent rather than zero, and an unmeasured run is indistinguishable
+    /// from a clean one. The measurement is the whole point of the layer, so it is what a pod does
+    /// unless an operator says otherwise.
+    #[test]
+    fn the_shadow_compare_runs_unless_an_operator_turns_it_off() {
+        assert!(default_config().seeder_scan_shadow_compare);
     }
 
     #[test]
