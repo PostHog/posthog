@@ -1,10 +1,11 @@
 //! The seed-tile apply path: a pure, clock-free core ([`merge_tile_into_leaf`]) that mirrors the
 //! live fold minus dedup (slide-before-evaluate, max-merge of the tile's absolute count,
-//! structural-equality `Unchanged` — the whole of tile idempotency), and an imperative shell
-//! ([`handle_seed`]) ordered stage-1 commit → stage-2 recompute → produce → stage-2 commit → mark.
-//! Committing the stage-2 bits after the produces ack makes a failed produce re-derivable on
-//! replay; store/produce failures hold the seed offset.
+//! structural-equality `Unchanged` — the whole of tile idempotency), and a batched imperative shell
+//! ([`apply_tile_batch`]) ordered stage-1 commit → stage-2 recompose → produce → stage-2 commit →
+//! mark. Committing the stage-2 bits after the produces ack makes a failed produce re-derivable on
+//! replay; store/produce failures hold the batch's first seed offset.
 
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
@@ -16,20 +17,17 @@ use uuid::Uuid;
 
 use cohort_core::seed::{PersonSeed, ReconcileTile, RunId, SeedTile};
 
-use crate::consumers::seeds::SeedWork;
-use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::{LeafStateMeta, TeamFilters};
-use crate::filters::TeamId;
+use crate::filters::{FilterCatalog, TeamId};
 use crate::merge::tombstone_redirect::{self, Resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS};
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_JOBS_ENQUEUED_TOTAL,
-    RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_HELD_OFFSET_GAUGE, SEED_REKEYED_TOTAL,
-    SEED_REKEY_HOP_CAPPED_TOTAL, SEED_REKEY_PRODUCE_FAILURE_TOTAL, SEED_TILES_APPLIED_TOTAL,
-    SEED_TILES_DROPPED_TOTAL, SEED_TILES_SKIPPED_TOTAL, SEED_TILES_UNCHANGED_TOTAL,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
+    RECONCILE_JOBS_SUPERSEDED_TOTAL, SEED_HELD_OFFSET_GAUGE, SEED_REKEY_HOP_CAPPED_TOTAL,
+    SEED_TILES_APPLIED_TOTAL, SEED_TILES_DROPPED_TOTAL, SEED_TILES_SKIPPED_TOTAL,
+    SEED_TILES_UNCHANGED_TOTAL, STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
-use crate::producer::{map_transition, ChangeOrigin, CohortMembershipChange, MembershipSink};
+use crate::producer::{map_transition, ChangeOrigin, CohortMembershipChange, LastUpdatedClock};
 use crate::stage1::bucket_tz::{
     daily_bucket_len, day_idx_in_tz, start_of_day_ms_in_tz, window_start_for_now, DayIdx,
 };
@@ -43,15 +41,16 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::stage2::{
     leaf_membership, single_leaf_register_writes, stage_register_writes, MembershipRegisterSource,
 };
-use crate::store::{Behavioral, BehavioralKey, PersonPrefix, ReadLane, StagedBatch, StoreHandle};
+use crate::store::{Behavioral, BehavioralKey, PersonPrefix, ReadLane, StagedBatch};
 use crate::sweep::EvictionQueue;
 use crate::workers::merge_path::MergeWorkerDeps;
-use crate::workers::person_seed_path::handle_person_seed;
 use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
-use crate::workers::stage2_path::{commit_stage2_writes, recompute_stage2};
-use crate::workers::worker::{
-    first_cascades, produce_cascades, produce_membership, transition_metric_label,
+use crate::workers::seed_batch::{
+    produce_seed_output, recompose_batch, settle, Admitted, ApplyStage, SeedApplyDeps, SeedHold,
+    SeedKind, SeedOffset, SeedReKeys, SeedRun, StageClock, TouchedPersons,
 };
+use crate::workers::stage2_path::commit_stage2_writes;
+use crate::workers::worker::transition_metric_label;
 
 /// A seed kind that can be re-keyed onto a merge survivor.
 pub(crate) trait RekeyableSeed: Sized {
@@ -497,261 +496,433 @@ fn finish(
     }
 }
 
-/// Handle one seed message on its owning partition worker; marks or holds the seed tracker only.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn handle_seed(
-    partition_id: u16,
-    handle: &StoreHandle,
-    catalog: &CatalogHandle,
-    sink: &Arc<dyn MembershipSink>,
-    merge: &MergeWorkerDeps,
+/// Apply one run of day-tiles as a unit, then mark its whole span or hold its first offset.
+///
+/// The run pays one batched tombstone resolve, one batched state read, one stage-1 commit, one
+/// stage-2 recompose over the deduplicated leaves, one concurrent produce and one stage-2 commit —
+/// whatever its length. Replay is unchanged: stage 1 is idempotent through max-merge, and the
+/// stage-2 bits still land only after the produces ack, so a held run re-derives its composed flips.
+pub(crate) async fn apply_tile_batch(
+    deps: &SeedApplyDeps<'_>,
     queue: &mut EvictionQueue<BehavioralKey>,
-    reconcile_queue: &mut ReconcileQueue,
-    last_updated: &str,
-    work: &SeedWork,
-    offset: i64,
+    clock: &mut LastUpdatedClock,
+    run: SeedRun<SeedTile>,
 ) {
-    let tile = match work {
-        SeedWork::Skip(reason) => {
-            counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => reason.as_str()).increment(1);
-            mark_processed(&merge.seed_tracker, partition_id, offset);
-            return;
-        }
-        SeedWork::Reconcile(tile) => {
-            admit_reconcile(partition_id, merge, reconcile_queue, tile, offset);
-            return;
-        }
-        SeedWork::Person(seed) => {
-            handle_person_seed(
-                partition_id,
-                handle,
-                catalog,
-                sink,
-                merge,
-                last_updated,
-                seed,
-                offset,
-            )
-            .await;
-            return;
-        }
-        SeedWork::Tile(tile) => tile,
-    };
+    let span = run.span();
+    let mut stages = StageClock::start(SeedKind::Tile, run.len());
+    let outcome = apply_tiles(deps, queue, clock, &mut stages, &run).await;
+    settle(deps, SeedKind::Tile, span, outcome);
+}
 
-    let snapshot = catalog.load();
-    let Some(team_filters) = snapshot.team(tile.team_id()) else {
-        counter!(SEED_TILES_DROPPED_TOTAL, "reason" => "team_absent").increment(1);
-        mark_processed(&merge.seed_tracker, partition_id, offset);
-        return;
-    };
-    let filters: &TeamFilters = team_filters;
+/// The ordered apply. Every `?` leaves durable state either untouched or idempotently re-appliable,
+/// which is what lets the caller turn one `Err` into one hold.
+async fn apply_tiles(
+    deps: &SeedApplyDeps<'_>,
+    queue: &mut EvictionQueue<BehavioralKey>,
+    clock: &mut LastUpdatedClock,
+    stages: &mut StageClock,
+    run: &SeedRun<SeedTile>,
+) -> Result<(), SeedHold> {
+    let snapshot = deps.catalog.load();
+
+    let RoutedTiles { locals, re_keys } = route_tiles(deps, &snapshot, run.items()).await?;
+    stages.mark(ApplyStage::Resolve);
+
+    let mut overlay = read_leaf_slots(deps, &locals).await?;
+    stages.mark(ApplyStage::Read);
+
+    // One instant for the whole run: `last_evaluated_at_ms` is a freshness stamp, and every tile in
+    // the run slides against the same "now".
+    let now_ms = Utc::now().timestamp_millis();
+    let folded = fold_tiles(&locals, &mut overlay, clock, now_ms);
+    stages.mark(ApplyStage::Fold);
+
+    // Order: stage-1 commit → stage-2 recompose → produce → stage-2 commit → schedule → mark.
+    commit_tile_stage1(deps, &overlay, now_ms).await?;
+    stages.mark(ApplyStage::Stage1Commit);
+
+    let recomposed = recompose_batch(deps, &snapshot, folded.touched, now_ms, clock).await?;
+    stages.mark(ApplyStage::Recompute);
+
+    let mut changes = folded.changes;
+    changes.extend(recomposed.changes.iter().cloned());
+    produce_seed_output(deps, changes, SeedReKeys::Tiles(re_keys), run.span().last).await?;
+    stages.mark(ApplyStage::Produce);
+
+    commit_stage2_writes(deps.handle, &recomposed.writes)
+        .await
+        .map_err(SeedHold::store(ApplyStage::Stage2Commit))?;
+    stages.mark(ApplyStage::Stage2Commit);
+    recomposed.record_metrics();
+
+    for (key, deadline) in folded.schedules {
+        queue.schedule(key, deadline);
+    }
+    Ok(())
+}
+
+/// One tile that applies on this partition, with everything its fold needs resolved once.
+struct LocalTile<'a> {
+    tile: &'a SeedTile,
+    /// The tombstone chain's survivor, or the tile's own person when nothing merged.
+    person: Uuid,
+    filters: Arc<TeamFilters>,
+    /// The leaves this tile's condition still resolves to. Never empty: a tile that references none
+    /// is dropped during routing.
+    lsks: Vec<LeafStateKey>,
+    /// This tile's slice of the store, resolved once. The read pass and the fold both key off it,
+    /// so neither can build a key the other does not have.
+    prefix: PersonPrefix,
+}
+
+struct RoutedTiles<'a> {
+    locals: Vec<LocalTile<'a>>,
+    /// Tiles whose survivor lives on another partition, handed back to the seed topic.
+    re_keys: Vec<SeedTile>,
+}
+
+/// Resolve the run's tombstones in one read and split it into local applies and hand-offs.
+async fn route_tiles<'a>(
+    deps: &SeedApplyDeps<'_>,
+    snapshot: &FilterCatalog,
+    tiles: &'a [Admitted<SeedTile>],
+) -> Result<RoutedTiles<'a>, SeedHold> {
+    let mut known: Vec<(&SeedTile, Arc<TeamFilters>)> = Vec::with_capacity(tiles.len());
+    let mut persons: Vec<(TeamId, Uuid)> = Vec::new();
+    let mut seen: HashSet<(TeamId, Uuid)> = HashSet::new();
+    for Admitted { work: tile, .. } in tiles {
+        let Some(filters) = snapshot.team(tile.team_id()) else {
+            counter!(SEED_TILES_DROPPED_TOTAL, "reason" => "team_absent").increment(1);
+            continue;
+        };
+        if seen.insert((tile.team_id(), tile.person_id())) {
+            persons.push((tile.team_id(), tile.person_id()));
+        }
+        known.push((tile, filters.clone()));
+    }
 
     // A read failure is fail-stop: a tile mis-applied to a merged-away person is durable state
     // reconcile cannot retract.
-    let resolution = match tombstone_redirect::resolve_offloaded(
-        handle,
-        partition_id,
-        tile.team_id(),
-        tile.person_id(),
-        merge.partition_count,
+    let resolutions = tombstone_redirect::resolve_batch_offloaded(
+        deps.handle,
+        deps.partition_id,
+        &persons,
+        deps.merge.partition_count,
         ReadLane::Maintenance,
     )
     .await
-    {
-        Ok(resolution) => resolution,
-        Err(error) => {
-            warn!(
-                partition_id,
-                team_id = tile.team_id().0,
-                error = %error,
-                "seed tombstone preflight read failed; holding the seed offset for redelivery",
-            );
-            hold(&merge.seed_tracker, partition_id, offset);
-            return;
-        }
+    .map_err(SeedHold::store(ApplyStage::Resolve))?;
+
+    let mut routed = RoutedTiles {
+        locals: Vec::with_capacity(known.len()),
+        re_keys: Vec::new(),
     };
-    let person = match route_seed(tile, resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS) {
-        SeedRoute::ApplyLocal { person } => person,
-        SeedRoute::ReProduce { seed: rekeyed } => {
-            // Ack before mark; the tile has no other copy. Exactly one Ok ack — an empty vector
-            // would make an `all(is_ok)` guard vacuously true and commit past a lost tile.
-            let acks = merge.seed_tile_sink.produce(vec![rekeyed]).await;
-            if matches!(acks.as_slice(), [Ok(())]) {
-                counter!(SEED_REKEYED_TOTAL).increment(1);
-                mark_processed(&merge.seed_tracker, partition_id, offset);
-            } else {
-                counter!(SEED_REKEY_PRODUCE_FAILURE_TOTAL).increment(1);
-                warn!(
-                    partition_id,
-                    team_id = tile.team_id().0,
-                    "seed tile re-key produce failed; holding the seed offset for redelivery",
-                );
-                hold(&merge.seed_tracker, partition_id, offset);
+    for (tile, filters) in known {
+        let Some(&resolution) = resolutions.get(&(tile.team_id(), tile.person_id())) else {
+            return Err(SeedHold::ShortRead {
+                stage: ApplyStage::Resolve,
+                asked: persons.len(),
+                answered: resolutions.len(),
+            });
+        };
+        let person = match route_seed(tile, resolution, MAX_CROSS_PARTITION_REDIRECT_HOPS) {
+            SeedRoute::ApplyLocal { person } => person,
+            SeedRoute::ReProduce { seed: rekeyed } => {
+                routed.re_keys.push(rekeyed);
+                continue;
             }
-            return;
+            SeedRoute::CapExhausted { person } => {
+                counter!(SEED_REKEY_HOP_CAPPED_TOTAL).increment(1);
+                // Same degrade as the event path: orphaned-but-bounded state (the survivor's live
+                // path never reads this slice) that ages out via eviction, preferred over a silent
+                // tile loss.
+                warn!(
+                    partition_id = deps.partition_id,
+                    team_id = tile.team_id().0,
+                    %person,
+                    hops = tile.redirect_hops(),
+                    "seed redirect hop cap hit (corrupt tombstone cycle?); applying inline at the best-known target",
+                );
+                person
+            }
+        };
+        let lsks = filters
+            .by_condition_to_lsk
+            .get(&tile.condition_hash().as_bytes())
+            .cloned()
+            .unwrap_or_default();
+        if lsks.is_empty() {
+            // Expected for a stale/edited cohort: the hash no longer resolves.
+            counter!(SEED_TILES_DROPPED_TOTAL, "reason" => "no_referencing_leaves").increment(1);
+            continue;
         }
-        SeedRoute::CapExhausted { person } => {
-            counter!(SEED_REKEY_HOP_CAPPED_TOTAL).increment(1);
-            // Same degrade as the event path: orphaned-but-bounded state (the survivor's live
-            // path never reads this slice) that ages out via eviction, preferred over a silent
-            // tile loss.
-            warn!(
-                partition_id,
-                team_id = tile.team_id().0,
-                %person,
-                hops = tile.redirect_hops(),
-                "seed redirect hop cap hit (corrupt tombstone cycle?); applying inline at the best-known target",
-            );
-            person
-        }
-    };
-
-    let lsks: &[LeafStateKey] = filters
-        .by_condition_to_lsk
-        .get(&tile.condition_hash().as_bytes())
-        .map_or(&[], Vec::as_slice);
-    if lsks.is_empty() {
-        // Expected for a stale/edited cohort: the hash no longer resolves.
-        counter!(SEED_TILES_DROPPED_TOTAL, "reason" => "no_referencing_leaves").increment(1);
-        mark_processed(&merge.seed_tracker, partition_id, offset);
-        return;
+        routed.locals.push(LocalTile {
+            tile,
+            person,
+            filters,
+            lsks,
+            prefix: PersonPrefix::new(deps.partition_id, tile.team_id().0 as u64, person),
+        });
     }
-
-    let prefix = PersonPrefix::new(partition_id, tile.team_id().0 as u64, person);
-    let keys: Vec<BehavioralKey> = lsks.iter().map(|&lsk| prefix.behavioral_key(lsk)).collect();
-    // Maintenance lane: backfill must not contend with live event reads.
-    let values = match handle
-        .multi_get_behavioral(keys, ReadLane::Maintenance)
-        .await
-    {
-        Ok(values) => values,
-        Err(error) => {
-            warn!(
-                partition_id,
-                team_id = tile.team_id().0,
-                error = %error,
-                "seed state read failed; holding the seed offset for redelivery",
-            );
-            hold(&merge.seed_tracker, partition_id, offset);
-            return;
-        }
-    };
-
-    let now_ms = Utc::now().timestamp_millis();
-    let now_day = day_idx_in_tz(now_ms, filters.timezone);
-    let TileApplication {
-        staged,
-        transitions,
-        stage2_leaves,
-        schedules,
-    } = apply_tile_to_leaves(
-        filters, &prefix, lsks, values, tile, person, now_day, now_ms,
-    );
-
-    // Order: stage-1 commit → stage-2 recompute → produce → stage-2 commit → schedule → mark.
-    if !staged.is_empty() {
-        if let Err(error) = handle.commit(staged).await {
-            warn!(
-                partition_id,
-                team_id = tile.team_id().0,
-                error = %error,
-                "seed state commit failed; holding the seed offset for redelivery",
-            );
-            hold(&merge.seed_tracker, partition_id, offset);
-            return;
-        }
-    }
-
-    let mut changes: Vec<CohortMembershipChange> = Vec::new();
-    for transition in &transitions {
-        if let Some(kind) = transition_metric_label(filters, transition) {
-            counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-        }
-        changes.extend(map_transition(filters, transition, last_updated));
-    }
-    // `event_ms := now_ms`: `last_evaluated_at_ms` is a freshness stamp, and the worker-batch
-    // `last_updated` makes backfill flips win LWW downstream.
-    let recompute = match recompute_stage2(
-        partition_id,
-        handle,
-        filters,
-        &stage2_leaves,
-        now_ms,
-        last_updated,
-        ReadLane::Maintenance,
-    )
-    .await
-    {
-        Ok(recompute) => recompute,
-        Err(error) => {
-            warn!(
-                partition_id,
-                team_id = tile.team_id().0,
-                error = %error,
-                "seed stage 2 recompute failed; holding the seed offset for redelivery",
-            );
-            hold(&merge.seed_tracker, partition_id, offset);
-            return;
-        }
-    };
-    changes.extend(recompute.changes.iter().cloned());
-
-    tag_seed(&mut changes, tile.run_id());
-    // Only the cascade topic can re-evaluate cohort-of-cohort referrers; gate-off builds nothing.
-    let cascades = first_cascades(merge, &changes, offset);
-    if !changes.is_empty() {
-        let errors = produce_membership(sink, changes).await;
-        if errors > 0 {
-            // Replay re-derives the stage-2 flips (bits unwritten); a lost single-leaf change is
-            // not re-emitted — the reconcile snapshot heals that class.
-            warn!(
-                partition_id,
-                team_id = tile.team_id().0,
-                errors,
-                "seed membership produce failed; holding the seed offset for redelivery",
-            );
-            hold(&merge.seed_tracker, partition_id, offset);
-            return;
-        }
-    }
-    let cascade_errors = produce_cascades(merge, cascades).await;
-    if cascade_errors > 0 {
-        warn!(
-            partition_id,
-            team_id = tile.team_id().0,
-            errors = cascade_errors,
-            "seed cascade produce failed; holding the seed offset for redelivery",
-        );
-        hold(&merge.seed_tracker, partition_id, offset);
-        return;
-    }
-
-    // The bits commit only after both produces ack, so a failed produce is re-derived on replay
-    // instead of lost against a flipped bit; replay duplicates are LWW-safe downstream.
-    if let Err(error) = commit_stage2_writes(handle, &recompute.writes).await {
-        warn!(
-            partition_id,
-            team_id = tile.team_id().0,
-            error = %error,
-            "seed stage 2 commit failed; holding the seed offset for redelivery",
-        );
-        hold(&merge.seed_tracker, partition_id, offset);
-        return;
-    }
-    recompute.record_metrics();
-
-    for (key, deadline) in schedules {
-        queue.schedule(key, deadline);
-    }
-    mark_processed(&merge.seed_tracker, partition_id, offset);
+    Ok(routed)
 }
 
-fn admit_reconcile(
+/// One leaf's state inside a run's overlay, so a second tile for the same leaf folds onto the first
+/// tile's result instead of the bytes the read pass saw.
+enum LeafSlot {
+    /// Read from the store, not yet folded into.
+    Untouched(Option<StatefulRecord>),
+    /// Folded at least once. `write` is what stages the row and its membership registers.
+    Touched {
+        record: StatefulRecord,
+        write: LeafWrite,
+        /// Whether any tile in the run actually advanced the state. A run that only ever merged to
+        /// `Unchanged` still repairs the membership register, but re-writing a byte-identical
+        /// `cf_behavioral` row would spend the store's write budget on nothing — the steady state
+        /// of a re-run chunk.
+        merged: bool,
+    },
+    /// Stored bytes that do not decode. Never folded into and never overwritten: rebuilding from an
+    /// absent baseline would silently drop whatever the unreadable row held.
+    Corrupt,
+}
+
+impl LeafSlot {
+    fn decode(bytes: Option<Vec<u8>>) -> Self {
+        match bytes {
+            None => Self::Untouched(None),
+            Some(bytes) => match StatefulRecord::decode(&bytes) {
+                Ok(record) => Self::Untouched(Some(record)),
+                Err(_) => {
+                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    Self::Corrupt
+                }
+            },
+        }
+    }
+
+    /// The state the next tile merges into.
+    fn prev(&self) -> Option<StatefulRecord> {
+        match self {
+            Self::Untouched(prev) => prev.clone(),
+            Self::Touched { record, .. } => Some(record.clone()),
+            Self::Corrupt => None,
+        }
+    }
+
+    /// Whether an earlier tile in this run already advanced the slot's state.
+    fn already_merged(&self) -> bool {
+        matches!(self, Self::Touched { merged: true, .. })
+    }
+}
+
+/// What one touched leaf needs to stage its row's single-leaf membership registers.
+struct LeafWrite {
+    filters: Arc<TeamFilters>,
+    meta: LeafStateMeta,
+    source: MembershipRegisterSource,
+}
+
+#[derive(Default)]
+struct FoldedTiles {
+    /// Single-leaf membership changes, one `last_updated` per tile that flipped something.
+    changes: Vec<CohortMembershipChange>,
+    touched: TouchedPersons,
+    schedules: Vec<(BehavioralKey, i64)>,
+}
+
+/// Fold every tile into the overlay in offset order. Pure apart from its counters: the store is not
+/// touched, so a failure later in the pipeline replays this identically.
+fn fold_tiles(
+    locals: &[LocalTile<'_>],
+    overlay: &mut BTreeMap<BehavioralKey, LeafSlot>,
+    clock: &mut LastUpdatedClock,
+    now_ms: i64,
+) -> FoldedTiles {
+    let mut folded = FoldedTiles::default();
+    for local in locals {
+        let filters = local.filters.as_ref();
+        let now_day = day_idx_in_tz(now_ms, filters.timezone);
+        let mut transitions: Vec<LeafTransition> = Vec::new();
+
+        for &lsk in &local.lsks {
+            let Some(meta) = filters.by_lsk.get(&lsk) else {
+                counter!(SEED_TILES_DROPPED_TOTAL, "reason" => SeedDropReason::MetaIncomplete.as_str())
+                    .increment(1);
+                continue;
+            };
+            let key = local.prefix.behavioral_key(lsk);
+            let slot = overlay
+                .get_mut(&key)
+                .expect("the read pass keyed off the same prefix, so every folded leaf has a slot");
+            if matches!(slot, LeafSlot::Corrupt) {
+                counter!(SEED_TILES_DROPPED_TOTAL, "reason" => "corrupt_state").increment(1);
+                continue;
+            }
+
+            let identity = LeafIdentity {
+                team_id: local.tile.team_id(),
+                lsk,
+                person_id: local.person,
+                condition_hash: local.tile.condition_hash().as_bytes(),
+            };
+            let already_merged = slot.already_merged();
+            let (record, merged) = match merge_tile_into_leaf(
+                meta,
+                filters.timezone,
+                identity,
+                local.tile.day_idx(),
+                local.tile.count_nonzero(),
+                slot.prev(),
+                now_day,
+                now_ms,
+            ) {
+                LeafMergeOutcome::Merged {
+                    record,
+                    transition,
+                    deadline_ms,
+                } => {
+                    counter!(SEED_TILES_APPLIED_TOTAL, "variant" => record.state.variant().as_str())
+                        .increment(1);
+                    if let Some(transition) = transition {
+                        transitions.push(transition);
+                    }
+                    if deadline_ms != i64::MAX {
+                        folded.schedules.push((key, deadline_ms));
+                    }
+                    (record, true)
+                }
+                LeafMergeOutcome::Unchanged { record } => {
+                    counter!(SEED_TILES_UNCHANGED_TOTAL, "variant" => meta.variant.as_str())
+                        .increment(1);
+                    (record, already_merged)
+                }
+                LeafMergeOutcome::Dropped(reason) => {
+                    counter!(SEED_TILES_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
+                    continue;
+                }
+            };
+
+            *slot = LeafSlot::Touched {
+                record,
+                write: LeafWrite {
+                    filters: local.filters.clone(),
+                    meta: *meta,
+                    source: MembershipRegisterSource {
+                        partition_id: local.prefix.partition_id,
+                        team_id: identity.team_id,
+                        person_id: identity.person_id,
+                        leaf_state_key: lsk,
+                    },
+                },
+                merged,
+            };
+            // Merged *and* Unchanged both recompose Stage 2, so a crash between the two commits
+            // self-heals on replay.
+            folded
+                .touched
+                .touch(local.tile.team_id(), local.person, local.tile.run_id(), lsk);
+        }
+
+        if !transitions.is_empty() {
+            let last_updated = clock.next();
+            let start = folded.changes.len();
+            for transition in &transitions {
+                if let Some(kind) = transition_metric_label(filters, transition) {
+                    counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
+                }
+                folded
+                    .changes
+                    .extend(map_transition(filters, transition, &last_updated));
+            }
+            tag_seed(&mut folded.changes[start..], local.tile.run_id());
+        }
+    }
+    folded
+}
+
+/// Read every leaf the run will fold into, once, and decode it into the overlay.
+async fn read_leaf_slots(
+    deps: &SeedApplyDeps<'_>,
+    locals: &[LocalTile<'_>],
+) -> Result<BTreeMap<BehavioralKey, LeafSlot>, SeedHold> {
+    let mut distinct: BTreeSet<BehavioralKey> = BTreeSet::new();
+    for local in locals {
+        distinct.extend(
+            local
+                .lsks
+                .iter()
+                .map(|&lsk| local.prefix.behavioral_key(lsk)),
+        );
+    }
+    let keys: Vec<BehavioralKey> = distinct.into_iter().collect();
+    // Maintenance lane: backfill must not contend with live event reads.
+    let values = deps
+        .handle
+        .multi_get_behavioral(keys.clone(), ReadLane::Maintenance)
+        .await
+        .map_err(SeedHold::store(ApplyStage::Read))?;
+    SeedHold::check_read(ApplyStage::Read, keys.len(), values.len())?;
+    Ok(keys
+        .into_iter()
+        .zip(values)
+        .map(|(key, bytes)| (key, LeafSlot::decode(bytes)))
+        .collect())
+}
+
+/// Stage every touched leaf's membership-register overwrite, plus the row itself for the leaves a
+/// tile actually advanced, then commit them as one batch.
+///
+/// Staging only the final state per key equals staging every intermediate write, because
+/// `single_leaf_register_writes` is a complete overwrite and the record is the fold's fixed point.
+async fn commit_tile_stage1(
+    deps: &SeedApplyDeps<'_>,
+    overlay: &BTreeMap<BehavioralKey, LeafSlot>,
+    now_ms: i64,
+) -> Result<(), SeedHold> {
+    let staged = stage_tile_writes(overlay, now_ms);
+    if staged.is_empty() {
+        return Ok(());
+    }
+    deps.handle
+        .commit(staged)
+        .await
+        .map_err(SeedHold::store(ApplyStage::Stage1Commit))
+}
+
+/// The pure half of [`commit_tile_stage1`]: what the run writes, given the settled overlay.
+fn stage_tile_writes(overlay: &BTreeMap<BehavioralKey, LeafSlot>, now_ms: i64) -> StagedBatch {
+    let mut staged = StagedBatch::default();
+    for (key, slot) in overlay {
+        let LeafSlot::Touched {
+            record,
+            write,
+            merged,
+        } = slot
+        else {
+            continue;
+        };
+        stage_seed_membership_registers(
+            &mut staged,
+            &write.filters,
+            write.source,
+            &write.meta,
+            &record.state,
+            now_ms,
+        );
+        if *merged {
+            staged.put::<Behavioral>(key, &record.encode());
+        }
+    }
+    staged
+}
+
+pub(crate) fn admit_reconcile(
     partition_id: u16,
     merge: &MergeWorkerDeps,
     queue: &mut ReconcileQueue,
     tile: &ReconcileTile,
-    offset: i64,
+    offset: SeedOffset,
 ) {
     if !merge.reconcile.enabled {
         counter!(SEED_TILES_SKIPPED_TOTAL, "reason" => "reconcile_disabled").increment(1);
@@ -767,12 +938,13 @@ fn admit_reconcile(
     }
 
     let kind = tile.scope().kind();
-    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset) {
-        SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset),
+    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset.0)
+    {
+        SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset.0),
         SupersedeOutcome::Replaced(superseded) => {
             let (replacement, outcome) = merge
                 .seed_tracker
-                .replace_deferred(superseded, offset)
+                .replace_deferred(superseded, offset.0)
                 .expect("a queued reconcile must retain its deferred offset in the current tenure");
             match outcome {
                 MarkOutcome::WithinDispatch => {}
@@ -794,7 +966,7 @@ fn admit_reconcile(
                 team_id = tile.team_id().0,
                 cohort_id = tile.cohort_id().0,
                 run_id = %tile.run_id().0,
-                offset,
+                offset = offset.0,
                 "replayed reconcile seed retained the newer or equal queued job",
             );
             mark_processed(&merge.seed_tracker, partition_id, offset);
@@ -804,120 +976,6 @@ fn admit_reconcile(
 
     queue.enqueue(tile.clone(), deferred);
     counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "kind" => kind.as_str()).increment(1);
-}
-
-/// What one tile staged across its referencing leaves.
-#[derive(Default)]
-struct TileApplication {
-    staged: StagedBatch,
-    transitions: Vec<LeafTransition>,
-    /// Merged *and* Unchanged leaves both recompose Stage 2, so a crash between the two commits
-    /// self-heals on replay.
-    stage2_leaves: Vec<(LeafStateKey, Uuid)>,
-    schedules: Vec<(BehavioralKey, i64)>,
-}
-
-/// Fold the tile into every referencing leaf.
-#[allow(clippy::too_many_arguments)]
-fn apply_tile_to_leaves(
-    filters: &TeamFilters,
-    prefix: &PersonPrefix,
-    lsks: &[LeafStateKey],
-    values: Vec<Option<Vec<u8>>>,
-    tile: &SeedTile,
-    person: Uuid,
-    now_day: DayIdx,
-    now_ms: i64,
-) -> TileApplication {
-    let count = tile.count_nonzero();
-    let mut application = TileApplication::default();
-    for (&lsk, bytes) in lsks.iter().zip(values) {
-        let Some(meta) = filters.by_lsk.get(&lsk) else {
-            counter!(SEED_TILES_DROPPED_TOTAL, "reason" => SeedDropReason::MetaIncomplete.as_str())
-                .increment(1);
-            continue;
-        };
-        let prev = match bytes {
-            None => None,
-            Some(bytes) => match StatefulRecord::decode(&bytes) {
-                Ok(record) => Some(record),
-                Err(_) => {
-                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                    counter!(SEED_TILES_DROPPED_TOTAL, "reason" => "corrupt_state").increment(1);
-                    continue;
-                }
-            },
-        };
-        let identity = LeafIdentity {
-            team_id: tile.team_id(),
-            lsk,
-            person_id: person,
-            condition_hash: tile.condition_hash().as_bytes(),
-        };
-        match merge_tile_into_leaf(
-            meta,
-            filters.timezone,
-            identity,
-            tile.day_idx(),
-            count,
-            prev,
-            now_day,
-            now_ms,
-        ) {
-            LeafMergeOutcome::Merged {
-                record,
-                transition,
-                deadline_ms,
-            } => {
-                counter!(SEED_TILES_APPLIED_TOTAL, "variant" => record.state.variant().as_str())
-                    .increment(1);
-                let key = prefix.behavioral_key(lsk);
-                stage_seed_membership_registers(
-                    &mut application.staged,
-                    filters,
-                    MembershipRegisterSource {
-                        partition_id: prefix.partition_id,
-                        team_id: identity.team_id,
-                        person_id: identity.person_id,
-                        leaf_state_key: identity.lsk,
-                    },
-                    meta,
-                    &record.state,
-                    now_ms,
-                );
-                application.staged.put::<Behavioral>(&key, &record.encode());
-                application.stage2_leaves.push((lsk, person));
-                if let Some(transition) = transition {
-                    application.transitions.push(transition);
-                }
-                if deadline_ms != i64::MAX {
-                    application.schedules.push((key, deadline_ms));
-                }
-            }
-            LeafMergeOutcome::Unchanged { record } => {
-                counter!(SEED_TILES_UNCHANGED_TOTAL, "variant" => meta.variant.as_str())
-                    .increment(1);
-                stage_seed_membership_registers(
-                    &mut application.staged,
-                    filters,
-                    MembershipRegisterSource {
-                        partition_id: prefix.partition_id,
-                        team_id: identity.team_id,
-                        person_id: identity.person_id,
-                        leaf_state_key: identity.lsk,
-                    },
-                    meta,
-                    &record.state,
-                    now_ms,
-                );
-                application.stage2_leaves.push((lsk, person));
-            }
-            LeafMergeOutcome::Dropped(reason) => {
-                counter!(SEED_TILES_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
-            }
-        }
-    }
-    application
 }
 
 fn stage_seed_membership_registers(
@@ -943,14 +1001,14 @@ pub(crate) fn tag_seed(changes: &mut [CohortMembershipChange], run_id: RunId) {
 }
 
 /// Advance the seed tracker past `offset`. A mark beyond the dispatch ceiling is capped and counted.
-pub(crate) fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
+pub(crate) fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: SeedOffset) {
     if let MarkOutcome::CappedAheadOfDispatch =
-        tracker.mark_processed(partition_id as i32, offset + 1)
+        tracker.mark_processed(partition_id as i32, offset.0 + 1)
     {
         counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
         warn!(
             partition_id,
-            next_offset = offset + 1,
+            next_offset = offset.0 + 1,
             "seed offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
         );
     }
@@ -958,8 +1016,8 @@ pub(crate) fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset:
 
 /// Pin the seed commit floor at the failed offset so Kafka redelivers it; emit
 /// [`SEED_HELD_OFFSET_GAUGE`] so the stall is visible.
-pub(crate) fn hold(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
-    let floor = tracker.hold(partition_id as i32, offset);
+pub(crate) fn hold(tracker: &OffsetTracker, partition_id: u16, offset: SeedOffset) {
+    let floor = tracker.hold(partition_id as i32, offset.0);
     gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition_id.to_string()).set(floor as f64);
 }
 
@@ -980,19 +1038,22 @@ mod tests {
         SeedTile,
     };
 
-    use crate::consumers::seeds::SeedSkipReason;
-    use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
+    use crate::consumers::seeds::{SeedSkipReason, SeedWork};
+    use crate::filters::manager::CatalogHandle;
+    use crate::filters::{CohortId, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
-        CaptureReconcileMarkerSink, CaptureSeedTileSink, CaptureSink, MembershipStatus,
+        CaptureReconcileMarkerSink, CaptureSeedTileSink, CaptureSink, MembershipSink,
+        MembershipStatus,
     };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
     use crate::store::{
-        CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, TombstoneKey,
+        CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
     };
     use crate::workers::event_path::{process_event_gated, EventNameGating};
+    use crate::workers::seed_batch::{group_seeds, handle_seed_groups};
 
     use super::*;
 
@@ -1802,6 +1863,7 @@ mod tests {
         deps: MergeWorkerDeps,
         queue: EvictionQueue<BehavioralKey>,
         reconcile_queue: ReconcileQueue,
+        clock: LastUpdatedClock,
     }
 
     impl Shell {
@@ -1875,6 +1937,7 @@ mod tests {
                     ..crate::workers::ReconcileDeps::default()
                 },
                 person_seed: crate::workers::PersonSeedDeps::default(),
+                seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
             };
             let reconcile_queue =
                 ReconcileQueue::new(0, deps.reconcile.backlog.clone(), handle.clone());
@@ -1890,25 +1953,46 @@ mod tests {
                 deps,
                 queue: EvictionQueue::new(),
                 reconcile_queue,
+                clock: LastUpdatedClock::default(),
             }
         }
 
+        /// One seed through the batch pipeline, so every case below also pins that a run of one
+        /// behaves exactly as the per-seed apply did.
         async fn run(&mut self, partition_id: u16, work: SeedWork, offset: i64) {
+            self.run_batch(partition_id, vec![(work, offset)]).await;
+        }
+
+        /// A whole channel batch of seeds, dispatched the way the worker dispatches them.
+        async fn run_batch(&mut self, partition_id: u16, seeds: Vec<(SeedWork, i64)>) {
+            let highest = seeds
+                .iter()
+                .map(|(_, offset)| *offset)
+                .max()
+                .expect("a dispatched batch is non-empty");
             self.deps
                 .seed_tracker
-                .mark_dispatched(partition_id as i32, offset + 1);
+                .mark_dispatched(partition_id as i32, highest + 1);
             let sink: Arc<dyn MembershipSink> = Arc::new(self.sink.clone());
-            handle_seed(
-                partition_id,
-                &self.handle,
-                &self.catalog,
-                &sink,
-                &self.deps,
+            let admitted = seeds
+                .into_iter()
+                .map(|(work, offset)| Admitted {
+                    work,
+                    offset: SeedOffset(offset),
+                })
+                .collect();
+            handle_seed_groups(
+                SeedApplyDeps {
+                    partition_id,
+                    handle: &self.handle,
+                    catalog: &self.catalog,
+                    sink: &sink,
+                    merge: &self.deps,
+                },
                 &mut self.queue,
                 &mut self.reconcile_queue,
-                "2026-06-15 12:00:00.000000",
-                &work,
-                offset,
+                &mut self.clock,
+                group_seeds(admitted, self.deps.seed_apply_batch_max),
             )
             .await;
         }
@@ -2493,5 +2577,396 @@ mod tests {
         );
         assert_eq!(changes[1].status, MembershipStatus::Entered);
         assert_eq!(changes[1].origin, Some(ChangeOrigin::Seed));
+    }
+
+    // ---- batched apply: properties only a run of several seeds can break ----
+
+    /// A re-run chunk is mostly `Unchanged`, so re-writing byte-identical `cf_behavioral` rows would
+    /// spend the store's write budget on nothing. The register still has to be staged: it is what
+    /// repairs a row a failed produce left behind.
+    #[test]
+    fn an_unchanged_leaf_stages_its_register_but_not_its_state_row() {
+        let filters = Arc::new(build_filters(
+            vec![(1, wrap(vec![single_leaf_json(7)]))],
+            UTC,
+        ));
+        let lsk = filters.by_condition_to_lsk[&HASH][0];
+        let meta = *filters.by_lsk.get(&lsk).unwrap();
+        let person = Uuid::from_u128(0x5EED);
+        let key = PersonPrefix::new(0, TEAM.0 as u64, person).behavioral_key(lsk);
+        let (record, _, _) = merged(merge(&meta, now_day(), 1, None));
+        let write = || LeafWrite {
+            filters: filters.clone(),
+            meta,
+            source: MembershipRegisterSource {
+                partition_id: 0,
+                team_id: TEAM,
+                person_id: person,
+                leaf_state_key: lsk,
+            },
+        };
+
+        let staged = |merged: bool| {
+            stage_tile_writes(
+                &BTreeMap::from([(
+                    key,
+                    LeafSlot::Touched {
+                        record: record.clone(),
+                        write: write(),
+                        merged,
+                    },
+                )]),
+                NOW_MS,
+            )
+            .len()
+        };
+
+        assert_eq!(
+            staged(true),
+            2,
+            "a merged leaf writes its row and its register"
+        );
+        assert_eq!(
+            staged(false),
+            1,
+            "an unchanged leaf writes the register only"
+        );
+    }
+
+    /// Every leaf state the batch could have written for `person`, in catalog order.
+    fn leaf_states(shell: &Shell, partition_id: u16, person: Uuid) -> Vec<Option<Vec<u8>>> {
+        let snapshot = shell.catalog.load();
+        let filters = snapshot.team(TEAM).expect("the test catalog holds TEAM");
+        let prefix = PersonPrefix::new(partition_id, TEAM.0 as u64, person);
+        filters
+            .by_condition_to_lsk
+            .get(&HASH)
+            .map_or_else(Vec::new, |lsks| {
+                lsks.iter()
+                    .map(|&lsk| {
+                        shell
+                            .store
+                            .get_behavioral(&prefix.behavioral_key(lsk))
+                            .unwrap()
+                    })
+                    .collect()
+            })
+    }
+
+    /// Without read-your-writes each tile would fold onto the bytes the read pass saw, so the last
+    /// tile's record would overwrite the earlier days and the count would never reach the threshold.
+    #[tokio::test]
+    async fn two_days_in_one_batch_reach_the_same_state_as_two_batches() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let cohorts = vec![(1, wrap(vec![multiple_leaf_json(7, "gte", 2)]))];
+        let (yesterday, today) = (today() - 1, today());
+
+        let mut batched = Shell::new(cohorts.clone());
+        batched
+            .run_batch(
+                partition_id,
+                vec![
+                    (SeedWork::Tile(tile_for(person, yesterday, 1)), 0),
+                    (SeedWork::Tile(tile_for(person, today, 1)), 1),
+                ],
+            )
+            .await;
+
+        let mut separately = Shell::new(cohorts);
+        separately
+            .run(
+                partition_id,
+                SeedWork::Tile(tile_for(person, yesterday, 1)),
+                0,
+            )
+            .await;
+        separately
+            .run(partition_id, SeedWork::Tile(tile_for(person, today, 1)), 1)
+            .await;
+
+        assert_eq!(
+            leaf_states(&batched, partition_id, person),
+            leaf_states(&separately, partition_id, person),
+            "one batch must settle on the same stage-1 state as two",
+        );
+        let changes = batched.sink.changes();
+        assert_eq!(
+            changes.len(),
+            1,
+            "the second day crosses the gte-2 threshold"
+        );
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert_eq!(
+            changes.len(),
+            separately.sink.changes().len(),
+            "batching must not add or drop a transition",
+        );
+        assert_eq!(
+            batched.sink.produce_calls(),
+            1,
+            "the whole batch rides one membership produce",
+        );
+        assert_eq!(batched.committable(partition_id), Some(2));
+
+        // Redelivery of the whole run: max-merge makes every tile `Unchanged`, so the run converges
+        // instead of re-emitting.
+        let settled = leaf_states(&batched, partition_id, person);
+        batched
+            .run_batch(
+                partition_id,
+                vec![
+                    (SeedWork::Tile(tile_for(person, yesterday, 1)), 0),
+                    (SeedWork::Tile(tile_for(person, today, 1)), 1),
+                ],
+            )
+            .await;
+        assert_eq!(batched.sink.changes().len(), 1, "no duplicate flip");
+        assert_eq!(
+            leaf_states(&batched, partition_id, person),
+            settled,
+            "the replayed run is a no-op on stage 1",
+        );
+    }
+
+    /// The batch ceiling is the round-trip budget: a run longer than it has to split, or one slow
+    /// produce would hold an unbounded number of seeds.
+    #[tokio::test]
+    async fn a_run_longer_than_the_cap_pays_one_produce_per_capped_group() {
+        const TILES: usize = 300;
+        let mut shell = Shell::new(vec![(1, wrap(vec![single_leaf_json(7)]))]);
+        // Every person on partition 0, so one worker owns the whole run.
+        shell.deps.partition_count = 1;
+        let seeds: Vec<_> = (0..TILES)
+            .map(|i| {
+                (
+                    SeedWork::Tile(tile_for(
+                        Uuid::from_u128(0x5EED_0000 + i as u128),
+                        today(),
+                        1,
+                    )),
+                    i as i64,
+                )
+            })
+            .collect();
+
+        shell.run_batch(0, seeds).await;
+
+        assert_eq!(
+            shell.sink.changes().len(),
+            TILES,
+            "every person entered the single-leaf cohort",
+        );
+        assert_eq!(
+            shell.sink.produce_calls(),
+            TILES.div_ceil(shell.deps.seed_apply_batch_max.get()),
+            "one membership produce per capped group, not one per tile",
+        );
+        assert_eq!(shell.committable(0), Some(TILES as i64));
+    }
+
+    /// A batch is all-or-nothing on its offsets: the floor must sit at the *first* seed, so the
+    /// redelivery replays every tile the failed produce covered.
+    #[tokio::test]
+    async fn a_failed_membership_produce_holds_the_batchs_first_offset() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        // Both leaves share the tile's hash, so the flip is stage-2-derived and re-derivable.
+        let mut shell = Shell::with_sink(
+            vec![(
+                1,
+                wrap(vec![single_leaf_json(7), multiple_leaf_json(7, "gte", 1)]),
+            )],
+            CaptureSink::failing_first(1),
+            CaptureSeedTileSink::new(),
+        );
+        let stage2_key = Stage2Key {
+            partition_id,
+            team_id: TEAM.0 as u64,
+            cohort_id: 1,
+            person_id: person,
+        };
+        let batch = |first: i64| {
+            vec![
+                (SeedWork::Tile(tile_for(person, today() - 1, 1)), first),
+                (SeedWork::Tile(tile_for(person, today(), 1)), first + 1),
+            ]
+        };
+
+        shell.run_batch(partition_id, batch(5)).await;
+
+        assert_eq!(
+            shell.committable(partition_id),
+            None,
+            "the failed produce holds, so nothing in the batch commits",
+        );
+        assert!(
+            shell.store.get_stage2(&stage2_key).unwrap().is_none(),
+            "the stage-2 bit must stay unwritten under the failed produce",
+        );
+
+        shell.run_batch(partition_id, batch(5)).await;
+
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes.len(),
+            1,
+            "the replay re-derived the composed flip exactly once",
+        );
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+        assert!(
+            Stage2State::decode(&shell.store.get_stage2(&stage2_key).unwrap().unwrap())
+                .unwrap()
+                .in_cohort,
+        );
+        // The tenure-sticky hold pins the committable at the held first offset.
+        assert_eq!(shell.committable(partition_id), Some(5));
+    }
+
+    #[tokio::test]
+    async fn a_batch_of_rekeys_requires_one_ack_per_tile_before_it_marks() {
+        let (p_old, partition_id, p_new) = cross_partition_pair();
+        let other = (p_new.as_u128() + 1..)
+            .map(Uuid::from_u128)
+            .find(|p| partition_of(TEAM, p, COHORT_PARTITION_COUNT) as u16 == partition_id)
+            .expect("some uuid hashes onto p_old's partition");
+        let mut shell = Shell::new(vec![(1, wrap(vec![single_leaf_json(7)]))]);
+        write_tombstone(&shell.store, partition_id, p_old, p_new);
+        write_tombstone(&shell.store, partition_id, other, p_new);
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (SeedWork::Tile(tile_for(p_old, today(), 1)), 7),
+                    (SeedWork::Tile(tile_for(other, today(), 2)), 8),
+                ],
+            )
+            .await;
+
+        assert_eq!(shell.seed_sink.tiles().len(), 2, "both tiles re-keyed");
+        assert!(shell.sink.changes().is_empty(), "neither applied locally");
+        assert_eq!(shell.committable(partition_id), Some(9));
+
+        // A short ack vector must read as a failure, not as `all(is_ok)` over what did come back.
+        let mut short = Shell::new(vec![(1, wrap(vec![single_leaf_json(7)]))]);
+        write_tombstone(&short.store, partition_id, p_old, p_new);
+        write_tombstone(&short.store, partition_id, other, p_new);
+        short.deps.seed_tile_sink = Arc::new(EmptyAckSink);
+        short
+            .run_batch(
+                partition_id,
+                vec![
+                    (SeedWork::Tile(tile_for(p_old, today(), 1)), 7),
+                    (SeedWork::Tile(tile_for(other, today(), 2)), 8),
+                ],
+            )
+            .await;
+        assert_eq!(short.committable(partition_id), None, "held for redelivery");
+    }
+
+    /// Two runs sharing a person in one batch must still recompose that person once: splitting their
+    /// leaves by run would evaluate the cohort twice against the same uncommitted bit and emit the
+    /// composed flip twice.
+    #[tokio::test]
+    async fn two_runs_touching_one_person_emit_the_composed_flip_once() {
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::new(vec![(
+            1,
+            wrap(vec![single_leaf_json(7), multiple_leaf_json(7, "gte", 1)]),
+        )]);
+        let other_run = |day: DayIdx| {
+            SeedTile::new(
+                TEAM,
+                person,
+                ConditionHash::parse("0123456789abcdef").unwrap(),
+                count(1),
+                day,
+                SChunkMs(1_700_000_000_000),
+                RunId(Uuid::from_u128(0xC0FFEE)),
+                ClaimEpoch(1),
+            )
+        };
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (SeedWork::Tile(tile_for(person, today() - 1, 1)), 0),
+                    (SeedWork::Tile(other_run(today())), 1),
+                ],
+            )
+            .await;
+
+        let composed: Vec<_> = shell
+            .sink
+            .changes()
+            .into_iter()
+            .filter(|change| change.cohort_id == 1)
+            .collect();
+        assert_eq!(composed.len(), 1, "one flip, not one per run");
+        assert_eq!(
+            composed[0].run_id,
+            Some(RunId(Uuid::from_u128(0xC0FFEE))),
+            "the last run to touch the person owns the provenance",
+        );
+    }
+
+    /// A run spans teams whenever two backfills interleave on one partition. Folding a tile against
+    /// the wrong team's catalog would read the wrong leaves and write the wrong registers.
+    #[tokio::test]
+    async fn a_batch_spanning_two_teams_applies_each_against_its_own_catalog() {
+        const OTHER_TEAM: TeamId = TeamId(9);
+        let person = Uuid::from_u128(0x5EED);
+        let partition_id = partition_of(TEAM, &person, COHORT_PARTITION_COUNT) as u16;
+        let mut shell = Shell::new(vec![(1, wrap(vec![single_leaf_json(7)]))]);
+        shell.catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([
+            (
+                TEAM,
+                build_filters(vec![(1, wrap(vec![single_leaf_json(7)]))], UTC),
+            ),
+            (OTHER_TEAM, {
+                let mut builder = TeamFiltersBuilder::default();
+                builder
+                    .add_cohort(CohortId(2), OTHER_TEAM, &wrap(vec![single_leaf_json(7)]))
+                    .unwrap();
+                builder.freeze(UTC)
+            }),
+        ])));
+        let other_team_tile = SeedTile::new(
+            OTHER_TEAM,
+            person,
+            ConditionHash::parse("0123456789abcdef").unwrap(),
+            count(1),
+            today(),
+            SChunkMs(1_700_000_000_000),
+            RunId(Uuid::from_u128(0xBF)),
+            ClaimEpoch(1),
+        );
+
+        shell
+            .run_batch(
+                partition_id,
+                vec![
+                    (SeedWork::Tile(tile_for(person, today(), 1)), 0),
+                    (SeedWork::Tile(other_team_tile), 1),
+                ],
+            )
+            .await;
+
+        let mut entered: Vec<(i32, i32)> = shell
+            .sink
+            .changes()
+            .iter()
+            .map(|change| (change.team_id, change.cohort_id))
+            .collect();
+        entered.sort_unstable();
+        assert_eq!(
+            entered,
+            vec![(TEAM.0, 1), (OTHER_TEAM.0, 2)],
+            "each team's tile entered its own cohort",
+        );
+        assert_eq!(shell.committable(partition_id), Some(2));
     }
 }

@@ -1,5 +1,6 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -275,6 +276,11 @@ pub struct Config {
     /// clock skew; ties go to live.
     #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
     pub cohort_seed_person_live_margin_ms: i64,
+
+    /// Seeds applied as one unit: one batched read pass, one stage-1 commit, one stage-2 recompute
+    /// and one produce round trip per batch, instead of per seed. `1` restores the per-seed apply.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX", default = "256")]
+    pub cohort_seed_apply_batch_max: usize,
 
     /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
     /// `0` disables the trigger.
@@ -674,6 +680,13 @@ impl Config {
         Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
 
+    /// The seed apply batch ceiling as a proven-positive count, so the grouping loop cannot be
+    /// handed a zero that would never close a batch.
+    pub fn seed_apply_batch_max(&self) -> anyhow::Result<NonZeroUsize> {
+        NonZeroUsize::new(self.cohort_seed_apply_batch_max)
+            .context("COHORT_SEED_APPLY_BATCH_MAX must be greater than zero (1 = apply per seed).")
+    }
+
     /// The seed consumer's pacing gates. `0` on a pause threshold disables that trigger; an
     /// enabled trigger requires `0 < resume < pause` (and `pause <= 100` for the disk share) so a
     /// flapping or never-releasing pair is refused at startup.
@@ -801,6 +814,8 @@ impl Config {
                  controls can be consumed; enable the seed consumer or turn reconcile off.",
             );
         }
+
+        self.seed_apply_batch_max()?;
 
         // A negative margin biases the person-seed verdict toward the seed, letting a stale scan
         // overwrite fresher live state.
@@ -1170,6 +1185,7 @@ mod tests {
             cohort_seed_reconcile_enabled: false,
             cohort_seed_reconcile_scan_page: 256,
             cohort_seed_reconcile_tick_interval_ms: 2_000,
+            cohort_seed_apply_batch_max: 256,
             cohort_seed_person_apply_enabled: false,
             cohort_seed_person_live_margin_ms: 900_000,
             cohort_seed_live_lag_pause_ms: 120_000,
@@ -1250,6 +1266,26 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
+    }
+
+    /// `1` is the documented hatch back to the per-seed apply, so the floor has to be `1`, not `0`:
+    /// a zero ceiling would make the knob silently meaningless instead of failing the boot.
+    #[test]
+    fn the_seed_apply_batch_ceiling_defaults_to_256_and_refuses_zero() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.cohort_seed_apply_batch_max, 256);
+        assert_eq!(defaults.seed_apply_batch_max().unwrap().get(), 256);
+
+        let mut config = test_config();
+        config.cohort_seed_apply_batch_max = 1;
+        assert!(config.validate_startup().is_ok());
+
+        config.cohort_seed_apply_batch_max = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_APPLY_BATCH_MAX"),);
     }
 
     #[test]

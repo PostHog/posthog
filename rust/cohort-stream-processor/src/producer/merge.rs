@@ -113,6 +113,9 @@ const FAIL_ALWAYS: usize = usize::MAX;
 pub(crate) struct Capture<T> {
     items: Arc<Mutex<Vec<T>>>,
     fail_remaining: Arc<AtomicUsize>,
+    /// Produce calls, not items. Batching is only observable here: the same items over one call
+    /// instead of many is exactly the change a batched apply makes.
+    calls: Arc<AtomicUsize>,
 }
 
 impl<T> Clone for Capture<T> {
@@ -120,6 +123,7 @@ impl<T> Clone for Capture<T> {
         Self {
             items: self.items.clone(),
             fail_remaining: self.fail_remaining.clone(),
+            calls: self.calls.clone(),
         }
     }
 }
@@ -129,6 +133,7 @@ impl<T> Default for Capture<T> {
         Self {
             items: Arc::default(),
             fail_remaining: Arc::default(),
+            calls: Arc::default(),
         }
     }
 }
@@ -138,6 +143,7 @@ impl<T> Capture<T> {
         Self {
             items: Arc::default(),
             fail_remaining: Arc::new(AtomicUsize::new(n)),
+            calls: Arc::default(),
         }
     }
 
@@ -146,6 +152,7 @@ impl<T> Capture<T> {
     }
 
     pub(crate) fn produce(&self, items: Vec<T>) -> Vec<Result<(), KafkaProduceError>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         let should_fail = self
             .fail_remaining
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| match n {
@@ -166,6 +173,11 @@ impl<T> Capture<T> {
             .expect("Capture mutex poisoned")
             .extend(items);
         acks
+    }
+
+    /// Produce calls made so far, failed ones included.
+    pub(crate) fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
     }
 }
 

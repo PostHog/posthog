@@ -472,6 +472,36 @@ impl CohortStore {
         self.get(Cf::PersonRecords, &key.encode())
     }
 
+    /// Batch-read several `cf_person_records` values in one call, preserving input order.
+    pub fn multi_get_person_records(
+        &self,
+        keys: &[PersonRecordKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        // An empty batch is not a read: skip it so it records no phantom read-latency sample.
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let handle = self.cf(Cf::PersonRecords)?;
+        let encoded: Vec<_> = keys.iter().map(PersonRecordKey::encode).collect();
+        let started = Instant::now();
+        let results = self
+            .db
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
+        record_multi_get(started, keys.len());
+        results
+            .into_iter()
+            .map(|result| {
+                result.map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+                    StoreError::Backend {
+                        op: OP_MULTI_GET,
+                        source,
+                    }
+                })
+            })
+            .collect()
+    }
+
     /// Read one event's full state snapshot in a single mixed-CF `multi_get`: the `behavioral` keys
     /// (in order) plus, when `record` is given, the person's `cf_person_records` key as the final
     /// lookup.
@@ -848,6 +878,37 @@ impl CohortStore {
 
     pub fn get_tombstone(&self, key: &TombstoneKey) -> Result<Option<Vec<u8>>, StoreError> {
         self.get(Cf::MergeTombstones, &key.encode())
+    }
+
+    /// Batch-read several `cf_merge_tombstones` values in one call, preserving input order. Reads
+    /// the first hop only; a chain that continues on this partition still needs per-person hops.
+    pub fn multi_get_tombstones(
+        &self,
+        keys: &[TombstoneKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        // An empty batch is not a read: skip it so it records no phantom read-latency sample.
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let handle = self.cf(Cf::MergeTombstones)?;
+        let encoded: Vec<_> = keys.iter().map(TombstoneKey::encode).collect();
+        let started = Instant::now();
+        let results = self
+            .db
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
+        record_multi_get(started, keys.len());
+        results
+            .into_iter()
+            .map(|result| {
+                result.map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+                    StoreError::Backend {
+                        op: OP_MULTI_GET,
+                        source,
+                    }
+                })
+            })
+            .collect()
     }
 
     /// Clear one outbox slot once its transfer is acked.
@@ -1633,6 +1694,58 @@ mod tests {
         assert!(
             store.multi_get_behavioral(&[]).unwrap().is_empty(),
             "an empty key set reads no values",
+        );
+    }
+
+    /// The two batched reads feed overlays indexed by request position, so an absent key that
+    /// shifted the results would pair one person's bytes with another person's key.
+    #[test]
+    fn multi_get_person_records_and_tombstones_preserve_order_and_report_absent_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let tombstone_key = |person: u128| TombstoneKey {
+            partition_id: 3,
+            team_id: 7,
+            person: Uuid::from_u128(person),
+        };
+        store
+            .write_batch(|batch| {
+                batch.put::<PersonRecords>(&record_key(3, 1), b"alpha");
+                batch.put::<PersonRecords>(&record_key(3, 2), b"bravo");
+                batch.put_tombstone(&tombstone_key(1), b"charlie");
+                batch.put_tombstone(&tombstone_key(2), b"delta");
+            })
+            .unwrap();
+
+        let records = store
+            .multi_get_person_records(&[record_key(3, 1), record_key(3, 9), record_key(3, 2)])
+            .unwrap();
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].as_deref(), Some(b"alpha".as_slice()));
+        assert_eq!(records[1], None);
+        assert_eq!(records[2].as_deref(), Some(b"bravo".as_slice()));
+        assert!(store.multi_get_person_records(&[]).unwrap().is_empty());
+
+        let tombstones = store
+            .multi_get_tombstones(&[tombstone_key(1), tombstone_key(9), tombstone_key(2)])
+            .unwrap();
+        assert_eq!(tombstones.len(), 3);
+        assert_eq!(tombstones[0].as_deref(), Some(b"charlie".as_slice()));
+        assert_eq!(tombstones[1], None);
+        assert_eq!(tombstones[2].as_deref(), Some(b"delta".as_slice()));
+        assert!(store.multi_get_tombstones(&[]).unwrap().is_empty());
+
+        assert_eq!(
+            store
+                .multi_get_person_records(&[PersonRecordKey::new(4, 7, Uuid::from_u128(1))])
+                .unwrap(),
+            vec![None],
+            "the person-record read is partition-scoped by its key prefix",
         );
     }
 

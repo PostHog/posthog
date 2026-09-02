@@ -516,6 +516,17 @@ pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_
 /// Failed person-seed re-key produces; the seed offset is held (counter).
 pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
     "cohort_person_seeds_rekey_produce_failure_total";
+/// Seeds applied as one batched unit, labelled by `kind` (`tile`|`person`) (histogram). The
+/// distance from `COHORT_SEED_APPLY_BATCH_MAX` is how much of the produce round trip a batch
+/// actually amortizes.
+pub const SEED_APPLY_BATCH_SIZE: &str = "cohort_seed_apply_batch_size";
+/// Wall-clock per batch stage, labelled by `kind` and `stage` (`resolve`|`read`|`fold`|
+/// `stage1_commit`|`recompute`|`produce`|`stage2_commit`) (histogram, seconds). Whichever stage
+/// dominates is the next lever.
+pub const SEED_APPLY_BATCH_DURATION_SECONDS: &str = "cohort_seed_apply_batch_duration_seconds";
+/// Batches that held their first offset instead of marking, labelled by `kind` and the `stage` that
+/// failed (counter). Pairs with [`SEED_HELD_OFFSET_GAUGE`], which shows the pinned floor.
+pub const SEED_APPLY_BATCHES_HELD_TOTAL: &str = "cohort_seed_apply_batches_held_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
@@ -880,6 +891,15 @@ mod tests {
             "cohort_person_seeds_rekey_produce_failure_total",
         );
         // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
+        assert_eq!(SEED_APPLY_BATCH_SIZE, "cohort_seed_apply_batch_size");
+        assert_eq!(
+            SEED_APPLY_BATCH_DURATION_SECONDS,
+            "cohort_seed_apply_batch_duration_seconds",
+        );
+        assert_eq!(
+            SEED_APPLY_BATCHES_HELD_TOTAL,
+            "cohort_seed_apply_batches_held_total",
+        );
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
         assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
         assert_eq!(SEED_FENCE_DEFICIT_MS, "cohort_seed_fence_deficit_ms");

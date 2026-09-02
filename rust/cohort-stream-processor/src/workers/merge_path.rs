@@ -5,6 +5,7 @@
 //! [`handle_apply`] applies a `MergeStateTransfer` on P_new's worker. Both produce their own
 //! membership output and mark their own [`OffsetTracker`].
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -83,6 +84,10 @@ impl TransferRetryPolicy {
 /// (tests). Mirrors `Config::merge_gc_scan_limit`'s default.
 pub const DEFAULT_MERGE_GC_SCAN_LIMIT: usize = 10_000;
 
+/// Default seed apply batch ceiling when the deps are built without explicit config (tests).
+/// Mirrors `Config::cohort_seed_apply_batch_max`'s default.
+pub const DEFAULT_SEED_APPLY_BATCH_MAX: NonZeroUsize = NonZeroUsize::new(256).expect("256 > 0");
+
 /// Cascade depth/fan-out caps and the master gate. With `enabled` false the cascade transport is
 /// inert (the producer builds nothing, the consumer drains without re-evaluating).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,6 +144,9 @@ pub struct MergeWorkerDeps {
     pub reconcile: ReconcileDeps,
     /// Person-property seed admission and its live-priority margin.
     pub person_seed: PersonSeedDeps,
+    /// Ceiling on the seeds one apply batch folds before it commits and produces. `1` restores the
+    /// per-seed apply, which is the hatch if batching ever misbehaves.
+    pub seed_apply_batch_max: NonZeroUsize,
 }
 
 impl MergeWorkerDeps {
@@ -161,6 +169,7 @@ impl MergeWorkerDeps {
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
             person_seed: PersonSeedDeps::default(),
+            seed_apply_batch_max: DEFAULT_SEED_APPLY_BATCH_MAX,
         })
     }
 }
@@ -914,6 +923,7 @@ mod tests {
             register_transfer_enabled: false,
             reconcile: ReconcileDeps::default(),
             person_seed: PersonSeedDeps::default(),
+            seed_apply_batch_max: DEFAULT_SEED_APPLY_BATCH_MAX,
         }
     }
 

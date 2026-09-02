@@ -48,7 +48,9 @@ use crate::workers::event_path::{
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::reconcile::{handle_reconcile_drain, ReconcileQueue};
-use crate::workers::seed_path::handle_seed;
+use crate::workers::seed_batch::{
+    group_seeds, handle_seed_groups, Admitted, SeedApplyDeps, SeedOffset,
+};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
@@ -182,7 +184,8 @@ async fn run_worker(
         // Set when a pre-arm flush fails: holds the whole batch's offset so Kafka replays it.
         let mut held = false;
 
-        for message in batch {
+        let mut messages = batch.into_iter().peekable();
+        while let Some(message) = messages.next() {
             let last_updated = last_updated_clock.next();
             match message {
                 ShuffleMessage::Event {
@@ -308,13 +311,37 @@ async fn run_worker(
                     offset,
                     broker_ts_ms: _,
                 } => {
-                    // Worker receipt is the first point that both proves this exact seed landed and
-                    // orders its ceiling before even a zero-work handler can mark it processed.
-                    // The dispatcher also records the delivered batch maximum, but that post-send
-                    // accounting can race a fast worker on a multithreaded runtime.
+                    // Seeds arrive as their own sub-batch, so taking the whole consecutive run is
+                    // what lets one produce round trip cover hundreds of them.
+                    let mut seeds = vec![Admitted {
+                        work: *work,
+                        offset: SeedOffset(offset),
+                    }];
+                    // `Peekable` has no put-back, so the predicate and the pattern below it have to
+                    // name the same variant. They are one line apart deliberately; a drift would
+                    // end the run early and leave that seed unmarked, so Kafka would replay it.
+                    while let Some(ShuffleMessage::Seed { work, offset, .. }) =
+                        messages.next_if(|message| matches!(message, ShuffleMessage::Seed { .. }))
+                    {
+                        seeds.push(Admitted {
+                            work: *work,
+                            offset: SeedOffset(offset),
+                        });
+                    }
+                    // Worker receipt is the first point that both proves these exact seeds landed
+                    // and orders their ceiling before even a zero-work handler can mark them
+                    // processed. The dispatcher also records the delivered batch maximum, but that
+                    // post-send accounting can race a fast worker on a multithreaded runtime. The
+                    // ceiling is monotonic, so raising it once to the run's highest offset is the
+                    // same as raising it per seed.
+                    let highest = seeds
+                        .iter()
+                        .map(|seed| seed.offset.0)
+                        .max()
+                        .expect("the run holds at least the seed that opened it");
                     merge
                         .seed_tracker
-                        .mark_dispatched(partition_id as i32, offset + 1);
+                        .mark_dispatched(partition_id as i32, highest + 1);
                     if flush_event_changes_before_inline(
                         &sink,
                         &mut buffer,
@@ -325,17 +352,18 @@ async fn run_worker(
                     {
                         break;
                     }
-                    handle_seed(
-                        partition_id,
-                        &handle,
-                        &catalog,
-                        &sink,
-                        &merge,
+                    handle_seed_groups(
+                        SeedApplyDeps {
+                            partition_id,
+                            handle: &handle,
+                            catalog: &catalog,
+                            sink: &sink,
+                            merge: &merge,
+                        },
                         &mut queue,
                         &mut reconcile_queue,
-                        &last_updated,
-                        &work,
-                        offset,
+                        &mut last_updated_clock,
+                        group_seeds(seeds, merge.seed_apply_batch_max),
                     )
                     .await;
                 }
@@ -1070,7 +1098,12 @@ mod tombstone_redirect_tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
+    use cohort_core::seed::{
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, RunId,
+        SChunkMs, SeedTile,
+    };
+
+    use std::num::NonZeroU32;
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
@@ -1080,6 +1113,7 @@ mod tombstone_redirect_tests {
         CaptureCascadeSink, CaptureReconcileMarkerSink, CaptureSink, CaptureStreamEventSink,
         CaptureTransferSink,
     };
+    use crate::stage1::bucket_tz::day_idx_in_tz;
     use crate::stage1::person_record::PersonRecord;
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
@@ -1213,7 +1247,97 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
         })
+    }
+
+    /// Cohort 1 backed by one behavioral leaf, so a day-tile alone flips it.
+    fn behavioral_catalog() -> Arc<CatalogHandle> {
+        let leaf = json!({
+            "type": "behavioral", "value": "performed_event", "key": "$pageview",
+            "time_value": 7, "time_interval": "day",
+            "conditionHash": "0123456789abcdef",
+            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+        });
+        let cohort = json!({ "properties": { "type": "AND", "values": [leaf] } });
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(TEAM), &cohort)
+            .unwrap();
+        Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+            TeamId(TEAM),
+            builder.freeze(UTC),
+        )])))
+    }
+
+    /// Deps that route every person onto partition 0, so one worker owns a whole seed run.
+    fn single_partition_deps() -> Arc<MergeWorkerDeps> {
+        let mut deps = Arc::try_unwrap(merge_deps_with(CaptureStreamEventSink::new()))
+            .unwrap_or_else(|_| panic!("test owns the only dependency Arc"));
+        deps.partition_count = 1;
+        Arc::new(deps)
+    }
+
+    fn seed_tile(person: Uuid) -> SeedTile {
+        SeedTile::new(
+            TeamId(TEAM),
+            person,
+            ConditionHash::parse("0123456789abcdef").unwrap(),
+            NonZeroU32::new(1).unwrap(),
+            day_idx_in_tz(chrono::Utc::now().timestamp_millis(), UTC),
+            SChunkMs(1_700_000_000_000),
+            RunId(Uuid::from_u128(0xBF)),
+            ClaimEpoch(1),
+        )
+    }
+
+    /// The worker has to take a channel batch's whole consecutive seed run as one apply. Handing
+    /// each seed to the pipeline on its own would put every tile back on its own produce round trip,
+    /// which is the cost the batching exists to remove.
+    #[tokio::test]
+    async fn a_channel_batch_of_seeds_pays_one_membership_produce() {
+        const TILES: usize = 3;
+        let (_dir, store) = temp_store();
+        let membership = CaptureSink::new();
+        let merge = single_partition_deps();
+        let seed_tracker = merge.seed_tracker.clone();
+        let events_tracker = Arc::new(OffsetTracker::new());
+
+        run_batch(
+            0,
+            &store,
+            behavioral_catalog(),
+            &membership,
+            &events_tracker,
+            merge,
+            0,
+            (0..TILES)
+                .map(|i| ShuffleMessage::Seed {
+                    work: Box::new(SeedWork::Tile(seed_tile(Uuid::from_u128(
+                        0x5EED_0000 + i as u128,
+                    )))),
+                    offset: i as i64,
+                    broker_ts_ms: None,
+                })
+                .collect(),
+        )
+        .await;
+
+        assert_eq!(
+            membership.changes().len(),
+            TILES,
+            "every tile entered the single-leaf cohort",
+        );
+        assert_eq!(
+            membership.produce_calls(),
+            1,
+            "the worker applied the run as one batch",
+        );
+        assert_eq!(
+            seed_tracker.committable_offsets().get(&0),
+            Some(&(TILES as i64)),
+            "the whole run's span is marked",
+        );
     }
 
     fn reconcile_deps() -> (Arc<MergeWorkerDeps>, CaptureReconcileMarkerSink) {
@@ -1246,6 +1370,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
         })
     }
 
@@ -1273,6 +1398,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_apply_batch_max: crate::workers::DEFAULT_SEED_APPLY_BATCH_MAX,
         })
     }
 

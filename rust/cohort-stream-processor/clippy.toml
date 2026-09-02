@@ -15,6 +15,8 @@ disallowed-methods = [
     { path = "cohort_stream_processor::store::rocks::CohortStore::get_merge_drain_applied", reason = "async code must read through StoreHandle or run_section; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::get_merge_applied", reason = "async code must read through StoreHandle or run_section; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::get_tombstone", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::multi_get_person_records", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::multi_get_tombstones", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::get_pending_transfer", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::clear_pending_transfer", reason = "async code must write through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::scan_pending_transfers", reason = "async code must scan through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },

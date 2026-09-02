@@ -8,6 +8,8 @@
 //! lands on a different partition (re-keyed and re-produced). The chain `origin` is always the
 //! straggler's own person id, since it keys into `redirect_dedup`.
 
+use std::collections::HashMap;
+
 use metrics::counter;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -108,13 +110,7 @@ fn read_tombstone(
     let Some(bytes) = store.get_tombstone(&key)? else {
         return Ok(None);
     };
-    match Tombstone::decode(&bytes) {
-        Ok(tombstone) => Ok(Some(tombstone)),
-        Err(error) => {
-            debug!(partition_id, %person, error = %error, "corrupt tombstone; treating as not merged");
-            Ok(None)
-        }
-    }
+    Ok(decode_tombstone(partition_id, person, &bytes))
 }
 
 /// Async twin of [`resolve`] over the [`StoreHandle`] facade; each hop reads on the caller's
@@ -185,13 +181,70 @@ async fn read_tombstone_offloaded(
     let Some(bytes) = handle.get_tombstone(&key, lane).await? else {
         return Ok(None);
     };
-    match Tombstone::decode(&bytes) {
-        Ok(tombstone) => Ok(Some(tombstone)),
+    Ok(decode_tombstone(partition_id, person, &bytes))
+}
+
+/// Decode one stored tombstone, or `None` when the bytes are corrupt. A corrupt marker reads as
+/// "not merged", which is the same degrade a missing marker gets.
+fn decode_tombstone(partition_id: u16, person: Uuid, bytes: &[u8]) -> Option<Tombstone> {
+    match Tombstone::decode(bytes) {
+        Ok(tombstone) => Some(tombstone),
         Err(error) => {
             debug!(partition_id, %person, error = %error, "corrupt tombstone; treating as not merged");
-            Ok(None)
+            None
         }
     }
+}
+
+/// Resolve many `(team, person)` keys at once, reading every chain's first hop in one batched
+/// `multi_get`.
+///
+/// `persons` must be distinct; a repeat costs a redundant read and resolves to the same verdict.
+/// Only a chain whose first hop lands back on this partition needs its later hops walked one at a
+/// time, and that requires a merge to have happened, so a backfill batch normally pays exactly one
+/// read for the whole run.
+pub async fn resolve_batch_offloaded(
+    handle: &StoreHandle,
+    partition_id: u16,
+    persons: &[(TeamId, Uuid)],
+    partition_count: u32,
+    lane: ReadLane,
+) -> Result<HashMap<(TeamId, Uuid), Resolution>, StoreError> {
+    let keys: Vec<TombstoneKey> = persons
+        .iter()
+        .map(|&(team_id, person)| TombstoneKey {
+            partition_id,
+            team_id: team_id.0 as u64,
+            person,
+        })
+        .collect();
+    let values = handle.multi_get_tombstones(keys, lane).await?;
+
+    let mut resolved = HashMap::with_capacity(persons.len());
+    for (&(team_id, person), bytes) in persons.iter().zip(values) {
+        let first = bytes
+            .as_deref()
+            .and_then(|bytes| decode_tombstone(partition_id, person, bytes));
+        let resolution = match first {
+            None => Resolution::NotMerged,
+            Some(tombstone)
+                if partition_of(team_id, &tombstone.new_person, partition_count) as u16
+                    != partition_id =>
+            {
+                Resolution::CrossPartition {
+                    target_person: tombstone.new_person,
+                    origin: person,
+                }
+            }
+            // The chain continues here, so the remaining hops need their own reads.
+            Some(_) => {
+                resolve_offloaded(handle, partition_id, team_id, person, partition_count, lane)
+                    .await?
+            }
+        };
+        resolved.insert((team_id, person), resolution);
+    }
+    Ok(resolved)
 }
 
 /// Record an inline redirect metric. Cross-partition redirects are counted separately via
