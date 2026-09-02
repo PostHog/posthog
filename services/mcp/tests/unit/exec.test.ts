@@ -1048,12 +1048,56 @@ describe('exec tool', () => {
         })
     })
 
+    describe('access classes', () => {
+        const readTool = makeMockTool({ name: 'dashboard-get', title: 'Get dashboard' })
+        const writeTool = makeMockTool({
+            name: 'dashboard-create',
+            title: 'Create dashboard',
+            annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: true, readOnlyHint: false },
+        })
+        const destructiveTool = makeMockTool({
+            name: 'dashboard-delete',
+            title: 'Delete dashboard',
+            annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: true, readOnlyHint: false },
+        })
+
+        it('groups the tool listing by what a call can do', async () => {
+            const exec = createExec([readTool, writeTool, destructiveTool])
+
+            const listed = JSON.parse((await exec.handler(mockContext, { command: 'tools' })) as string)
+
+            expect(listed).toEqual({
+                read: ['dashboard-get'],
+                write: ['dashboard-create'],
+                destructive: ['dashboard-delete'],
+            })
+        })
+
+        it('names the search matches that write or destroy, leaving read-only ones implicit', async () => {
+            const exec = createExec([readTool, writeTool, destructiveTool])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search dashboard' })) as string)
+
+            expect(result.matches).toHaveLength(3)
+            expect(result.write).toEqual(['dashboard-create'])
+            expect(result.destructive).toEqual(['dashboard-delete'])
+        })
+
+        it('omits the lists when every match is read-only', async () => {
+            const exec = createExec([readTool])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search dashboard' })) as string)
+
+            expect(result).toEqual({ matches: ['dashboard-get'] })
+        })
+    })
+
     describe('search command', () => {
-        it('returns a plain array of matching tool names', async () => {
+        it('returns matching tool names', async () => {
             const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
             const exec = createExec([flagTool])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
-            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+            expect(JSON.parse(result as string)).toEqual({ matches: ['feature-flag-get-all'] })
         })
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
@@ -1064,19 +1108,28 @@ describe('exec tool', () => {
             )
         })
 
-        it('hints scope-gated tools that match but are hidden by missing scopes', async () => {
+        it('hints scope-gated tools that match, each labeled with its access class', async () => {
             const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
                 {
                     name: 'external-data-sources-refresh-schemas',
                     title: 'Refresh available schemas',
                     description: 'Fetch the latest table list from the remote database',
                     missingScopes: ['external_data_source:write'],
+                    access: 'write',
                 },
                 {
                     name: 'external-data-schemas-list',
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    access: 'read',
+                },
+                {
+                    name: 'external-data-sources-delete',
+                    title: 'Delete data source',
+                    description: 'Delete a data source connection',
+                    missingScopes: ['external_data_source:write'],
+                    access: 'destructive',
                 },
             ])
             const result = JSON.parse(
@@ -1085,9 +1138,20 @@ describe('exec tool', () => {
                 })) as string
             )
             expect(result.matches).toEqual([])
+            // Each gated match carries its own access class, so a destructive gated tool
+            // is never read the read-only-by-omission way `matches` are.
             expect(result.scope_gated_matches).toEqual([
-                { name: 'external-data-sources-refresh-schemas', missing_scopes: ['external_data_source:write'] },
-                { name: 'external-data-schemas-list', missing_scopes: ['external_data_source:read'] },
+                {
+                    name: 'external-data-sources-refresh-schemas',
+                    access: 'write',
+                    missing_scopes: ['external_data_source:write'],
+                },
+                { name: 'external-data-schemas-list', access: 'read', missing_scopes: ['external_data_source:read'] },
+                {
+                    name: 'external-data-sources-delete',
+                    access: 'destructive',
+                    missing_scopes: ['external_data_source:write'],
+                },
             ])
             expect(result.hint).toContain('external_data_source:read')
             expect(result.hint).toContain('external_data_source:write')
@@ -1101,10 +1165,11 @@ describe('exec tool', () => {
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    access: 'read',
                 },
             ])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
-            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+            expect(JSON.parse(result as string)).toEqual({ matches: ['feature-flag-get-all'] })
         })
 
         it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
@@ -1119,8 +1184,7 @@ describe('exec tool', () => {
             const result = JSON.parse(
                 (await exec.handler(mockContext, { command: 'search create dashboard insight' })) as string
             )
-            expect(Array.isArray(result)).toBe(true)
-            expect(result.slice(0, 2)).toEqual(['dashboard-create', 'insight-create'])
+            expect(result.matches.slice(0, 2)).toEqual(['dashboard-create', 'insight-create'])
         })
 
         it('surfaces scope-gated tools for a plain-language query', async () => {
@@ -1130,13 +1194,14 @@ describe('exec tool', () => {
                     title: 'Create experiment',
                     description: 'Create a new experiment',
                     missingScopes: ['experiment:write'],
+                    access: 'write',
                 },
             ])
             const result = JSON.parse(
                 (await exec.handler(mockContext, { command: 'search create experiment' })) as string
             )
             expect(result.scope_gated_matches).toEqual([
-                { name: 'experiment-create', missing_scopes: ['experiment:write'] },
+                { name: 'experiment-create', access: 'write', missing_scopes: ['experiment:write'] },
             ])
             expect(result.hint).toContain('experiment:write')
         })
@@ -1211,6 +1276,7 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        access: 'write',
                     },
                 ])
 

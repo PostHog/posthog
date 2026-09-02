@@ -5,6 +5,7 @@ import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
+import { classifyToolAccess, type ToolAccess } from '@/tools/tool-access'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
@@ -332,6 +333,9 @@ export interface ScopeGatedTool {
     description: string
     /** Scopes the tool requires that the current API key is missing. */
     missingScopes: string[]
+    /** Access class, so `search` labels a gated match instead of leaving it
+     *  unclassified — where an agent would read it as read-only. */
+    access: ToolAccess
 }
 
 /**
@@ -365,6 +369,7 @@ export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions
             title: definition.title,
             description: definition.description,
             missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
+            access: classifyToolAccess({ name, annotations: definition.annotations }),
         })
     }
 

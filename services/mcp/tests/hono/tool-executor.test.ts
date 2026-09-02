@@ -103,6 +103,9 @@ describe('ToolExecutor', () => {
             expect(result.isError).toBe(true)
             expect(result.content[0].text).toContain('nonexistent-tool')
             expect(result.content[0].text).toContain('not found')
+            // The dispatcher rejects before any handler runs, so this path needs its
+            // own code — otherwise the agent has only prose to branch on.
+            expect(result.content[0].text).toContain('error_code: unknown_tool')
         })
 
         it('rejects tools not in the per-request filtered set', async () => {

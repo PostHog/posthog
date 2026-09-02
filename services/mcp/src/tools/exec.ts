@@ -10,6 +10,7 @@ import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { listWriteAndDestructive, partitionToolsByAccess } from './tool-access'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
@@ -684,15 +685,18 @@ export function createExecTool(
                 }
 
                 case 'tools': {
-                    const names = allTools.map((t) => t.name)
+                    // Grouped by access class rather than listed flat: every name still
+                    // appears exactly once, so the agent learns which tools write or
+                    // destroy without an `info` call each and without extra tokens.
+                    const tools = partitionToolsByAccess(allTools)
                     const connected = await resolveConnectedSummary(resolveTools, allTools.length)
                     if (!connected) {
-                        return JSON.stringify(names)
+                        return JSON.stringify(tools)
                     }
                     // Summarize rather than list: a user with several connected servers can
                     // have hundreds of third-party tools, and dumping them all here would
                     // cost more context than `search` ever does.
-                    return JSON.stringify({ tools: names, connected_servers: connected })
+                    return JSON.stringify({ ...tools, connected_servers: connected })
                 }
 
                 case 'search': {
@@ -748,12 +752,26 @@ export function createExecTool(
                         exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
                     })
 
+                    if (matches.length === 0 && gatedMatches.length === 0) {
+                        return JSON.stringify({
+                            matches: [],
+                            hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
+                        })
+                    }
+
+                    // Names the matches that write or destroy. Everything else in
+                    // `matches` is read-only, so relevance order survives and only the
+                    // exceptions cost a second mention.
+                    const access = listWriteAndDestructive(matches, searchableTools)
+
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
                         return JSON.stringify({
                             matches,
+                            ...access,
                             scope_gated_matches: gatedMatches.map((t) => ({
                                 name: t.name,
+                                access: t.access,
                                 missing_scopes: t.missingScopes,
                             })),
                             hint:
@@ -761,20 +779,15 @@ export function createExecTool(
                                 `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
                         })
                     }
-                    if (matches.length === 0) {
-                        return JSON.stringify({
-                            matches: [],
-                            hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
-                        })
-                    }
                     if (truncatedFrom > 0) {
                         return JSON.stringify({
                             matches,
+                            ...access,
                             truncated: true,
                             hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
                         })
                     }
-                    return JSON.stringify(matches)
+                    return JSON.stringify({ matches, ...access })
                 }
 
                 case 'info': {
