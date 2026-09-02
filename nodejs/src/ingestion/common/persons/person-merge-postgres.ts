@@ -4,7 +4,7 @@ import { Counter, Histogram } from 'prom-client'
 import { PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
-import { isDistinctIdIllegal } from '~/common/persons/person-utils'
+import { isDistinctIdUnmergeable } from '~/common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
@@ -501,7 +501,7 @@ export class PostgresPersonMerge {
         const seenSourceIds = new Set<string>([target.id])
         const missingSources: MergePersonsSource[] = []
         for (const pair of sourcesToFold) {
-            if (isDistinctIdIllegal(pair.distinctId)) {
+            if (isDistinctIdUnmergeable(pair.distinctId)) {
                 outcomes.push({ sourceDistinctId: pair.distinctId, outcome: 'skipped_illegal' })
                 continue
             }

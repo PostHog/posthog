@@ -159,6 +159,62 @@ describe('PostgresPersonMerge merge events', () => {
         )
     }
 
+    // The executor refuses the ids Postgres cannot store even when a caller
+    // skips the service's pre-filter. A regression to the narrower illegal
+    // list would classify these as missing sources, carry them into the fold
+    // transaction, and abort the whole fold on the doomed insert.
+    it('a fold refuses unstorable source ids without opening a transaction', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const target = { id: 't1', uuid: targetPerson.uuid } as InternalPerson
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(target),
+            fetchPersonsForUpdateByDistinctIds: jest.fn().mockResolvedValue([]),
+        }
+        const eventUuid = new UUIDT().toString()
+        const nulId = 'anon\u0000one'
+        const oversizedId = 'x'.repeat(401)
+        const request: MergePersonsRequest = {
+            teamId: 2,
+            targetDistinctId: 'd',
+            sources: [
+                { distinctId: nulId, eventUuid },
+                { distinctId: oversizedId, eventUuid },
+            ],
+            eventOps: {
+                set: {},
+                setOnce: {},
+                unset: [],
+                denied: false,
+                shouldForceUpdate: true,
+                eventName: '$identify',
+            },
+            eventUuid,
+            allowIdentifiedSources: false,
+            mergeMode: createDefaultSyncMergeMode(),
+            createdAtMs: 3_600_000,
+        }
+        const merge = new PostgresPersonMerge(
+            store as never,
+            mockOutputs as never,
+            {
+                updateAllProperties: false,
+                isTombstoneTeam: () => false,
+                mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
+            },
+            request,
+            0
+        )
+
+        const result = await merge.execute()
+
+        expect(result.foldAborted).toBeUndefined()
+        expect(result.survivor).toBe(target)
+        expect(result.results).toEqual([
+            { sourceDistinctId: nulId, outcome: 'skipped_illegal' },
+            { sourceDistinctId: oversizedId, outcome: 'skipped_illegal' },
+        ])
+    })
+
     // The produce is detached from ingestion, so a broker failure must never surface to the caller
     // and must not be counted as a delivered produce (the counter tracks broker acks, not attempts).
     it('producePersonMergeEvent swallows a produce failure without counting it', async () => {
