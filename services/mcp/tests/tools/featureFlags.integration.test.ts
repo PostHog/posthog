@@ -8,6 +8,7 @@ import {
     createTestClient,
     createTestContext,
     generateUniqueKey,
+    getToolByName,
     parseToolResponse,
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
@@ -272,6 +273,62 @@ describe('Feature flags', { concurrent: false }, () => {
             expect(updatedFlag.name).toBe('Updated name')
             expect(updatedFlag.active).toBe(false)
             expect(updatedFlag._posthogUrl).toContain('/feature_flags/')
+        })
+
+        it('keeps group targeting when partial filters omit the group fields', async () => {
+            // Resolved the way production does, so the hand-written override wins over
+            // the generated tool. Without the merge the untyped property below reaches the
+            // API as a person property, which loses group targeting where filter enforcement
+            // is off and is rejected outright where it is on.
+            const overrideUpdateTool = getToolByName('update-feature-flag')
+
+            const createResult = await createTool.handler(context, {
+                name: 'Group targeted flag',
+                key: generateUniqueKey('group-targeting'),
+                filters: {
+                    aggregation_group_type_index: 0,
+                    groups: [
+                        {
+                            aggregation_group_type_index: 0,
+                            properties: [
+                                {
+                                    key: 'plan',
+                                    type: 'group',
+                                    group_type_index: 0,
+                                    operator: 'exact',
+                                    value: 'enterprise',
+                                },
+                            ],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+                active: true,
+            })
+            const createdFlag = parseToolResponse(createResult)
+            createdResources.featureFlags.push(createdFlag.id)
+
+            // The shape agents actually send: key, operator and value only.
+            const updateResult = await overrideUpdateTool.handler(context, {
+                id: createdFlag.id,
+                filters: {
+                    groups: [
+                        {
+                            properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+            })
+            const updatedFlag = parseToolResponse(updateResult)
+
+            // The backend shallow-merges filters, so flag-level aggregation would survive on
+            // its own; the property assertions below are what the merge is actually needed for.
+            expect(updatedFlag.filters.aggregation_group_type_index).toBe(0)
+            const updatedProperty = updatedFlag.filters.groups[0].properties[0]
+            expect(updatedProperty.value).toBe('pro')
+            expect(updatedProperty.type).toBe('group')
+            expect(updatedProperty.group_type_index).toBe(0)
         })
 
         it('should update feature flag filters', async () => {

@@ -50,7 +50,7 @@
             "description": "Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`."
         },
         "filters": {
-            "description": "Feature flag targeting configuration.",
+            "description": "Release conditions. Each property supports type (\"person\" | \"group\" | \"cohort\"), operator, value, and for groups: group_type_index. Set filters.aggregation_group_type_index to target a group type (UI \"Target by\"). Example group property: { \"key\": \"plan\", \"type\": \"group\", \"group_type_index\": 0, \"operator\": \"exact\", \"value\": \"enterprise\" }.",
             "properties": {
                 "aggregation_group_type_index": {
                     "anyOf": [

@@ -5,6 +5,7 @@ import { StateManager } from '@/lib/StateManager'
 import type { InsightQuery } from '@/schema/query'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { TOOL_MAP } from '@/tools/index'
+import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 export const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
@@ -168,7 +169,8 @@ export function getToolByName(
     let name: string
 
     if (typeof nameOrMap === 'string') {
-        toolMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+        // Hand-written overrides win (same as production catalogs / CLI).
+        toolMap = mergeToolFactories(GENERATED_TOOL_MAP, TOOL_MAP)
         name = nameOrMap
     } else {
         toolMap = nameOrMap

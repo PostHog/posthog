@@ -9,6 +9,7 @@ import {
     getToolDefinitions,
     getToolsForFeatures,
 } from '@/tools/toolDefinitions'
+import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
 interface PreBuiltTool {
@@ -104,7 +105,11 @@ export class ToolCatalog {
             import('@/tools/generated'),
         ])
 
-        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+        // Hand-written TOOL_MAP wins on collision (e.g. update-feature-flag group merge).
+        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = mergeToolFactories(
+            GENERATED_TOOL_MAP,
+            TOOL_MAP
+        )
 
         const defs = getToolDefinitions()
 

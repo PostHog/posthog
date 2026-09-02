@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { FeatureFlagsCreateBody, FeatureFlagsListQueryParams } from '@/generated/feature_flags/api'
+import {
+    FeatureFlagsCreateBody,
+    FeatureFlagsListQueryParams,
+    FeatureFlagsPartialUpdateBody,
+} from '@/generated/feature_flags/api'
 import { SurveysCreateBody } from '@/generated/surveys/api'
 
 describe('Feature flag filter schemas', () => {
@@ -255,5 +259,42 @@ describe('Filter groups schema', () => {
         })
 
         expect(result.success).toBe(true)
+    })
+
+    it('should accept group property filters with type and group_type_index (#46501)', () => {
+        const payload = {
+            aggregation_group_type_index: 0,
+            groups: [
+                {
+                    properties: [
+                        {
+                            key: 'plan',
+                            type: 'group',
+                            group_type_index: 0,
+                            value: 'enterprise',
+                            operator: 'exact',
+                        },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const result = filtersSchema.safeParse(payload)
+
+        expect(result.success).toBe(true)
+        if (result.success) {
+            const prop = result.data?.groups?.[0]?.properties?.[0] as {
+                type?: string
+                group_type_index?: number
+            }
+            expect(prop?.type).toBe('group')
+            expect(prop?.group_type_index).toBe(0)
+            expect(result.data?.aggregation_group_type_index).toBe(0)
+        }
+
+        // update-feature-flag advertises FeatureFlagsPartialUpdateBody.filters (separate copy).
+        const updateResult = FeatureFlagsPartialUpdateBody.shape.filters.safeParse(payload)
+        expect(updateResult.success).toBe(true)
     })
 })
