@@ -145,11 +145,7 @@ export function InboxReportFilters(): React.JSX.Element {
           if (option) setSort(option.field, option.direction);
         }}
       >
-        <SelectTrigger
-          size="sm"
-          aria-label="Sort reports"
-          data-attr="inbox-sort"
-        >
+        <SelectTrigger size="sm" data-attr="inbox-sort">
           <span>Sort:</span>
           <SelectValue>
             {(selected: string) =>

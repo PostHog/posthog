@@ -91,7 +91,7 @@ export function InboxScopeSelect() {
             type="button"
             variant="outline"
             size="sm"
-            aria-label="Self-driving scope"
+            aria-label={`Self-driving scope: ${triggerLabel}`}
             className="gap-1.5"
           >
             {triggerLabel}
