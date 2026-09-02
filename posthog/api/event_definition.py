@@ -489,6 +489,12 @@ class EventDefinitionViewSet(
         if not results:
             results = [("last_seen_at::date", "DESC"), ("name", "ASC")]
 
+        # `name` is unique per project, so it is the tiebreaker that keeps SQL LIMIT/OFFSET paging
+        # stable. An explicit `?ordering=` without it can order tied rows differently per page, so a
+        # row is paged twice or skipped.
+        if not any(expression == "name" for expression, _ in results):
+            results.append(("name", "ASC"))
+
         return results
 
     @extend_schema(
