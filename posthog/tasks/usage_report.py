@@ -142,6 +142,9 @@ QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
+# `(team_id, count)` rows, the shape `convert_team_usage_rows_to_dict` reads.
+TeamUsageRows = list[tuple[int, int]]
+
 # Kafka's default `message.max.bytes` is ~1 MiB. For orgs with several hundred
 # teams the per-team breakdown under `teams` makes the report payload exceed
 # that limit, and the event is dropped at the broker — silently.
@@ -2509,8 +2512,7 @@ def get_teams_with_logs_bytes_in_period(
 def get_teams_with_logs_retention_byte_days_in_period(
     begin: datetime,
     end: datetime,
-    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows, the shape convert_team_usage_rows_to_dict reads
-) -> list[tuple[int, int]]:
+) -> TeamUsageRows:
     """
     Returns byte-days of log retention grouped by team: ingested bytes weighted by their retention days.
 
