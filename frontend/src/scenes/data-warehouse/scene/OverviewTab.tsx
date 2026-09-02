@@ -77,7 +77,9 @@ function DatasetCard({
 }
 
 export function OverviewTab(): JSX.Element {
-    const { managedWarehouseDataStatus, managedWarehouseDataStatusLoading } = useValues(managedWarehouseDataStatusLogic)
+    const { managedWarehouseDataStatus, managedWarehouseDataStatusLoading, loadError } = useValues(
+        managedWarehouseDataStatusLogic
+    )
     const { loadManagedWarehouseDataStatus } = useActions(managedWarehouseDataStatusLogic)
     const { loadSourceSchemas } = useActions(sourceSchemasModalLogic)
 
@@ -135,7 +137,7 @@ export function OverviewTab(): JSX.Element {
         )
     }
 
-    if (!managedWarehouseDataStatus) {
+    if (loadError && !managedWarehouseDataStatus) {
         return (
             <LemonBanner type="error" className="mt-4">
                 <div className="flex items-center justify-between gap-3">
@@ -151,6 +153,12 @@ export function OverviewTab(): JSX.Element {
                     </LemonButton>
                 </div>
             </LemonBanner>
+        )
+    }
+
+    if (!managedWarehouseDataStatus) {
+        return (
+            <div className="mt-4 text-muted">No warehouse data readiness to show yet. Check back once imports run.</div>
         )
     }
 

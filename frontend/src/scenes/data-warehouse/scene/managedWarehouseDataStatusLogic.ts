@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,6 +17,7 @@ const ACTIVE_STATES: ManagedWarehouseReadinessStateEnumApi[] = ['waiting', 'back
 export interface managedWarehouseDataStatusLogicValues {
     currentTeamId: number | null // teamLogic
     hasActiveWork: boolean
+    loadError: boolean
     managedWarehouseDataStatus: ManagedWarehouseDataStatusResponseApi | null
     managedWarehouseDataStatusLoading: boolean
 }
@@ -69,6 +70,17 @@ export const managedWarehouseDataStatusLogic = kea<managedWarehouseDataStatusLog
             },
         ],
     })),
+    reducers({
+        // A failed status read must read as an error, not as an empty warehouse. The loader
+        // value alone can't tell the two apart, so track the failure explicitly.
+        loadError: [
+            false,
+            {
+                loadManagedWarehouseDataStatusSuccess: () => false,
+                loadManagedWarehouseDataStatusFailure: () => true,
+            },
+        ],
+    }),
     selectors({
         hasActiveWork: [
             (s) => [s.managedWarehouseDataStatus],

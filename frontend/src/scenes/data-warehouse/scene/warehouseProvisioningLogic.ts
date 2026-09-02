@@ -257,7 +257,9 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     try {
                         return await dataWarehouseWarehouseStatusRetrieve(currentProjectId())
                     } catch (e: any) {
-                        if (e.status === 404) {
+                        // 404: no warehouse yet. 403: the managed-warehouse feature is off for this org.
+                        // Both mean "no status to show", not a crash.
+                        if (e.status === 404 || e.status === 403) {
                             return null
                         }
                         throw e

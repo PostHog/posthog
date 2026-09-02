@@ -179,8 +179,15 @@ export const expressionModalLogic = kea<expressionModalLogicType>([
             [] as DataWarehouseExpressionApi[],
             {
                 loadExpressions: async () => {
-                    const response = await warehouseExpressionsList(String(values.currentTeamId))
-                    return response.results
+                    try {
+                        const response = await warehouseExpressionsList(String(values.currentTeamId))
+                        return response.results
+                    } catch {
+                        // Saved expressions are optional, so a permission or server error must not
+                        // crash the scene. Keep the last loaded list, because a failed reload after a
+                        // save or delete would otherwise erase expressions that are still on the server.
+                        return values.expressions
+                    }
                 },
             },
         ],
