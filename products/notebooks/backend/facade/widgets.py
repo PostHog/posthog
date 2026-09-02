@@ -1,0 +1,34 @@
+from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
+from products.notebooks.backend.widgets import (
+    WidgetConflictError,
+    WidgetError,
+    WidgetRateLimitError,
+    cancel_widget_generation,
+    get_widget_status,
+    infer_widget_inputs,
+    inspect_widget_inputs,
+    is_notebook_widget_enabled,
+    list_widget_versions,
+    read_widget_frame,
+    read_widget_source,
+    revert_widget_version,
+    start_widget_generation,
+)
+
+__all__ = [
+    "DEFAULT_WIDGET_MODEL",
+    "WIDGET_MODEL_CHOICES",
+    "WidgetConflictError",
+    "WidgetError",
+    "WidgetRateLimitError",
+    "cancel_widget_generation",
+    "get_widget_status",
+    "infer_widget_inputs",
+    "inspect_widget_inputs",
+    "is_notebook_widget_enabled",
+    "list_widget_versions",
+    "read_widget_frame",
+    "read_widget_source",
+    "revert_widget_version",
+    "start_widget_generation",
+]

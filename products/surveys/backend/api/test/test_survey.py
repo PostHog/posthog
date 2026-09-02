@@ -21,6 +21,8 @@ from nanoid import generate
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -5408,6 +5410,24 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         }
 
         self.assertEqual(data, expected_counts)
+
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_returns_more_surveys_than_the_hogql_default_limit(self):
+        Survey.objects.create(team_id=self.team.id, start_date=datetime.now() - timedelta(days=1))
+        survey_ids = [str(uuid.uuid4()) for _ in range(DEFAULT_RETURNED_ROWS + 1)]
+        for survey_id in survey_ids:
+            _create_event(
+                event="survey sent",
+                team=self.team,
+                distinct_id=self.user.id,
+                properties={"$survey_id": survey_id},
+                timestamp=datetime.now(),
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), dict.fromkeys(survey_ids, 1))
 
     @freeze_time("2024-05-01 14:40:09")
     def test_responses_count_excludes_archived_responses(self):

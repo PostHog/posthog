@@ -151,6 +151,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_currency": "Whether the unit is a fiat currency rather than a custom credit type.",
         },
     },
+    "plans": {
+        "description": "Plans are Metronome's original way to price a customer. This table lists the plans defined in your account, with each plan's name, description, and custom fields. Metronome has deprecated plans in favor of contracts. It holds plan definitions only, not which customer is on which plan, so it does not by itself link a plan to a customer or an invoice.",
+        "docs_url": "https://docs.metronome.com/api-reference/plans/list-plans",
+        "columns": {
+            "id": "The plan's id.",
+            "name": "The plan's display name.",
+            "description": "The plan's description.",
+            "custom_fields": "Arbitrary key/value pairs set on the plan by your account.",
+        },
+    },
+    "usage": {
+        "description": "Aggregated usage per customer and billable metric, across every customer in the account. Each row is one lifetime total for a customer/metric pair, because the sync asks Metronome for a single aggregate over the whole period rather than a per-day or per-hour breakdown.",
+        "docs_url": "https://docs.metronome.com/api-reference/usage/get-batched-usage-data",
+        "columns": {
+            "customer_id": "The customer the usage belongs to.",
+            "billable_metric_id": "The billable metric the usage was measured against.",
+            "billable_metric_name": "The billable metric's display name.",
+            "start_timestamp": "Start of the aggregation window. The sync starts it at the epoch, so it covers all usage.",
+            "end_timestamp": "End of the aggregation window, set to the time the sync ran.",
+            "value": "The aggregated usage amount for the customer and metric. Null when no usage matched.",
+            "groups": "Usage broken down by group key. Empty, because the sync requests no group breakdown.",
+        },
+    },
     "audit_logs": {
         "description": "One row per change made through the Metronome app or API: who did it, to what, and whether it succeeded. This is the only Metronome endpoint with a server-side time filter, so it is the only table that syncs incrementally.",
         "docs_url": "https://docs.metronome.com/api-reference/security/get-audit-logs",
