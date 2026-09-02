@@ -302,6 +302,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
     // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
     const hasActiveSearchRef = useRef(false)
+    // LemonInputSelect throws typed text away on blur, so someone who types a channel name and
+    // clicks away is left with an empty input and no idea why. Track that case to show it back.
+    const hasUnselectedSearchRef = useRef(false)
+    const [blurredWithoutSelection, setBlurredWithoutSelection] = useState(false)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
@@ -323,6 +327,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             : []
     }
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
+    const showUnselectedSearchError = blurredWithoutSelection && !value
 
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
@@ -373,6 +378,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             <LemonInputSelect
                 onChange={(val) => {
                     const key = val[0] ?? null
+                    // Selecting an option blurs the input first, so this runs after onBlur has
+                    // already flagged the search as dropped. Both land in the same React batch.
+                    hasUnselectedSearchRef.current = false
+                    setBlurredWithoutSelection(false)
                     if (key) {
                         // Pin into the by-id slot so the post-select bulk reload can't drop the
                         // channel from slackChannels and unresolve the label.
@@ -402,6 +411,8 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                             loadAllSlackChannels(false, val)
                             hasActiveSearchRef.current = true
                         }
+                        hasUnselectedSearchRef.current = true
+                        setBlurredWithoutSelection(false)
                         setLocalValue(val)
                     } else if (hasActiveSearchRef.current) {
                         loadAllSlackChannels()
@@ -410,6 +421,8 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
                 onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
+                onBlur={() => setBlurredWithoutSelection(hasUnselectedSearchRef.current)}
+                status={showUnselectedSearchError ? 'danger' : 'default'}
                 disabled={disabled}
                 mode="single"
                 data-attr="select-slack-channel"
@@ -433,6 +446,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 options={options}
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
+
+            {showUnselectedSearchError ? (
+                <p className="mt-1 mb-0 text-xs text-danger">No channel selected. Pick one from the list.</p>
+            ) : null}
 
             {slackIntegrationInactiveMessage ? (
                 <SlackIntegrationInactiveBanner message={slackIntegrationInactiveMessage} />

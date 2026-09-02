@@ -268,6 +268,48 @@ describe('SlackChannelPicker', () => {
         )
     })
 
+    it('reports a dropped search when the user types a channel name and clicks away', async () => {
+        // LemonInputSelect discards typed text on blur, so without this the input silently empties
+        // itself and the user is left thinking the picker reset for no reason.
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={jest.fn()} />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(channelsRequestSearchQueries).toEqual([''])
+        })
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.type(input, 'general')
+        await userEvent.click(document.body)
+
+        expect(await screen.findByText('No channel selected. Pick one from the list.')).toBeInTheDocument()
+    })
+
+    it('reports no dropped search when the user picks a channel from the list', async () => {
+        // Selecting an option blurs the input before it reports the new value, so the picker sees
+        // the same "blurred with typed text" signal it does for a genuine click-away.
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={onChange} />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(channelsRequestSearchQueries).toEqual([''])
+        })
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.type(input, 'general')
+        await userEvent.click(await screen.findByText('#general'))
+
+        expect(onChange).toHaveBeenCalledWith('C111111111|#general')
+        expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
+    })
+
     it('still searches when the user actually types a different value', async () => {
         // Render without an initial value so the input starts empty and typing isn't appended
         // to LemonInputSelect's auto-fill of an existing selection.
