@@ -1,3 +1,4 @@
+import { buildSnoozeRequest } from "@posthog/core/inbox/bulkActions";
 import {
   buildBulkActionEvents,
   type InboxBulkActionType,
@@ -377,16 +378,19 @@ export function useInboxBulkActions(
   );
 
   const snoozeMutation = useAuthenticatedMutation(
-    async (client, reportIds: string[]) =>
-      runBulkAction(reportIds, (reportId) =>
-        client.updateSignalReportState(reportId, {
-          state: "potential",
-          snooze_for: 1,
-        }),
+    async (
+      client,
+      input: { reportIds: string[]; dismissal?: DismissReportDialogResult },
+    ) =>
+      runBulkAction(input.reportIds, (reportId) =>
+        client.updateSignalReportState(
+          reportId,
+          buildSnoozeRequest(input.dismissal),
+        ),
       ),
     {
-      onSuccess: async (result) => {
-        trackBulkAction("snooze", result);
+      onSuccess: async (result, variables) => {
+        trackBulkAction("snooze", result, variables.dismissal);
         await invalidateInboxQueries();
         applyBulkResultToSelection(result);
 
@@ -524,18 +528,20 @@ export function useInboxBulkActions(
     ],
   );
 
-  const snoozeSelected = useCallback(async () => {
-    if (eligibility.snoozeDisabledReason !== null) {
-      return false;
-    }
+  const snoozeSelected = useCallback(
+    async (dismissal?: DismissReportDialogResult) => {
+      if (eligibility.snoozeDisabledReason !== null) {
+        return false;
+      }
 
-    await snoozeMutation.mutateAsync(eligibility.selectedIds);
-    return true;
-  }, [
-    eligibility.snoozeDisabledReason,
-    eligibility.selectedIds,
-    snoozeMutation,
-  ]);
+      await snoozeMutation.mutateAsync({
+        reportIds: eligibility.selectedIds,
+        ...(dismissal != null ? { dismissal } : {}),
+      });
+      return true;
+    },
+    [eligibility.snoozeDisabledReason, eligibility.selectedIds, snoozeMutation],
+  );
 
   const deleteSelected = useCallback(async () => {
     if (eligibility.deleteDisabledReason !== null) {
