@@ -6396,6 +6396,29 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
+class TestEmailVerifyAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Managing an integration the base test user did not create needs admin.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @parameterized.expand(
+        [
+            ("missing_domain", "email", {"email": "test@example.com", "provider": "ses"}),
+            ("wrong_kind", "slack", {"team": {"id": "T1"}}),
+        ]
+    )
+    def test_verify_rejects_unusable_integration(self, _name: str, kind: str, config: dict) -> None:
+        # Both configs used to give a 500 the user cannot act on: a missing domain went into the
+        # SES domain regex, and a non-email kind into the EmailIntegration constructor.
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/integrations/{integration.id}/email/verify")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+
 class TestPushIdentityVerificationAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
