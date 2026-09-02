@@ -7,6 +7,7 @@ code never touches `SignalReport` or the embeddings pipeline directly.
 """
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_report.persistence import (
     INFERRED_REPOSITORY_REASON,
@@ -21,6 +22,7 @@ from products.signals.backend.scout_report.persistence import (
     record_report_edit,
     record_scout_run_task_artefact,
     set_report_charts,
+    set_report_metrics,
     set_report_suggested_prompts,
     set_scout_report_inferred_repository,
     set_scout_report_reviewers,
@@ -31,6 +33,7 @@ from products.signals.backend.scout_report.persistence import (
 __all__ = [
     "INFERRED_REPOSITORY_REASON",
     "MAX_REPORT_CHARTS",
+    "MAX_REPORT_METRICS",
     "MAX_REPORT_SIGNALS",
     "MAX_SUGGESTED_PROMPTS",
     "InvalidScoutReportError",
@@ -43,6 +46,7 @@ __all__ = [
     "record_report_edit",
     "record_scout_run_task_artefact",
     "set_report_charts",
+    "set_report_metrics",
     "set_report_suggested_prompts",
     "set_scout_report_inferred_repository",
     "set_scout_report_reviewers",

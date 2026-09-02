@@ -134,6 +134,8 @@ from products.signals.backend.scout_harness.tools.profile import get_project_pro
 from products.signals.backend.scout_harness.tools.report import (
     ReportChartInput,
     ReportEvidence,
+    ReportMetricComparisonInput,
+    ReportMetricInput,
     ReviewerInput,
     edit_report_sync,
     emit_report_sync,
@@ -345,6 +347,34 @@ def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | No
             caption=entry.get("caption") or None,
             # Narrowed by the serializer's choices; the cast only crosses the untyped DRF dict.
             size=cast("ChartSize | None", entry.get("size") or None),
+        )
+        for entry in entries
+    ]
+
+
+def _to_report_metrics(entries: list[dict] | None) -> list[ReportMetricInput] | None:
+    if entries is None:
+        return None
+    return [
+        ReportMetricInput(
+            metric_id=entry["metric_id"],
+            title=entry["title"],
+            kind=entry["kind"],
+            query=entry["query"],
+            role=entry["role"],
+            value=entry.get("value"),
+            value_at=entry["value_at"].isoformat() if entry.get("value_at") is not None else None,
+            value_format=entry["value_format"],
+            unit=entry.get("unit"),
+            caption=entry.get("caption"),
+            comparison=(
+                ReportMetricComparisonInput(
+                    value=entry["comparison"]["value"],
+                    label=entry["comparison"]["label"],
+                )
+                if entry.get("comparison") is not None
+                else None
+            ),
         )
         for entry in entries
     ]
@@ -975,6 +1005,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority_explanation=data.get("priority_explanation"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
+                metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
             )
         except InvalidScoutReportError as exc:
@@ -1032,6 +1063,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 append_note=data.get("append_note"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
+                metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
             )
         except InvalidScoutReportError as exc:
@@ -1044,6 +1076,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
                     "charts_set": result.charts_set,
+                    "metrics_set": result.metrics_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
                 }
             ).data,

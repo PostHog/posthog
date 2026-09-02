@@ -138,6 +138,7 @@ from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
+    SignalReportListSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
     SignalSourceConfigSerializer,
@@ -838,6 +839,11 @@ class SignalReportViewSet(
         "updated_at": "updated_at",
         "id": "id",
     }
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list":
+            return SignalReportListSerializer
+        return SignalReportSerializer
 
     def safely_get_queryset(self, queryset):
         if self.action == "viewed":

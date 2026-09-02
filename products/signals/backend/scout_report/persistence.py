@@ -57,6 +57,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -126,6 +127,7 @@ def create_scout_report(
     priority: PriorityAssessment | None = None,
     suggested_reviewers: SuggestedReviewers | None = None,
     charts: Sequence[ReportChart] = (),
+    metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
@@ -168,6 +170,8 @@ def create_scout_report(
     _validate_create_inputs(title, summary, signals)
     if batch_error := chart_batch_error(charts):
         raise InvalidScoutReportError(batch_error)
+    if batch_error := metric_batch_error(metrics):
+        raise InvalidScoutReportError(batch_error)
     prompts = normalize_suggested_prompts(suggested_prompts)
     if batch_error := suggested_prompts_batch_error(prompts):
         raise InvalidScoutReportError(batch_error)
@@ -189,6 +193,7 @@ def create_scout_report(
             signal_count=len(signals),
             total_weight=total_weight,
             charts=[chart.model_dump(mode="json") for chart in charts],
+            metrics=[metric.model_dump(mode="json") for metric in metrics],
             suggested_prompts=prompts,
             # Born directly in a user-visible status without passing through transition_to (which
             # stamps this for pipeline reports), so the daily report limit counts it from creation.
@@ -456,6 +461,76 @@ def set_report_charts(
     logger.info(
         "signals_scout.edit_report: charts set",
         extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},
+    )
+    return True
+
+
+def _report_metrics_unchanged(stored: object, payload: list[dict[str, object]]) -> bool:
+    """Whether the stored metrics already equal `payload`, tolerant of datetime serialization.
+
+    The refresh worker overwrites `value_at` with `measured_at.isoformat()` (a `+00:00` offset),
+    while this module writes the pydantic `Z` form, so a raw dict comparison would treat an unchanged
+    re-send of a refreshed metric as an edit and break `edit_report` idempotency. Re-serialize the
+    stored rows through ReportMetric to canonicalize both sides before comparing. A row that no
+    longer parses — legacy or malformed — can't be proven equal, so the set counts as changed and is
+    rewritten cleanly.
+    """
+    if stored == payload:
+        return True
+    if not isinstance(stored, list) or len(stored) != len(payload):
+        return False
+    try:
+        canonical = [ReportMetric.model_validate(row).model_dump(mode="json") for row in stored]
+    except ValidationError:
+        return False
+    return canonical == payload
+
+
+def set_report_metrics(
+    *,
+    team_id: int,
+    report_id: str,
+    metrics: Sequence[ReportMetric],
+    attribution: ArtefactAttribution | None = None,
+    author: str | None = None,
+) -> bool:
+    """Replace a report's typed impact metrics, preserving edit idempotency and attribution."""
+    _validate_report_id(report_id)
+    if batch_error := metric_batch_error(metrics):
+        raise InvalidScoutReportError(batch_error)
+    payload = [metric.model_dump(mode="json") for metric in metrics]
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("metrics", flat=True)
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        if _report_metrics_unchanged(stored, payload):
+            logger.info(
+                "signals_scout.edit_report: metrics unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "count": len(metrics)},
+            )
+            return False
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            metrics=payload,
+            metrics_last_refresh_attempt_at=None,
+            updated_at=timezone.now(),
+        )
+        if attribution is not None:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=_metric_edit_note(len(metrics)), author=author),
+                attribution=attribution,
+            )
+
+    logger.info(
+        "signals_scout.edit_report: metrics set",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(metrics)},
     )
     return True
 
@@ -898,6 +973,12 @@ def _chart_edit_note(count: int) -> str:
     if count == 0:
         return "Removed the report's charts via edit_report."
     return f"Replaced report charts ({count}) via edit_report."
+
+
+def _metric_edit_note(count: int) -> str:
+    if count == 0:
+        return "Removed the report's impact metrics via edit_report."
+    return f"Replaced report impact metrics ({count}) via edit_report."
 
 
 def _suggested_prompts_edit_note(count: int) -> str:

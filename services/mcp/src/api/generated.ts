@@ -29742,6 +29742,139 @@ export namespace Schemas {
     }
 
     /**
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom
+     */
+    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
+
+
+    export const ReportMetricKindEnum = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * * `primary` - primary
+     * * `supporting` - supporting
+     */
+    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
+
+
+    export const RoleEnum = {
+      Primary: 'primary',
+      Supporting: 'supporting',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency
+     */
+    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
+
+
+    export const ValueFormatEnum = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
+    } as const;
+
+    export interface ReportMetricComparison {
+      /** Baseline or previous value, formatted like the current value. */
+      value: number;
+      /**
+         * Short context for the comparison, such as `Previous period`.
+         * @maxLength 40
+         */
+      label: string;
+    }
+
+    /**
+     * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
+     */
+    export interface ReportMetricWrite {
+      /**
+         * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+         * @maxLength 100
+         */
+      metric_id: string;
+      /**
+         * Short human-readable label for the measurement.
+         * @maxLength 200
+         */
+      title: string;
+      /** What the value measures, independent of how it is formatted or drawn.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role?: RoleEnum;
+      /**
+         * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * When the visible snapshot value was measured; null when value is null.
+         * @nullable
+         */
+      value_at?: string | null;
+      /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format?: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+         * @maxLength 40
+         * @nullable
+         */
+      unit?: string | null;
+      /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+      query: unknown;
+      /**
+         * Optional context shown below the measurement.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+      /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
+      comparison?: ReportMetricComparison | null;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -29775,6 +29908,12 @@ export namespace Schemas {
          */
       charts?: ReportChart[] | null;
       /**
+         * The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted.
+         * @maxItems 6
+         * @nullable
+         */
+      metrics?: ReportMetricWrite[] | null;
+      /**
          * The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report.
          * @maxItems 3
          * @nullable
@@ -29797,6 +29936,11 @@ export namespace Schemas {
          * @nullable
          */
       charts_set: number | null;
+      /**
+         * How many impact metrics the report now shows, or null when untouched/unchanged. 0 means the edit removed every metric.
+         * @nullable
+         */
+      metrics_set: number | null;
       /**
          * How many questions the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
          * @nullable
@@ -30213,6 +30357,11 @@ export namespace Schemas {
          * @maxItems 20
          */
       charts?: ReportChart[];
+      /**
+         * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+         * @maxItems 6
+         */
+      metrics?: ReportMetricWrite[];
       /**
          * Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them.
          * @maxItems 3
@@ -56685,6 +56834,73 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Snapshot-only metric shape for report lists.
+     *
+     * Query definitions and authored comparisons belong on detail. Omitting them keeps the paginated
+     * inbox payload bounded and prevents a stale comparison from being presented beside a refreshed
+     * materialized value.
+     */
+    export interface ReportMetricList {
+      /**
+         * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+         * @maxLength 100
+         */
+      metric_id: string;
+      /**
+         * Short human-readable label for the measurement.
+         * @maxLength 200
+         */
+      title: string;
+      /** What the value measures, independent of how it is formatted or drawn.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role?: RoleEnum;
+      /**
+         * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * When the visible snapshot value was measured; null when value is null.
+         * @nullable
+         */
+      value_at?: string | null;
+      /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format?: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+         * @maxLength 40
+         * @nullable
+         */
+      unit?: string | null;
+      /**
+         * Optional context shown below the measurement.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+    }
+
+    /**
      * * `pr_incorrect` - PR incorrect
      * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
@@ -56770,7 +56986,7 @@ export namespace Schemas {
       PosthogSystem: 'posthog_system',
     } as const;
 
-    export interface SignalReport {
+    export interface SignalReportList {
       readonly id: string;
       /** @nullable */
       readonly title: string | null;
@@ -56785,6 +57001,8 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
+      /** Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint. */
+      readonly metrics: readonly ReportMetricList[];
       /** Follow-up questions the report's author suggests asking about it, in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
       /**
@@ -56844,13 +57062,13 @@ export namespace Schemas {
       readonly channel_id: string | null;
     }
 
-    export interface PaginatedSignalReportList {
+    export interface PaginatedSignalReportListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: SignalReport[];
+      results: SignalReportList[];
     }
 
     /**
@@ -74597,6 +74815,73 @@ export namespace Schemas {
       ready_to_merge_series_granularity: string;
     }
 
+    /**
+     * One impact measurement shown on a report.
+     */
+    export interface ReportMetric {
+      /**
+         * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+         * @maxLength 100
+         */
+      metric_id: string;
+      /**
+         * Short human-readable label for the measurement.
+         * @maxLength 200
+         */
+      title: string;
+      /** What the value measures, independent of how it is formatted or drawn.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role?: RoleEnum;
+      /**
+         * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * When the visible snapshot value was measured; null when value is null.
+         * @nullable
+         */
+      value_at?: string | null;
+      /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format?: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+         * @maxLength 40
+         * @nullable
+         */
+      unit?: string | null;
+      /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+      query?: unknown;
+      /**
+         * Optional context shown below the measurement.
+         * @maxLength 500
+         * @nullable
+         */
+      caption?: string | null;
+      /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
+      comparison?: ReportMetricComparison | null;
+    }
+
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
 
 
@@ -74607,6 +74892,82 @@ export namespace Schemas {
       P3: 'P3',
       P4: 'P4',
     } as const;
+
+    export interface SignalReport {
+      readonly id: string;
+      /** @nullable */
+      readonly title: string | null;
+      /** @nullable */
+      readonly summary: string | null;
+      readonly status: SignalReportStatusEnum;
+      readonly total_weight: number;
+      readonly signal_count: number;
+      readonly signals_at_run: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly artefact_count: number;
+      /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
+      readonly charts: readonly ReportChart[];
+      /** Typed impact measurements in display order. At most one is primary. Live metric values and history come from their query; value/value_at are the latest saved fallback snapshots. */
+      readonly metrics: readonly ReportMetric[];
+      /** Follow-up questions the report's author suggests asking about it, in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+      readonly suggested_prompts: readonly string[];
+      /**
+         * P0–P4 from the latest priority judgment artefact (when present).
+         * @nullable
+         */
+      readonly priority: string | null;
+      /**
+         * Actionability choice from the latest actionability judgment artefact (when present).
+         * @nullable
+         */
+      readonly actionability: string | null;
+      /**
+         * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
+         * @nullable
+         */
+      readonly already_addressed: boolean | null;
+      /**
+         * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+         * @nullable
+         */
+      readonly dismissal_reason: string | null;
+      /**
+         * Free-form note captured alongside the dismissal reason (when present).
+         * @nullable
+         */
+      readonly dismissal_note: string | null;
+      readonly is_suggested_reviewer: boolean;
+      /** Distinct source products contributing signals to this report (from ClickHouse). */
+      readonly source_products: readonly string[];
+      /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+      /**
+         * PR URL from the latest implementation task run, if available.
+         * @nullable
+         */
+      readonly implementation_pr_url: string | null;
+      /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
+      readonly implementation_pr_merged: boolean;
+      /** The report's PR refund, when one exists. One refund per report, ever. */
+      readonly refund: SignalReportRefund | null;
+      /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+      readonly refund_ineligibility_reason: RefundIneligibilityReasonEnum | null;
+      /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+       *
+       * * `posthog_health_check` - PostHog health check
+       * * `posthog_onboarding` - PostHog onboarding
+       * * `posthog_system` - PostHog system */
+      readonly billing_exempt_reason: SignalReportBillingExemptReasonEnum | null;
+      /**
+         * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+         * @nullable
+         */
+      readonly channel_id: string | null;
+    }
 
     /**
      * * `session_replay` - session_replay

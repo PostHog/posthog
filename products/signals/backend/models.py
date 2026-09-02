@@ -260,6 +260,17 @@ class SignalReport(UUIDModel):
     # lands NOT NULL with no Postgres default and any insert from a pre-deploy worker — which omits
     # the column it doesn't know about — fails until the rollout finishes.
     charts = models.JSONField(default=list, db_default=[], blank=True)
+    # Typed impact measurements (see report_metrics.py). Definitions and optional authored
+    # snapshots live here; their longitudinal data stays in the analytics query engine. A bounded
+    # Temporal sweep refreshes the affected-users snapshot for cheap inbox-list reads and warms the
+    # normal query cache that detail views use.
+    # `db_default` keeps inserts from pre-deploy workers valid during a rolling rollout.
+    metrics = models.JSONField(default=list, db_default=[], blank=True)
+    # Last time the materializer attempted the report's affected-users query. This is deliberately
+    # an attempt clock rather than a success clock: a permanently failing query must back off with
+    # the rest of the fleet instead of occupying the front of every bounded sweep. Replacing the
+    # metric set resets it to null so a new query is eligible on the next tick.
+    metrics_last_refresh_attempt_at = models.DateTimeField(null=True, blank=True)
     # Questions this report suggests its reader ask AI about it, each a plain string (see
     # report_prompts.py). Content rather than log for the same reason `charts` is: a question is
     # written against the summary it sits under, so a rewrite of that summary replaces it instead of
@@ -302,6 +313,18 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # The global metric materializer walks only current, user-visible reports with a metric
+            # set, oldest attempt first. Keeping this partial avoids an index entry for legacy and
+            # inactive reports that can never be selected.
+            models.Index(
+                models.F("metrics_last_refresh_attempt_at").asc(nulls_first=True),
+                "id",
+                condition=(
+                    models.Q(status__in=["ready", "pending_input"])
+                    & models.Q(metrics__contains=[{"kind": "affected_users"}])
+                ),
+                name="signals_report_metric_refresh",
             ),
         ]
 

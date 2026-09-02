@@ -643,6 +643,17 @@ SPECTACULAR_SETTINGS = {
                 "workflow_variable",
             ],
             "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+            # ReportMetric and its snapshot-only list projection share this inline set.
+            "ReportMetricKindEnum": [
+                "affected_users",
+                "affected_sessions",
+                "occurrences",
+                "conversion_rate",
+                "error_rate",
+                "duration",
+                "revenue",
+                "custom",
+            ],
             "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
                 "default",
                 "acceptEdits",

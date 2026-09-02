@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type ReportMetricApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalScoutRunSummaryApi,
@@ -69,13 +70,13 @@ export interface SignalReport {
     status: SignalReportStatus
     total_weight: number
     signal_count: number
-    relevant_user_count: number | null
     created_at: string
     updated_at: string
     artefact_count: number
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
+    metrics?: ReportMetricApi[]
     /** Questions the report's author suggests asking about it, offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */

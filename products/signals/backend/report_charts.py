@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -64,6 +64,40 @@ _MAX_CHART_QUERY_DEPTH = 100
 # one: its runner calls `hit_openai`, so a report carrying it spends money on the reader's behalf
 # every time someone opens it, times the chart cap.
 _EXECUTABLE_QUERY_KINDS = frozenset({"HogQuery", "SuggestedQuestionsQuery"})
+
+
+def validate_report_query(
+    query: dict[str, Any],
+    *,
+    allowed_kinds: Collection[str] = CHART_QUERY_KINDS,
+    max_query_chars: int = _MAX_CHART_QUERY_CHARS,
+) -> dict[str, Any]:
+    """Validate a query node stored on report content and return it unchanged.
+
+    Charts and metrics share the same execution boundary: both are authored outside the request
+    that eventually renders them, stored as JSON, and executed with the reader's permissions. Keep
+    the storage and executable-payload checks here so a new report surface cannot accidentally
+    become less strict than the chart surface that came before it.
+    """
+    kind = query.get("kind")
+    if not isinstance(kind, str) or kind not in allowed_kinds:
+        allowed = ", ".join(sorted(allowed_kinds))
+        raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
+    if _nests_too_deeply(query):
+        raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
+    try:
+        serialized = json.dumps(query, allow_nan=False)
+    except ValueError:
+        raise ValueError("query must not contain a non-finite number") from None
+    if len(serialized) > max_query_chars:
+        raise ValueError(f"query must not exceed {max_query_chars} characters when serialized")
+    unstorable = _unstorable_text(query)
+    if unstorable:
+        raise ValueError(f"query must not contain {unstorable}")
+    executable = _executable_payload(query)
+    if executable:
+        raise ValueError(f"query must not carry {executable} — a report query renders data, it does not run code")
+    return query
 
 
 def _nests_too_deeply(value: Any) -> bool:
@@ -244,32 +278,7 @@ class ReportChart(BaseModel):
     @field_validator("query")
     @classmethod
     def query_must_be_a_renderable_node(cls, v: dict[str, Any]) -> dict[str, Any]:
-        kind = v.get("kind")
-        # `kind` is caller-supplied JSON, so it can be any type. Check it's a string before the
-        # membership test — an unhashable one (`{"kind": []}`) would raise TypeError out of the
-        # validator, escaping the ValidationError path that turns a bad write into a 400.
-        if not isinstance(kind, str) or kind not in CHART_QUERY_KINDS:
-            allowed = ", ".join(sorted(CHART_QUERY_KINDS))
-            raise ValueError(f"query.kind must be one of {allowed} (got {kind!r})")
-        if _nests_too_deeply(v):
-            raise ValueError(f"query must not nest deeper than {_MAX_CHART_QUERY_DEPTH} levels")
-        try:
-            serialized = json.dumps(v, allow_nan=False)
-        except ValueError:
-            # `NaN` and `Infinity` are not JSON, but the project parses requests with DRF's
-            # STRICT_JSON off, so a caller can put one in a query and `json.dumps` will happily
-            # write it back out. Postgres `jsonb` then refuses the INSERT, past every handler that
-            # turns bad input into a 400.
-            raise ValueError("query must not contain a non-finite number") from None
-        if len(serialized) > _MAX_CHART_QUERY_CHARS:
-            raise ValueError(f"query must not exceed {_MAX_CHART_QUERY_CHARS} characters when serialized")
-        unstorable = _unstorable_text(v)
-        if unstorable:
-            raise ValueError(f"query must not contain {unstorable}")
-        executable = _executable_payload(v)
-        if executable:
-            raise ValueError(f"query must not carry {executable} — a chart renders data, it does not run code")
-        return v
+        return validate_report_query(v)
 
 
 def chart_batch_query_chars(charts: Sequence[ReportChart]) -> int:

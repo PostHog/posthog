@@ -19,6 +19,7 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models import OAuthApplication
@@ -31,6 +32,11 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.artefact_schemas import ChannelAssignment
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
@@ -56,7 +62,7 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
 
 
-def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
+def authenticate_as_sandbox_token(test: APIBaseTest, *, scopes: list[str] | None = None) -> None:
     for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
         OAuthApplication.objects.get_or_create(
             client_id=client_id,
@@ -68,7 +74,11 @@ def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=["task:read", "task:write"])
+    token = create_oauth_access_token_for_user(
+        test.user,
+        test.team.id,
+        scopes=scopes if scopes is not None else ["task:read", "task:write"],
+    )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -169,6 +179,74 @@ class TestSignalReportListAPI(APIBaseTest):
         defaults.update(kwargs)
         return SignalReport.objects.create(**defaults)
 
+    def _enable_feature(self, feature: AvailableFeature) -> None:
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+    @staticmethod
+    def _affected_users_metric(*, series: dict) -> dict:
+        return {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value": 17,
+            "value_at": "2026-08-29T12:00:00Z",
+            "value_format": "count",
+            "unit": "users",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-30d"},
+                    "series": [series],
+                },
+            },
+            "caption": "Unique people in the last 30 days.",
+            "comparison": {"value": 11, "label": "Previous period"},
+        }
+
+    @staticmethod
+    def _legacy_queryless_metric() -> dict:
+        return {
+            "metric_id": "conversion-impact",
+            "title": "Conversion impact",
+            "kind": "conversion_rate",
+            "role": "supporting",
+            "value": 12,
+            "value_at": "2026-08-29T12:00:00Z",
+            "value_format": "percentage",
+            "unit": None,
+            "query": None,
+            "caption": "Observed during research.",
+            "comparison": {"value": 15, "label": "Previous period"},
+        }
+
+    @staticmethod
+    def _legacy_unsupported_series_metric(*, series: dict) -> dict:
+        return {
+            "metric_id": "legacy-impact",
+            "title": "Legacy impact",
+            "kind": "custom",
+            "role": "supporting",
+            "value": 12,
+            "value_at": "2026-08-29T12:00:00Z",
+            "value_format": "count",
+            "unit": "events",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-30d"},
+                    "series": [series],
+                },
+            },
+            "caption": None,
+            "comparison": {"value": 9, "label": "Previous period"},
+        }
+
     def _priority_artefact(
         self,
         report: SignalReport,
@@ -211,6 +289,293 @@ class TestSignalReportListAPI(APIBaseTest):
         )
         art.save()
         return art
+
+    def test_list_and_retrieve_include_typed_impact_metrics_without_running_them(self) -> None:
+        metric = {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value": 17,
+            "value_at": "2026-08-29T12:00:00Z",
+            "value_format": "count",
+            "unit": "users",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-30d"},
+                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                },
+            },
+            "caption": "Unique people in the last 30 days.",
+            "comparison": None,
+        }
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        row = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))
+        assert row["metrics"][0]["value"] == 17.0
+        assert "query" not in row["metrics"][0]
+        assert "comparison" not in row["metrics"][0]
+
+        retrieve_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+        assert retrieve_response.json()["metrics"][0]["metric_id"] == "affected-users"
+        assert retrieve_response.json()["metrics"][0]["query"] == metric["query"]
+
+    def test_property_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
+        self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_plan",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        metric = self._affected_users_metric(
+            series={
+                "kind": "EventsNode",
+                "event": "$exception",
+                "math": "dau",
+                "properties": [
+                    {
+                        "key": "secret_plan",
+                        "value": ["enterprise"],
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ],
+            }
+        )
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+        assert "query" not in list_metric
+        assert "comparison" not in list_metric
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["comparison"] is None
+        assert detail_metric["query"] is None
+
+    def test_viewer_property_grant_keeps_live_query_but_hides_userless_snapshot(self) -> None:
+        self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_plan",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.READ.value,
+        )
+        metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["comparison"] is None
+        assert detail_metric["query"] == metric["query"]
+
+    def test_action_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
+        self._enable_feature(AvailableFeature.ACCESS_CONTROL)
+        action = Action.objects.create(team=self.team, name="Restricted action")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="action",
+            resource_id=str(action.id),
+            access_level="none",
+        )
+        metric = self._affected_users_metric(series={"kind": "ActionsNode", "id": action.id, "math": "dau"})
+        report = self._create_report(metrics=[metric])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["comparison"] is None
+        assert detail_metric["query"] is None
+
+    def test_queryless_snapshot_is_redacted_when_action_provenance_cannot_be_proven(self) -> None:
+        self._enable_feature(AvailableFeature.ACCESS_CONTROL)
+        action = Action.objects.create(team=self.team, name="Restricted action")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="action",
+            resource_id=str(action.id),
+            access_level="none",
+        )
+        report = self._create_report(metrics=[self._legacy_queryless_metric()])
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        list_metric = next(item for item in list_response.json()["results"] if item["id"] == str(report.id))["metrics"][
+            0
+        ]
+        assert list_metric["value"] is None
+        assert list_metric["value_at"] is None
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["comparison"] is None
+        assert detail_metric["query"] is None
+
+    def test_queryless_snapshot_is_redacted_for_scoped_task_token(self) -> None:
+        report = self._create_report(metrics=[self._legacy_queryless_metric()])
+        authenticate_as_sandbox_token(
+            self,
+            scopes=["task:read", "query:read", "event_definition:read", "action:read"],
+        )
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["comparison"] is None
+        assert detail_metric["query"] is None
+
+    def test_legacy_unsupported_series_and_snapshot_are_redacted(self) -> None:
+        unsupported_series = (
+            {
+                "kind": "DataWarehouseNode",
+                "id": "events",
+                "id_field": "uuid",
+                "table_name": "events",
+                "timestamp_field": "timestamp",
+                "distinct_id_field": "distinct_id",
+                "math": "total",
+            },
+            {
+                "kind": "GroupNode",
+                "operator": "OR",
+                "nodes": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
+                "math": "total",
+            },
+        )
+
+        for series in unsupported_series:
+            with self.subTest(kind=series["kind"]):
+                report = self._create_report(metrics=[self._legacy_unsupported_series_metric(series=series)])
+
+                detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+                assert detail_response.status_code == status.HTTP_200_OK
+                detail_metric = detail_response.json()["metrics"][0]
+                assert detail_metric["value"] is None
+                assert detail_metric["value_at"] is None
+                assert detail_metric["comparison"] is None
+                assert detail_metric["query"] is None
+
+    @parameterized.expand(
+        [
+            ("missing_query_scope", ["task:read", "event_definition:read"]),
+            ("missing_event_scope", ["task:read", "query:read"]),
+        ]
+    )
+    def test_task_token_cannot_read_event_metric_without_cross_resource_scopes(
+        self, _name: str, scopes: list[str]
+    ) -> None:
+        metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        report = self._create_report(metrics=[metric])
+        authenticate_as_sandbox_token(self, scopes=scopes)
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["comparison"] is None
+        assert detail_metric["query"] is None
+
+    def test_task_token_cannot_read_action_metric_without_action_scope(self) -> None:
+        action = Action.objects.create(team=self.team, name="Scoped action")
+        metric = self._affected_users_metric(series={"kind": "ActionsNode", "id": action.id, "math": "dau"})
+        report = self._create_report(metrics=[metric])
+        authenticate_as_sandbox_token(self, scopes=["task:read", "query:read"])
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] is None
+        assert detail_metric["value_at"] is None
+        assert detail_metric["comparison"] is None
+        assert detail_metric["query"] is None
+
+    def test_fully_scoped_task_token_can_read_event_metric(self) -> None:
+        metric = self._affected_users_metric(series={"kind": "EventsNode", "event": "$exception", "math": "dau"})
+        report = self._create_report(metrics=[metric])
+        authenticate_as_sandbox_token(
+            self,
+            scopes=["task:read", "query:read", "event_definition:read"],
+        )
+
+        detail_response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail_metric = detail_response.json()["metrics"][0]
+        assert detail_metric["value"] == 17.0
+        assert detail_metric["value_at"] == "2026-08-29T12:00:00Z"
+        assert detail_metric["comparison"] == {"value": 11.0, "label": "Previous period"}
+        assert detail_metric["query"] == metric["query"]
+
+    def test_legacy_report_serializes_an_empty_metric_set(self) -> None:
+        report = self._create_report()
+
+        response = self.client.get(f"{self._list_url()}{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["metrics"] == []
 
     def _maybe_actionability_artefact(
         self, report: SignalReport, actionability: str | None

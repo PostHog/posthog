@@ -7,8 +7,9 @@ from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
+from rest_framework.request import Request
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
@@ -29,6 +30,17 @@ from .models import (
 )
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
+from .report_metric_access import ReportMetricAccessPolicy
+from .report_metrics import (
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_METRIC_CAPTION_LENGTH,
+    MAX_METRIC_ID_LENGTH,
+    MAX_METRIC_TITLE_LENGTH,
+    MAX_METRIC_UNIT_LENGTH,
+    REPORT_METRIC_KINDS,
+    REPORT_METRIC_ROLES,
+    REPORT_METRIC_VALUE_FORMATS,
+)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -478,6 +490,171 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
+class _MetricFloatField(serializers.FloatField):
+    """A metric value that refuses a JSON boolean.
+
+    DRF's `FloatField` coerces `true`/`false` to 1.0/0.0 through `float(data)`, which would turn a
+    malformed boolean snapshot into a real measurement at the API boundary. A metric value is never
+    a boolean, so reject it before coercion; the schema pipeline still treats this as a plain number
+    because it subclasses `FloatField`.
+    """
+
+    def to_internal_value(self, data: float | int | str) -> float:
+        if isinstance(data, bool):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
+class ReportMetricComparisonSerializer(serializers.Serializer):
+    value = _MetricFloatField(help_text="Baseline or previous value, formatted like the current value.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        max_length=MAX_METRIC_UNIT_LENGTH,
+        help_text="Short context for the comparison, such as `Previous period`.",
+    )
+
+
+_REPORT_METRIC_QUERY_HELP = (
+    "Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers "
+    "derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for "
+    "longitudinal buckets. The query must produce exactly one output series and no more than "
+    f"{MAX_LIVE_METRIC_QUERY_POINTS} estimated longitudinal points; one formula may combine up to "
+    "ten event or action source series. An affected_users metric uses exactly one source with "
+    "`math: dau`; never sum its per-bucket unique-user values. A response omits this on list or "
+    "redacts it to null on detail when the viewer lacks access to the definition."
+)
+
+
+class ReportMetricSerializer(serializers.Serializer):
+    """One impact measurement shown on a report."""
+
+    metric_id = serializers.CharField(
+        max_length=MAX_METRIC_ID_LENGTH,
+        help_text=(
+            "Stable slug for this metric within the report: lowercase letters, numbers, underscores, "
+            "and hyphens, starting with a letter or number."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_METRIC_TITLE_LENGTH,
+        help_text="Short human-readable label for the measurement.",
+    )
+    kind = serializers.ChoiceField(
+        choices=REPORT_METRIC_KINDS,
+        help_text="What the value measures, independent of how it is formatted or drawn.",
+    )
+    role = serializers.ChoiceField(
+        choices=REPORT_METRIC_ROLES,
+        required=False,
+        default="supporting",
+        help_text="`primary` for the report's key observation, otherwise `supporting`.",
+    )
+    value = _MetricFloatField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text=(
+            "Latest saved snapshot, initially observed during authoring and optionally replaced by a "
+            "background refresh. Null means no snapshot is available to this viewer; it never means "
+            "zero. The required live query remains the source of truth."
+        ),
+    )
+    value_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="When the visible snapshot value was measured; null when value is null.",
+    )
+    value_format = serializers.ChoiceField(
+        choices=REPORT_METRIC_VALUE_FORMATS,
+        required=False,
+        default="number",
+        help_text=(
+            "How to format the numeric value; semantic meaning remains in kind. `percentage` uses "
+            "percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so "
+            "0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with "
+            "an ms/s unit; revenue uses currency with an ISO currency unit."
+        ),
+    )
+    unit = serializers.CharField(
+        allow_null=True,
+        required=False,
+        default=None,
+        max_length=MAX_METRIC_UNIT_LENGTH,
+        help_text="Optional short suffix or currency code, such as `users`, `ms`, or `USD`.",
+    )
+    query = ChartQueryField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text=_REPORT_METRIC_QUERY_HELP,
+    )
+    caption = serializers.CharField(
+        allow_null=True,
+        required=False,
+        default=None,
+        max_length=MAX_METRIC_CAPTION_LENGTH,
+        help_text="Optional context shown below the measurement.",
+    )
+    comparison = ReportMetricComparisonSerializer(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text=(
+            "Optional baseline or previous-period value shown beside the current value; null when "
+            "the viewer cannot read the shared snapshot."
+        ),
+    )
+
+    def to_representation(self, instance: Mapping[str, object]) -> dict[str, object]:
+        representation = dict(super().to_representation(instance))
+        policy = self._access_policy()
+
+        if not policy.may_read_snapshot(instance):
+            representation["value"] = None
+            representation["value_at"] = None
+            if "comparison" in representation:
+                representation["comparison"] = None
+
+        if "query" in representation and not policy.may_read_query(instance):
+            representation["query"] = None
+
+        return representation
+
+    def _access_policy(self) -> ReportMetricAccessPolicy:
+        context_key = "_report_metric_access_policy"
+        cached = self.context.get(context_key)
+        if isinstance(cached, ReportMetricAccessPolicy):
+            return cached
+
+        request = self.context.get("request")
+        get_team = self.context.get("get_team")
+        team = get_team() if callable(get_team) else None
+        policy = ReportMetricAccessPolicy(
+            request=request if isinstance(request, Request) else None,
+            team=team if isinstance(team, Team) else None,
+        )
+        self.context[context_key] = policy
+        return policy
+
+
+class ReportMetricWriteSerializer(ReportMetricSerializer):
+    """Authoring shape: unlike a read response, the live query cannot be absent or redacted."""
+
+    query = ChartQueryField(help_text=_REPORT_METRIC_QUERY_HELP)
+
+
+class ReportMetricListSerializer(ReportMetricSerializer):
+    """Snapshot-only metric shape for report lists.
+
+    Query definitions and authored comparisons belong on detail. Omitting them keeps the paginated
+    inbox payload bounded and prevents a stale comparison from being presented beside a refreshed
+    materialized value.
+    """
+
+    query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
+    comparison = None  # type: ignore[assignment]  # removes the inherited field from the list projection
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -486,6 +663,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "Charts the report shows, in the order they were written. The summary places one with a "
             "`[label](chart:<chart_id>)` link; the rest render below it."
+        ),
+    )
+    metrics = ReportMetricSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Typed impact measurements in display order. At most one is primary. Live metric values "
+            "and history come from their query; value/value_at are the latest saved fallback snapshots."
         ),
     )
     suggested_prompts = serializers.ListField(
@@ -564,6 +749,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
+            "metrics",
             "suggested_prompts",
             "priority",
             "actionability",
@@ -737,6 +923,17 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
 # ── Report `signals` action ─────────────────────────────────────────────────────
 #
+class SignalReportListSerializer(SignalReportSerializer):
+    metrics = ReportMetricListSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Snapshot-only impact measurements for inbox rows. Live query definitions and authored "
+            "comparisons are available from the report detail endpoint."
+        ),
+    )
+
+
 # A signal's `extra` blob is one of the Pydantic `*SignalExtra` shapes from `contracts.py`. Those
 # models are passed straight to `PolymorphicProxySerializer` — drf-spectacular's built-in
 # `PydanticExtension` turns each into a named OpenAPI component (nested models included), so the

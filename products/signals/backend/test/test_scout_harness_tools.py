@@ -53,9 +53,12 @@ from products.signals.backend.scout_harness.tools.emit import (
 from products.signals.backend.scout_harness.tools.report import (
     InvalidScoutReportError,
     ReportChartInput,
+    ReportMetricInput,
     _build_charts,
     _build_edit_charts,
+    _build_edit_metrics,
     _build_edit_suggested_prompts,
+    _build_metrics,
     _build_suggested_prompts,
     _chart_event_key,
     _forwarded_summary,
@@ -70,7 +73,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
 )
-from products.signals.backend.scout_report.judge import _chart_signal, _suggested_prompts_signal
+from products.signals.backend.scout_report.judge import _chart_signal, _metric_signal, _suggested_prompts_signal
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -1498,6 +1501,44 @@ class TestBuildCharts:
             _build_charts(charts)
 
 
+class TestBuildMetrics:
+    def _metric(self, *, math: str = "dau") -> ReportMetricInput:
+        return ReportMetricInput(
+            metric_id="affected-users",
+            title="Affected users",
+            kind="affected_users",
+            role="primary",
+            value=17,
+            value_at="2026-08-29T12:00:00Z",
+            value_format="count",
+            unit="users",
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-30d"},
+                    "series": [{"kind": "EventsNode", "event": "$exception", "math": math}],
+                },
+            },
+        )
+
+    def test_builds_validated_metric_content(self) -> None:
+        metrics = _build_metrics([self._metric()])
+
+        assert len(metrics) == 1
+        assert metrics[0].metric_id == "affected-users"
+        assert metrics[0].query is not None
+        assert metrics[0].query["source"]["series"][0]["math"] == "dau"
+
+    def test_an_edit_keeps_omitted_and_emptied_metrics_apart(self) -> None:
+        assert _build_edit_metrics(None) is None
+        assert _build_edit_metrics([]) == []
+
+    def test_invalid_metric_raises_the_report_tool_error(self) -> None:
+        with pytest.raises(InvalidScoutReportError, match="math: dau"):
+            _build_metrics([self._metric(math="total")])
+
+
 class TestBuildSuggestedPrompts:
     """Pure suggested-prompt validation — no DB."""
 
@@ -1569,6 +1610,40 @@ class TestChartSafetyJudgeInput:
     def test_no_charts_adds_nothing_to_the_judge_input(self) -> None:
         # A chartless report's judge prompt must stay exactly what it was before charts existed.
         assert _chart_signal([]) is None
+
+
+class TestMetricSafetyJudgeInput:
+    def test_metric_content_reaches_the_judge(self) -> None:
+        metric = _build_metrics(
+            [
+                ReportMetricInput(
+                    metric_id="affected-users",
+                    title="Affected users",
+                    kind="affected_users",
+                    role="primary",
+                    value=17,
+                    value_at="2026-08-29T12:00:00Z",
+                    value_format="count",
+                    unit="users",
+                    caption="People who experienced the exception",
+                    query={
+                        "kind": "InsightVizNode",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "dateRange": {"date_from": "-30d"},
+                            "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                        },
+                    },
+                )
+            ]
+        )[0]
+
+        signal = _metric_signal([metric])
+
+        assert signal is not None
+        assert "Affected users" in signal.content
+        assert "People who experienced the exception" in signal.content
+        assert '"math": "dau"' in signal.content
 
 
 class TestForwardedSummary:

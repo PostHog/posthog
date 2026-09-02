@@ -22,6 +22,13 @@ from products.signals.backend.artefact_schemas import (
 # `posthog.schema` onto the research path.
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_metrics import (
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_LIVE_METRIC_QUERY_SERIES,
+    MAX_LIVE_METRIC_WINDOW_DAYS,
+    MAX_REPORT_METRICS,
+    ReportMetric,
+)
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
 # eager-imports agentic -> report -> back into this module, forming a circular import.
@@ -100,6 +107,15 @@ Hard rules:
             "lives in code, in a config, or in a single count."
         ),
     )
+    metrics: list[ReportMetric] = Field(
+        default_factory=list,
+        description=(
+            "Typed impact measurements for the report. Use one primary metric for the key observation "
+            "and supporting metrics for its user, occurrence, conversion, latency, or revenue impact. "
+            "Every metric must attach a bounded live InsightVizNode/TrendsQuery built only from "
+            "EventsNode or ActionsNode sources. Its value/value_at snapshot is an optional cached fallback."
+        ),
+    )
 
     @field_validator("title", "summary")
     @classmethod
@@ -120,6 +136,13 @@ class ReportResearchOutput(BaseModel):
         default_factory=list,
         description="Charts the summary illustrates itself with. The report's whole set — the caller "
         "replaces `SignalReport.charts` with it, the way it replaces title/summary.",
+    )
+    metrics: list[ReportMetric] = Field(
+        default_factory=list,
+        description=(
+            "The report's whole typed impact-metric set, replaced with title, summary, and charts. "
+            "Every entry has a bounded live EventsNode/ActionsNode Trends query; its snapshot is optional."
+        ),
     )
     research_task_id: str | None = Field(
         default=None,
@@ -376,6 +399,34 @@ def _render_previous_charts_context(previous_charts: list[ReportChart]) -> str:
         "Re-send the ones still worth showing (refreshing their window to the data you researched "
         "this run), drop the ones the latest findings make stale, and add any the new evidence calls "
         "for. Omitting a chart removes it.\n\n"
+        f"```json\n{rendered}\n```"
+    )
+
+
+_REPORT_METRICS_GUIDANCE = f"""## Measuring impact
+
+Put reproducible report-level measurements under `metrics`. A metric tells the reader how many people, sessions, occurrences, conversions, errors, milliseconds, or dollars the observation affects. Use at most one `primary` metric for the key observation and `supporting` metrics for the compact impact facts around it. Every metric needs a bounded live query; its saved snapshot is only an optional cached fallback.
+
+- **Prefer affected users when the data supports it.** `affected_users` means unique PostHog people matching the observation during the query's declared window. Use one `InsightVizNode` wrapping a single-series `TrendsQuery` with `math: "dau"` and a bounded `dateRange.date_from`. An `EventsNode` needs a non-empty `event`; an `ActionsNode` needs a positive integer `id`. Never sum daily or hourly unique-user buckets because one person may appear in several buckets.
+- **Use the honest entity.** If the source can only establish sessions, traces, requests, tickets, or events, label and type that measurement instead of calling it users. Do not guess identity mappings. Omit a metric that cannot be measured; missing is not zero.
+- **Keep every metric live and bounded.** Give every metric an `InsightVizNode` wrapping a `TrendsQuery` you successfully ran in this research session. Every source series must be an `EventsNode` or `ActionsNode`. Use a relative window no longer than {MAX_LIVE_METRIC_WINDOW_DAYS} days and leave `date_to` empty. Use a daily interval for typical 30–90 day report metrics. The longitudinal output may contain at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points, including the current partial bucket.
+- **Consumers own the display.** The stored Trends definition remains the source of truth, but its authored display is not. Consumers derive `BoldNumber` for the first output series' whole-window `aggregated_value` and `ActionsBar` for its longitudinal buckets. Run the total-value shape when you author a snapshot; a bar or line response does not supply the whole-window total.
+- **Keep exactly one output series per query.** Do not use a breakdown or compare mode on any report metric. Without a formula, use exactly one source series. A conversion or rate may use up to {MAX_LIVE_METRIC_QUERY_SERIES} event/action source series as formula inputs, but it must define exactly one formula output.
+- **Snapshots are optional cached fallbacks.** Send `value` and `value_at` together only for a value you observed, and write `value_at` as an ISO-8601 timestamp with a timezone. Zero is valid measured data. Null means no snapshot. Never invent a value from prose or estimate one from grouped signal count. A snapshot cannot replace the required live query.
+- **Keep semantics separate from presentation.** `kind` says what is measured; `value_format` says how to print it; `unit` supplies a short suffix. Use `percentage` for percentage points (`34` means 34%) and `percentage_scaled` for 0–1 ratios (`0.34` means 34%). A percentage query must set `aggregationAxisFormat` to exactly the same value as `value_format`; missing or numeric axis formatting is invalid. A duration uses `ms` or `s`; currency uses an ISO currency code. A comparison label only names the context, such as `Previous period`; its value is formatted separately.
+- **At most {MAX_REPORT_METRICS} metrics per report.** Prefer the handful that changes a decision. `metrics` replaces the previous set with the new title and summary, so repeat any still-valid metric on re-research. Snapshot-only or queryless rows are legacy or malformed, are always redacted, and must not be re-sent.
+"""
+
+
+def _render_previous_metrics_context(previous_metrics: list[ReportMetric]) -> str:
+    if not previous_metrics:
+        return ""
+    rendered = json.dumps([metric.model_dump(mode="json") for metric in previous_metrics], indent=2)
+    return (
+        "## Impact metrics this report already shows\n\n"
+        "Re-send each metric whose bounded event/action query still matches the updated observation, "
+        "optionally refresh its observed snapshot, and omit stale, snapshot-only, or queryless metrics. "
+        "Omitting a metric removes it.\n\n"
         f"```json\n{rendered}\n```"
     )
 
@@ -654,31 +705,40 @@ def build_report_presentation_prompt(
     previous_title: str | None = None,
     previous_summary: str | None = None,
     previous_charts: list[ReportChart] | None = None,
+    previous_metrics: list[ReportMetric] | None = None,
     charts_enabled: bool = False,
+    metrics_enabled: bool = False,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not charts_enabled:
-        # Emit a chart-free schema when the team isn't opted in: drop the `charts` field (and the
-        # now-unreferenced chart type defs) so the model is never shown — let alone told to fill —
-        # a field whose description mentions authoring `chart:` links. Combined with the caller
-        # dropping any charts anyway, an un-opted report can never carry one.
         schema_dict.get("properties", {}).pop("charts", None)
+        schema_dict.get("$defs", {}).pop("ReportChart", None)
+    if not metrics_enabled:
+        schema_dict.get("properties", {}).pop("metrics", None)
+        schema_dict.get("$defs", {}).pop("ReportMetric", None)
+        schema_dict.get("$defs", {}).pop("ReportMetricComparison", None)
+    if not charts_enabled and not metrics_enabled:
         schema_dict.pop("$defs", None)
     schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
-    # The charts guidance (and any previous-charts context) is rendered only when the team is opted in.
-    charts_sections = ""
+    visual_sections: list[str] = []
+    if metrics_enabled:
+        visual_sections.append(_REPORT_METRICS_GUIDANCE)
+        previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
+        if previous_metrics_context:
+            visual_sections.append(previous_metrics_context)
     if charts_enabled:
+        visual_sections.append(_REPORT_CHARTS_GUIDANCE)
         previous_charts_context = _render_previous_charts_context(previous_charts or [])
-        charts_sections = "\n\n" + _REPORT_CHARTS_GUIDANCE
         if previous_charts_context:
-            charts_sections += "\n\n" + previous_charts_context
+            visual_sections.append(previous_charts_context)
+    visual_context = "".join(f"\n\n{section}" for section in visual_sections)
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
 Style rules:
-{previous_presentation_context}{charts_sections}
+{previous_presentation_context}{visual_context}
 
 Respond with a JSON object matching this schema:
 
@@ -758,6 +818,7 @@ async def run_multi_turn_research(
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
     charts_enabled: bool = False,
+    metrics_enabled: bool = False,
     steering_section: str = "",
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
@@ -919,7 +980,9 @@ async def run_multi_turn_research(
             previous_title=title or (previous_report_research.title if previous_report_research else None),
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
             previous_charts=previous_report_research.charts if previous_report_research else None,
+            previous_metrics=previous_report_research.metrics if previous_report_research else None,
             charts_enabled=charts_enabled,
+            metrics_enabled=metrics_enabled,
         )
         presentation_result = await session.send_followup(
             presentation_prompt,
@@ -943,10 +1006,11 @@ async def run_multi_turn_research(
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
-        # Only carry charts for an opted-in team, regardless of what the model returned — a redundant
-        # guard alongside the gated schema/guidance, so the capability can't leak even if a future
-        # change reintroduces the field into a disabled prompt.
+        # Only carry visuals for an opted-in team, regardless of what the model returned — a
+        # redundant guard alongside the gated schema/guidance, so the capability can't leak if a
+        # future change reintroduces a field into a disabled prompt.
         charts=presentation_result.charts if charts_enabled else [],
+        metrics=presentation_result.metrics if metrics_enabled else [],
         research_task_id=str(session.task.id),
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,

@@ -148,3 +148,27 @@ def increment_scout_run(status: str) -> None:
         "signals_scout_runs_total",
         "Signals scout runs by terminal status",
     ).add(1)
+
+
+def record_report_metric_refresh_summary(*, updated: int, failed: int, skipped: int, batches_failed: int) -> None:
+    """Count report-metric refresh sweep outcomes by result.
+
+    The hourly snapshot sweep completes on partial progress — failed batches resume on the next tick —
+    so a Postgres or ClickHouse fault failing every batch would otherwise look like a successful run.
+    A rising outcome="batch_failed" or outcome="failed" while outcome="updated" stays flat is the
+    degraded-sweep signal to alert on.
+    """
+    if not _in_temporal_context():
+        return
+    for outcome, count in (
+        ("updated", updated),
+        ("failed", failed),
+        ("skipped", skipped),
+        ("batch_failed", batches_failed),
+    ):
+        if count <= 0:
+            continue
+        get_metric_meter({"outcome": outcome}).create_counter(
+            "signals_report_metric_refresh_total",
+            "Report metric refresh sweep outcomes by result",
+        ).add(count)

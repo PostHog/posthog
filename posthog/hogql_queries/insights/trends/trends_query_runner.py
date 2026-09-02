@@ -44,7 +44,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -54,6 +54,7 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
@@ -98,6 +99,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
+    hogql_settings: HogQLGlobalSettings | None
 
     def __init__(
         self,
@@ -107,6 +109,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         user: Optional[User] = None,
+        *,
+        workload: Workload = Workload.DEFAULT,
+        hogql_settings: Optional[HogQLGlobalSettings] = None,
     ):
         from posthog.hogql_queries.utils.utils import convert_active_user_math_based_on_interval
 
@@ -144,7 +149,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             else:
                 query.compareFilter.compare = True
 
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self.hogql_settings = hogql_settings
+        super().__init__(
+            query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            workload=workload,
+            user=user,
+        )
 
     def __post_init__(self):
         self.update_hogql_modifiers()
@@ -327,6 +341,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query=query,
                     team=self.team,
                     user=self.user,
+                    workload=self.workload,
+                    settings=self.hogql_settings,
                     # timings=timings,
                     # modifiers=modifiers,
                 )
@@ -403,6 +419,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query=query,
                     team=self.team,
                     user=self.user,
+                    workload=self.workload,
+                    settings=self.hogql_settings,
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,

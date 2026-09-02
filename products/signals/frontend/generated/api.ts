@@ -21,7 +21,7 @@ import type {
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
-    PaginatedSignalReportListApi,
+    PaginatedSignalReportListListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedPullRequestReviewCommentUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
@@ -195,8 +195,8 @@ export const signalsReportsList = async (
     projectId: string,
     params?: SignalsReportsListParams,
     options?: RequestInit
-): Promise<PaginatedSignalReportListApi> => {
-    return apiMutator<PaginatedSignalReportListApi>(getSignalsReportsListUrl(projectId, params), {
+): Promise<PaginatedSignalReportListListApi> => {
+    return apiMutator<PaginatedSignalReportListListApi>(getSignalsReportsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

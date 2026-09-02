@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -22,7 +23,6 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         priority: 'P2',
@@ -81,5 +81,110 @@ describe('ReportCard', () => {
         })
         const { container } = render(<ReportCard report={report} preview />)
         expect(container.querySelector('a')).toBeNull()
+    })
+
+    it('shows the affected-user snapshot in a redesigned row and prefers it over the primary metric', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        })
+        const user = userEvent.setup()
+        const report = makeReport({
+            metrics: [
+                {
+                    metric_id: 'conversion',
+                    title: 'Conversion rate',
+                    kind: 'conversion_rate',
+                    role: 'primary',
+                    value: 34,
+                    value_at: null,
+                    value_format: 'percentage',
+                    unit: null,
+                    caption: null,
+                },
+                {
+                    metric_id: 'affected-users',
+                    title: 'Users affected',
+                    kind: 'affected_users',
+                    role: 'supporting',
+                    value: 42,
+                    value_at: '2026-08-28T12:00:00Z',
+                    value_format: 'count',
+                    unit: 'users',
+                    caption: null,
+                },
+            ],
+        })
+
+        render(<ReportCard report={report} />)
+
+        expect(screen.getByText('42 users')).toBeInTheDocument()
+        expect(screen.getByText('Users affected')).toBeInTheDocument()
+        expect(screen.queryByText('34%')).not.toBeInTheDocument()
+
+        await user.hover(screen.getByText('42 users'))
+        expect(await screen.findByText('2026-08-28T12:00:00Z')).toBeInTheDocument()
+    })
+
+    it('uses the primary snapshot when there is no affected-user snapshot', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        })
+        const report = makeReport({
+            metrics: [
+                {
+                    metric_id: 'conversion',
+                    title: 'Conversion rate',
+                    kind: 'conversion_rate',
+                    role: 'primary',
+                    value: 34,
+                    value_at: null,
+                    value_format: 'percentage',
+                    unit: null,
+                    caption: null,
+                },
+            ],
+        })
+
+        const { container } = render(<ReportCard report={report} />)
+
+        expect(screen.getByText('34%')).toBeInTheDocument()
+        expect(screen.getByText('Conversion rate')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).not.toBeNull()
+    })
+
+    it('does not show a list metric without a stored snapshot or under the legacy design', () => {
+        const report = makeReport({
+            metrics: [
+                {
+                    metric_id: 'affected-users',
+                    title: 'Users affected',
+                    kind: 'affected_users',
+                    role: 'primary',
+                    value: null,
+                    value_at: null,
+                    value_format: 'count',
+                    unit: 'users',
+                    caption: null,
+                },
+            ],
+        })
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        })
+        const { container, rerender } = render(<ReportCard report={report} />)
+        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: false,
+        })
+        rerender(
+            <ReportCard
+                report={makeReport({
+                    metrics: [{ ...report.metrics![0], value: 42 }],
+                })}
+            />
+        )
+        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
     })
 })

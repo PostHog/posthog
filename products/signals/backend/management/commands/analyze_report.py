@@ -244,9 +244,10 @@ class Command(BaseCommand):
                 previous_report_research=previous_report_research,
                 verbose=verbose,
                 output_fn=self._flushing_write,
-                # Local debug tool: always exercise the chart-authoring path, mirroring the
-                # DEBUG-on default of the production `signals-report-charts` gate.
+                # Local debug tool: always exercise both visual-authoring paths, mirroring the
+                # DEBUG-on defaults of their production rollout gates.
                 charts_enabled=True,
+                metrics_enabled=True,
             )
         )
 
@@ -257,6 +258,9 @@ class Command(BaseCommand):
         self.stdout.write(f"Charts: {len(result.charts)}")
         for chart in result.charts:
             self.stdout.write(f"  - {chart.chart_id}: {chart.title}")
+        self.stdout.write(f"Metrics: {len(result.metrics)}")
+        for metric in result.metrics:
+            self.stdout.write(f"  - {metric.metric_id}: {metric.title}")
         actionability = result.effective_actionability()
         priority = result.effective_priority()
         self.stdout.write(f"Actionability: {actionability.actionability}")

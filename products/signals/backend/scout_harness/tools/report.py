@@ -34,6 +34,7 @@ from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
 from posthog.api.capture import capture_internal
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_linked_repo
 from posthog.models import Team
@@ -51,6 +52,13 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_metrics import (
+    ReportMetric,
+    ReportMetricKind,
+    ReportMetricRole,
+    ReportMetricValueFormat,
+    metric_batch_error,
+)
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
@@ -75,6 +83,7 @@ from products.signals.backend.scout_report import (
     record_report_edit,
     record_scout_run_task_artefact,
     set_report_charts,
+    set_report_metrics,
     set_report_suggested_prompts,
     set_scout_report_inferred_repository,
     set_scout_report_reviewers,
@@ -120,6 +129,29 @@ class ReportChartInput:
     query: dict[str, Any]
     caption: str | None = None
     size: ChartSize | None = None
+
+
+@frozen
+class ReportMetricComparisonInput:
+    value: float
+    label: str
+
+
+@frozen
+class ReportMetricInput:
+    """One typed report measurement before shared validation and persistence."""
+
+    metric_id: str
+    title: str
+    kind: ReportMetricKind
+    query: dict[str, Any]
+    role: ReportMetricRole = "supporting"
+    value: float | None = None
+    value_at: str | None = None
+    value_format: ReportMetricValueFormat = "number"
+    unit: str | None = None
+    caption: str | None = None
+    comparison: ReportMetricComparisonInput | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +203,8 @@ class EditReportResult:
     # because taking a report's charts down is itself a real outcome, and 0 would otherwise mean both
     # "cleared" and "never touched".
     charts_set: int | None = None
+    # How many typed impact metrics the report now shows, or None when untouched/unchanged.
+    metrics_set: int | None = None
     # How many questions the report now suggests, or None when the edit left them as they were.
     # Nullable for the same reason `charts_set` is: taking the suggestions down reports 0, and 0
     # would otherwise mean both "cleared" and "never touched".
@@ -196,6 +230,7 @@ class EditReportResult:
         return (
             bool(self.updated_fields or self.note_appended or self.reviewers_set)
             or self.charts_set is not None
+            or self.metrics_set is not None
             or self.suggested_prompts_set is not None
         )
 
@@ -281,6 +316,46 @@ def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChar
     if charts is None:
         return None
     return _build_charts(charts)
+
+
+def _build_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric]:
+    if not metrics:
+        return []
+    built: list[ReportMetric] = []
+    for metric in metrics:
+        try:
+            built.append(
+                ReportMetric.model_validate(
+                    {
+                        "metric_id": metric.metric_id,
+                        "title": metric.title,
+                        "kind": metric.kind,
+                        "role": metric.role,
+                        "value": metric.value,
+                        "value_at": metric.value_at,
+                        "value_format": metric.value_format,
+                        "unit": metric.unit,
+                        "query": metric.query,
+                        "caption": metric.caption,
+                        "comparison": (
+                            {"value": metric.comparison.value, "label": metric.comparison.label}
+                            if metric.comparison is not None
+                            else None
+                        ),
+                    }
+                )
+            )
+        except ValidationError as exc:
+            raise InvalidScoutReportError(f"invalid metric {metric.metric_id!r}: {exc}")
+    if batch_error := metric_batch_error(built):
+        raise InvalidScoutReportError(batch_error)
+    return built
+
+
+def _build_edit_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportMetric] | None:
+    if metrics is None:
+        return None
+    return _build_metrics(metrics)
 
 
 def _build_suggested_prompts(suggested_prompts: list[str] | None) -> list[str]:
@@ -803,6 +878,27 @@ def _chart_event_key(chart: ReportChartInput) -> str:
     )
 
 
+def _metric_event_key(metric: ReportMetricInput) -> str:
+    comparison = [metric.comparison.value, metric.comparison.label] if metric.comparison is not None else None
+    return json.dumps(
+        [
+            metric.metric_id,
+            metric.title,
+            metric.kind,
+            metric.role,
+            metric.value,
+            metric.value_at,
+            metric.value_format,
+            metric.unit,
+            metric.caption,
+            comparison,
+            metric.query,
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _report_event_uuid(*parts: object, structured: bool = False) -> str:
     """Deterministic event uuid from the parts that identify a distinct emit/edit. A retried capture of the
     same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
@@ -875,6 +971,7 @@ def _capture_report_emitted(
     priority: str | None,
     repository: str | None,
     chart_count: int = 0,
+    metric_count: int = 0,
     suggested_prompt_count: int = 0,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
@@ -910,6 +1007,7 @@ def _capture_report_emitted(
         "skipped_reason": result.skipped_reason,
         "evidence_count": evidence_count,
         "chart_count": chart_count,
+        "metric_count": metric_count,
         "suggested_prompt_count": suggested_prompt_count,
         "title": title,
         "summary": _forwarded_summary(summary),
@@ -952,6 +1050,7 @@ def _capture_report_edited(
     note: str | None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
@@ -976,6 +1075,7 @@ def _capture_report_edited(
         "note_appended": result.note_appended,
         "reviewers_set": result.reviewers_set,
         "charts_set": result.charts_set,
+        "metrics_set": result.metrics_set,
         "suggested_prompts_set": result.suggested_prompts_set,
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _forwarded_summary(summary),
@@ -1020,6 +1120,8 @@ def _capture_report_edited(
     # here would hash it identically to the edit before it and let ingestion drop it.
     if charts is not None:
         parts.append(json.dumps([_chart_event_key(c) for c in charts], separators=(",", ":")))
+    if metrics is not None:
+        parts.append(f"metrics:{json.dumps([_metric_event_key(metric) for metric in metrics], separators=(',', ':'))}")
     # Suggested prompts are a valid sole input too, and carry the same collision: two prompt-only
     # edits to one report in a run share every other part. Appended only when they were set, so an
     # edit that doesn't mention them keeps the key its shape already hashes to — and kept in the
@@ -1034,7 +1136,10 @@ def _capture_report_edited(
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
-        event_uuid=_report_event_uuid(*parts, structured=charts is not None or suggested_prompts is not None),
+        event_uuid=_report_event_uuid(
+            *parts,
+            structured=charts is not None or metrics is not None or suggested_prompts is not None,
+        ),
         properties=properties,
     )
 
@@ -1054,6 +1159,7 @@ async def emit_report(
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
@@ -1068,6 +1174,7 @@ async def emit_report(
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
+    metric_contents = _build_metrics(metrics)
     prompt_contents = _build_suggested_prompts(suggested_prompts)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
@@ -1098,6 +1205,7 @@ async def emit_report(
             priority=priority,
             repository=repository,
             chart_count=len(chart_contents),
+            metric_count=len(metric_contents),
             suggested_prompt_count=len(prompt_contents),
         )
         await _forward_report_event_async(team, forward)
@@ -1112,6 +1220,7 @@ async def emit_report(
         signals=signals,
         actionability=actionability_assessment,
         charts=chart_contents,
+        metrics=metric_contents,
         suggested_prompts=prompt_contents,
     )
     surfaced = _surfaced(judgement.status)
@@ -1140,6 +1249,7 @@ async def emit_report(
         priority=priority_assessment if surfaced else None,
         suggested_reviewers=reviewers if surfaced else None,
         charts=chart_contents,
+        metrics=metric_contents,
         suggested_prompts=prompt_contents,
         # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
         # otherwise become semantic-search / matching context despite never surfacing.
@@ -1169,6 +1279,7 @@ async def emit_report(
         priority=priority,
         repository=repository,
         chart_count=len(chart_contents),
+        metric_count=len(metric_contents),
         suggested_prompt_count=len(prompt_contents),
     )
     await _forward_report_event_async(team, forward)
@@ -1190,6 +1301,7 @@ def emit_report_sync(
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
@@ -1200,6 +1312,7 @@ def emit_report_sync(
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
+    metric_contents = _build_metrics(metrics)
     prompt_contents = _build_suggested_prompts(suggested_prompts)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
@@ -1226,6 +1339,7 @@ def emit_report_sync(
             priority=priority,
             repository=repository,
             chart_count=len(chart_contents),
+            metric_count=len(metric_contents),
             suggested_prompt_count=len(prompt_contents),
         )
         if forward is not None:
@@ -1241,6 +1355,7 @@ def emit_report_sync(
         signals=signals,
         actionability=actionability_assessment,
         charts=chart_contents,
+        metrics=metric_contents,
         suggested_prompts=prompt_contents,
     )
     surfaced = _surfaced(judgement.status)
@@ -1269,6 +1384,7 @@ def emit_report_sync(
         priority=priority_assessment if surfaced else None,
         suggested_reviewers=reviewers if surfaced else None,
         charts=chart_contents,
+        metrics=metric_contents,
         suggested_prompts=prompt_contents,
         # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
         # otherwise become semantic-search / matching context despite never surfacing.
@@ -1296,6 +1412,7 @@ def emit_report_sync(
         priority=priority,
         repository=repository,
         chart_count=len(chart_contents),
+        metric_count=len(metric_contents),
         suggested_prompt_count=len(prompt_contents),
     )
     if forward is not None:
@@ -1313,6 +1430,7 @@ def _do_edit_report(
     append_note: str | None,
     suggested_reviewers: list[ReviewerInput] | None,
     charts: list[ReportChart] | None,
+    metrics: list[ReportMetric] | None,
     suggested_prompts: list[str] | None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
@@ -1337,6 +1455,7 @@ def _do_edit_report(
     updated_fields: list[str] = []
     note_appended = False
     charts_changed = False
+    metrics_changed = False
     prompts_changed = False
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
@@ -1380,6 +1499,14 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+        if metrics is not None:
+            metrics_changed = set_report_metrics(
+                team_id=team.id,
+                report_id=report_id,
+                metrics=metrics,
+                attribution=attribution,
+                author=run.skill_name,
+            )
         # Same replace-don't-append contract as the charts above: omitting the field keeps the
         # report's questions, an explicit empty list takes them down.
         if suggested_prompts is not None:
@@ -1391,9 +1518,13 @@ def _do_edit_report(
                 author=run.skill_name,
             )
     charts_set = len(charts) if charts is not None and charts_changed else None
+    metrics_set = len(metrics) if metrics is not None and metrics_changed else None
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     changed = (
-        bool(updated_fields or note_appended or reviewers_set) or charts_set is not None or prompts_set is not None
+        bool(updated_fields or note_appended or reviewers_set)
+        or charts_set is not None
+        or metrics_set is not None
+        or prompts_set is not None
     )
     # Enqueue the edited report's Slack delivery as the first post-commit step — before the slower
     # side effects below (repository inference, autostart) and the tally writes further down. An
@@ -1422,13 +1553,13 @@ def _do_edit_report(
                 extra={"team_id": team.id, "report_id": report_id},
             )
             report_status = None
-        # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
-        # touched only them has nothing to say in the channel — delivering it would post the report
-        # a second time byte for byte.
-        prompts_only = prompts_set is not None and not (
+        # Metrics and suggested questions live in the inbox, nowhere in the Slack message, so an
+        # edit that touched only them has nothing to say in the channel — delivering it would post
+        # the report a second time byte for byte.
+        inbox_only = (metrics_set is not None or prompts_set is not None) and not (
             updated_fields or note_appended or reviewers_set or charts_set is not None
         )
-        if report_status is not None and _surfaced(report_status) and not prompts_only:
+        if report_status is not None and _surfaced(report_status) and not inbox_only:
             # A note-only edit leaves the title, summary and charts the Slack report message shows
             # unchanged, so re-posting it would duplicate the message already in the channel.
             # Deliver the note itself instead; any edit that rewrote the content re-posts the
@@ -1474,6 +1605,7 @@ def _do_edit_report(
             "note": note_appended,
             "reviewers_set": reviewers_set,
             "charts_set": charts_set,
+            "metrics_set": metrics_set,
             "suggested_prompts_set": prompts_set,
         },
     )
@@ -1497,6 +1629,7 @@ def _do_edit_report(
         note_appended=note_appended,
         reviewers_set=reviewers_set,
         charts_set=charts_set,
+        metrics_set=metrics_set,
         suggested_prompts_set=prompts_set,
         report_title=report_title,
     )
@@ -1514,7 +1647,15 @@ def _do_edit_report(
 
 
 def _validate_edit_inputs(
-    team: Team, run: SignalScoutRun, title, summary, append_note, suggested_reviewers, charts, suggested_prompts
+    team: Team,
+    run: SignalScoutRun,
+    title,
+    summary,
+    append_note,
+    suggested_reviewers,
+    charts,
+    metrics,
+    suggested_prompts,
 ) -> None:
     _assert_team_owns_run(team, run)
     # `charts` / `suggested_prompts` are checked against None rather than falsiness: an explicit
@@ -1525,11 +1666,12 @@ def _validate_edit_inputs(
         and append_note is None
         and not suggested_reviewers
         and charts is None
+        and metrics is None
         and suggested_prompts is None
     ):
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, suggested_reviewers, "
-            "charts, suggested_prompts"
+            "charts, metrics, suggested_prompts"
         )
 
 
@@ -1543,12 +1685,15 @@ async def edit_report(
     append_note: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note, and/or set suggested
     reviewers (which re-runs autostart so a report missing a qualifying reviewer can open a draft PR).
     Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool."""
-    _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers, charts, suggested_prompts)
+    _validate_edit_inputs(
+        team, run, title, summary, append_note, suggested_reviewers, charts, metrics, suggested_prompts
+    )
     result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
         team=team,
         run=run,
@@ -1558,6 +1703,7 @@ async def edit_report(
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
         charts=_build_edit_charts(charts),
+        metrics=_build_edit_metrics(metrics),
         suggested_prompts=_build_edit_suggested_prompts(suggested_prompts),
     )
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
@@ -1569,6 +1715,7 @@ async def edit_report(
         note=append_note,
         suggested_reviewers=suggested_reviewers,
         charts=charts,
+        metrics=metrics,
         suggested_prompts=suggested_prompts,
     )
     await _forward_report_event_async(team, forward)
@@ -1585,10 +1732,13 @@ def edit_report_sync(
     append_note: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
+    metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
-    _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers, charts, suggested_prompts)
+    _validate_edit_inputs(
+        team, run, title, summary, append_note, suggested_reviewers, charts, metrics, suggested_prompts
+    )
     result = _do_edit_report(
         team=team,
         run=run,
@@ -1598,6 +1748,7 @@ def edit_report_sync(
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
         charts=_build_edit_charts(charts),
+        metrics=_build_edit_metrics(metrics),
         suggested_prompts=_build_edit_suggested_prompts(suggested_prompts),
     )
     forward = _capture_report_edited(
@@ -1609,6 +1760,7 @@ def edit_report_sync(
         note=append_note,
         suggested_reviewers=suggested_reviewers,
         charts=charts,
+        metrics=metrics,
         suggested_prompts=suggested_prompts,
     )
     if forward is not None:

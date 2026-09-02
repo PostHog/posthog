@@ -26,6 +26,7 @@ from products.signals.backend.scout_harness.tools.report import (
     InvalidScoutReportError,
     ReportChartInput,
     ReportEvidence,
+    ReportMetricInput,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
@@ -101,6 +102,28 @@ class TestScoutReportAPI(APIBaseTest):
         body.update(overrides)
         return body
 
+    def _affected_users_metric(self, *, value: int = 17) -> dict:
+        return {
+            "metric_id": "affected-users",
+            "title": "Affected users",
+            "kind": "affected_users",
+            "role": "primary",
+            "value": value,
+            "value_at": "2026-08-29T12:00:00Z",
+            "value_format": "count",
+            "unit": "users",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-30d"},
+                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                },
+            },
+            "caption": "People who experienced the exception",
+            "comparison": None,
+        }
+
     def _seed_skill_owner(self, login: str, skill_name: str = "signals-scout-general") -> User:
         user = User.objects.create(email=f"{login}@example.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
@@ -115,14 +138,20 @@ class TestScoutReportAPI(APIBaseTest):
 
     def test_emit_report_authors_ready_report(self) -> None:
         run = _make_run(self.team)
+        metric = self._affected_users_metric()
         with _safe_judge(), patch(EMBED_PATH) as embed_mock:
-            response = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            response = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(metrics=[metric]), format="json"
+            )
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["emitted"] is True
         assert body["report_status"] == SignalReport.Status.READY
         assert body["skipped_reason"] is None
-        assert SignalReport.objects.filter(id=body["report_id"], team=self.team).exists()
+        report = SignalReport.objects.get(id=body["report_id"], team=self.team)
+        assert len(report.metrics) == 1
+        assert report.metrics[0]["metric_id"] == "affected-users"
+        assert report.metrics[0]["query"] == metric["query"]
         embed_mock.assert_called_once()
 
     def test_report_emit_and_edit_enqueue_configured_slack_destination_after_commit(self) -> None:
@@ -172,14 +201,19 @@ class TestScoutReportAPI(APIBaseTest):
                 data={"report_id": report_id, "suggested_prompts": ["Which teams are affected?"]},
                 format="json",
             )
+            measured = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "metrics": [self._affected_users_metric()]},
+                format="json",
+            )
 
         assert emitted.status_code == status.HTTP_200_OK, emitted.json()
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         assert rewritten.status_code == status.HTTP_200_OK, rewritten.json()
         assert charted.status_code == status.HTTP_200_OK, charted.json()
         assert prompted.status_code == status.HTTP_200_OK, prompted.json()
-        # The prompt-only edit delivers nothing: the questions render in the inbox and nowhere in the
-        # Slack message, so posting it would repeat the report the channel already has, byte for byte.
+        assert measured.status_code == status.HTTP_200_OK, measured.json()
+        # Prompt-only and metric-only edits deliver nothing because that content renders only in Inbox.
         assert enqueue.call_count == 4
         for call in enqueue.call_args_list:
             assert call.kwargs["team_id"] == self.team.id
@@ -920,6 +954,47 @@ class TestScoutReportAPI(APIBaseTest):
         signups_chart, churn_chart = chart("signups-drop"), chart("churn-spike")
         assert forward([signups_chart, churn_chart]) != forward([churn_chart, signups_chart])
 
+    def test_metric_edit_event_uuid_keys_on_metric_content(self) -> None:
+        run = _make_run(self.team)
+        result = EditReportResult(report_id=str(uuid4()), updated_fields=[], note_appended=False, metrics_set=1)
+
+        def forward(metrics: list[ReportMetricInput]) -> str:
+            with patch(CAPTURE_PATH):
+                captured = _capture_report_edited(
+                    team=self.team,
+                    run=run,
+                    result=result,
+                    title=None,
+                    summary=None,
+                    note=None,
+                    metrics=metrics,
+                )
+            assert captured is not None
+            return captured.event_uuid
+
+        def metric(value: float) -> ReportMetricInput:
+            return ReportMetricInput(
+                metric_id="occurrences",
+                title="Exception occurrences",
+                kind="occurrences",
+                value=value,
+                value_at="2026-08-29T12:00:00Z",
+                value_format="count",
+                unit="events",
+                query={
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_from": "-30d"},
+                        "series": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
+                    },
+                },
+            )
+
+        baseline = forward([metric(17)])
+        assert baseline == forward([metric(17)])
+        assert baseline != forward([metric(29)])
+
     @parameterized.expand(
         [
             ("omitted", {}, 1, None),
@@ -967,6 +1042,50 @@ class TestScoutReportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalReport.objects.get(id=created["report_id"]).charts == []
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, 1, None),
+            ("null", {"metrics": None}, 1, None),
+            ("empty_list", {"metrics": []}, 0, 0),
+        ]
+    )
+    def test_edit_metrics_distinguishes_untouched_from_cleared(
+        self, _name: str, metric_field: dict, expected_stored: int, expected_metrics_set: int | None
+    ) -> None:
+        run = _make_run(self.team)
+        metric = self._affected_users_metric()
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(metrics=[metric]), format="json"
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "append_note": "checked", **metric_field},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["metrics_set"] == expected_metrics_set
+        assert len(SignalReport.objects.get(id=created["report_id"]).metrics) == expected_stored
+
+    def test_clearing_metrics_is_a_valid_sole_edit(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(metrics=[self._affected_users_metric()]),
+                format="json",
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "metrics": []},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["metrics_set"] == 0
+        assert SignalReport.objects.get(id=created["report_id"]).metrics == []
 
     def test_suggested_prompt_edit_event_uuid_keys_on_the_prompts(self) -> None:
         # Same collision class as the chart case above: suggested prompts are a valid sole input to an
@@ -1066,27 +1185,31 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalReport.objects.get(id=created["report_id"]).suggested_prompts == []
 
-    def test_chart_counts_ride_the_lifecycle_events(self) -> None:
-        # `charts_set` / `chart_count` are what a dashboard or CDP destination reads to tell a
-        # chart-bearing report from a plain one; without them both event streams look identical.
+    def test_report_content_counts_ride_the_lifecycle_events(self) -> None:
         run = _make_run(self.team)
         charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
+        metrics = [self._affected_users_metric()]
         # The edit refreshes the chart rather than re-sending it verbatim: an edit that restates what
         # the report already holds changes nothing, and the lifecycle events stay quiet for those.
         refreshed = [{**charts[0], "title": "Daily signups (rerun)"}]
+        refreshed_metrics = [self._affected_users_metric(value=29)]
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
             created = self.client.post(
-                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+                self._emit_url(str(run.id)),
+                data={**self._payload(), "charts": charts, "metrics": metrics},
+                format="json",
             ).json()
             self.client.post(
                 self._edit_url(str(run.id)),
-                data={"report_id": created["report_id"], "charts": refreshed},
+                data={"report_id": created["report_id"], "charts": refreshed, "metrics": refreshed_metrics},
                 format="json",
             )
         emitted = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         edited = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
         assert emitted.kwargs["properties"]["chart_count"] == 1
+        assert emitted.kwargs["properties"]["metric_count"] == 1
         assert edited.kwargs["properties"]["charts_set"] == 1
+        assert edited.kwargs["properties"]["metrics_set"] == 1
 
     def test_an_edit_that_changes_nothing_fires_no_lifecycle_event(self) -> None:
         # `edit_report` is non-idempotent, so a retry re-sends the charts the report already holds.

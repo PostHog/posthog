@@ -37,6 +37,7 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
+import { ReportCardImpactMetric } from './ReportCardImpactMetric'
 import { useReportDismiss } from './useReportDismiss'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -218,6 +219,8 @@ export function ReportCard({
                         No summary yet. Still collecting context.
                     </p>
                 ) : null}
+
+                {redesign ? <ReportCardImpactMetric metrics={report.metrics} /> : null}
 
                 <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
