@@ -15,6 +15,7 @@ report comment (.github/scripts/post-duplication-section.mjs).
 import re
 import sys
 import json
+import hashlib
 import argparse
 import tempfile
 import subprocess
@@ -134,14 +135,19 @@ def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
     return json.loads(report_path.read_text())["duplicates"]
 
 
-def clone_key(clone: dict) -> frozenset:
-    """Pair key, insensitive to which side jscpd calls first."""
-    first = (clone["firstFile"]["name"], clone["firstFile"]["start"], clone["firstFile"]["end"])
-    second = (clone["secondFile"]["name"], clone["secondFile"]["start"], clone["secondFile"]["end"])
-    return frozenset((first, second))
+def clone_key(clone: dict) -> tuple[frozenset, str]:
+    """Pair key, insensitive to which side jscpd calls first and to where in
+    the files the fragment sits.
+
+    Keying on the fragment text (not the span) means edits elsewhere in the
+    files do not re-flag an old clone as new; editing the duplicated block
+    itself does, which is what the gate is for.
+    """
+    pair = frozenset((clone["firstFile"]["name"], clone["secondFile"]["name"]))
+    return pair, hashlib.sha1(clone["fragment"].encode()).hexdigest()
 
 
-def resolve_baseline(base: str) -> str:
+def resolve_baseline(base: str, repo: Path) -> str:
     """Return the ref to compare clones against.
 
     The branch point, not the base tip: jscpd matches clones with their
@@ -150,7 +156,9 @@ def resolve_baseline(base: str) -> str:
     merge-base keeps pre-existing duplication out of the gate no matter
     how far behind the branch falls.
     """
-    merge_base = subprocess.run(["git", "merge-base", base, "HEAD"], capture_output=True, text=True).stdout.strip()
+    merge_base = subprocess.run(
+        ["git", "merge-base", base, "HEAD"], capture_output=True, text=True, cwd=repo
+    ).stdout.strip()
     if merge_base:
         return merge_base
     print(f"Could not resolve the merge-base with {base!r} (shallow history?). Falling back to {base!r}.")
@@ -173,31 +181,38 @@ def main() -> int:
         print("  git fetch --no-tags --depth=1 origin master:refs/remotes/origin/master")
         return 2
 
-    baseline = resolve_baseline(args.base)
+    baseline = resolve_baseline(args.base, Path(args.path).resolve())
     print(f"Comparing clones against {baseline}")
 
     # jscpd's own --baseline-from-ref mismatches clones whose files moved on
     # the base since the branch forked, and some stable pairs it re-flags
     # with no visible cause. Scan both trees with identical flags and diff
-    # the clone sets ourselves instead: a clone is new only when its pair
-    # (both sides' path and span, either order) is absent from the baseline.
+    # the clone sets ourselves instead: a clone is new only when no clone in
+    # the baseline pairs the same files over the same fragment.
+    repo = Path(args.path).resolve()
     with tempfile.TemporaryDirectory(prefix="jscpd-") as tmp:
         tmp_path = Path(tmp)
         baseline_worktree = tmp_path / "baseline-worktree"
+        # Registrations from runs killed mid-scan point at paths that no
+        # longer exist; drop them before adding a fresh one.
+        subprocess.run(["git", "worktree", "prune"], capture_output=True, cwd=repo)
         add = subprocess.run(
             ["git", "worktree", "add", "--detach", str(baseline_worktree), baseline],
             capture_output=True,
             text=True,
+            cwd=repo,
         )
         if add.returncode != 0:
             print(add.stderr[-2000:])
             print(f"duplication lint could not check out the baseline {baseline}")
             return 2
         try:
-            current_clones = run_jscpd(Path(args.path).resolve(), tmp_path / "current-report")
+            current_clones = run_jscpd(repo, tmp_path / "current-report")
             baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
         finally:
-            subprocess.run(["git", "worktree", "remove", "--force", str(baseline_worktree)], capture_output=True)
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(baseline_worktree)], capture_output=True, cwd=repo
+            )
 
     baseline_keys = {clone_key(clone) for clone in baseline_clones}
     clones = []

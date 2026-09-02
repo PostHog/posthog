@@ -23,6 +23,7 @@ def make_clone(first: str, second: str, tokens: int, is_new: bool = True, fmt: s
         "lines": 10,
         "isNew": is_new,
         "format": fmt,
+        "fragment": "x = 1\n" * 10,
     }
 
 
@@ -133,14 +134,27 @@ class TestBuildFindings(unittest.TestCase):
 class TestCloneKey(unittest.TestCase):
     @parameterized.expand(
         [
-            ("same_pair_same_key", make_clone("a.py", "b.py", 100), make_clone("a.py", "b.py", 100), True),
-            ("swapped_sides_same_key", make_clone("a.py", "b.py", 100), make_clone("b.py", "a.py", 100), True),
-            ("moved_span_differs", make_clone("a.py", "b.py", 100), make_clone("a.py", "b.py", 100), False),
+            ("same_pair_same_key", None, None, True),
+            ("swapped_sides_same_key", "swap", None, True),
+            ("moved_in_file_same_key", "shift", None, True),
+            ("edited_fragment_differs", None, "fragment", False),
+            ("different_pair_differs", None, "rename", False),
         ]
     )
-    def test_key(self, _name: str, first: dict, second: dict, expected_equal: bool) -> None:
-        if _name == "moved_span_differs":
-            second["firstFile"]["start"] = 42
+    def test_key(
+        self, _name: str, first_mutation: str | None, second_mutation: str | None, expected_equal: bool
+    ) -> None:
+        first = make_clone("a.py", "b.py", 100)
+        second = make_clone("a.py", "b.py", 100)
+        if first_mutation == "swap":
+            first["firstFile"], first["secondFile"] = first["secondFile"], first["firstFile"]
+        if first_mutation == "shift":
+            first["firstFile"]["start"] = 42
+            first["secondFile"]["start"] = 99
+        if second_mutation == "fragment":
+            second["fragment"] = "y = 2\n" * 10
+        if second_mutation == "rename":
+            second["secondFile"]["name"] = "c.py"
         self.assertEqual(clone_key(first) == clone_key(second), expected_equal)
 
 
