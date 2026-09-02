@@ -299,7 +299,11 @@ test.describe('Trends insights', () => {
             await insight.trends.addBreakdown('Browser')
             await insight.trends.waitForChart()
             await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
-            await insight.trends.waitForChart()
+            // Read the breakdown rows before hovering. waitForChart only waits for the
+            // loader to detach, which is already true while the previous query's chart
+            // is still mounted, so the hover below would sample the old series.
+            await insight.trends.expectRowTotal('Chrome', customEventsWithBreakdown.expected.chromeCount)
+            await insight.trends.expectRowTotal('Firefox', customEventsWithBreakdown.expected.firefoxCount)
             await insight.trends.hoverChartAt(0.5, 0.5)
             const multiText = await insight.trends.tooltip.textContent()
             expect(multiText).toContain('Chrome')
@@ -308,7 +312,9 @@ test.describe('Trends insights', () => {
 
         await test.step('navigate away and verify no orphaned tooltip', async () => {
             await insight.goToList()
-            await expect(page.locator('table')).toBeVisible()
+            // The scene heading renders whether or not the list has rows. A table only
+            // appears once something is saved, which depends on what ran before this.
+            await expect(page.getByRole('heading', { name: 'Product analytics', level: 1 })).toBeVisible()
             await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
     })
