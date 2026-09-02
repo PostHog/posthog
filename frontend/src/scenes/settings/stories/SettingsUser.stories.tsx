@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
@@ -10,7 +10,9 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { getAvailableProductFeatures } from '~/mocks/features'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { HedgehogConfig } from '~/types'
 
 import { SettingSectionId } from '../types'
 
@@ -81,6 +83,37 @@ export default meta
 
 export const SettingsUserProfile: Story = {
     args: { sectionId: 'user-profile' },
+}
+
+const HEDGEHOG_AVATAR_CONFIG: HedgehogConfig = {
+    version: 2,
+    enabled: false,
+    use_as_profile: true,
+    party_mode_enabled: false,
+    actor_options: { id: 'storybook-hedgehog', skin: 'default', color: 'green', accessories: ['tophat', 'sunglasses'] },
+}
+
+export const SettingsUserProfileHedgehogAvatar: Story = {
+    args: { sectionId: 'user-profile' },
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/users/@me/': () => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_USER,
+                            organization: {
+                                ...MOCK_DEFAULT_ORGANIZATION,
+                                available_product_features: getAvailableProductFeatures(),
+                            },
+                            hedgehog_config: HEDGEHOG_AVATAR_CONFIG,
+                        },
+                    ],
+                },
+            },
+        },
+    },
 }
 
 export const SettingsUserApiKeys: Story = {
