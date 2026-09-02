@@ -176,15 +176,12 @@ def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
 
 
 def _stamp_commit(uri: str, version: int, committed_at: datetime) -> None:
-    """Set when a Delta commit appears to have landed.
-
-    delta-rs time travel resolves a datetime against the `_delta_log` commit files' modification
-    times, not the `timestamp` inside each commit that `DeltaTable.history()` reports. On Linux
-    the filesystem stamps mtimes from a coarse clock that can lag the commit's own timestamp by a
-    scheduler tick, so two back-to-back writes can both look older than the first commit's
-    `history()` timestamp and the pin lands on the newer version. Stamping the commits keeps the
-    test about the pin, not the clock.
-    """
+    # delta-rs time travel resolves a datetime against the `_delta_log` commit files' modification
+    # times, not the `timestamp` inside each commit that `DeltaTable.history()` reports. On Linux
+    # the filesystem stamps mtimes from a coarse clock that can lag the commit's own timestamp by a
+    # scheduler tick, so two back-to-back writes can both look older than the first commit's
+    # `history()` timestamp and the pin lands on the newer version. Stamping the commits keeps the
+    # test about the pin, not the clock.
     ts = committed_at.timestamp()
     os.utime(Path(uri) / "_delta_log" / f"{version:020d}.json", (ts, ts))
 
