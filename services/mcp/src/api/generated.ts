@@ -19752,6 +19752,18 @@ export namespace Schemas {
       always_include?: boolean;
     }
 
+    /**
+     * * `text` - text
+     * * `image` - image
+     */
+    export type CreateTextTileRequestTypeEnum = typeof CreateTextTileRequestTypeEnum[keyof typeof CreateTextTileRequestTypeEnum];
+
+
+    export const CreateTextTileRequestTypeEnum = {
+      Text: 'text',
+      Image: 'image',
+    } as const;
+
     export interface TileLayoutBox {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
@@ -19771,8 +19783,13 @@ export namespace Schemas {
     }
 
     export interface CreateTextTileRequest {
+      /** Tile type. Use image for a body with exactly one Markdown image. Defaults to text.
+       *
+       * * `text` - text
+       * * `image` - image */
+      type?: CreateTextTileRequestTypeEnum;
       /**
-         * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
+         * Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.
          * @minLength 1
          * @maxLength 4000
          */
@@ -29090,6 +29107,16 @@ export namespace Schemas {
          * @nullable
          */
       median_merge_to_deploy_seconds_prev: number | null;
+      /**
+         * Median seconds from a PR's open to the first successful deployment containing it — the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
+         * @nullable
+         */
+      median_open_to_deploy_seconds: number | null;
+      /**
+         * Previous-window twin of median_open_to_deploy_seconds.
+         * @nullable
+         */
+      median_open_to_deploy_seconds_prev: number | null;
       /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
       deployed_pr_count: number;
       /** Previous-window twin of deployed_pr_count. */
