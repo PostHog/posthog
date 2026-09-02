@@ -45,6 +45,13 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     foreground: hex,
 })
 
+// Render a bucket key the app's way, without the year ("June 16" rather than "16-Jun-2026"). A result
+// with no `days` falls back to backend `labels`, so text that is not a date passes through unchanged.
+const formatMetricLabel = (label: string): string => {
+    const parsed = dayjs(label)
+    return parsed.isValid() ? formatDate(parsed, DATE_FORMAT_WITHOUT_YEAR) : label
+}
+
 export function MetricCard({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
@@ -84,9 +91,9 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
         lineColor = isIncrease ? lineIncreaseColor : lineDecreaseColor
     }
 
-    // Format the backend day labels the app's way, without the year ("June 16" rather than "16-Jun-2026").
-    const labels =
-        resultSeries.days?.map((day) => formatDate(dayjs(day), DATE_FORMAT_WITHOUT_YEAR)) ?? resultSeries.labels
+    // Raw bucket keys, not display text: the sparkline positions its points off these strings, and
+    // "June 16" repeats once a range spans a year. `formatMetricLabel` handles the display side.
+    const labels = resultSeries.days ?? resultSeries.labels
 
     // Dash the trailing in-progress period, matching the line chart. The offset is negative from the end.
     const dashedFromIndex =
@@ -108,6 +115,7 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
                 restingSubtitle={METRIC_SUMMARY_LABELS[summary]}
                 data={resultSeries.data}
                 labels={labels}
+                formatLabel={formatMetricLabel}
                 theme={theme}
                 color={lineColor}
                 showChange={showChange}
