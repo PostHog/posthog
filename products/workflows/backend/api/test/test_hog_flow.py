@@ -1112,6 +1112,34 @@ class TestHogFlowAPI(APIBaseTest):
         assert "minutes" in response.json()["detail"]
         assert "420 days" in response.json()["detail"]
 
+    def test_hog_flow_conversion_window_minutes_grandfathers_stored_over_ceiling_value(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a row from before the ceiling existed, bypassing the serializer that now refuses this value.
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.conversion = {"filters": [], "window_minutes": 604800}
+        flow.save()
+
+        # An unrelated edit that resends the unchanged over-ceiling value must still succeed.
+        unrelated_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "conversion": {"filters": [], "window_minutes": 604800}},
+        )
+        assert unrelated_edit.status_code == 200, unrelated_edit.json()
+        assert unrelated_edit.json()["conversion"]["window_minutes"] == 604800
+
+        # Changing the stored value to a different over-ceiling value is still refused.
+        changed = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"filters": [], "window_minutes": 700000}},
+        )
+        assert changed.status_code == 400, changed.json()
+
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
             "_H",

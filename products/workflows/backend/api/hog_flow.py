@@ -1996,12 +1996,24 @@ class HogFlowConversionSerializer(serializers.Serializer):
             raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
         return value
 
+    def _stored_window_minutes(self) -> int | None:
+        # The value this workflow already holds, or None on create. `conversion` is nested only under
+        # HogFlowSerializer, so self.root.instance is the HogFlow being updated.
+        stored = getattr(self.root.instance, "conversion", None)
+        if isinstance(stored, dict):
+            return stored.get("window_minutes")
+        return None
+
     def validate_window_minutes(self, value: int | None) -> int | None:
         if value is None:
             return value
-        if value > MAX_LEGACY_WINDOW_MINUTES:
-            # Almost every value this large is a second count in a field that takes minutes, so name
-            # the unit and show what the number actually means rather than silently shortening it.
+        # Grandfather an over-ceiling value the row already holds. The builder resends the whole
+        # conversion on every save, so a plain value ceiling would 400 an unrelated edit (a rename or a
+        # step change) on a workflow that predates the ceiling, naming a field the builder cannot show.
+        # Reject the value only when this write introduces or changes it.
+        if value > MAX_LEGACY_WINDOW_MINUTES and value != self._stored_window_minutes():
+            # Almost every value this large is a second count in a field that takes minutes, so name the
+            # unit and show what the number means rather than silently shortening it.
             raise serializers.ValidationError(
                 f"window_minutes is in minutes, so {value} means {value // 1440} days. "
                 f"The maximum is {MAX_LEGACY_WINDOW_MINUTES}. Use 'window' with a duration string "
