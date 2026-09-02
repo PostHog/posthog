@@ -885,3 +885,115 @@ class ErrorTrackingRecommendation(UUIDTModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
         ]
+
+
+class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
+    """Alert configuration for issue lifecycle notifications.
+
+    Triggers are opt-in thread openers: they decide which lifecycle transitions start
+    a notification thread for an issue. Once a thread exists, every later lifecycle
+    update for that issue is delivered into it as a reply without further trigger or
+    filter evaluation, so new reply kinds are enabled for existing alerts with no
+    migration (see ErrorTrackingAlertThread).
+    """
+
+    class Trigger(models.TextChoices):
+        ISSUE_CREATED = "issue_created", "Issue created"
+        ISSUE_REOPENED = "issue_reopened", "Issue reopened"
+        ISSUE_SPIKING = "issue_spiking", "Issue spiking"
+        ISSUE_ASSIGNED = "issue_assigned", "Issue assigned"
+
+    # db_constraint=False keeps creates lock-free on hot tables (posthog_team / posthog_user);
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    name = models.TextField()
+    enabled = models.BooleanField(default=True)
+    triggers = models.JSONField(default=list)  # list of Trigger values
+    # Same property-filter shape hog functions store, with the compiled HogQL bytecode
+    # embedded under "bytecode" (see posthog.cdp.filters.compile_filters_bytecode).
+    filters = models.JSONField(default=dict, blank=True)
+    # Minimum seconds between thread-opening notifications per (alert, issue).
+    # Replies into an existing thread are never throttled. 0 disables the throttle.
+    throttle_seconds = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingalert"
+        indexes = [
+            models.Index(fields=["team", "enabled"], name="idx_et_alert_team_enabled"),
+        ]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def error_tracking_alert_channel_type_choices() -> list[tuple[str, str]]:
+    # Callable choices: adding a channel later must not generate an AlterField migration.
+    return [(str(value), str(label)) for value, label in ErrorTrackingAlertDestination.ChannelType.choices]
+
+
+class ErrorTrackingAlertDestination(TeamScopedRootMixin, UUIDTModel):
+    """One delivery target of an alert.
+
+    The alert's triggers and filters are evaluated once per lifecycle transition and
+    the outcome fans out to every destination, so per-destination state (threads,
+    delivery results) hangs off this row rather than the alert.
+    """
+
+    class ChannelType(models.TextChoices):
+        # Additional channels (email, in-app, webhook) are planned; only rows with
+        # currently supported channel types are ever created through the API.
+        SLACK = "slack", "Slack"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    alert = models.ForeignKey(ErrorTrackingAlert, on_delete=models.CASCADE, related_name="destinations")
+    channel_type = models.TextField(choices=error_tracking_alert_channel_type_choices)
+    integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
+    # Channel-specific delivery settings, e.g. {"channel": "C0123", "channel_name": "#alerts"} for Slack
+    config = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingalertdestination"
+
+
+class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
+    """Delivery state for one (alert, issue, destination) conversation.
+
+    Maps an issue to the externally posted notification (e.g. a Slack message) so
+    lifecycle updates can be delivered as replies to the original message instead
+    of new fire-and-forget notifications. The unique constraint is the concurrency
+    primitive: concurrent deliveries race on the insert and the loser reuses the
+    winner's thread.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    alert = models.ForeignKey(ErrorTrackingAlert, on_delete=models.CASCADE, related_name="threads")
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="alert_threads")
+    destination = models.ForeignKey(ErrorTrackingAlertDestination, on_delete=models.CASCADE, related_name="threads")
+    # External message reference, e.g. {"channel": "C0123", "ts": "1234.5678"} for Slack
+    external_ref = models.JSONField(default=dict, blank=True)
+    # The root message's headline. It is the thread's identity: status transitions
+    # edit the root in place but never change the headline.
+    root_headline = models.TextField(blank=True, default="")
+    # UUIDs of recently delivered lifecycle notifications (newest last, capped by the
+    # delivery activity) so Temporal retries don't duplicate notifications.
+    delivered_notification_ids = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingalertthread"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["alert", "issue", "destination"], name="unique_error_tracking_alert_thread"
+            ),
+        ]
