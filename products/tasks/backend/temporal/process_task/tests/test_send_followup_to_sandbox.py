@@ -970,6 +970,8 @@ class TestSendFollowupTurnTimeout:
             "run-1",
             "The model response could not be completed. Please retry the task.",
             False,
+            False,
+            "user_created",
         )
         _patches["turn_complete"].assert_not_called()
 
@@ -1044,7 +1046,7 @@ class TestSendFollowupTurnTimeout:
             send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
 
         assert exc_info.value.non_retryable is True
-        _patches["error"].assert_called_once_with("run-1", DENIED_PERMISSION_STOP_MESSAGE, False)
+        _patches["error"].assert_called_once_with("run-1", DENIED_PERMISSION_STOP_MESSAGE, False, False, "user_created")
 
     def test_a_steer_never_claims_the_denial_that_ended_its_turn(self, _patches):
         _patches["denial_state"].update(
