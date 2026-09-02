@@ -18,14 +18,20 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSt
 # keeps getting blocked (billing limits, paused schedule), which is worth alerting on after all.
 AUTO_WIDEN_MARKER_MUTE_WINDOW = dt.timedelta(hours=48)
 
+# Closing sentence of the message `auto_widen_resync` puts on a run whose reset it scheduled.
+AUTO_WIDEN_SCHEDULED_PHRASE = "This table will be reset and fully re-synced automatically"
+
 
 def _pending_auto_widen_resync(schema: ExternalDataSchema) -> bool:
     marker = schema.column_type_widened
     if marker is None:
         return False
-    # Mute only the widening failure itself (same prefix the v3 consumer substring-matches): an
-    # unrelated failure landing while the marker is fresh still deserves an immediate alert.
-    if "Source column type changed" not in (schema.latest_error or ""):
+    # Mute only the failure auto-widen actually scheduled a reset for, matched on the sentence it
+    # ends with. The "Source column type changed" prefix is too broad: a decimal overflow carries it
+    # too, can never be auto-widened (`is_safe_numeric_widening` excludes decimals), and disables the
+    # schema. Muting that one hides a sync that stopped for good behind a marker left by an earlier,
+    # unrelated widening. An unrelated failure while the marker is fresh still alerts immediately.
+    if AUTO_WIDEN_SCHEDULED_PHRASE not in (schema.latest_error or ""):
         return False
     detected_at_raw = marker.get("detected_at")
     if not isinstance(detected_at_raw, str):

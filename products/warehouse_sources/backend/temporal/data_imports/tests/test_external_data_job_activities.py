@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
     align_incoming_decimals_to_delta,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -88,23 +89,23 @@ class TestIsAppDbFailure(SimpleTestCase):
 
 
 class TestFriendlyErrorOverride(SimpleTestCase):
-    # Production never looks up the bare map: both call sites merge the source's own entries over it,
-    # and every SQL source redefines "Source column type changed". Cover the merged shape too, since
-    # that is where the ordering the decimal entry depends on has to hold.
-    MERGED_MAPS = [
-        ("bare", Any_Source_Errors),
-        ("merged_postgres", {**Any_Source_Errors, **PostgresSource().get_non_retryable_errors()}),
-    ]
+    def _map(self, shape: str) -> dict[str, str | None]:
+        # Production never looks up the bare map: both call sites merge the source's own entries over
+        # it, and every SQL source redefines "Source column type changed". Cover the merged shape
+        # too, since that is where the ordering the decimal entry depends on has to hold. Built here
+        # rather than in the class body so constructing a source stays out of module import.
+        if shape == "bare":
+            return Any_Source_Errors
+        return {**Any_Source_Errors, **PostgresSource().get_non_retryable_errors()}
 
     @parameterized.expand(
         [
-            (f"{shape}_{case}", errors, internal_error, expected)
-            for shape, errors in MERGED_MAPS
+            (f"{shape}_{case}", shape, internal_error, expected)
+            for shape in ("bare", "merged_postgres")
             for case, internal_error, expected in [
                 # A decimal column that outgrew its stored type keeps the raw error, because that one
-                # names the column, its stored type, and which of the two remedies applies. The
-                # general entry would replace it with advice to reset, which re-creates the column as
-                # text once the source is wider than Delta stores as a number.
+                # names the column and its stored type, and warns that a very wide column comes back
+                # as text. The general entry would replace all of that with a fixed sentence.
                 (
                     "decimal",
                     f"Source column type changed: 'unit_price' {DECIMAL_OVERFLOW_FRAGMENT} decimal128(30, 12).",
@@ -120,24 +121,27 @@ class TestFriendlyErrorOverride(SimpleTestCase):
         ]
     )
     def test_the_decimal_case_keeps_the_raw_error(
-        self, _name: str, errors: dict[str, str | None], internal_error: str, expected: str | None
+        self, _name: str, shape: str, internal_error: str, expected: str | None
     ) -> None:
-        override = _friendly_error_override(internal_error, errors)
+        override = _friendly_error_override(internal_error, self._map(shape))
 
         if expected is None:
             assert override is None
         else:
             assert override is not None and override.startswith(expected)
 
-    def test_the_map_key_matches_the_message_the_pipeline_raises(self) -> None:
-        # The key only works while the raise still contains it. Build the real exception rather than
-        # a copy of its text, so a reword that breaks the match fails here instead of in production.
+    def test_the_map_still_classifies_the_message_the_pipeline_raises(self) -> None:
+        # Build the real exception rather than a copy of its text. `override is None` alone would
+        # also pass if the message matched no key at all, which is the worse regression: the failure
+        # stops being non-retryable, so the schema is never disabled and every schedule retries it.
+        # Assert both halves, so a reword that breaks either one fails here instead of in production.
         table = pa.table({"amount": pa.array([decimal.Decimal("1234.5")], type=pa.decimal128(18, 4))})
         stored = deltalake.Schema.from_arrow(pa.schema([pa.field("amount", pa.decimal128(3, 2))]))
 
         with pytest.raises(SchemaColumnTypeChangedException) as excinfo:
             align_incoming_decimals_to_delta(table, stored)
 
+        assert error_message_matches(str(excinfo.value), Any_Source_Errors.keys())
         assert _friendly_error_override(str(excinfo.value), Any_Source_Errors) is None
 
 

@@ -20,8 +20,13 @@ class TestExternalDataFailureCheck(BaseTest):
             team=self.team,
             source=source,
             status=ExternalDataSchema.Status.FAILED,
+            # Default to the message auto_widen_resync emits, since that is the one the mute is for.
             latest_error=latest_error
-            or "Source column type changed: 'total_cost' has values that no longer fit its stored type",
+            or (
+                "Source column type changed: 'total_cost' has values that no longer fit its stored type "
+                "int32 (incoming data is now int64). This table will be reset and fully re-synced "
+                "automatically at the next scheduled sync. No action is needed."
+            ),
             sync_type_config=sync_type_config or {},
         )
 
@@ -45,6 +50,20 @@ class TestExternalDataFailureCheck(BaseTest):
         schema = self._create_failed_schema(
             sync_type_config={"column_type_widened": {"column": "total_cost", "detected_at": fresh}},
             latest_error="Couldn't connect to the source database",
+        )
+        assert self._detected_schema_ids() == {str(schema.id)}
+
+    def test_decimal_overflow_with_fresh_marker_still_alarms(self) -> None:
+        # A decimal overflow shares the "Source column type changed" prefix but can never be
+        # auto-widened, and it disables the schema. Muting it behind a marker an earlier int widening
+        # left would hide a sync that stopped for good.
+        fresh = (dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)).isoformat()
+        schema = self._create_failed_schema(
+            sync_type_config={"column_type_widened": {"column": "total_cost", "detected_at": fresh}},
+            latest_error=(
+                "Source column type changed: 'unit_price' has decimal values that no longer fit "
+                "its stored type decimal128(3, 2)."
+            ),
         )
         assert self._detected_schema_ids() == {str(schema.id)}
 

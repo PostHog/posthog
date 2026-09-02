@@ -46,8 +46,10 @@ DLT_TO_PA_TYPE_MAP: dict[
 
 # Widest decimal Delta stores as a number. `ensure_delta_compatible_arrow_schema` turns every
 # decimal256 into a string, so a column past this keeps its digits but stops being numeric.
+# Kept separate from `DEFAULT_NUMERIC_PRECISION`: they share a value today, but one is a physical
+# ceiling and the other is the precision we pick when a source declares none.
 DELTA_MAX_DECIMAL_PRECISION = 38
-DEFAULT_NUMERIC_PRECISION = DELTA_MAX_DECIMAL_PRECISION
+DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
 MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
 
@@ -1170,11 +1172,9 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
         if aligned is None:
             raise SchemaColumnTypeChangedException(
                 f"Source column type changed: '{delta_field.name}' {DECIMAL_OVERFLOW_FRAGMENT} "
-                f"{delta_field.type}. We store decimals with up to {DELTA_MAX_DECIMAL_PRECISION} digits "
-                f"in total, counting digits on both sides of the decimal point. If your source column "
-                f"fits in {DELTA_MAX_DECIMAL_PRECISION} digits, reset and fully re-sync this table to "
-                f"adopt the wider type. If it needs more, a re-sync stores the column as text instead "
-                f"of a number. Reduce its precision in your source to keep it numeric."
+                f"{delta_field.type}. Reset and fully re-sync this table, then re-enable the sync, to "
+                f"rebuild the column from your current data. A column that needs more than "
+                f"{DELTA_MAX_DECIMAL_PRECISION} digits is rebuilt as text rather than a number."
             )
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 
