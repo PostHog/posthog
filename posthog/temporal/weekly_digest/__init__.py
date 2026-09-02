@@ -15,6 +15,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
+    list_team_id_batches,
     send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.workflows import (
@@ -41,6 +42,7 @@ ACTIVITIES = [
     generate_organization_digest_batch,
     count_organizations,
     count_teams,
+    list_team_id_batches,
     send_weekly_digest_batch,
     generate_filter_lookup,
     generate_recording_lookup,
