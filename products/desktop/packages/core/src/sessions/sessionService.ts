@@ -38,6 +38,7 @@ import {
   isPersistedOptionSupported,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   leadingSlashCommand,
   type ModelAccess,
   mergeConfigOptions,
@@ -4520,6 +4521,18 @@ export class SessionService {
           isCompacting: false,
           promptStartedAt: null,
         });
+      }
+
+      if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) {
+        this.d.log.warn("Turn ended without an assistant response", {
+          taskRunId: session.taskRunId,
+          errorMessage,
+          errorDetails,
+        });
+        throw new Error(
+          "The model ended this turn without a response. Your session is unaffected — please send the message again.",
+          { cause: error },
+        );
       }
 
       // A provider request that timed out or dropped leaves the session
