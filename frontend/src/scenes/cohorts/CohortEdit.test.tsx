@@ -529,6 +529,46 @@ describe('cohortEditLogic', () => {
         ])('checkIsPendingCalculation — $name', ({ cohort, retryState, expected }) => {
             expect(checkIsPendingCalculation({ ...mockCohort, ...cohort } as any, retryState)).toBe(expected)
         })
+
+        // The pure-function cases above build `retryState` by hand, so none of them exercise the
+        // reducer + loader wiring that produces it. This drives the real submit path: the baseline
+        // is snapshotted by setCalculationRetryBaseline *after* setCohort (which clears it), so
+        // breaking that dispatch order — or dropping the snapshot — would let the just-queued retry
+        // read as "failed" and bring the dead-end back, while every case above still passes.
+        it('records the retry baseline through the real save, reading a just-queued retry as in progress', async () => {
+            const cohortId = 5
+            const failed = {
+                id: cohortId,
+                name: 'Test Cohort',
+                is_static: false,
+                filters: { properties: { type: 'AND', values: [] } },
+                version: 1,
+                pending_version: 2,
+                is_calculating: false,
+                errors_calculating: 1,
+                last_calculation: '2024-01-01T00:00:00Z',
+            }
+            useMocks({
+                get: { [`/api/projects/:team_id/cohorts/${cohortId}/`]: failed },
+                // The retry PATCH bumps pending_version but the serializer still returns the prior
+                // error count. A fixture that reset it to 0 would snapshot a baseline of 0 and
+                // silently defeat the mechanism.
+                patch: { [`/api/projects/:team_id/cohorts/${cohortId}/`]: { ...failed, pending_version: 3 } },
+            })
+
+            logic = cohortEditLogic({ id: cohortId })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ isPendingCalculation: false })
+
+            await expectLogic(logic, () => logic.actions.submitCohort())
+                .toDispatchActions(['saveCohortSuccess'])
+                .toMatchValues({
+                    calculationRetryState: { baselineErrors: 1 },
+                    isPendingCalculation: true,
+                })
+
+            logic.unmount()
+        })
     })
 
     describe('criteria row type switching', () => {
