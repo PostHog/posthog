@@ -21,7 +21,8 @@ def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     end-to-end tests are the exception and read true.
     """
     # The flag is evaluated against PostHog's own analytics project, which a local or end-to-end
-    # environment has no membership in, so it would gate the table out of both.
+    # environment has no membership in. Evaluating it there would hide the table from both, so
+    # return True to keep it visible in dev and E2E.
     if settings.DEBUG or settings.E2E_TESTING:
         return True
     return feature_enabled_or_false(
