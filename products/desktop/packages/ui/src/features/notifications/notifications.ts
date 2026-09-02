@@ -20,7 +20,7 @@ import {
   type INotificationSettings,
   NOTIFICATION_SETTINGS_PROVIDER,
 } from "./identifiers";
-import { routeNotification } from "./routeNotification";
+import { routeNotification, targetKey } from "./routeNotification";
 
 const MAX_TITLE_LENGTH = 50;
 const log = logger.scope("notifications");
@@ -179,11 +179,15 @@ export class NotificationBus {
 
   private showToast(descriptor: NotificationDescriptor): void {
     const level = descriptor.toast?.level ?? "success";
+    // Key the toast by its target so it can be dismissed the moment the user
+    // opens that target — a lingering permission toast sits over the approval
+    // buttons of the very task it points at (see ActiveTargetToastDismissal).
     toast[level](descriptor.title ?? descriptor.body, {
       description: descriptor.toast?.description,
       duration: descriptor.toast?.duration,
       action: this.deriveAction(descriptor),
       error: descriptor.error,
+      id: descriptor.target ? targetKey(descriptor.target) : undefined,
     });
   }
 

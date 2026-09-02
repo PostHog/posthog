@@ -102,6 +102,15 @@ describe("NotificationBus tier routing (via notifyPermissionRequest)", () => {
     expect(notify).not.toHaveBeenCalled();
     expect(toastMock.warning).toHaveBeenCalledTimes(1);
   });
+
+  it("keys the toast by its target so it can be dismissed on view", () => {
+    const { bus } = makeBus({ hasFocus: true, activeTarget: undefined });
+    bus.notifyPermissionRequest("My task", TASK_ID);
+    expect(toastMock.warning).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: `task:${TASK_ID}` }),
+    );
+  });
 });
 
 describe("notifyPromptComplete", () => {
