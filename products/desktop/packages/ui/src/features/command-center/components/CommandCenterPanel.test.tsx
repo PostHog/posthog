@@ -243,7 +243,7 @@ describe("CommandCenterPanel", () => {
     );
   });
 
-  it("opens a created task when the auth scope changed", () => {
+  it("does not open a created task when the auth scope changed", () => {
     mocks.store.composer = {
       cellIndex: 2,
       sessionId: "cc-cell-us:2:user-1-2",
@@ -261,7 +261,7 @@ describe("CommandCenterPanel", () => {
     expect(mocks.store.stopCreating).toHaveBeenCalledWith(
       "cc-cell-us:2:user-1-2",
     );
-    expect(mocks.openTask).toHaveBeenCalledWith(mocks.createdTask);
+    expect(mocks.openTask).not.toHaveBeenCalled();
   });
 
   it("opens a created task when its tile is no longer reserved", () => {

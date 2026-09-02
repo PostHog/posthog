@@ -185,7 +185,6 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
       if (currentSessionIdRef.current !== sessionId) {
         stopCreating(sessionId);
         clearComposerDraft(sessionId);
-        void openTask(task);
         return;
       }
       const assigned = finishCreating(sessionId, task.id);
