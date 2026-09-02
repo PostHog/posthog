@@ -261,6 +261,13 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
         default=None,
         help_text="Fixed authentication type for catalog templates. Null for custom servers, where members choose.",
     )
+    auth_type = serializers.SerializerMethodField(
+        help_text=(
+            "How members connect to this server: the template's type for catalog servers, or the type the "
+            "custom server was added with. Null only for custom servers registered before the type was "
+            "recorded; members then choose."
+        )
+    )
     icon_key = serializers.CharField(
         source="template.icon_key",
         read_only=True,
@@ -306,6 +313,7 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "description",
             "category",
             "template_auth_type",
+            "auth_type",
             "is_team_enabled",
             "icon_key",
             "icon_domain",
@@ -331,6 +339,12 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    @extend_schema_field(serializers.ChoiceField(choices=AUTH_TYPE_CHOICES, allow_null=True))
+    def get_auth_type(self, obj: MCPGatewayServer) -> str | None:
+        if obj.template is not None:
+            return obj.template.auth_type
+        return obj.auth_type or None
 
     @extend_schema_field(serializers.IntegerField())
     def get_tool_count(self, obj: MCPGatewayServer) -> int:
