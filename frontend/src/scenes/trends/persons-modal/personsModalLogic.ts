@@ -17,6 +17,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { uuid } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -181,9 +182,11 @@ export interface personsModalLogicValues {
     insightEventsQueryUrl: string | null
     isCohortModalOpen: boolean
     isModalOpen: boolean
+    lastQueryId: string | null
     missingActorsCount: number
     propertiesTimelineFilterFromUrl: PropertiesTimelineFilterType
     query: FunnelsActorsQuery | InsightActorsQuery | null
+    queryId: string | null
     recordingFilters: Partial<RecordingUniversalFilters>
     searchTerm: string
     selectFields: string[]
@@ -206,6 +209,7 @@ export interface personsModalLogicActions {
     loadActors: ({ url, clear, offset }: { clear?: boolean; offset?: number; url?: string | null }) => {
         clear: boolean | undefined
         offset: number | undefined
+        queryId: string
         url: string | null | undefined
     }
     loadActorsFailure: (
@@ -251,6 +255,7 @@ export interface personsModalLogicActions {
         payload?: {
             clear: boolean | undefined
             offset: number | undefined
+            queryId: string
             url: string | null | undefined
         }
     ) => {
@@ -258,6 +263,7 @@ export interface personsModalLogicActions {
         payload?: {
             clear: boolean | undefined
             offset: number | undefined
+            queryId: string
             url: string | null | undefined
         }
     }
@@ -298,6 +304,7 @@ export interface personsModalLogicMeta {
             searchTerm: string,
             selectFields: string[]
         ) => ActorsQuery | null
+        queryId: (lastQueryId: string | null, actorsQuery: ActorsQuery | null) => string | null
         exploreUrl: (actorsQuery: ActorsQuery | null) => string | null
         insightEventsQueryUrl: (actorsQuery: ActorsQuery | null) => string | null
         sessionIdsFromLoadedActors: (actors: ActorType[]) => string[]
@@ -329,6 +336,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             url,
             clear,
             offset,
+            queryId: uuid(),
         }),
         loadNextActors: true,
         updateQuery: (query: InsightActorsQuery | FunnelsActorsQuery) => ({ query }),
@@ -344,7 +352,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, clear, offset }, breakpoint) => {
+                loadActors: async ({ url, clear, offset, queryId }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -370,7 +378,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                     offset,
                                 },
                                 { recursion: false }
-                            ) as ActorsQuery
+                            ) as ActorsQuery,
+                            undefined,
+                            undefined,
+                            queryId
                         )
                         breakpoint()
 
@@ -494,6 +505,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 loadActors: () => null,
                 loadActorsFailure: (_, { errorObject }) => errorObject,
                 loadActorsSuccess: () => null,
+            },
+        ],
+        lastQueryId: [
+            null as string | null,
+            {
+                loadActors: (_, { queryId }) => queryId,
             },
         ],
         missingActorsCount: [
@@ -663,6 +680,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     { recursion: false }
                 )
             },
+        ],
+        queryId: [
+            (s) => [s.lastQueryId, s.actorsQuery],
+            // The legacy persons URL sends no client query id, so support has nothing to look up.
+            (lastQueryId: string | null, actorsQuery: ActorsQuery | null): string | null =>
+                actorsQuery ? lastQueryId : null,
         ],
         exploreUrl: [
             (s) => [s.actorsQuery],
