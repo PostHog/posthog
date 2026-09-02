@@ -274,7 +274,8 @@ function CustomSqlField(): JSX.Element {
         customSqlQueryKey,
         customSqlSourceQuery,
     } = useValues(dataQualityCheckEditorLogic)
-    const { runCustomSqlPreview, setCustomSqlEditorError } = useActions(dataQualityCheckEditorLogic)
+    const { runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
+        useActions(dataQualityCheckEditorLogic)
 
     const previewRows = customSqlPreview?.rows ?? []
     // Key and index by position, not by column name: HogQL can return two columns with the same name
@@ -303,6 +304,7 @@ function CustomSqlField(): JSX.Element {
                         queryKey={customSqlQueryKey}
                         sourceQuery={customSqlSourceQuery}
                         onError={setCustomSqlEditorError}
+                        onMetadataLoading={setCustomSqlValidationLoading}
                         onPressCmdEnter={() => runCustomSqlPreview()}
                         autoFocus
                         minHeight="8rem"

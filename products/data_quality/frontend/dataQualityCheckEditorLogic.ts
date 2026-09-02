@@ -259,6 +259,7 @@ export interface dataQualityCheckEditorLogicValues {
     customSqlPreviewVerdict: 'fail' | 'pass' | null
     customSqlQueryKey: string
     customSqlSourceQuery: HogQLQuery
+    customSqlValidationLoading: boolean
     editingCheck: DataQualityCheckApi | null
     isCheckFormSubmitting: boolean
     isCheckFormValid: boolean
@@ -323,7 +324,7 @@ export interface dataQualityCheckEditorLogicActions {
     resetCheckForm: (values?: CheckFormValues) => {
         values?: CheckFormValues
     }
-    runCustomSqlPreview: () => any
+    runCustomSqlPreview: (_: any) => any
     runCustomSqlPreviewFailure: (
         error: string,
         errorObject?: any
@@ -353,6 +354,9 @@ export interface dataQualityCheckEditorLogicActions {
     }
     setCustomSqlEditorError: (error: string | null) => {
         error: string | null
+    }
+    setCustomSqlValidationLoading: (loading: boolean) => {
+        loading: boolean
     }
     setServerError: (serverError: string | null) => {
         serverError: string | null
@@ -452,6 +456,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         closeEditor: true,
         setServerError: (serverError: string | null) => ({ serverError }),
         setCustomSqlEditorError: (error: string | null) => ({ error }),
+        setCustomSqlValidationLoading: (loading: boolean) => ({ loading }),
         loadWarehouseCatalog: true,
     }),
     loaders(({ values }) => ({
@@ -585,8 +590,17 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
             {
                 setCustomSqlEditorError: (_, { error }) => error,
                 openEditor: () => null,
-                setCheckFormValue: (state, { name }) => (name === 'customSql' ? null : state),
-                setCheckFormValues: (state, { values }) => ('customSql' in values ? null : state),
+            },
+        ],
+        customSqlValidationLoading: [
+            false,
+            {
+                setCustomSqlValidationLoading: (_, { loading }) => loading,
+                openEditor: () => false,
+                setCheckFormValue: (state, { name }) =>
+                    name === 'customSql' ? true : name === 'checkType' ? false : state,
+                setCheckFormValues: (state, { values }) =>
+                    'checkType' in values && values.checkType !== CheckTypeEnumApi.CustomSql ? false : state,
             },
         ],
     })),
@@ -629,11 +643,12 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         checkForm: {
             defaults: EMPTY_CHECK_FORM,
             errors: [
-                (s: any) => [s.checkForm, s.checkTypeByName, s.customSqlEditorError],
+                (s: any) => [s.checkForm, s.checkTypeByName, s.customSqlEditorError, s.customSqlValidationLoading],
                 (
                     form: CheckFormValues,
                     checkTypeByName: Record<string, DataQualityCheckTypeApi>,
-                    customSqlEditorError: string | null
+                    customSqlEditorError: string | null,
+                    customSqlValidationLoading: boolean
                 ) => ({
                     name:
                         form.name && !CHECK_NAME_PATTERN.test(form.name)
@@ -674,7 +689,9 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         form.checkType === CheckTypeEnumApi.CustomSql
                             ? !form.customSql.trim()
                                 ? 'Write the query that selects the failing rows.'
-                                : (customSqlEditorError ?? undefined)
+                                : customSqlValidationLoading
+                                  ? 'Checking query...'
+                                  : (customSqlEditorError ?? undefined)
                             : undefined,
                 }),
             ],

@@ -435,6 +435,28 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkFormErrors.customSql).toEqual('Unknown table')
     })
 
+    it('blocks saving custom SQL until Monaco validates an edited query', async () => {
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
+
+        logic.actions.setCheckFormValue('customSql', 'SELECT * FROM orders WHERE missing_column = 1')
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
+        expect(logic.values.checkFormErrors.customSql).toEqual('Checking query...')
+    })
+
+    it('keeps a Monaco error until an edited query receives a new validation result', async () => {
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
+
+        logic.actions.setCustomSqlEditorError('Error on line 1, column 15')
+        logic.actions.setCheckFormValue('customSql', 'SELECT * FROM orderz')
+
+        expect(logic.values.customSqlEditorError).toEqual('Error on line 1, column 15')
+    })
+
     it.each<[string, { detail: string; code?: string; attr?: string }, string, string]>([
         [
             'a taken name beside the name field',
