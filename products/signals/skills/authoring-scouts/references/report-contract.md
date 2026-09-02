@@ -163,12 +163,17 @@ Cap is **3 questions per report**, each **≤200 characters**, and duplicates ar
 A surfaced, immediately-actionable report can open a draft PR automatically — the same autostart path the pipeline uses.
 It's opt-in per report via three more `emit_report` fields; supply them only when the report is a concrete, fixable issue you'd want a PR for:
 
-| Field                  | Type        | Notes                                                                                                                                                                                                                                                    |
-| ---------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repository`           | string      | `"owner/repo"` targets that repo; the `NO_REPO` sentinel opts out; **omitting it** falls back to free-form selection across the team's repos — the slow path on a many-repo team (it spawns a selection sandbox), so pass `owner/repo` when you know it. |
-| `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                                                                                                     |
-| `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                                                                                                         |
-| `suggested_reviewers`  | list of obj | Reviewers to consider, each `{github_login?, user_uuid?}` (at least one per entry; see the section below). A PR opens only if at least one clears their autonomy threshold.                                                                              |
+| Field                  | Type        | Notes                                                                                                                                                                       |
+| ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repository`           | string      | `"owner/repo"` targets that repo; **omitting it** falls back to free-form selection; the `NO_REPO` sentinel opts out. See _Choosing a repository_ below.                    |
+| `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                        |
+| `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                            |
+| `suggested_reviewers`  | list of obj | Reviewers to consider, each `{github_login?, user_uuid?}` (at least one per entry; see the section below). A PR opens only if at least one clears their autonomy threshold. |
+
+**Choosing a repository.** Prefer `owner/repo` whenever you can say where a fix would land, including on a `requires_human_input` report — a repository does not open a PR by itself, it is what lets a person open one from the inbox later.
+Omit the field when your team has several repositories and you can't tell which one, so selection can find it; that is the slow path on a many-repo team, since it spawns a selection sandbox.
+Keep `NO_REPO` for the rare report where nothing under version control could change, such as a staffing finding or a data question with no artifact.
+A skill body, a config file, and a doc all live in a repository, so "not code" is not the test.
 
 Full repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority` and `suggested_reviewers`.
 A report that supplies none of these just surfaces in the inbox: no repo sandbox, and no PR.
