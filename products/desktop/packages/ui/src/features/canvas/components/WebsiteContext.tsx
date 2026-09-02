@@ -1,4 +1,4 @@
-import { FileTextIcon } from "@phosphor-icons/react";
+import { FileTextIcon, GithubLogoIcon } from "@phosphor-icons/react";
 import {
   ContextWikiUnavailableError,
   FolderInstructionsConflictError,
@@ -167,12 +167,12 @@ function WikiWebsiteContext({
           {/* Where the space works comes first and stays small: one line of
               repositories under the lede, before the things it writes. */}
           {taskChannel ? (
-            <div className="mt-5">
+            <div className="mt-4">
               <SpaceRepositories channel={taskChannel} compact />
             </div>
           ) : null}
 
-          <div className="mt-9 flex flex-col gap-10">
+          <div className="mt-7 flex flex-col gap-9">
             <SpacePagesSection channelId={channelId} />
           </div>
         </div>
@@ -544,31 +544,36 @@ function SpaceRepositories({
 
   if (compact) {
     return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="shrink-0 text-(--gray-10) text-[13px]">
-          {repositories.length === 0
-            ? "Works in no repository yet"
-            : "Works in"}
+      <div className="-mx-2 flex items-start gap-2 px-2 py-[7px]">
+        <span className="mt-[7px] flex w-[14px] shrink-0 justify-center text-(--gray-8)">
+          <GithubLogoIcon size={14} />
         </span>
-        <RepositoriesField
-          selected={repositories}
-          integrationId={channel.github_integration ?? null}
-          disabled={!canEdit || update.isPending}
-          onChange={(repositories, githubIntegration) =>
-            update.mutate({
-              channelId: channel.id,
-              githubIntegration,
-              repositories,
-            })
-          }
-        />
-        {update.isPending ? (
-          <Spinner size="1" />
-        ) : update.error ? (
-          <span className="text-[12px] text-red-11">
-            Couldn't save. Try again.
-          </span>
-        ) : null}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+          {repositories.length === 0 ? (
+            <span className="shrink-0 text-(--gray-10) text-[12.5px]">
+              No repository yet
+            </span>
+          ) : null}
+          <RepositoriesField
+            selected={repositories}
+            integrationId={channel.github_integration ?? null}
+            disabled={!canEdit || update.isPending}
+            onChange={(repositories, githubIntegration) =>
+              update.mutate({
+                channelId: channel.id,
+                githubIntegration,
+                repositories,
+              })
+            }
+          />
+          {update.isPending ? (
+            <Spinner size="1" />
+          ) : update.error ? (
+            <span className="text-[12.5px] text-red-11">
+              Couldn't save. Try again.
+            </span>
+          ) : null}
+        </div>
       </div>
     );
   }
