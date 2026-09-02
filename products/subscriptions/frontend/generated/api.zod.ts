@@ -91,12 +91,16 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -279,12 +283,16 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -467,14 +475,18 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
             .optional()
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
             .optional()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')

@@ -272,9 +272,10 @@ function EditSubscriptionForm({
         lastDeliveryLoading,
         summaryQuota,
         testDeliveryLoading,
+        storedTeamsWebhookHost,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -634,6 +635,43 @@ function EditSubscriptionForm({
                                     </>
                                 )}
                             </>
+                        ) : null}
+
+                        {subscription.target_type === 'teams' ? (
+                            <LemonField
+                                name="target_value"
+                                label="Microsoft Teams webhook URL"
+                                help={
+                                    <>
+                                        In Teams, add the Workflows app to the channel you want reports in, then pick
+                                        the template for posting to a channel when a webhook request is received. Paste
+                                        the URL it gives you here. Anyone with that URL can post to the channel, so keep
+                                        it private.
+                                    </>
+                                }
+                            >
+                                {storedTeamsWebhookHost ? (
+                                    <div className="flex gap-2 items-center p-1 rounded border border-dashed">
+                                        <span className="flex-1 p-1 text-secondary">
+                                            Posting to {storedTeamsWebhookHost}. The saved URL is not shown here.
+                                        </span>
+                                        <LemonButton
+                                            onClick={replaceTeamsWebhook}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="subscription-teams-webhook-replace"
+                                        >
+                                            Replace
+                                        </LemonButton>
+                                    </div>
+                                ) : (
+                                    <LemonInput
+                                        placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                                        autoComplete="off"
+                                        data-attr="subscription-teams-webhook-url"
+                                    />
+                                )}
+                            </LemonField>
                         ) : null}
 
                         <div>
