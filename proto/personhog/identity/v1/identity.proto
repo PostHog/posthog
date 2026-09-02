@@ -228,10 +228,6 @@ message MergePersonsResponse {
   optional personhog.types.v1.Person survivor = 2;
   // One result per requested source, same order as the request.
   repeated MergeSourceResult results = 3;
-  // 4 was survivor_created, a skip-the-follow-up-update hint retired
-  // when the caller stopped deciding writes client-side: the follow-up
-  // always runs and the leader answers it as a no-op.
-  reserved 4;
 }
 
 // PersonHogIdentity owns the identity graph: distinct id resolution,
