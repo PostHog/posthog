@@ -639,6 +639,9 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
 
     def test_resource_level_takes_priority(self):
         # Legacy resolution: resource-level rules beat the object's own default rule
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
         self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
         self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
@@ -926,6 +929,9 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
             role=self.role_a,
         )
 
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
         access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
         assert access_level == "editor"  # Legacy resolution: higher level wins across member and role rows
 

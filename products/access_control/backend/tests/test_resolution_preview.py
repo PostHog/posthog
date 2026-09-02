@@ -17,6 +17,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 class TestBuildResolutionPreview(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
+        # The preview compares the enforced legacy resolution against the most-specific one,
+        # so it is only meaningful for an org still on the legacy resolution
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
         self.other_membership = OrganizationMembership.objects.get(user=self.other_user, organization=self.organization)
         self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Growth KPIs")
 
@@ -159,6 +163,10 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
 class TestResolutionPreviewAPI(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
+        # The preview compares the enforced legacy resolution against the most-specific one,
+        # so it is only meaningful for an org still on the legacy resolution
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
         self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user, name="Growth KPIs")
         self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer")
         self._create_access_control(resource="dashboard", access_level="editor")

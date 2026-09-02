@@ -110,6 +110,9 @@ class OrganizationManager(models.Manager):
             kwargs["default_anonymize_ips"] = default_anonymize_ips()
         if "is_ai_training_opted_in" not in kwargs:
             kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
+        # New organizations start on the most-specific resolution. Existing ones opt in.
+        if "uses_most_specific_access_resolution" not in kwargs:
+            kwargs["uses_most_specific_access_resolution"] = True
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(

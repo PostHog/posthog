@@ -528,6 +528,8 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
+        # The oracles in this suite model the legacy resolution, so the org must stay on it
+        cls.organization.uses_most_specific_access_resolution = False
         cls.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -541,7 +543,9 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         RoleMembership.objects.create(user=cls.other_user, role=cls.role_b)
 
         # A second organization self.user also belongs to, holding a role there
-        cls.other_organization = Organization.objects.create(name="PBT other organization")
+        cls.other_organization = Organization.objects.create(
+            name="PBT other organization", uses_most_specific_access_resolution=False
+        )
         cls.other_organization_membership = OrganizationMembership.objects.create(
             organization=cls.other_organization, user=cls.user, level=OrganizationMembership.Level.MEMBER
         )
