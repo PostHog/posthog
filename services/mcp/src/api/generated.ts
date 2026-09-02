@@ -9276,6 +9276,7 @@ export namespace Schemas {
     export const AgentKeyEnum = {
       Support: 'support',
       Scout: 'scout',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -24214,6 +24215,9 @@ export namespace Schemas {
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
      * * `Strato` - Strato
+     * * `Medusa` - Medusa
+     * * `Membrain` - Membrain
+     * * `RecallAI` - RecallAI
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25545,6 +25549,9 @@ export namespace Schemas {
       Coolify: 'Coolify',
       SocialPilot: 'SocialPilot',
       Strato: 'Strato',
+      Medusa: 'Medusa',
+      Membrain: 'Membrain',
+      RecallAI: 'RecallAI',
     } as const;
 
     /**
@@ -26889,7 +26896,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28946,7 +28956,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -29880,7 +29893,7 @@ export namespace Schemas {
       /** Number of events matching this element chain */
       count: number;
       /**
-         * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+         * Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages
          * @nullable
          */
       hash: string | null;
@@ -37496,7 +37509,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -38861,7 +38877,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -50470,6 +50489,8 @@ export namespace Schemas {
       name: string;
       /** Server description. */
       description: string;
+      /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+      url: string;
       /** Deprecated brand icon key. Empty for custom servers. */
       icon_key: string;
       /** Brand domain. Empty for custom servers. */
@@ -50482,6 +50503,8 @@ export namespace Schemas {
        * * `disabled` - disabled
        * * `missing_credential` - missing_credential */
       connection_state: ConnectionStateEnum;
+      /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+      reachable: boolean;
     }
 
     export interface MCPServiceAccount {
@@ -57230,6 +57253,11 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /**
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -79554,7 +79582,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -80935,7 +80966,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -82298,7 +82332,10 @@ export namespace Schemas {
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
        * * `SocialPilot` - SocialPilot
-       * * `Strato` - Strato */
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -91079,6 +91116,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -91176,6 +91214,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     /**
@@ -91259,6 +91298,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -91344,6 +91384,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -100044,6 +100085,7 @@ export namespace Schemas {
 
 
     export const UploadedMediaListPurpose = {
+      Canvas: 'canvas',
       Email: 'email',
     } as const;
 
@@ -100055,6 +100097,7 @@ export namespace Schemas {
 
     export const UploadedMediaCreateBodyPurpose = {
       Email: 'email',
+      Canvas: 'canvas',
     } as const;
 
     export type UploadedMediaCreateBody = {

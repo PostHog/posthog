@@ -97,6 +97,10 @@ def chain_to_elements(chain: str) -> list[Element]:
 _MAX_DATA_ATTRIBUTES = 50
 
 
+def wanted_attribute_entries(wanted_data_attributes: list[str]) -> list[str]:
+    return [attribute.strip() for attribute in wanted_data_attributes if attribute.strip()][:_MAX_DATA_ATTRIBUTES]
+
+
 def _glob_matcher(pattern: str) -> Callable[[str], bool]:
     """Returns a matcher for a glob pattern where each * matches any run of characters.
     Linear-time string scanning, never regex, so caller-supplied patterns can't trigger
@@ -125,7 +129,7 @@ def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str]
     * wildcards (e.g. data-*). Entries beyond the first 50 are ignored to bound per-key cost.
     Returns None when there is nothing to filter by.
     """
-    entries = [attribute.strip() for attribute in wanted_data_attributes if attribute.strip()][:_MAX_DATA_ATTRIBUTES]
+    entries = wanted_attribute_entries(wanted_data_attributes)
     if not entries:
         return None
 
