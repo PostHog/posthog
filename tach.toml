@@ -1174,6 +1174,14 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.tracing",
+]
+
+[[interfaces]]
+expose = [
     "backend\\.logic.*",
 ]
 from = [
