@@ -19,6 +19,16 @@ Route: registered in `products/skills/backend/routes.py` as `community_skills` u
   The flag is evaluated with the organization **and** project group so a per-project rollout matches in-app evaluation, and `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` is honored for self-hosted.
 - `install` and `vote` additionally require resource-level `editor` access on `llm_skill`, and are
   rate-limited by a burst + sustained throttle.
+- Every `llm_skills/name/<slug>/` action checks object-level access against the skill it loaded.
+  `AccessControlPermission.has_permission` only decides whether the requester can reach the resource
+  kind, and it passes anyone holding an object-level grant on any one skill, so without the per-object
+  check one grant reaches every skill in the project. `model_to_resource` maps `LLMSkill` to
+  `llm_skill`; without that mapping the object-level check resolves no resource and passes everything.
+- Known limit: an object-level grant or restriction on a skill is keyed on the `LLMSkill` row id, and
+  every edit publishes a new row, so it stops matching after the next version. The app never creates
+  per-skill grants (the skill scene passes only the resource type), so only the access-control API
+  can create one. Keying the check on the logical skill (`team`, `name`) is the fix, and is tracked as
+  a follow-up rather than done here.
 
 ## Endpoints
 

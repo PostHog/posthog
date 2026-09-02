@@ -1587,6 +1587,59 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         )
         assert update_response.status_code == status.HTTP_200_OK
 
+    def _other_skill_with_object_grant(self) -> LLMSkill:
+        other = LLMSkill.objects.create(
+            team=self.team,
+            name="theirs",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(other.id),
+            access_level="editor",
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+        return other
+
+    @parameterized.expand(
+        [
+            ("read by name", "get", "name/make-fractals", None),
+            ("export", "get", "name/make-fractals/export", None),
+            ("update by name", "patch", "name/make-fractals", {"description": "d2", "base_version": 1}),
+            ("archive", "post", "name/make-fractals/archive", {}),
+            ("duplicate", "post", "name/make-fractals/duplicate", {"new_name": "copy"}),
+            ("create file", "post", "name/make-fractals/files", {"path": "notes.md", "content": "x"}),
+            ("delete file", "delete", "name/make-fractals/files/SKILL.md", None),
+            ("rename file", "post", "name/make-fractals/files-rename", {"old_path": "a.md", "new_path": "b.md"}),
+        ]
+    )
+    def test_an_object_level_grant_on_one_skill_does_not_reach_another(self, _label, method, path, data):
+        # has_permission passes on any object-level grant for the resource, and the name/<slug>
+        # actions then load whichever skill the URL names. The grant below is on a different skill.
+        self._other_skill_with_object_grant()
+
+        call = getattr(self.client, method)
+        response = call(self._url(path)) if data is None else call(self._url(path), data=data, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_an_object_level_grant_reaches_the_skill_it_was_granted_on(self):
+        # The guard has to refuse the other skill without refusing this one, or it is just an outage.
+        other = self._other_skill_with_object_grant()
+
+        response = self.client.patch(
+            self._url(f"name/{other.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     @patch(COMMUNITY_FLAG, return_value=True)
     def test_an_object_level_grant_on_one_skill_does_not_allow_publishing_another(self, _mock_flag):
         # AccessControlPermission.has_permission passes anyone holding an object-level grant for the
