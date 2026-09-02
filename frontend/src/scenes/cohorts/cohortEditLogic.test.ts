@@ -223,6 +223,7 @@ describe('cohortEditLogic', () => {
     describe('form validation', () => {
         it('save with valid cohort', async () => {
             await initCohortLogic({ id: 1 })
+            const updateSpy = jest.spyOn(api.cohorts, 'update')
             await expectLogic(logic, async () => {
                 logic.actions.setCohort({
                     ...mockCohort,
@@ -248,11 +249,15 @@ describe('cohortEditLogic', () => {
                         },
                     },
                 })
+                logic.actions.setFilterTestAccounts(true)
                 logic.actions.submitCohort()
             })
                 .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
                 .toNotHaveDispatchedActions(['loadUsedIn'])
             expect(api.update).toHaveBeenCalledTimes(1)
+            const updatePayload = updateSpy.mock.calls[0][1] as FormData
+            const filters = JSON.parse(updatePayload.get('filters') as string)
+            expect(filters.filterTestAccounts).toBe(true)
         })
 
         it('do not save with invalid name', async () => {

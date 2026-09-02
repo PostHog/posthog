@@ -142,7 +142,7 @@ export function createCohortFormData(
                   }
                 : /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
                   {
-                      filterTestAccounts: !!cohort.filters.filterTestAccounts,
+                      ...(cohort.is_static ? {} : { filterTestAccounts: !!cohort.filters.filterTestAccounts }),
                       properties: {
                           ...applyAllCriteriaGroup(
                               applyAllNestedCriteria(cohort, (criteriaList) =>
