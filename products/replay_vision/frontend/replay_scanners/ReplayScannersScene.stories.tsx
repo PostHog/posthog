@@ -754,6 +754,30 @@ export const ScannerEditorGoalOverview: StoryObj = {
     ],
 }
 
+// A section opened from the goal overview: the footer returns to the overview, keeps or throws away
+// this section's edits, and can still discard the whole drafted scanner.
+export const ScannerEditorGoalSectionEdit: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVisionScannerDetails('new')}?from=overview`,
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setScannerValues({
+                name: goalDraft.name,
+                description: goalDraft.description,
+                scanner_config: goalDraft.scanner_config as ScannerConfig,
+            })
+            // The snapshot the section was entered with, plus an edit on top, so "Discard changes" is live.
+            logic.actions.setSectionEditSnapshot(logic.values.scanner)
+            logic.actions.setScannerValues({ name: 'Billing drop-off watcher' })
+            return <StoryFn />
+        },
+    ],
+}
+
 // The overview while the draft is still generating: the loading bar and skeleton the user sees
 // right after submitting the two questions.
 export const ScannerEditorGoalOverviewLoading: StoryObj = {

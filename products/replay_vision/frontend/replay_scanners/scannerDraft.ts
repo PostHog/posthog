@@ -9,20 +9,28 @@ interface StoredScannerDraft {
     teamId: number
     savedAt: number
     scanner: ScannerFormValues
+    sectionSnapshot?: ScannerFormValues | null
 }
 
 export interface ScannerDraft {
     scanner: ScannerFormValues
     savedAt: number
+    /** The config as it stood when the user opened a section from the goal overview, so "Discard changes" survives a reload. */
+    sectionSnapshot: ScannerFormValues | null
 }
 
-export function writeScannerDraft(teamId: number, scanner: ScannerFormValues): number | null {
+export function writeScannerDraft(
+    teamId: number,
+    scanner: ScannerFormValues,
+    sectionSnapshot: ScannerFormValues | null = null
+): number | null {
     const savedAt = Date.now()
     const draft: StoredScannerDraft = {
         version: DRAFT_VERSION,
         teamId,
         savedAt,
         scanner,
+        sectionSnapshot,
     }
     try {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
@@ -48,7 +56,7 @@ export function readScannerDraft(teamId: number): ScannerDraft | null {
         ) {
             return null
         }
-        return { scanner: draft.scanner, savedAt: draft.savedAt }
+        return { scanner: draft.scanner, savedAt: draft.savedAt, sectionSnapshot: draft.sectionSnapshot ?? null }
     } catch {
         return null
     }

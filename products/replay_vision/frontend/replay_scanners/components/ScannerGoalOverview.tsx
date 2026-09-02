@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
+import { ScannerEditorStep } from '../scannerEditorSceneLogic'
 import { OBSERVATION_CREDITS_BY_MODEL, SCANNER_TYPE_TAG_TYPE, modelName, scannerTypeLabel } from '../types'
 
 /** Why the draft chose this model, doubling as the guidance on when each tier fits. Keyed by the
@@ -68,7 +68,7 @@ function OverviewSection({
     scannerId: string
     children: React.ReactNode
 }): JSX.Element {
-    const { searchParams } = useValues(router)
+    const { editScannerSection } = useActions(replayScannerLogic({ id: scannerId }))
     return (
         <div className="bg-bg-light border rounded-lg p-4 flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0 space-y-2">
@@ -86,11 +86,7 @@ function OverviewSection({
                 <LemonButton
                     size="small"
                     type="secondary"
-                    onClick={() =>
-                        router.actions.push(
-                            scannerStepUrlWithParams(editStep, scannerId, { ...searchParams, from: 'overview' })
-                        )
-                    }
+                    onClick={() => editScannerSection(editStep)}
                     data-attr={`vision-goal-overview-edit-${editStep}`}
                 >
                     Edit
