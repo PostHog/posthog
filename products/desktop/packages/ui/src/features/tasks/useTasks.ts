@@ -50,7 +50,7 @@ export function useTaskSummaries(
   ids: string[],
   options?: { enabled?: boolean },
 ) {
-  return useAuthenticatedQuery<Schemas.TaskSummary[]>(
+  return useAuthenticatedQuery<Schemas.TaskSummaryDTO[]>(
     taskKeys.summaries(ids),
     (client) => client.getTaskSummaries(ids),
     {
