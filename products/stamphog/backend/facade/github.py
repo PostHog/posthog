@@ -13,6 +13,9 @@ imports on every request.
 from django.db import IntegrityError, router, transaction
 from django.utils import timezone
 
+from posthog.models.activity_logging.model_activity import get_current_user
+
+from products.stamphog.backend.activity_logging import log_repo_config_bulk_update
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.api import _repo_config_to_dto
 from products.stamphog.backend.facade.contracts import StamphogGitHubError
@@ -112,8 +115,10 @@ def sync_installation_repositories(
                     # for_team() scopes the read but not row creation, so team_id is explicit here.
                     # Bind disabled: an installation can surface hundreds of repos, so connect them
                     # but don't start reviewing until a human toggles each on. enabled only seeds new
-                    # rows; an existing row's toggle is never flipped.
-                    defaults={"team_id": team_id, "enabled": False},
+                    # rows; an existing row's toggle is never flipped. The connecting user is seeded
+                    # here too, so a new row does not need the restamp below and its activity log
+                    # shows one "connected" entry instead of a create plus a connector change.
+                    defaults={"team_id": team_id, "enabled": False, "connected_by_user_id": connected_by_user_id},
                 )
         except IntegrityError:
             # The unique (team, repository) constraint tripped: a same-team row for this repo already
@@ -129,10 +134,21 @@ def sync_installation_repositories(
         synced.append(config)
 
     # .update() bypasses auto_now, so updated_at is set by hand.
-    restamp_ids = [config.id for config in synced if config.connected_by_user_id != connected_by_user_id]
-    if restamp_ids:
-        StamphogRepoConfig.objects.for_team(team_id).filter(id__in=restamp_ids).update(
+    restamped = [config for config in synced if config.connected_by_user_id != connected_by_user_id]
+    if restamped:
+        StamphogRepoConfig.objects.for_team(team_id).filter(id__in=[c.id for c in restamped]).update(
             connected_by_user_id=connected_by_user_id, updated_at=timezone.now()
+        )
+        # update() bypasses the model signal, so the change is logged here. The rows were read
+        # through the writer above, so their in-memory values are the real before-state.
+        log_repo_config_bulk_update(
+            team_id,
+            [
+                {"id": c.id, "repository": c.repository, "connected_by_user_id": c.connected_by_user_id}
+                for c in restamped
+            ],
+            {"connected_by_user_id": connected_by_user_id},
+            user=get_current_user(),
         )
 
     return [_repo_config_to_dto(c) for c in synced], skipped

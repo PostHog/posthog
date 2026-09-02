@@ -1,12 +1,15 @@
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import signing
-from django.test import SimpleTestCase
+from django.db import transaction
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, uuid7
@@ -69,6 +72,42 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["repository"] == "PostHog/posthog"
         assert body["provider"] == "github"
         assert body["enabled"] is False
+
+    def test_toggling_enabled_writes_an_activity_log_row(self) -> None:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        self.client.patch(f"{self.url}{created['id']}/", {"enabled": False}, format="json")
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+        assert log.team_id == self.team.id
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "PostHog/posthog"
+        enabled_changes = [change for change in log.detail["changes"] if change["field"] == "enabled"]
+        assert enabled_changes == [
+            {"type": "StamphogRepoConfig", "action": "changed", "field": "enabled", "before": True, "after": False}
+        ]
+
+    def test_rolled_back_config_write_leaves_no_activity_row(self) -> None:
+        # Repo configs live on the stamphog database while the audit row lives on the main one, so
+        # the audit write has to ride that connection's commit rather than landing immediately.
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        config = StamphogRepoConfig.objects.for_team(self.team.id).get(id=created["id"])
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+
+        with override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with pytest.raises(RuntimeError):
+                    with transaction.atomic(using="stamphog_db_writer"):
+                        config.enabled = False
+                        config.save()
+                        raise RuntimeError("the write this audits failed")
+            assert not updates.exists()
+
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with transaction.atomic(using="stamphog_db_writer"):
+                    config.enabled = False
+                    config.save()
+            assert updates.exists()
 
     def test_blank_installation_does_not_reserve_repo_across_teams(self) -> None:
         # A manual placeholder carries a blank installation and proves no ownership, so it must not

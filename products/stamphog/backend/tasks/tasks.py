@@ -22,6 +22,7 @@ from celery import shared_task
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
+from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
     ReviewMode,
@@ -917,27 +918,47 @@ def _supersede_runs_for_configs(team_id: int, config_ids: list[Any]) -> None:
         logger.info("stamphog_repo_removal_superseded_runs", team_id=team_id, superseded=superseded)
 
 
-def _disable_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
-    """Tombstone configs for repos removed from the installation: disable, keep the rows and history."""
-    names = [name for repo in repos if (name := (repo or {}).get("full_name"))]
-    if not names:
+def _disable_installation_repos(
+    team_id: int,
+    installation_id: str,
+    *,
+    action: str,
+    delivery_id: str,
+    repository_names: list[str] | None = None,
+) -> None:
+    """Tombstone configs for repos that left the installation: disable, keep the rows and history.
+
+    `repository_names` names the repos that were removed. `None` means every repo of the
+    installation, which is what an uninstall takes away.
+    """
+    if repository_names is not None and not repository_names:
         return
     # Writer pin: this lookup gates the disable + supersede side effects; a lagged reader missing a
-    # just-restamped row would leave the removed repo's config live and its runs posting.
-    config_ids = list(
+    # just-restamped row would leave the removed repo's config live and its runs posting. The full
+    # rows, not just the ids: they are the before-state the activity log needs.
+    configs = (
         StamphogRepoConfig.objects.for_team(team_id)
         .using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", installation_id=installation_id, repository__in=names)
-        .values_list("id", flat=True)
+        .filter(provider="github", installation_id=installation_id)
     )
+    if repository_names is not None:
+        configs = configs.filter(repository__in=repository_names)
+    before_rows = list(configs.values("id", "repository", *DISABLED_FIELDS))
+    config_ids = [row["id"] for row in before_rows]
     # updated_at explicitly: auto_now doesn't fire on queryset update().
     disabled = (
         StamphogRepoConfig.objects.for_team(team_id)
         .filter(id__in=config_ids)
         .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
     )
+    log_repo_configs_disabled_by_webhook(
+        team_id, before_rows, delivery_id=delivery_id, action=action, installation_id=installation_id
+    )
     _supersede_runs_for_configs(team_id, config_ids)
-    logger.info("stamphog_installation_repos_removed", installation_id=installation_id, disabled=disabled)
+    event = (
+        "stamphog_installation_repos_removed" if repository_names is not None else "stamphog_installation_uninstalled"
+    )
+    logger.info(event, installation_id=installation_id, team_id=team_id, disabled=disabled)
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -996,28 +1017,14 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
                         team_count=len(team_ids),
                     )
             removed = payload.get("repositories_removed") or []
+            names = [name for repo in removed if (name := (repo or {}).get("full_name"))]
             for team_id in team_ids:
-                _disable_installation_repos(team_id, installation_id, removed)
+                _disable_installation_repos(
+                    team_id, installation_id, action="removed", delivery_id=delivery_id, repository_names=names
+                )
         elif action == "deleted":
             for team_id in team_ids:
-                uninstalled_ids = list(
-                    StamphogRepoConfig.objects.for_team(team_id)
-                    .using(router.db_for_write(StamphogRepoConfig))
-                    .filter(provider="github", installation_id=installation_id)
-                    .values_list("id", flat=True)
-                )
-                disabled = (
-                    StamphogRepoConfig.objects.for_team(team_id)
-                    .filter(id__in=uninstalled_ids)
-                    .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-                )
-                _supersede_runs_for_configs(team_id, uninstalled_ids)
-                logger.info(
-                    "stamphog_installation_uninstalled",
-                    installation_id=installation_id,
-                    team_id=team_id,
-                    disabled=disabled,
-                )
+                _disable_installation_repos(team_id, installation_id, action=action, delivery_id=delivery_id)
         else:
             logger.info("stamphog_installation_event_ignored", action=action)
     except Exception as e:
