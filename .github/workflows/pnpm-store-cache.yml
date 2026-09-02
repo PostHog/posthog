@@ -1,15 +1,12 @@
 name: pnpm store cache
 
-# Writes the shared pnpm store cache entry for the current lockfile. Every node job
-# restores the same `pnpm-<os>-<lockhash>` key (see .github/actions/pnpm-install)
-# and nothing else writes it, so the entry holds what a cold install of the lockfile
-# fetches, not the union of every earlier lockfile a prefix-fallback restore brought in.
+# The one writer of the `pnpm-<os>-<lockhash>` entry that every node job restores
+# (see .github/actions/pnpm-install). A cold install from an empty store gives an
+# entry that holds exactly what the lockfile pins. Consumers only restore: a save
+# from a job that restored an older entry first would carry that entry's packages
+# forward, and the entry would grow with every lockfile change.
 #
-# actions/cache derives the entry version from the cached path, and pnpm keeps its
-# store on the project's filesystem: the pnpm/action-setup dir on the runner host,
-# /__w/.pnpm-store in a container job. Each path is its own entry under the key, so
-# the writer runs once per runner shape, and on both GitHub-hosted and Depot runners
-# because the two use separate cache stores.
+# GitHub-hosted and Depot runners use separate cache stores, so the job runs on both.
 
 on:
     push:
@@ -17,12 +14,7 @@ on:
             - master
         paths:
             - pnpm-lock.yaml
-            - package.json
-            - pnpm-workspace.yaml
             - .github/workflows/pnpm-store-cache.yml
-    schedule:
-        # Rewrites an entry that a failed run or eviction left missing; a hit exits at the lookup.
-        - cron: '23 3 * * *'
     workflow_dispatch:
 
 concurrency:
@@ -40,25 +32,13 @@ env:
 
 jobs:
     write:
-        name: Write ${{ matrix.shape }} store (${{ matrix.runner }})
+        name: Write pnpm store (${{ matrix.runner }})
         runs-on: ${{ matrix.runner }}
-        # No image runs the job on the runner host.
-        container: ${{ matrix.image || null }}
         timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
                 runner: [ubuntu-latest, depot-ubuntu-24.04]
-                shape: [host, storybook-container]
-                include:
-                    # The image the ci-storybook visual-regression shards run in. The store
-                    # path comes from the workspace bind mount, not the image, so any Linux
-                    # image would produce the same entry; the same image keeps pnpm's runtime
-                    # identical. The shards install this filter set, so the entry holds only
-                    # what they link.
-                    - shape: storybook-container
-                      image: ghcr.io/posthog/playwright:v1.60.0@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9
-                      filter: --filter=@posthog/storybook...
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -83,18 +63,14 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   lookup-only: true
 
-            # Build scripts run here on purpose: pnpm stores their output in the
-            # store's side-effects cache, and consumers never save, so this is the
-            # only place native packages get compiled.
+            # Build scripts run on purpose: pnpm keeps their output in the store, so
+            # consumers get prebuilt native packages instead of compiling them per job.
             - name: Install into an empty store
               if: steps.lookup.outputs.cache-hit != 'true'
-              env:
-                  FILTER: ${{ matrix.filter }}
-              # An empty FILTER adds no argument.
-              run: pnpm ${FILTER:+"$FILTER"} install --frozen-lockfile
+              run: pnpm install --frozen-lockfile
 
             - name: Save pnpm store
-              if: github.ref == 'refs/heads/master' && steps.lookup.outputs.cache-hit != 'true'
+              if: steps.lookup.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}

@@ -454,6 +454,7 @@ jobs:
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
             - name: Restore pnpm cache
+              id: pnpm-restore
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
@@ -462,6 +463,15 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            # Inside the playwright container pnpm keeps its store on the workspace mount,
+            # a path the pnpm store cache workflow never writes, so one shard saves it.
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium' && steps.pnpm-restore.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
