@@ -249,6 +249,11 @@ class ReplayScanner(UUIDModel):
         blank=True,
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
     )
+    estimate_attempted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
+    )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
     # until billing syncs a real one. See quota.current_period_bounds.
@@ -355,6 +360,7 @@ class ReplayScanner(UUIDModel):
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
+        "estimate_attempted_at",
         "last_swept_at",
         "last_seen_session_id",
         "deep_swept_through",

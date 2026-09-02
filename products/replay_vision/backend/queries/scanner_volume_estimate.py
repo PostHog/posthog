@@ -48,6 +48,8 @@ class EstimateBudget:
     # Used when the operand rules out sampling, which makes the scan full price. None keeps one window
     # for both cases, which is what any estimate that gets persisted needs.
     unsampled_scan_window_days: int | None = None
+    # Skips the exact attempt so the caller blocks for at most one query.
+    sampled_only: bool = False
 
     def window_days(self, *, unsampled: bool) -> int:
         if unsampled and self.unsampled_scan_window_days is not None:
@@ -59,7 +61,7 @@ class EstimateBudget:
 BATCH_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=30, scan_window_days=7)
 # A save blocks the request, so it gets a tighter clock and fails soft. It still writes the persisted
 # number, so the window stays a whole week.
-SAVE_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7)
+SAVE_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7, sampled_only=True)
 # The editor's cost preview and Max both re-estimate freely and neither result is persisted, so where
 # sampling is unavailable they take an order-of-magnitude answer from a shorter window.
 PREVIEW_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7, unsampled_scan_window_days=2)
@@ -68,6 +70,9 @@ PREVIEW_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_d
 # track data drift between edits (an edit nulls `estimated_at` and refreshes within one cycle), so a
 # slower clock trades projection freshness directly for ClickHouse reads.
 ESTIMATE_STALE_AFTER = dt.timedelta(hours=72)
+# A scanner whose estimate query keeps failing waits this long between attempts, so it can't burn its
+# full ClickHouse budget on every refresher tick.
+ESTIMATE_RETRY_BACKOFF = dt.timedelta(hours=1)
 # Disabled scanners refresh on a slower clock still: fresh enough that re-enabling one puts a usable
 # number into the quota sum, without paying a full-price estimate for every parked scanner.
 DISABLED_ESTIMATE_STALE_AFTER = dt.timedelta(days=7)
@@ -133,12 +138,16 @@ def estimate_scanner_session_volume(
     )
 
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
-    if not sampled_plan.sampled:
+    if not sampled_plan.sampled or budget.sampled_only:
         # Nothing was sampled, so a fallback would rerun the identical query.
         return _execute_estimate_query(
             sampled_plan,
             team=team,
-            query_type="ReplayVisionScannerEstimateQuery",
+            query_type=(
+                "ReplayVisionScannerEstimateSampledQuery"
+                if sampled_plan.sampled
+                else "ReplayVisionScannerEstimateQuery"
+            ),
             max_execution_seconds=budget.max_execution_seconds,
             scan_window_days=scan_window_days,
             ch_user=ch_user,
@@ -206,6 +215,8 @@ def _plan_estimate_query(
         user=user,
         extra_having_predicates=extra_having,
         events_sample_factor=sample_factor,
+        # Negative filters never sample, so they'd scan at full price; dropping them only over-counts.
+        skip_negative_blocklists=True,
     )
     inner = list_query.get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
@@ -292,16 +303,20 @@ def refresh_scanner_estimate(
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
     # Scoped, not tag_queries: a bare tag on the worker thread would leak onto later queries and
     # charge other scanners' reads to this one in the meter. Previews stay untagged (no scanner yet).
-    with tags_context(scanner_id=str(scanner.pk)):
-        estimate = estimate_scanner_session_volume(
-            team=scanner.team,
-            query=scanner.targeted_recordings_query(),
-            # The refresher has no request; the creator is the same principal the sweep scans as.
-            user=scanner.created_by,
-            sampling_mode=scanner.sampling_mode,
-            budget=budget,
-            ch_user=ch_user,
-        )
+    try:
+        with tags_context(scanner_id=str(scanner.pk)):
+            estimate = estimate_scanner_session_volume(
+                team=scanner.team,
+                query=scanner.targeted_recordings_query(),
+                # The refresher has no request; the creator is the same principal the sweep scans as.
+                user=scanner.created_by,
+                sampling_mode=scanner.sampling_mode,
+                budget=budget,
+                ch_user=ch_user,
+            )
+    except Exception:
+        ReplayScanner.objects.filter(pk=scanner.pk).update(estimate_attempted_at=timezone.now())
+        raise
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
@@ -316,10 +331,11 @@ def refresh_scanner_estimate(
             if scanner.experiment_targeting is None
             else {"experiment_targeting": scanner.experiment_targeting}
         ),
-    ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
+    ).update(estimated_monthly_observations=projection, estimated_at=estimated_at, estimate_attempted_at=estimated_at)
     if updated:
         scanner.estimated_monthly_observations = projection
         scanner.estimated_at = estimated_at
+        scanner.estimate_attempted_at = estimated_at
 
 
 def _clamp_window_days(earliest: object, scan_window_days: int) -> int:

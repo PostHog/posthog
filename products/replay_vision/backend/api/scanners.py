@@ -390,11 +390,22 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         help_text="Latest projected observations/month for this scanner. Null until first computed.",
     )
+    estimated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed "
+            "after a config change or has never run, so the stored number may be stale."
+        ),
+    )
     credits_per_observation = serializers.SerializerMethodField(
         help_text="Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`.",
     )
     estimated_monthly_credits = serializers.SerializerMethodField(
-        help_text="`estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.",
+        help_text=(
+            "`estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one "
+            "is set. Null until the estimate is first computed."
+        ),
     )
     credits_this_month = serializers.SerializerMethodField(
         help_text=(
@@ -467,6 +478,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "experiment_targeting",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -484,6 +496,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "id",
             "scanner_version",
             "estimated_monthly_observations",
+            "estimated_at",
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
@@ -506,7 +519,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
         if scanner.estimated_monthly_observations is None:
             return None
-        return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
+        credits = scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
+        # The scanner stops at its own cap, so the projection can't exceed it.
+        return credits if scanner.credit_limit is None else min(credits, scanner.credit_limit)
 
     def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
         root = self.root
@@ -1092,8 +1107,8 @@ class EstimateRequestSerializer(serializers.Serializer):
             required=False,
             help_text=(
                 "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
-                "against all recordings."
+                "ignored — the estimate scans a recent window (`window_days` in the response) and "
+                "scales it to 30 days. Omit to estimate against all recordings."
             ),
         )
     )
@@ -1190,18 +1205,20 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
-            "filter but before random sampling."
+            "Distinct sessions matching the query within the scanned window (`window_days`), after the "
+            "sampling_mode quality filter but before random sampling."
         ),
     )
     window_days = serializers.IntegerField(
         help_text=(
-            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
+            "Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's "
+            "operand rules out sampling); smaller when the team has fewer days of recordings."
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
         help_text=(
-            "Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate."
+            "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, "
+            "times sampling_rate."
         ),
     )
     credits_per_observation = serializers.IntegerField(
