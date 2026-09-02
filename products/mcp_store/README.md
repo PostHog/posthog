@@ -35,6 +35,8 @@ The gateway experience has these pages and workflows:
 
 - **MCP servers**: Browse the catalog, search by server details, filter by category, and see connection status.
   Users with permission can add a hosted custom server and choose OAuth or API key authentication.
+  The server keeps that choice: a teammate who connects later follows it, so a server added with an API key asks each member for their own key instead of starting an OAuth flow.
+  Connecting to a registered custom server is not gated by the "members can add custom servers" setting.
   Admins can set its team availability.
   Every connection is shared with the built-in PostHog agents automatically when the connecting user may manage agent access (admins always, members while team settings allow it).
   The built-in agents are the support agent, the scout agent, and the workflow agent, which runs the "Create AI task" step of a workflow; a step picks among the servers shared with the whole project, the same way a scout does.

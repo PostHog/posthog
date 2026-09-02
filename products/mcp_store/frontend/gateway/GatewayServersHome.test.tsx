@@ -63,6 +63,7 @@ function gatewayServer(): MCPGatewayServerApi {
         description: '',
         category: 'dev',
         template_auth_type: null,
+        auth_type: null,
         is_team_enabled: true,
         icon_key: '',
         icon_domain: '',
