@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
-class SuggestionStatus(models.TextChoices):
+class PromptSuggestionStatus(models.TextChoices):
     PENDING = "pending", "Pending"
     APPLIED = "applied", "Applied"
     DISMISSED = "dismissed", "Dismissed"
@@ -41,7 +41,9 @@ class ReplayScannerPromptSuggestion(UUIDModel):
     changes = models.JSONField(
         default=list, blank=True, help_text="Typed per-field diff entries: field, kind, op, before, after, rationale."
     )
-    status = models.CharField(max_length=16, choices=SuggestionStatus.choices, default=SuggestionStatus.PENDING)
+    status = models.CharField(
+        max_length=16, choices=PromptSuggestionStatus.choices, default=PromptSuggestionStatus.PENDING
+    )
     based_on_up = models.PositiveIntegerField(default=0, help_text="Thumbs-up ratings the suggestion was based on.")
     based_on_down = models.PositiveIntegerField(default=0, help_text="Thumbs-down ratings the suggestion was based on.")
     # Hash of the rated set at generation time; a different current fingerprint means the suggestion is stale.

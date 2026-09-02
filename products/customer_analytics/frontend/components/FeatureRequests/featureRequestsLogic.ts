@@ -42,7 +42,7 @@ import type {
     FeatureRequestProductAreaApi,
     FeatureRequestStatusEnumApi,
     PaginatedFeatureRequestListApi,
-    RequestPriorityEnumApi,
+    FeatureRequestPriorityEnumApi,
 } from '../../generated/api.schemas'
 import { getFeatureRequestBackLabel, getFeatureRequestBackUrl } from './featureRequestNavigation'
 import {
@@ -263,7 +263,7 @@ export interface featureRequestsLogicValues {
     editError: string | null
     editExpectedVersion: number
     editIsStale: boolean
-    editPriority: RequestPriorityEnumApi | null
+    editPriority: FeatureRequestPriorityEnumApi | null
     editProductAreaIds: string[]
     editProductAreaOptions: {
         disabledReason?: string
@@ -529,8 +529,8 @@ export interface featureRequestsLogicActions {
     setEditIsStale: (editIsStale: boolean) => {
         editIsStale: boolean
     }
-    setEditPriority: (editPriority: RequestPriorityEnumApi | null) => {
-        editPriority: RequestPriorityEnumApi | null
+    setEditPriority: (editPriority: FeatureRequestPriorityEnumApi | null) => {
+        editPriority: FeatureRequestPriorityEnumApi | null
     }
     setEditProductAreaIds: (editProductAreaIds: string[]) => {
         editProductAreaIds: string[]
@@ -809,7 +809,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setEditAccountIds: (editAccountIds: string[]) => ({ editAccountIds }),
         setEditProductAreaIds: (editProductAreaIds: string[]) => ({ editProductAreaIds }),
         setEditStatus: (editStatus: FeatureRequestStatusEnumApi) => ({ editStatus }),
-        setEditPriority: (editPriority: RequestPriorityEnumApi | null) => ({ editPriority }),
+        setEditPriority: (editPriority: FeatureRequestPriorityEnumApi | null) => ({ editPriority }),
         setEditExpectedVersion: (editExpectedVersion: number) => ({ editExpectedVersion }),
         setEditError: (editError: string | null) => ({ editError }),
         setEditIsStale: (editIsStale: boolean) => ({ editIsStale }),
@@ -1192,7 +1192,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         editPriority: [
-            null as RequestPriorityEnumApi | null,
+            null as FeatureRequestPriorityEnumApi | null,
             {
                 openEditRequest: (_, { featureRequest }) => featureRequest.request_priority,
                 setEditPriority: (_, { editPriority }) => editPriority,

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -182,6 +183,11 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
+    partial_refresh_log = Path(uri) / "_delta_log" / "00000000000000000001.json"
+    entries = partial_refresh_log.read_text().splitlines()
+    partial_refresh_commit = json.loads(entries[0])
+    partial_refresh_commit["commitInfo"]["timestamp"] = int(v0_timestamp.timestamp() * 1000) + 1
+    partial_refresh_log.write_text("\n".join([json.dumps(partial_refresh_commit), *entries[1:]]) + "\n")
 
     pinned = _patched_resolve(uri, snapshot_timestamp=v0_timestamp)
 
