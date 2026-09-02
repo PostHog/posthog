@@ -814,6 +814,11 @@
         "params": [],
         "scope": "project"
     },
+    "identityProviderConfig": {
+        "template": "/settings/organization-authentication/{feature}/{configId}",
+        "params": ["feature", "configId"],
+        "scope": "project"
+    },
     "inbox": {
         "template": "/inbox",
         "params": [],
@@ -1317,26 +1322,6 @@
     "replayVision": {
         "template": "/replay-vision",
         "params": [],
-        "scope": "project"
-    },
-    "replayVisionAction": {
-        "template": "/replay-vision/actions/{actionId}",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionEdit": {
-        "template": "/replay-vision/actions/{actionId}/edit",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionNew": {
-        "template": "/replay-vision/{scannerId}/actions/new",
-        "params": ["scannerId"],
-        "scope": "project"
-    },
-    "replayVisionActionRun": {
-        "template": "/replay-vision/actions/{actionId}/runs/{runId}",
-        "params": ["actionId", "runId"],
         "scope": "project"
     },
     "replayVisionObservation": {

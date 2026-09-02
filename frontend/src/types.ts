@@ -305,6 +305,7 @@ export enum AccessControlResourceType {
     Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
+    Stamphog = 'stamphog',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -614,26 +615,6 @@ export interface OrganizationDomainType {
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
     scim_base_url?: string
-}
-
-export interface SCIMRequestLogType {
-    id: string
-    request_method: string
-    request_path: string
-    request_headers: Record<string, string>
-    request_body: Record<string, any> | null
-    response_status: number
-    response_body: Record<string, any> | null
-    identity_provider: string
-    duration_ms: number | null
-    created_at: string
-}
-
-export interface PaginatedSCIMRequestLogs {
-    count: number
-    next: string | null
-    previous: string | null
-    results: SCIMRequestLogType[]
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -6202,6 +6183,7 @@ export enum ActivityScope {
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
+    STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
 }
 
 export type CommentType = {
@@ -7146,6 +7128,7 @@ export enum SDKKey {
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',
+    GOOGLE_ADK = 'google_adk',
     GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
     GROQ = 'groq',

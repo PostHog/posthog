@@ -64,7 +64,6 @@ from products.replay_vision.backend.api.trigger import (
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
-from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -698,8 +697,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 self._reraise_unique_name_violation(e)
             self._attempt_set_tags(tags, scanner)
         _refresh_estimate_fail_soft(scanner)
-        # Every scanner starts with a built-in featured digest so the overview has a summary to show.
-        provision_scanner_digest(scanner, user)
         report_user_action(
             user,
             "replay_vision_scanner_created",
@@ -2214,9 +2211,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "goal_flow": goal_flow,
             "monthly_credit_budget": monthly_credit_budget,
         }
-        # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
-        # receive its content through the draft either.
-        include_business_context = get_authenticator_scopes(request.successful_authenticator) is None
+        # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
+        # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
+        # actions) is gated per resource against these scopes inside the drafter.
+        allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
+        include_business_context = allowed_scopes is None
 
         try:
             if goal_flow:
@@ -2227,6 +2226,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     monthly_credit_budget=cast(int, monthly_credit_budget),
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
+                    allowed_scopes=allowed_scopes,
                 )
             else:
                 drafted = draft_scanner_from_goal(

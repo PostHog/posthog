@@ -1137,7 +1137,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "The report body the inbox shows. Markdown is supported (headings, lists, code, links; "
             "images are not rendered). Lead with one plain declarative sentence — the inbox card uses "
             "your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the "
-            "full markdown in the detail view."
+            "full markdown in the detail view. A heading, or a bold label on a line of its own with a "
+            "blank line above it, marks a section that a threaded Slack delivery splits into its own reply."
         ),
     )
     evidence = serializers.ListField(
@@ -1169,10 +1170,11 @@ class EmitReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the "
-            "`NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form "
-            "selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` "
-            "when you know it."
+            "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass "
+            "`owner/repo` whenever you can say where a fix would land. Omit the field when you can't, "
+            "which triggers free-form selection across the team's repos (the slow path on a many-repo "
+            "team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control "
+            "could change, since a skill body, a config file, or a doc still lives in a repo."
         ),
     )
     priority = serializers.ChoiceField(
@@ -1270,7 +1272,9 @@ class EditReportRequestSerializer(serializers.Serializer):
         help_text=(
             "Optional new summary. Markdown is supported (headings, lists, code, links; images are not "
             "rendered); lead with one plain declarative sentence — it becomes the inbox card headline. "
-            "The pipeline may later re-research and overwrite it."
+            "A heading, or a bold label on a line of its own with a blank line above it, marks a section "
+            "that a threaded Slack delivery splits into its own reply. The pipeline may later re-research "
+            "and overwrite it."
         ),
     )
     append_note = serializers.CharField(
@@ -2124,8 +2128,9 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, post a report as a thread: a short lead in the channel and the rest split "
-            "by the report's Markdown headings into replies. Keeps a long summary from being clipped "
-            "at Slack's section limit. Off by default, and it does not change how findings post."
+            "into replies at the summary's section labels, which can be Markdown headings or bold "
+            "labels. Keeps a long summary from being clipped at Slack's section limit. Off by "
+            "default, and it does not change how findings post."
         ),
     )
 

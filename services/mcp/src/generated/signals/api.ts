@@ -17,6 +17,18 @@ export const SignalsReportsListParams = () => zod.object({
 })
 
 export const SignalsReportsListQueryParams = () => zod.object({
+    actionability: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.'
+        ),
+    already_addressed: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.'
+        ),
     channel_id: zod
         .string()
         .optional()
@@ -55,6 +67,10 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
         ),
+    scope: zod
+        .string()
+        .optional()
+        .describe('Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.'),
     scout: zod
         .string()
         .optional()
@@ -68,6 +84,10 @@ export const SignalsReportsListQueryParams = () => zod.object({
             'Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.'
         ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
+    sort: zod
+        .string()
+        .optional()
+        .describe('Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.'),
     source_id: zod
         .string()
         .optional()
@@ -96,6 +116,19 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe("Only reports associated with this task (via the report's task associations)."),
+    teammate_uuid: zod.string().optional().describe('PostHog user UUID used when scope=teammate.'),
+    use_priority_preference: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold."
+        ),
+    view: zod
+        .string()
+        .optional()
+        .describe(
+            'Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.'
+        ),
 })
 
 export const SignalsReportsRetrieveParams = () => zod.object({
@@ -576,7 +609,7 @@ export const SignalsScoutCreateBody = () => zod
                                             signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
                                         )
                                         .describe(
-                                            "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),
@@ -766,7 +799,7 @@ export const SignalsScoutConfigCreateBody = () => zod
                                 .boolean()
                                 .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -947,7 +980,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
                                 .boolean()
                                 .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -1358,7 +1391,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodySummaryMax)
             .nullish()
             .describe(
-                'Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.'
+                'Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. The pipeline may later re-research and overwrite it.'
             ),
         append_note: zod
             .string()
@@ -1529,7 +1562,7 @@ export const SignalsScoutEmitReportBody = () => zod
         summary: zod
             .string()
             .describe(
-                'The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view.'
+                'The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply.'
             ),
         evidence: zod
             .array(
@@ -1576,7 +1609,7 @@ export const SignalsScoutEmitReportBody = () => zod
             .string()
             .nullish()
             .describe(
-                "Optional repo for autostart (opening a draft PR): `owner\/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner\/repo` when you know it."
+                "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner\/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo."
             ),
         priority: zod
             .union([
