@@ -7,6 +7,7 @@ import dataclasses
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -1085,6 +1086,212 @@ class TestFollowupDeliveryFailureBookkeeping:
         assert workflow._completion_status == "failed"
         assert workflow._completion_error_type == "followup_delivery_failed"
         assert emitted == []
+
+
+async def test_agent_shadow_result_is_reported_separately(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    execute_activity = AsyncMock(return_value={"launched": True, "outcome": "ready", "observed_ready_ms": 12})
+    track_event = AsyncMock()
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(workflow_instance, "_track_workflow_event", track_event)
+
+    await workflow_instance._collect_agent_shadow_result("sandbox-123")
+
+    activity_input = execute_activity.call_args.args[1]
+    assert activity_input.sandbox_id == "sandbox-123"
+    assert activity_input.run_id == "run-id"
+    track_event.assert_awaited_once_with(
+        "agent_shadow_observed",
+        {
+            "run_id": "run-id",
+            "task_id": "task-id",
+            "sandbox_id": "sandbox-123",
+            "launched": True,
+            "outcome": "ready",
+            "observed_ready_ms": 12,
+            "production_ready_ms": None,
+            "failure_class": None,
+            "read_timed_out": None,
+        },
+    )
+
+
+async def test_first_non_steering_command_records_dispatch_before_delivery(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    context = _build_context(github_integration_id=123)
+    context.task_runtime = "pi"
+    workflow_instance._context = context
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    calls: list[str] = []
+
+    def schedule(event_name: str) -> None:
+        calls.append(event_name)
+
+    async def execute_activity(*_args, **_kwargs):
+        calls.append("delivered")
+
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+    await workflow_instance._send_followup_to_sandbox("steer", [], message_id="steer-1", steer=True)
+    await workflow_instance._send_followup_to_sandbox("first", [], message_id="message-1")
+    await workflow_instance._send_followup_to_sandbox("second", [], message_id="message-2")
+
+    assert calls == ["delivered", "agent_first_command_dispatched", "delivered", "delivered"]
+
+
+async def test_pending_initial_command_records_dispatch_before_forwarding(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    context = _build_context(github_integration_id=123, state={"pending_user_message": "start"})
+    context.task_runtime = "pi"
+    workflow_instance._context = context
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    calls: list[str] = []
+
+    def schedule(event_name: str) -> None:
+        calls.append(event_name)
+
+    async def execute_activity(*_args, **_kwargs):
+        calls.append("forwarded")
+
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+
+    await workflow_instance._forward_pending_user_message()
+
+    assert calls == ["agent_first_command_dispatched", "forwarded"]
+
+
+async def test_first_agent_activity_signal_is_recorded_once(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    schedule = Mock()
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+
+    await workflow_instance.agent_activity_observed()
+    await workflow_instance.agent_activity_observed()
+
+    schedule.assert_called_once_with("agent_first_activity_observed")
+
+
+async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
+    workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
+    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    workflow_instance._boot_path = "overlap"
+    workflow_instance._image_source = "base_image"
+    track = AsyncMock()
+    monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "now",
+        Mock(return_value=datetime(2026, 8, 28, 10, 0, 21, tzinfo=UTC)),
+    )
+
+    workflow_instance._schedule_boot_milestone("agent_first_command_dispatched")
+    await workflow_instance._flush_boot_telemetry_tasks()
+
+    assert workflow_instance._boot_telemetry_tasks == []
+    track.assert_awaited_once_with(
+        "agent_first_command_dispatched",
+        {
+            "run_id": "run-id",
+            "task_id": "task-id",
+            "sandbox_id": "sandbox-123",
+            "elapsed_ms": 21_000,
+            "since_agent_ready_ms": 1_000,
+            "boot_path": "overlap",
+            "image_source": "base_image",
+            "origin_product": None,
+            "mode": "background",
+            "task_runtime": "acp",
+            "runtime_adapter": None,
+            "provider": None,
+            "sandbox_backend": "modal",
+            "transport": "sse",
+            "prewarmed": False,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("origin_product", "team_id"),
+    [
+        ("signals_scout", 314),  # platform start the alert must exclude
+        ("user_created", 42),  # customer start the alert must count
+    ],
+)
+async def test_sandbox_started_carries_run_attribution(origin_product, team_id, monkeypatch):
+    # The sandboxes-started alert filters platform work out by origin_product, and
+    # cross-references team_id and task_run_id. Dropping any of them from this payload
+    # blinds the alert to who a sandbox belongs to, so lock the three fields in.
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = dataclasses.replace(
+        _build_context(github_integration_id=123, origin_product=origin_product), team_id=team_id
+    )
+
+    monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+    monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_post_slack_update", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_run_wizard_if_configured", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        workflow_instance,
+        "_get_sandbox_for_repository",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                sandbox_id="sandbox-123",
+                boot_path="cold",
+                image_source="base_image",
+                used_snapshot=False,
+                create_ms=1,
+                clone_ms=2,
+                checkout_ms=3,
+                launch_ms=4,
+                agent_prepare_ms=5,
+                agent_invoke_ms=6,
+                agent_server_launched=False,
+                agent_shadow_launched=False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        workflow_instance,
+        "_start_agent_server",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                sandbox_url="https://sandbox.example",
+                connect_token="token",
+                boot_total_ms=100,
+                prepare_ms=None,
+                invoke_ms=None,
+                health_poll_ms=None,
+                ready_wait_ms=None,
+                session_init_ms=None,
+                boot_phases_ms={"launcher_to_process": 7},
+                shadow_launched=False,
+            )
+        ),
+    )
+    tracked: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        workflow_instance,
+        "_track_workflow_event",
+        AsyncMock(side_effect=lambda event, props: tracked.append((event, props))),
+    )
+
+    await workflow_instance._provision_and_start_agent(ProcessTaskInput(run_id="run-id"), "run-id")
+
+    sandbox_started = next(props for event, props in tracked if event == "sandbox_started")
+    assert sandbox_started["origin_product"] == origin_product
+    assert sandbox_started["team_id"] == team_id
+    assert sandbox_started["task_run_id"] == "run-id"
+    assert sandbox_started["agent_launcher_to_process_ms"] == 7
 
 
 @pytest.mark.django_db
@@ -2862,6 +3069,12 @@ class TestContinueAsNew:
         wf._end_of_turn_received = True
         wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         wf._sandbox_ttl_expires_at = datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
+        wf._first_command_dispatched_recorded = True
+        wf._first_agent_activity_recorded = True
+        wf._boot_path = "overlap"
+        wf._image_source = "base_image"
+        wf._agent_ready_at = datetime(2026, 7, 16, 9, 1, tzinfo=UTC)
+        wf._agent_boot_interaction_telemetry_enabled = True
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
 
@@ -2890,6 +3103,16 @@ class TestContinueAsNew:
         assert restored._end_of_turn_received is True
         assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         assert restored._sandbox_ttl_expires_at == datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
+        assert restored._first_command_dispatched_recorded is True
+        assert restored._first_agent_activity_recorded is True
+        assert restored._boot_path == "overlap"
+        assert restored._image_source == "base_image"
+        assert restored._agent_ready_at == datetime(2026, 7, 16, 9, 1, tzinfo=UTC)
+        assert restored._agent_boot_interaction_telemetry_enabled is True
+        legacy_restored = ProcessTaskWorkflow()
+        legacy_restored._agent_boot_interaction_telemetry_enabled = True
+        legacy_restored._restore_resumed_state(dataclasses.replace(rs, agent_boot_interaction_telemetry_enabled=None))
+        assert legacy_restored._agent_boot_interaction_telemetry_enabled is False
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start

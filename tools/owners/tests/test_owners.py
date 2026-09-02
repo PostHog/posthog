@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from posthog_owners import fmt as fmt_module
+from posthog_owners import (
+    census,
+    first_team_owner,
+    fmt as fmt_module,
+)
 from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error
 from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
 from posthog_owners.matcher import path_matches_pattern
@@ -232,26 +236,31 @@ def registry_repo(tmp_path: Path) -> Path:
         "owners.yaml",
         "version: 1\nowners: []\nteams:\n"
         "  team-registry:\n    slack: '#registry-chan'\n"
-        "  team-silent:\n    slack: false\n",
+        "  team-silent:\n    slack: false\n"
+        "  team-split:\n    slack: '#split-people'\n    notifications: '#split-bots'\n",
     )
     _write(tmp_path, "reg/owners.yaml", "version: 1\nowners: [team-registry]\n")
     _write(tmp_path, "silent/owners.yaml", "version: 1\nowners: [team-silent]\n")
     _write(tmp_path, "derive/owners.yaml", "version: 1\nowners: [team-nonreg]\n")
     _write(tmp_path, "indiv/owners.yaml", "version: 1\nowners: ['@alice', team-registry]\n")
+    _write(tmp_path, "split/owners.yaml", "version: 1\nowners: [team-split]\n")
     return tmp_path
 
 
 @pytest.mark.parametrize(
-    "path,slack",
+    "path,purpose,slack",
     [
-        ("reg/x.py", "#registry-chan"),  # registry hit for the primary owner beats derived
-        ("silent/x.py", None),  # registry false suppresses derivation
-        ("derive/x.py", "#team-nonreg"),  # no registry entry: derive #<primary owner>
-        ("indiv/x.py", None),  # primary owner is an @handle: registry ignored, no derive
+        ("reg/x.py", "slack", "#registry-chan"),  # registry hit for the primary owner beats derived
+        ("silent/x.py", "slack", None),  # registry false suppresses derivation
+        ("derive/x.py", "slack", "#team-nonreg"),  # no registry entry: derive #<primary owner>
+        ("indiv/x.py", "slack", None),  # primary owner is an @handle: registry ignored, no derive
+        ("split/x.py", "slack", "#split-people"),  # a declared notifications channel stays off the people lookup
+        ("split/x.py", "notifications", "#split-bots"),  # automation resolves to the declared bot channel
+        ("reg/x.py", "notifications", "#registry-chan"),  # no notifications entry: automation follows the people
     ],
 )
-def test_slack_registry_precedence(registry_repo: Path, path: str, slack: str | None) -> None:
-    assert OwnersResolver(repo_root=registry_repo).resolve(path).slack == slack
+def test_slack_registry_precedence(registry_repo: Path, path: str, purpose: str, slack: str | None) -> None:
+    assert OwnersResolver(repo_root=registry_repo, purpose=purpose).resolve(path).slack == slack
 
 
 def test_teams_registry_is_root_only(tmp_path: Path) -> None:
@@ -669,3 +678,46 @@ def test_live_scope_limits_validation_to_the_given_files(paths: tuple[str, ...],
 
 def test_live_scope_ignores_stale_owners_outside_the_diff() -> None:
     assert "team-bogus" not in _live_scope(_OWNERS_BY_FILE, ("owners.yaml",))
+
+
+def test_resolver_reads_through_an_injected_source() -> None:
+    files = {
+        "owners.yaml": "version: 1\nowners: [team-root]\n",
+        "posthog/temporal/owners.yaml": "version: 1\nowners: [team-batch]\n",
+    }
+
+    class DictSource:
+        def read(self, path: str) -> str | None:
+            return files.get(path)
+
+    resolver = OwnersResolver(source=DictSource())
+    assert resolver.resolve("posthog/temporal/test_run.py").owners == ["team-batch"]
+    assert resolver.resolve("posthog/other.py").owners == ["team-root"]
+    assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"
+
+
+def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path: Path) -> None:
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
+    _write(tmp_path, "products/a/owners.yaml", "version: 1\nowners: [team-a]\n")
+    _write(tmp_path, "products/p/owners.yaml", "version: 1\nowners: ['@someone']\n")
+    paths = [
+        "products/a/backend/test_api.py",
+        "products/a/backend/queries_test.py",
+        "products/a/frontend/thing.test.tsx",
+        "products/a/frontend/thing.tsx",
+        "products/p/backend/test_personal.py",
+        "posthog/test_uncovered.py",
+    ]
+
+    result = census(paths, tmp_path)
+
+    assert [(c.owner_team, c.pytest_file_count, c.jest_file_count) for c in result] == [
+        ("team-a", 2, 1),
+        ("unowned", 2, 0),
+    ]
+
+
+def test_first_team_owner_skips_handles() -> None:
+    assert first_team_owner(["@someone", "team-a"]) == "team-a"
+    assert first_team_owner(["@someone"]) == ""
+    assert first_team_owner(None) == ""

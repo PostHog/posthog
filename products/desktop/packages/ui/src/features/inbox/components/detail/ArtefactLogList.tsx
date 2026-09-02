@@ -27,6 +27,7 @@ import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
 import { useState } from "react";
 
@@ -201,7 +202,9 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
         >
           {reviewer.github_login ? (
             <img
-              src={`https://github.com/${reviewer.github_login}.png?size=28`}
+              src={cachedImageUrl(
+                `https://github.com/${reviewer.github_login}.png?size=28`,
+              )}
               alt=""
               className="github-avatar h-[18px] w-[18px] shrink-0 rounded-full"
               onLoad={(e) => e.currentTarget.classList.add("loaded")}

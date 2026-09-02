@@ -124,6 +124,15 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: false,
     },
   },
+  {
+    scheme: "posthog-cache",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: false,
+    },
+  },
 ]);
 
 // Now dynamically import the rest of the application.

@@ -59,7 +59,7 @@ export const agentActionSchema = z.discriminatedUnion("kind", [
 
 export type AgentAction = z.infer<typeof agentActionSchema>;
 
-export const labelSchema = z
+const labelSchema = z
   .string()
   .trim()
   .min(1)

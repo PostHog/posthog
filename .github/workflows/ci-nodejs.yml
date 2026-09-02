@@ -85,6 +85,9 @@ jobs:
                         # so no app image is built here. Dockerfile.node is gated separately in
                         # ci-nodejs-container.yml.
                         - 'docker*.yml'
+                        # The compose stack mounts this ClickHouse config; the Kafka engine settings
+                        # in it set how long every ClickHouse-backed Jest test waits for a row.
+                        - 'docker/clickhouse/**'
                       rust:
                         - 'rust/**'
                         - 'proto/**'
@@ -310,6 +313,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -542,7 +546,9 @@ jobs:
                   # jest-junit's outputDir resolves against the jest process cwd, which is the
                   # workspace root for the turbo invocation but `nodejs/` if a shard ever runs
                   # jest directly; cover both.
-                  name: junit-results-nodejs-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  # Lane-qualified: serial 1/3 and parallel 1/1 are both shard 1, and the
+                  # artifact list returns one entry per name, so a lane-less name hides one.
+                  name: junit-results-nodejs-${{ matrix.lane }}-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: |
                       junit-results/junit-nodejs-*.xml
                       junit-results/posthog-jest-quarantine-*.jsonl
@@ -611,6 +617,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:

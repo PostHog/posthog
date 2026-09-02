@@ -55,7 +55,6 @@ from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
-    generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
@@ -627,7 +626,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
 ) -> int | None:
     """Write record batches to our own internal S3 staging area.
 
-    Returns the total number of rows written to the stage, or None if the count couldn't be
+    Returns the number of rows written to the stage, or None if the count couldn't be
     determined.
     """
     logger = LOGGER.bind()
@@ -644,17 +643,16 @@ async def _write_batch_export_record_batches_to_internal_stage(
         delta = dt.timedelta(seconds=30)
     else:
         delta = dt.timedelta(minutes=1)
-    end_at = full_range[1]
+    interval_start, interval_end = full_range
 
-    if _is_local_dev_or_test() is False and end_at > dt.datetime.now(dt.UTC):
+    if _is_local_dev_or_test() is False and interval_end > dt.datetime.now(dt.UTC):
         # Some tests create data in the future, so we do not check this.
-        raise DataIntervalEndInFutureError(end_at)
+        raise DataIntervalEndInFutureError(interval_end)
 
     if not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end:
         with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
-            await wait_for_delta_past_data_interval_end(end_at, delta)
+            await wait_for_delta_past_data_interval_end(interval_end, delta)
 
-    done_ranges: list[tuple[dt.datetime, dt.datetime]] = []
     async with get_client(
         team_id=team_id,
         clickhouse_url=clickhouse_url,
@@ -671,66 +669,57 @@ async def _write_batch_export_record_batches_to_internal_stage(
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        total_written_rows: int | None = 0
-        # TODO - in future we might want to catch any ClickHouse memory usage errors and break down the interval into
-        # sub-intervals to reduce memory usage
-        for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-            if interval_start is not None:
-                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+        # TODO - in future we might want to catch any ClickHouse memory usage errors and split the
+        # interval into sub-intervals, running one query per sub-interval, to reduce memory usage
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-            if isinstance(query_or_model, RecordBatchModel):
-                query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
-                    data_interval_start=interval_start,
-                    data_interval_end=interval_end,
-                    s3_folder=s3_staging_folder_url,
-                    credentials=_get_s3_credentials(),
-                    num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
-                )
-                query_settings = query_or_model.get_clickhouse_request_settings()
-            else:
-                query = query_or_model
-                query_settings = {}
-
-            base_s3_staging_folder = get_base_s3_staging_folder(
-                batch_export_id=batch_export_id,
-                data_interval_start=data_interval_start,
-                data_interval_end=data_interval_end,
+        if isinstance(query_or_model, RecordBatchModel):
+            query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
+                data_interval_start=interval_start,
+                data_interval_end=interval_end,
+                s3_folder=s3_staging_folder_url,
+                credentials=_get_s3_credentials(),
+                num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
             )
-            # First delete any existing files in the staging folder.
-            # We technically don't need to do this, since the Temporal activity attempt number is used in the S3 key,
-            # however, since we only make use of the most recent attempt, we can save on storage space by deleting the
-            # files here.
-            try:
-                with TRACER.start_as_current_span("batch_export.stage.delete_existing_objects"):
-                    await _delete_all_from_bucket_with_prefix(
-                        bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
-                    )
-            except Exception:
-                logger.exception(
-                    "Unexpected error occurred while deleting existing objects from internal S3 staging bucket",
+            query_settings = query_or_model.get_clickhouse_request_settings()
+        else:
+            query = query_or_model
+            query_settings = {}
+
+        base_s3_staging_folder = get_base_s3_staging_folder(
+            batch_export_id=batch_export_id,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+        )
+        # First delete any existing files in the staging folder.
+        # We technically don't need to do this, since the Temporal activity attempt number is used in the S3 key,
+        # however, since we only make use of the most recent attempt, we can save on storage space by deleting the
+        # files here.
+        try:
+            with TRACER.start_as_current_span("batch_export.stage.delete_existing_objects"):
+                await _delete_all_from_bucket_with_prefix(
+                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
                 )
-                raise
+        except Exception:
+            logger.exception(
+                "Unexpected error occurred while deleting existing objects from internal S3 staging bucket",
+            )
+            raise
 
-            try:
-                with TRACER.start_as_current_span("batch_export.stage.clickhouse_query") as query_span:
-                    written_rows = await _execute_query(client, query, query_parameters, query_settings)
-                    if written_rows is not None:
-                        query_span.set_attribute("batch_export.stage.written_rows", written_rows)
-            except ClickHouseError:
-                logger.exception(
-                    "ClickHouse error occurred while writing record batches to internal S3 staging bucket",
-                )
-                raise
+        try:
+            with TRACER.start_as_current_span("batch_export.stage.clickhouse_query") as query_span:
+                written_rows = await _execute_query(client, query, query_parameters, query_settings)
+                if written_rows is not None:
+                    query_span.set_attribute("batch_export.stage.written_rows", written_rows)
+        except ClickHouseError:
+            logger.exception(
+                "ClickHouse error occurred while writing record batches to internal S3 staging bucket",
+            )
+            raise
 
-            # if any query fails to return written rows then set total to None so that we don't
-            # return a partial result
-            if written_rows is None:
-                total_written_rows = None
-            elif total_written_rows is not None:
-                total_written_rows += written_rows
-
-    return total_written_rows
+    return written_rows
 
 
 def _written_rows_from_summary(summary: dict[str, typing.Any] | None) -> int | None:

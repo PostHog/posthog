@@ -17,7 +17,6 @@ import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
 import { useSpendGuardrails } from "@posthog/ui/features/billing/useSpendGuardrails";
 import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStrip";
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
-import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
 import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
@@ -64,7 +63,8 @@ import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
 import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import LogosLandscape from "@posthog/ui/primitives/Logo";
+import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
+import { isSettingsRouteId } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -284,7 +284,7 @@ function RootLayout() {
   // Settings is a full-page route — drop the app chrome (header/sidebar/
   // space-switcher) so the panel occupies the full window.
   const isSettingsRoute = useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+    select: (s) => s.matches.some((m) => isSettingsRouteId(m.routeId)),
   });
 
   // ShellLayout draws the in-pane header under `_shell`, so the shared
@@ -304,42 +304,18 @@ function RootLayout() {
     }
   }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
 
-  if (isSettingsRoute) {
-    return (
-      <Flex direction="column" height="100%">
-        <ConnectivityBanner />
-        <AnnouncementBanner />
-        <Outlet />
-        <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />
-        <GlobalFilePicker />
-        <KeyboardShortcutsSheet
-          open={shortcutsSheetOpen}
-          onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
-        />
-        <GlobalEventHandlers
-          allTasks={tasks ?? []}
-          onToggleCommandMenu={toggleCommandMenu}
-          onToggleShortcutsSheet={toggleShortcutsSheet}
-          visualTaskOrder={visualTaskOrder}
-        />
-        {/* The settings shell has never mounted the tab strip, so nothing here
-            was stopping Cmd+W from closing the window. */}
-        <TabShortcutFallback enabled />
-        {billingEnabled && <UsageLimitModal />}
-        <AnnouncementsHost />
-        <UpdateAvailableModal />
-        <WhatsNewModal />
-        <RemoteBranchCheckoutDialog />
-        <ExistingWorktreeDialog />
-      </Flex>
-    );
-  }
-
   return (
     // DnD scope for the tab strip's drag-to-reorder (pill sortables live in
     // the title bar; the provider must sit above them).
     <BrowserTabsDndProvider>
-      <Flex direction="column" height="100%" className="bg-chrome">
+      {/* Settings renders over this tree through a portal. Going inert keeps
+          focus and clicks out of the covered chrome without unmounting it. */}
+      <Flex
+        direction="column"
+        height="100%"
+        className="bg-chrome"
+        inert={isSettingsRoute}
+      >
         {/* Full-width title bar: a window-drag region carrying the PostHog
             mark. The left section sizes to its controls so the tab strip sits
             beside the history buttons; its padding clears the macOS stoplights
@@ -366,9 +342,7 @@ function RootLayout() {
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
-              <Box className="h-[14px] w-[30px] overflow-hidden [&>svg]:h-[14px] [&>svg]:w-auto">
-                <LogosLandscape code={false} />
-              </Box>
+              <AnimatedLogo size={26} animate="hover" />
               <Button
                 size="icon-sm"
                 aria-label="Toggle sidebar"
@@ -432,7 +406,10 @@ function RootLayout() {
             </Flex>
           )}
         </Flex>
-        <ConnectivityBanner />
+        {/* Settings draws its own copies over this tree — see the settings
+            route. One instance of each at a time, so an announcement is not
+            reported as seen twice. */}
+        {!isSettingsRoute && <ConnectivityBanner />}
         <Flex flexGrow="1" overflow="hidden" className="relative">
           {/* Scrim under the peeked nav: dims the content while the overlay is
               out. Purely visual (pointer-transparent) and paired with the
@@ -472,7 +449,7 @@ function RootLayout() {
               <Flex direction="column" height="100%">
                 {/* Inside the framed pane, not the app column: announcements
                     overlay the content, never the sidebar. */}
-                <AnnouncementBanner />
+                {!isSettingsRoute && <AnnouncementBanner />}
                 {/* The shell renders its own header (ShellLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
@@ -499,7 +476,7 @@ function RootLayout() {
         {/* Renders nothing — owns ⌘1-9 under the channels layout. Mounted here
             rather than in the switcher, which only exists once a channel is
             already scoped. */}
-        <ChannelHotkeys />
+        {!isSettingsRoute && <ChannelHotkeys />}
         {/* Renders nothing — owns which space is scoped. The sidebar used to,
             but the rail can take that column away and the scoping still has to
             happen. */}

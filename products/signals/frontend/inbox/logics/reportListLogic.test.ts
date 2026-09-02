@@ -12,12 +12,7 @@ import {
     SignalReport,
     SignalReportStatus,
 } from '../types'
-import {
-    INBOX_REPORT_SECTION_LIST_PARAMS,
-    reportListLogic,
-    SECTION_PAGE_SIZE,
-    shouldDefaultToEntireProject,
-} from './reportListLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 
@@ -66,7 +61,7 @@ describe('reportListLogic', () => {
             ['user has assigned reports', { count: 3 }],
             // The user deliberately picked a scope – never override it, even with zero reports.
             ['user chose their scope', { hasUserChosenScope: true }],
-            // Only the primary section (Needs a PR) drives the default.
+            // Only the primary section (Needs decision) drives the default.
             ['not the primary section', { sectionKey: 'monitoring' as InboxReportSectionKey }],
             // Already off For you – nothing to default.
             ['already entire project', { scope: INBOX_SCOPE_ENTIRE_PROJECT as InboxScope }],
@@ -79,12 +74,10 @@ describe('reportListLogic', () => {
         })
     })
 
-    // A section shows a short window over a much larger server page, so "Show more" has two jobs
-    // that are easy to get wrong in opposite directions: widening the window, and reaching for the
-    // next server page only once the window has outrun the rows already in hand.
-    describe('section paging window', () => {
-        // Two full sections' worth on the first page, so the first press is served from memory.
-        const FIRST_PAGE = Array.from({ length: SECTION_PAGE_SIZE * 2 }, (_, i) => makeReport(`page-1-${i}`))
+    // The flat list pages every state through `loadMore`, so it must append from the loaded offset
+    // and stay quiet once the server says there is nothing further.
+    describe('list paging', () => {
+        const FIRST_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`page-1-${i}`))
         const SECOND_PAGE = [makeReport('page-2-0')]
         let requestedOffsets: (string | null)[]
         let logic: ReturnType<typeof reportListLogic.build>
@@ -128,64 +121,65 @@ describe('reportListLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('shows one section-worth of the loaded page', () => {
-            expect(logic.values.visibleReports).toHaveLength(SECTION_PAGE_SIZE)
-            expect(logic.values.hiddenReportCount).toBe(FIRST_PAGE.length + SECOND_PAGE.length - SECTION_PAGE_SIZE)
-        })
-
-        it('widens the window from rows already loaded, without a new request', async () => {
-            logic.actions.showMore()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.visibleReports).toHaveLength(SECTION_PAGE_SIZE * 2)
-            expect(requestedOffsets).toEqual(['0'])
-        })
-
-        it('fetches the next page once the window outruns the loaded rows', async () => {
-            logic.actions.showMore()
-            await expectLogic(logic).toFinishAllListeners()
-            logic.actions.showMore()
+        it('appends the next server page from the loaded offset, then stops', async () => {
+            logic.actions.loadMore()
             await expectLogic(logic).toFinishAllListeners()
 
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+
+            // The second page came back with `next: null`, so a further loadMore fires no request.
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
         })
 
-        // "Show more" widens the window past the loaded rows before the next page lands, so a failed
-        // next-page request leaves the window ahead of the loaded rows. The hidden count must track
-        // the rows on screen, not the window size — otherwise it hits zero and unmounts the only
-        // control that can retry, stranding the unfetched rows.
-        it('keeps Show more after a failed next-page request so the rows stay reachable', async () => {
+        // A failed next page keeps the loaded rows and `hasMore`, and the scroll sentinel may sit
+        // inside the viewport without re-firing. The flag is what surfaces the retry control, and a
+        // plain `loadMore` must be able to fetch the page again.
+        it('flags a failed next page and clears the flag on a successful retry', async () => {
+            let failNextPage = true
             useMocks({
                 get: {
                     [REPORTS_URL]: ({ request }) => {
                         const offset = new URL(request.url).searchParams.get('offset')
-                        return offset && offset !== '0'
-                            ? [500, {}]
-                            : [
-                                  200,
-                                  {
-                                      count: FIRST_PAGE.length + SECOND_PAGE.length,
-                                      next: 'http://localhost/api/projects/997/signals/reports/?offset=50',
-                                      previous: null,
-                                      results: FIRST_PAGE,
-                                  },
-                              ]
+                        if (offset && offset !== '0') {
+                            if (failNextPage) {
+                                failNextPage = false
+                                return [500, {}]
+                            }
+                            return [
+                                200,
+                                {
+                                    count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                    next: null,
+                                    previous: null,
+                                    results: SECOND_PAGE,
+                                },
+                            ]
+                        }
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: 'http://localhost/api/projects/997/signals/reports/?offset=50',
+                                previous: null,
+                                results: FIRST_PAGE,
+                            },
+                        ]
                     },
                 },
             })
-            // First press is served from memory; the second outruns the loaded rows and the
-            // next-page fetch fails.
-            logic.actions.showMore()
-            await expectLogic(logic).toFinishAllListeners()
-            logic.actions.showMore()
-            await expectLogic(logic).toFinishAllListeners()
 
-            // The second page never arrived, so the loaded rows are unchanged...
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pageLoadFailed).toBe(true)
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length)
-            expect(logic.values.visibleReports).toHaveLength(FIRST_PAGE.length)
-            // ...but the section still knows one report is held back and offers to fetch it again.
-            expect(logic.values.hiddenReportCount).toBe(SECOND_PAGE.length)
+
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pageLoadFailed).toBe(false)
+            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
         })
     })
 })

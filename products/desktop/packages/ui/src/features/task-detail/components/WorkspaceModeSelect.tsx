@@ -2,18 +2,20 @@ import {
   ArrowsSplit,
   Cloud,
   Cube,
-  Gear,
   Laptop,
   Plus,
+  Star,
 } from "@phosphor-icons/react";
 import {
   Button,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  ItemActions,
   ItemContent,
   ItemDescription,
   ItemMedia,
@@ -22,18 +24,25 @@ import {
   MenuLabel,
 } from "@posthog/quill";
 import type { Adapter, WorkspaceMode } from "@posthog/shared";
+import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import {
-  shouldShowCodexSubscriptionControls,
-  useCodexSubscription,
-} from "@posthog/ui/features/settings/useCodexSubscription";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useMemo, useState } from "react";
-import { useSandboxCustomImages } from "../../settings/sections/environments/useSandboxCustomImages";
-import { useSandboxEnvironments } from "../../settings/sections/environments/useSandboxEnvironments";
+import {
+  type CloudTarget,
+  type CloudTargetOption,
+  cloudTargetKey,
+  DEFAULT_CLOUD_TARGET,
+} from "../cloudTargets";
 import { useCloudModeEnabled } from "../hooks/useCloudModeEnabled";
+import { useCloudTargetOptions } from "../hooks/useCloudTarget";
 
 export type { WorkspaceMode };
+
+const SUBSCRIPTION_IN_USE_LABEL: Record<Adapter, string> = {
+  codex: "Using Codex subscription",
+  claude: "Using Claude subscription",
+};
 
 interface WorkspaceModeSelectProps {
   value: WorkspaceMode;
@@ -42,10 +51,8 @@ interface WorkspaceModeSelectProps {
   disabled?: boolean;
   overrideModes?: WorkspaceMode[];
   adapter?: Adapter;
-  selectedCloudEnvironmentId?: string | null;
-  onCloudEnvironmentChange?: (envId: string | null) => void;
-  selectedCustomImageId?: string | null;
-  onCustomImageChange?: (imageId: string | null) => void;
+  cloudTarget?: CloudTarget;
+  onCloudTargetChange?: (target: CloudTarget) => void;
 }
 
 const LOCAL_MODES: {
@@ -70,34 +77,57 @@ const LOCAL_MODES: {
 
 const CLOUD_ICON = <Cloud size={14} weight="regular" />;
 
+const IMAGE_ICON = <Cube size={14} weight="regular" />;
+
+const ICON_BUTTON_CLASS =
+  "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground";
+
 export function WorkspaceModeSelect({
   value,
   onChange,
   disabled,
   overrideModes,
   adapter,
-  selectedCloudEnvironmentId,
-  onCloudEnvironmentChange,
-  selectedCustomImageId,
-  onCustomImageChange,
+  cloudTarget = DEFAULT_CLOUD_TARGET,
+  onCloudTargetChange,
 }: WorkspaceModeSelectProps) {
   const { localWorkspaces } = useHostCapabilities();
   const cloudModeEnabled = useCloudModeEnabled();
-  const codexSubscription = useCodexSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
+  const adapterSubscription = adapter
+    ? { codex: codexSubscription, claude: claudeSubscription }[adapter]
+    : undefined;
+  const subscriptionInUseLabel =
+    adapter &&
+    adapterSubscription?.flagEnabled &&
+    adapterSubscription.subscriptionOn &&
+    adapterSubscription.loggedIn
+      ? SUBSCRIPTION_IN_USE_LABEL[adapter]
+      : null;
 
-  const { environments } = useSandboxEnvironments();
-  const { images, customImagesEnabled } = useSandboxCustomImages();
+  const { options, favoriteKey, toggleFavorite } = useCloudTargetOptions();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const readyImages = useMemo(
-    () => images.filter((image) => image.status === "ready"),
-    [images],
+  const environmentOptions = options.filter(
+    (option) => option.target.kind !== "image",
+  );
+  const imageOptions = options.filter(
+    (option) => option.target.kind === "image",
   );
 
   const handleAddEnvironment = useCallback(() => {
     setMenuOpen(false);
     openSettings("cloud-environments", "create");
   }, []);
+
+  const selectTarget = useCallback(
+    (target: CloudTarget) => {
+      onChange("cloud");
+      onCloudTargetChange?.(target);
+    },
+    [onChange, onCloudTargetChange],
+  );
 
   const showCloud = overrideModes
     ? overrideModes.includes("cloud")
@@ -114,24 +144,18 @@ export function WorkspaceModeSelect({
     [overrideModes, localWorkspaces],
   );
 
-  const selectedEnvName = useMemo(() => {
-    if (value !== "cloud" || !selectedCloudEnvironmentId) return null;
-    return environments.find((e) => e.id === selectedCloudEnvironmentId)?.name;
-  }, [value, selectedCloudEnvironmentId, environments]);
-
-  const selectedImageName = useMemo(() => {
-    if (value !== "cloud" || !selectedCustomImageId) return null;
-    return images.find((img) => img.id === selectedCustomImageId)?.name;
-  }, [value, selectedCustomImageId, images]);
+  const selectedTargetName = useMemo(() => {
+    if (value !== "cloud" || cloudTarget.kind === "default") return null;
+    const key = cloudTargetKey(cloudTarget);
+    return options.find((option) => option.key === key)?.name ?? null;
+  }, [value, cloudTarget, options]);
 
   const triggerLabel = useMemo(() => {
     if (value === "cloud") {
-      return ["Cloud", selectedEnvName, selectedImageName]
-        .filter(Boolean)
-        .join(" · ");
+      return ["Cloud", selectedTargetName].filter(Boolean).join(" · ");
     }
     return LOCAL_MODES.find((m) => m.mode === value)?.label ?? "Worktree";
-  }, [value, selectedEnvName, selectedImageName]);
+  }, [value, selectedTargetName]);
 
   const triggerIcon = useMemo(() => {
     if (value === "cloud") return CLOUD_ICON;
@@ -165,29 +189,10 @@ export function WorkspaceModeSelect({
         {localModes.length > 0 && (
           <div className="flex items-center justify-between px-2 py-1">
             <MenuLabel className="p-0">Local</MenuLabel>
-            {shouldShowCodexSubscriptionControls({
-              flagEnabled: codexSubscription.flagEnabled,
-              adapter,
-            }) && (
-              <div className="flex items-center gap-1.5">
-                {codexSubscription.subscriptionOn &&
-                  codexSubscription.loggedIn && (
-                    <span className="text-[11px] text-muted-foreground">
-                      Using Codex subscription
-                    </span>
-                  )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    openSettings("harness");
-                  }}
-                  aria-label="Subscription settings"
-                  className="flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
-                >
-                  <Gear size={12} />
-                </button>
-              </div>
+            {subscriptionInUseLabel && (
+              <span className="text-[11px] text-muted-foreground">
+                {subscriptionInUseLabel}
+              </span>
             )}
           </div>
         )}
@@ -196,11 +201,7 @@ export function WorkspaceModeSelect({
           {localModes.map((item) => (
             <DropdownMenuItem
               key={item.mode}
-              onClick={() => {
-                onChange(item.mode);
-                onCloudEnvironmentChange?.(null);
-                onCustomImageChange?.(null);
-              }}
+              onClick={() => onChange(item.mode)}
               render={
                 <ItemMenuItem size="xs" className="w-full">
                   <ItemMedia variant="icon" className="mt-2 ml-2">
@@ -218,12 +219,9 @@ export function WorkspaceModeSelect({
           ))}
         </DropdownMenuGroup>
 
-        {showCloud && environments.length === 0 && (
+        {showCloud && options.length === 1 && (
           <DropdownMenuItem
-            onClick={() => {
-              onChange("cloud");
-              onCloudEnvironmentChange?.(null);
-            }}
+            onClick={() => selectTarget(DEFAULT_CLOUD_TARGET)}
             render={
               <ItemMenuItem size="xs" className="w-full">
                 <ItemMedia variant="icon" className="mt-2 ml-2">
@@ -240,7 +238,7 @@ export function WorkspaceModeSelect({
           />
         )}
 
-        {showCloud && environments.length > 0 && (
+        {showCloud && options.length > 1 && (
           <>
             <DropdownMenuSeparator />
             <div className="flex items-center justify-between px-2 py-1">
@@ -249,123 +247,106 @@ export function WorkspaceModeSelect({
                 type="button"
                 onClick={handleAddEnvironment}
                 aria-label="Add cloud environment"
-                className="flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+                className={ICON_BUTTON_CLASS}
               >
                 <Plus size={12} />
               </button>
             </div>
 
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                onClick={() => {
-                  onChange("cloud");
-                  onCloudEnvironmentChange?.(null);
-                }}
-                render={
-                  <ItemMenuItem size="xs" className="w-full">
-                    <ItemMedia variant="icon" className="mt-2 ml-2">
-                      <span>{CLOUD_ICON}</span>
-                    </ItemMedia>
-                    <ItemContent variant="menuItem">
-                      <ItemTitle>Default</ItemTitle>
-                      <ItemDescription className="whitespace-nowrap leading-none">
-                        Full network access
-                      </ItemDescription>
-                    </ItemContent>
-                  </ItemMenuItem>
-                }
-              />
-
-              {environments.map((env) => (
-                <DropdownMenuItem
-                  key={`cloud-env-${env.id}`}
-                  onClick={() => {
-                    onChange("cloud");
-                    onCloudEnvironmentChange?.(env.id);
-                  }}
-                  render={
-                    <ItemMenuItem size="xs" className="w-full">
-                      <ItemMedia variant="icon" className="mt-2 ml-2">
-                        <span>{CLOUD_ICON}</span>
-                      </ItemMedia>
-                      <ItemContent variant="menuItem">
-                        <ItemTitle>{env.name}</ItemTitle>
-                        <ItemDescription className="whitespace-nowrap leading-none">
-                          {env.network_access_level === "full"
-                            ? "Full network access"
-                            : env.network_access_level === "trusted"
-                              ? "Trusted sources only"
-                              : `${env.allowed_domains.length} allowed domain${env.allowed_domains.length !== 1 ? "s" : ""}`}
-                        </ItemDescription>
-                      </ItemContent>
-                    </ItemMenuItem>
-                  }
+              {environmentOptions.map((option) => (
+                <CloudTargetItem
+                  key={option.key}
+                  option={option}
+                  isFavorite={favoriteKey === option.key}
+                  onSelect={selectTarget}
+                  onToggleFavorite={toggleFavorite}
                 />
               ))}
             </DropdownMenuGroup>
-          </>
-        )}
 
-        {showCloud && customImagesEnabled && readyImages.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
-            <div className="flex items-center justify-between px-2 py-1">
-              <MenuLabel className="p-0">Base image</MenuLabel>
-            </div>
-
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                onClick={() => {
-                  onChange("cloud");
-                  onCustomImageChange?.(null);
-                }}
-                render={
-                  <ItemMenuItem size="xs" className="w-full">
-                    <ItemMedia variant="icon" className="mt-2 ml-2">
-                      <span>
-                        <Cube size={14} weight="regular" />
-                      </span>
-                    </ItemMedia>
-                    <ItemContent variant="menuItem">
-                      <ItemTitle>Default</ItemTitle>
-                      <ItemDescription className="whitespace-nowrap leading-none">
-                        Standard sandbox image
-                      </ItemDescription>
-                    </ItemContent>
-                  </ItemMenuItem>
-                }
-              />
-
-              {readyImages.map((image) => (
-                <DropdownMenuItem
-                  key={`custom-image-${image.id}`}
-                  onClick={() => {
-                    onChange("cloud");
-                    onCustomImageChange?.(image.id);
-                  }}
-                  render={
-                    <ItemMenuItem size="xs" className="w-full">
-                      <ItemMedia variant="icon" className="mt-2 ml-2">
-                        <span>
-                          <Cube size={14} weight="regular" />
-                        </span>
-                      </ItemMedia>
-                      <ItemContent variant="menuItem">
-                        <ItemTitle>{image.name}</ItemTitle>
-                        <ItemDescription className="whitespace-nowrap leading-none">
-                          {image.version > 0
-                            ? `Custom image · v${image.version}`
-                            : "Custom image"}
-                        </ItemDescription>
-                      </ItemContent>
-                    </ItemMenuItem>
-                  }
-                />
-              ))}
-            </DropdownMenuGroup>
+            {imageOptions.length > 0 && (
+              <>
+                <div className="px-2 py-1">
+                  <MenuLabel className="p-0">Images</MenuLabel>
+                </div>
+                <DropdownMenuGroup>
+                  {imageOptions.map((option) => (
+                    <CloudTargetItem
+                      key={option.key}
+                      option={option}
+                      isFavorite={favoriteKey === option.key}
+                      onSelect={selectTarget}
+                      onToggleFavorite={toggleFavorite}
+                    />
+                  ))}
+                </DropdownMenuGroup>
+              </>
+            )}
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function CloudTargetItem({
+  option,
+  isFavorite,
+  onSelect,
+  onToggleFavorite,
+}: {
+  option: CloudTargetOption;
+  isFavorite: boolean;
+  onSelect: (target: CloudTarget) => void;
+  onToggleFavorite: (target: CloudTarget) => void;
+}) {
+  const icon = option.target.kind === "image" ? IMAGE_ICON : CLOUD_ICON;
+  return (
+    <DropdownMenuItem
+      onClick={() => onSelect(option.target)}
+      render={
+        <ItemMenuItem size="xs" className="w-full" render={<div />}>
+          <ItemMedia variant="icon" className="mt-2 ml-2">
+            <span>{icon}</span>
+          </ItemMedia>
+          <ItemContent variant="menuItem">
+            <ItemTitle>{option.name}</ItemTitle>
+            <ItemDescription className="whitespace-nowrap leading-none">
+              {option.description}
+            </ItemDescription>
+          </ItemContent>
+          <ItemActions className="mr-1.5 ml-auto self-center">
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={
+                isFavorite
+                  ? `Stop using ${option.name} by default`
+                  : `Use ${option.name} by default`
+              }
+              aria-pressed={isFavorite}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleFavorite(option.target);
+              }}
+              className={cn(
+                "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 transition-colors hover:text-foreground",
+                isFavorite
+                  ? "text-foreground"
+                  : "text-muted-foreground opacity-0 group-hover/dropdown-menu-item:opacity-100",
+              )}
+            >
+              <Star size={12} weight={isFavorite ? "fill" : "regular"} />
+            </button>
+          </ItemActions>
+        </ItemMenuItem>
+      }
+    />
   );
 }

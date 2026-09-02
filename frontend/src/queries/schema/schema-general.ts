@@ -212,6 +212,7 @@ export enum NodeKind {
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
+    MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -298,6 +299,7 @@ export type AnyDataNode =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
+    | MCPMissingCapabilitiesQuery
 
 /**
  * @discriminator kind
@@ -431,6 +433,7 @@ export type QuerySchema =
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
+    | MCPMissingCapabilitiesQuery
 
     // Property values
     | PropertyValuesQuery
@@ -1396,6 +1399,9 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showAnnotations?: boolean
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
@@ -3031,8 +3037,26 @@ export interface AccountsTableAssignedToFilter {
     userIds: integer[]
 }
 
+export interface AccountsTableAssignedFilter {
+    kind: 'assigned'
+}
+
 export interface AccountsTableUnassignedFilter {
     kind: 'unassigned'
+}
+
+export enum AccountsTableRelationshipOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+export interface AccountsTableRelationshipFilter {
+    kind: 'relationship'
+    definitionId: string
+    operator: AccountsTableRelationshipOperator
+    userIds?: integer[]
 }
 
 export interface AccountsTableAccountIdFilter {
@@ -3093,7 +3117,9 @@ export type AccountsTableFilter =
     | AccountsTableSearchFilter
     | AccountsTableTagsFilter
     | AccountsTableAssignedToFilter
+    | AccountsTableAssignedFilter
     | AccountsTableUnassignedFilter
+    | AccountsTableRelationshipFilter
     | AccountsTableAccountIdFilter
     | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
@@ -3276,6 +3302,8 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -3515,16 +3543,40 @@ export interface MCPToolQualityRowItem {
     last_seen: string
 }
 
+export type MCPToolQualitySortColumn =
+    | 'total_calls'
+    | 'error_rate_pct'
+    | 'p50_duration_ms'
+    | 'p95_duration_ms'
+    | 'p99_duration_ms'
+    | 'users'
+    | 'sessions'
+    | 'last_seen'
+
+export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
+
 export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolQualityRowItem[]
+    /** Number of tools matching the date, category, and search filters. */
+    totalCount: integer
 }
 
-/** One row per $mcp_tool_name — call volume, error rate, latency percentiles, and reach — over the window. */
+/** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
+    /** Case-insensitive substring search on the effective tool name. */
+    search?: string
+    /** Aggregate column used to order tools. Defaults to total_calls. */
+    sortColumn?: MCPToolQualitySortColumn
+    /** Sort direction. Defaults to DESC. */
+    sortDirection?: MCPToolQualitySortDirection
+    /** Page size. The server defaults to 50 and caps this at 100. */
+    limit?: integer
+    /** Number of matching tools to skip. */
+    offset?: integer
 }
 
 export type CachedMCPToolQualityRowsQueryResponse = CachedQueryResponse<MCPToolQualityRowsQueryResponse>
@@ -3680,6 +3732,42 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
 
+/** One missing-capability report: a capability an agent asked for and could not get. */
+export interface MCPMissingCapabilitiesItem {
+    timestamp: string
+    /** The agent's own words for the capability it wanted, from $mcp_intent. */
+    intent: string
+    /** Resolved client label, the client's own self-reported name when unrecognized, or
+     * "Unidentified client" when the report carried no client identity at all. */
+    harness: string
+    /** Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set. */
+    session_id: string
+    distinct_id: string
+    /** JSON-encoded person email/name for display; "{}" when neither resolved. */
+    person_properties: string
+}
+
+export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPMissingCapabilitiesItem[]
+    /** Whether more reports exist past this page. */
+    has_next: boolean
+}
+
+/** Chronological feed of capabilities that agents asked for but could not access. */
+export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
+    kind: NodeKind.MCPMissingCapabilitiesQuery
+    dateRange?: DateRange
+    /** Case-insensitive substring match over the report text. */
+    search?: string
+    /** Page size; defaults to 100, capped at 500. */
+    limit?: integer
+    /** Reports to skip before returning results. Combine with limit to page through them;
+     * the response's has_next flag indicates whether more remain. */
+    offset?: integer
+}
+
+export type CachedMCPMissingCapabilitiesQueryResponse = CachedQueryResponse<MCPMissingCapabilitiesQueryResponse>
+
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
@@ -3739,6 +3827,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -3840,6 +3930,8 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -3889,6 +3981,8 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -4505,6 +4599,42 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
+/** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
+export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat'
+
+/** Matches quill's `YAxisConfig.scale` verbatim, so no vocabulary translation is needed.
+ * Deliberately not `YAxisSettings['scale']` ('logarithmic') or `TrendsFilter['yAxisScaleType']` ('log10'). */
+export type MetricsAxisScale = 'linear' | 'log'
+
+/** Which summary the `stat` display's headline value shows. */
+export type MetricsStatSummary = 'latest' | 'average' | 'total'
+
+export interface MetricsYAxisSettings {
+    /** @default linear */
+    scale?: MetricsAxisScale
+    /** When false the axis floats to the data range instead of starting at zero. Ignored on a
+     * logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero.
+     * @default true */
+    startAtZero?: boolean
+    /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
+    min?: number
+    /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic
+     * stretch that keeps an off-scale goal line on-plot. */
+    max?: number
+}
+
+/** Presentation only. The query engine never reads this, and it's stripped from the result cache
+ * key, so changing any of it re-renders without re-running the query. */
+export interface MetricsDisplaySettings {
+    /** @default line */
+    type?: MetricsDisplayType
+    goalLines?: GoalLine[]
+    yAxis?: MetricsYAxisSettings
+    /** `stat` display only: which summary the headline value shows.
+     * @default latest */
+    statSummary?: MetricsStatSummary
+}
+
 export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     kind: NodeKind.MetricsQuery
     clauses: MetricsQueryClause[]
@@ -4514,6 +4644,8 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     interval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
+    /** Chart presentation. A node without it renders as a line chart. */
+    display?: MetricsDisplaySettings
 }
 
 export interface SessionEventsItem {
@@ -5014,10 +5146,6 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKeys?: string[]
     /** Product key(s) that generate interest in this item when intent is triggered */
     intents?: ProductKey[]
-    /** Reason for custom product suggestion (from UserProductList) */
-    reason?: UserProductListReason
-    /** Custom reason text for custom product suggestion (from UserProductList) */
-    reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
 }
@@ -8365,6 +8493,7 @@ export const externalDataSources = [
     'Customerly',
     'Datascope',
     'Dbt',
+    'Demodesk',
     'Deputy',
     'DevinAI',
     'Docuseal',
@@ -9398,6 +9527,8 @@ export const externalDataSources = [
     'Anvil',
     'Coolify',
     'SocialPilot',
+    'RoktAds',
+    'Strato',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9828,24 +9959,10 @@ export interface ProductsData {
     metadata: ProductItem[]
 }
 
-export enum UserProductListReason {
-    DEFAULT = 'default',
-    ONBOARDING = 'onboarding',
-    PRODUCT_INTENT = 'product_intent',
-    USED_BY_COLLEAGUES = 'used_by_colleagues',
-    USED_SIMILAR_PRODUCTS = 'used_similar_products',
-    USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
-    NEW_PRODUCT = 'new_product',
-    SALES_LED = 'sales_led',
-    ONBOARDING_DELEGATED = 'onboarding_delegated',
-}
-
 export interface UserProductListItem {
     id: string
     product_path: string
     enabled: boolean
-    reason: UserProductListReason
-    reason_text: string | null
     created_at: string
     updated_at: string
 }
@@ -9924,6 +10041,7 @@ export enum ProductKey {
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    DASHBOARDS = 'dashboards',
     DATA_CATALOG = 'data_catalog',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',

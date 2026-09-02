@@ -62,6 +62,7 @@ export interface DataTableVisualizationProps {
     editMode?: boolean
     readOnly?: boolean
     embedded?: boolean
+    inSharedMode?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
@@ -82,6 +83,7 @@ export function DataTableVisualization({
     attachTo,
     editMode,
     embedded,
+    inSharedMode,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const queryRef = useRef(query)
@@ -158,6 +160,7 @@ export function DataTableVisualization({
                                 exportContext={exportContext}
                                 editMode={editMode}
                                 embedded={embedded}
+                                inSharedMode={inSharedMode}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -219,6 +222,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
+
     let component: JSX.Element | null = null
 
     if (responseError) {
@@ -263,16 +268,20 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <SqlChart
-                className="p-3"
-                xData={_xData}
-                yData={_yData}
-                visualizationType={effectiveVisualizationType}
-                chartSettings={chartSettings}
-                dashboardId={dashboardId}
-                goalLines={[...alertThresholdLines, ...goalLines]}
-                presetChartHeight={presetChartHeight}
-            />
+            <BindLogic logic={insightLogic} props={alertsInsightProps}>
+                <SqlChart
+                    className="p-3"
+                    xData={_xData}
+                    yData={_yData}
+                    visualizationType={effectiveVisualizationType}
+                    chartSettings={chartSettings}
+                    dashboardId={dashboardId}
+                    goalLines={[...alertThresholdLines, ...goalLines]}
+                    insightNumericId={insight?.id || 'new'}
+                    showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
+                    presetChartHeight={presetChartHeight}
+                />
+            </BindLogic>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData

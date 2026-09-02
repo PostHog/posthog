@@ -41,7 +41,7 @@ export type { EditorHandle };
 // the surface silently refuses doesn't strand the spinner.
 const SUBMIT_PRESS_FEEDBACK_MS = 800;
 
-export interface PromptInputProps {
+interface PromptInputProps {
   sessionId: string;
   placeholder?: string;
   // editor state

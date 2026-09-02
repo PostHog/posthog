@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
+    get_fast_returned_run_metric,
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
 )
@@ -633,6 +634,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = False
                 statistics_needed = False
                 person_property_sync_enabled = False
+                fast_return_eligible = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -643,6 +645,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = create_job_result.enrichment_needed
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
+                fast_return_eligible = create_job_result.fast_return_eligible
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -690,6 +693,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
                 reset_pipeline=inputs.reset_pipeline,
+                fast_return_eligible=fast_return_eligible,
             )
 
             is_resumable_source = False
@@ -738,6 +742,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
+
+            # A fast-returned run completed on a negative source probe, before any extraction.
+            # Its skip_post_import_activities=True does the actual skipping below; the job row,
+            # COMPLETED status and last_synced_at are all written as usual.
+            if pipeline_result.get("fast_returned", False):
+                get_fast_returned_run_metric(source_type=source_type).add(1)
 
             # The load-dependent post-import steps have one home: `data-import-post-import`
             # (post_import_job.py). V3 with batches: the load consumer starts it after the final

@@ -1,7 +1,7 @@
 import type { StepAnswer } from "@posthog/ui/primitives/ActionSelector";
 import { create } from "zustand";
 
-export interface QuestionDraft {
+interface QuestionDraft {
   activeStep: number;
   stepAnswers: Map<number, StepAnswer>;
 }

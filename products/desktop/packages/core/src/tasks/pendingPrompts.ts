@@ -4,7 +4,7 @@ import {
   xmlToContent,
 } from "@posthog/core/message-editor/content";
 
-export const MAX_RECOVERABLE_PROMPTS = 20;
+const MAX_RECOVERABLE_PROMPTS = 20;
 
 /** Why a submitted prompt never reached a running task. */
 export type PendingPromptInterruptReason = "offline" | "failed";

@@ -1,10 +1,11 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { certificationsLogic } from './certificationsLogic'
-import type { CertificationsFilters } from './certificationsLogic'
+import type { CertificationsFilters, NewCertificationForm } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
     dataCatalogCertificationsCreate,
@@ -120,20 +121,47 @@ describe('certificationsLogic', () => {
         expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
     })
 
-    it('sends the proposal intent when creating', async () => {
+    it.each<[string, Partial<NewCertificationForm>, Record<string, string>]>([
+        [
+            'a table id',
+            { targetId: 'table-id', targetName: 'stale_revenue', targetType: 'table' },
+            { table_id: 'table-id' },
+        ],
+        [
+            'a view id',
+            { targetId: 'view-id', targetName: 'stale_revenue', targetType: 'view' },
+            { saved_query_id: 'view-id' },
+        ],
+        [
+            'a target name without an id',
+            { targetName: 'stale_revenue', targetType: 'table' },
+            { table_name: 'stale_revenue' },
+        ],
+    ])('sends the proposal intent with %s when creating', async (_description, form, target) => {
         ;(dataCatalogCertificationsCreate as jest.Mock).mockResolvedValue(
             buildCertification({ id: 'cert-3', status: 'proposed' })
         )
 
-        logic.actions.setNewCertificationForm({ targetName: 'stale_revenue', proposedStatus: 'deprecated' })
+        logic.actions.setNewCertificationForm({ ...form, proposedStatus: 'deprecated' })
         logic.actions.createCertification()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(dataCatalogCertificationsCreate).toHaveBeenCalledWith('1', {
-            table_name: 'stale_revenue',
+            ...target,
             notes: undefined,
             proposed_status: 'deprecated',
         })
+    })
+
+    it('shows an error and resets the submitting state when creation fails', async () => {
+        ;(dataCatalogCertificationsCreate as jest.Mock).mockRejectedValue(new Error('Request failed'))
+
+        logic.actions.setNewCertificationForm({ targetId: 'table-id', targetName: 'stale_revenue' })
+        logic.actions.createCertification()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith('Could not create the proposal. Try again.')
+        expect(logic.values.isCreatingCertification).toBe(false)
     })
 
     it('removes the row when revoking', async () => {

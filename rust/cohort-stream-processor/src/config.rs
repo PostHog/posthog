@@ -306,7 +306,8 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
-    /// The shadow output topic for membership changes.
+    /// The output topic for membership changes. Defaulting to the shadow topic keeps the cut-over
+    /// a config-only change, so no code deploy can redirect production output.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
 
@@ -1672,6 +1673,28 @@ mod tests {
         assert_eq!(
             config.consumer_client_config().get("security.protocol"),
             Some("ssl"),
+        );
+    }
+
+    #[test]
+    fn membership_topic_defaults_to_the_shadow_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(
+            defaults.cohort_membership_changed_topic, "cohort_membership_changed_shadow",
+            "a code deploy must not redirect membership output to the production topic",
+        );
+
+        let env: std::collections::HashMap<String, String> = [(
+            "COHORT_MEMBERSHIP_CHANGED_TOPIC",
+            "cohort_membership_changed",
+        )]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(
+            config.cohort_membership_changed_topic, "cohort_membership_changed",
+            "the cut-over must be reachable as a config-only change",
         );
     }
 

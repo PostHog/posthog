@@ -14,7 +14,10 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { uuid: "user-1" } }),
 }));
-vi.mock("@posthog/di/container", () => ({ resolveService: () => ({}) }));
+vi.mock("@posthog/di/container", () => ({
+  resolveService: () => ({}),
+  resolveServiceOptional: () => null,
+}));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => false,
 }));

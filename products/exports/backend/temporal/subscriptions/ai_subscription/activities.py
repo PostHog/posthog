@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
+    build_ai_teams_card,
     build_chart_image_urls,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
@@ -32,6 +33,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     deliver_slack,
     strip_null_bytes,
 )
+from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_teams_webhook
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
@@ -237,7 +239,11 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
     # org that revokes AI-data-processing approval later. Auto-disable so it stops re-firing.
     if not subscription.team.organization.is_ai_data_processing_approved:
         LOGGER.warning("generate_ai_subscription_report.consent_revoked", subscription_id=subscription.id)
-        aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
+        aborted = await auto_disable_and_return(
+            subscription,
+            AI_CONSENT_REVOKED_DISABLE_REASON,
+            [],
+        )
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
@@ -296,13 +302,17 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
         recipient_results = [
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=subscription.recipient_label,
                 status="failed",
                 error={"message": str(exc), "type": "PromptRejectedError"},
                 human_readable_error=str(exc),
             )
         ]
-        aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
+        aborted = await auto_disable_and_return(
+            subscription,
+            AI_PROMPT_INVALID_DISABLE_REASON,
+            recipient_results,
+        )
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
@@ -375,6 +385,9 @@ async def _deliver_ai_subscription(
                 charts=chart_images,
             ),
         )
+    if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
+        card = build_ai_teams_card(subscription, markdown, delivery_id=delivery_id)
+        return await deliver_teams_webhook(subscription, recipient_results, body=card)
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.
     raise ApplicationError(

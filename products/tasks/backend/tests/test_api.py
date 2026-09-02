@@ -72,6 +72,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
     get_task_run_stream_key,
+    get_task_run_stream_watched_key,
 )
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -221,7 +222,7 @@ class BaseTaskAPITest(TestCase):
         if hasattr(self, "feature_flag_patcher"):
             self.feature_flag_patcher.stop()
 
-        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]
+        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
         def check_flag(flag_name, *_args, **_kwargs):
@@ -1354,6 +1355,24 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("EXISTS", query_sql)
         self.assertNotIn("SELECT DISTINCT", query_sql)
 
+    def test_list_tasks_hog_flow_id_filter(self):
+        hog_flow_id = uuid.uuid4()
+        workflow_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Workflow task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.WORKFLOW,
+            hog_flow_id=hog_flow_id,
+        )
+        self.create_task("Unrelated task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/?hog_flow_id={hog_flow_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(workflow_task.id))
+
     def test_list_tasks_count_matches_queryset(self):
         for i in range(4):
             self.create_task(f"Task {i}")
@@ -1808,8 +1827,9 @@ class TestTaskAPI(BaseTaskAPITest):
             ("no_selection", False, None, "acme/web"),
             # a persisted selection wins over the cascade, even when it names another repo
             ("persisted_repo", True, "acme/api", "acme/api"),
-            # a scout's deliberate no-repo must not fall through to the cascade
-            ("persisted_no_repo", True, None, None),
+            # a scout's no-repo selection is not authoritative for a human "Create PR" click, so it
+            # falls through to the cascade rather than making a task that can never push
+            ("persisted_no_repo", True, None, "acme/web"),
         ]
     )
     def test_create_signal_report_task_resolves_repository_when_none_provided(
@@ -1848,6 +1868,45 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["repository"], expected_repository)
+
+    def test_discussion_from_no_repo_report_stays_repo_less_and_exempt(self):
+        # A "Discuss" kickoff must not resolve a repository, even on a one-repo team with a NO_REPO
+        # selection artefact. A repository-backed report task loses the code-access exemption, so a
+        # caller without Desktop access would 403 on the discussion — the dead-end this path removes.
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-cascade",
+            config={"installation_id": "gh-cascade"},
+            sensitive_config={},
+            repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        report = SignalReport.objects.create(team=self.team)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=RepoSelectionResult(repository=None, reason="test").model_dump_json(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Discuss report",
+                "description": "Let's discuss this report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": "discussion",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.json()["repository"])
+        self.assertTrue(tasks_facade.task_exempt_from_code_access(response.json()["id"], self.team.id))
 
     def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
@@ -3353,31 +3412,39 @@ class TestTaskAPI(BaseTaskAPITest):
         assert "initial_permission_mode" not in (task_run.state or {})
         mock_workflow.assert_called_once()
 
-    @parameterized.expand([(True,), (False,)])
+    @parameterized.expand(
+        [
+            ("rtk_enabled", True),
+            ("rtk_enabled", False),
+            ("benjamin_enabled", True),
+            ("benjamin_enabled", False),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_persists_rtk_enabled(self, rtk_enabled, mock_workflow):
+    def test_run_endpoint_persists_agent_toggle(self, field, value, mock_workflow):
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
-            {"rtk_enabled": rtk_enabled},
+            {field: value},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
-        assert task_run.state["rtk_enabled"] is rtk_enabled
+        assert task_run.state[field] is value
         mock_workflow.assert_called_once()
 
+    @parameterized.expand([("rtk_enabled",), ("benjamin_enabled",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_omits_rtk_enabled_when_not_set(self, mock_workflow):
+    def test_run_endpoint_omits_agent_toggle_when_not_set(self, field, mock_workflow):
         task = self.create_task()
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
 
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
-        assert "rtk_enabled" not in (task_run.state or {})
+        assert field not in (task_run.state or {})
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -5369,6 +5436,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "use_modal_vm_sandbox": False,
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
+                "stream_presence_gated": True,
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
@@ -5387,6 +5455,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
+                "rtk_effective": True,
+                "benjamin_effective": True,
+                "usage_metrics_recorded": True,
                 "loop_terminal_bookkeeping_complete": True,
                 "analysis_target_repository": "posthog/posthog",
                 "analysis_target_custom_image_id": "img-real",
@@ -5420,6 +5491,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "use_modal_vm_sandbox": True,
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
+                    "stream_presence_gated": False,
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
@@ -5448,6 +5520,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider": "openai",
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
+                    "rtk_effective": False,
+                    "benjamin_effective": False,
+                    "usage_metrics_recorded": False,
                     "loop_terminal_bookkeeping_complete": False,
                     # server-stamped analysis insight attribution; a forged value would
                     # misattribute the captured insight event to another repository / image
@@ -5475,6 +5550,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
+        assert run.state["stream_presence_gated"] is True
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
@@ -5495,6 +5571,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
+        assert run.state["rtk_effective"] is True
+        assert run.state["benjamin_effective"] is True
+        assert run.state["usage_metrics_recorded"] is True
         assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # cannot forge attribution
         assert run.state["analysis_target_custom_image_id"] == "img-real"
@@ -5509,6 +5588,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state_remove_keys": [
                     "github_credential_source",
                     "agent_otel_telemetry_enabled",
+                    "stream_presence_gated",
                     "sandbox_id",
                     "use_modal_directory_resume_snapshots",
                     "use_modal_vm_sandbox",
@@ -5528,6 +5608,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider",
                     "model",
                     "reasoning_effort",
+                    "rtk_effective",
+                    "benjamin_effective",
+                    "usage_metrics_recorded",
                     "loop_terminal_bookkeeping_complete",
                     "analysis_target_repository",
                     "analysis_target_custom_image_id",
@@ -5541,6 +5624,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
+        assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
@@ -5563,6 +5647,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"  # protected key survives removal
         assert run.state["model"] == "claude-sonnet-5"  # protected key survives removal
         assert run.state["reasoning_effort"] == "low"  # protected key survives removal
+        assert run.state["rtk_effective"] is True  # protected key survives removal
+        assert run.state["benjamin_effective"] is True  # protected key survives removal
+        assert run.state["usage_metrics_recorded"] is True  # protected key survives removal
         assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # protected key survives removal
         assert run.state["analysis_target_custom_image_id"] == "img-real"
@@ -6643,12 +6730,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_open_and_edit(
-        self, mock_integration_for_mapping, _mock_canvas_file_flag, _mock_living_artifacts_flag
-    ):
+    def test_living_artifact_create_open_and_edit(self, mock_integration_for_mapping):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(
@@ -6731,19 +6814,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("s3", json.dumps(response.json()))
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_living_artifact_create_slack_file_from_base64(
-        self,
-        mock_integration_for_mapping,
-        mock_write,
-        _mock_tag,
-        _mock_canvas_file_flag,
-        _mock_living_artifacts_flag,
-    ):
+    def test_living_artifact_create_slack_file_from_base64(self, mock_integration_for_mapping, mock_write, _mock_tag):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         integration = Integration.objects.create(
@@ -9065,6 +9139,46 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         )
         self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
         self.assertEqual(events[-1]["event"], "stream-end")
+
+    @override_settings(TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS=["user_created"])
+    def test_stream_presence_gated_run_reads_missing_stream_instead_of_erroring(self):
+        task = self.create_task()
+        run = task.create_run()
+        self.assertIs(run.state["stream_presence_gated"], True)
+
+        captured: dict = {}
+
+        async def fake_read(
+            redis_stream: TaskRunRedisStream, start_id: str = "0", **kwargs
+        ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:
+            captured["start_id"] = start_id
+            yield (
+                "1-1",
+                {
+                    "type": "notification",
+                    "notification": {"jsonrpc": "2.0", "method": "_posthog/console", "params": {}},
+                },
+            )
+
+        with (
+            patch.object(TaskRunRedisStream, "read_stream_entries", fake_read),
+            patch.object(TaskRunRedisStream, "get_latest_stream_id", AsyncMock(return_value="5-5")) as mock_latest,
+            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS", 0.2),
+        ):
+            response = self.client.get(self._stream_url(task, run) + "?start=latest")
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([event for event in events if event["event"] == "error"], [])
+        self.assertEqual(captured["start_id"], "0")
+        mock_latest.assert_not_awaited()
+
+        async def _watched() -> bool:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            watched_key = get_task_run_stream_watched_key(get_task_run_stream_key(str(run.id)))
+            return bool(await redis_stream._redis_client.exists(watched_key))
+
+        self.assertTrue(asyncio.run(_watched()))
 
 
 class TestTaskRunRedisStreamKeepalive(TestCase):
@@ -12852,10 +12966,14 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(state["custom_image_builder_id"], data["id"])
         self.assertIs(state["use_modal_vm_sandbox"], True)
         self.assertEqual(state["runtime_adapter"], "claude")
-        self.assertEqual(state["model"], "@cf/zai-org/glm-5.2")
+        self.assertEqual(state["model"], "zai-org/glm-5.3-flash")
         self.assertEqual(state["reasoning_effort"], "high")
-        self.assertIn("image-spec.yaml", state["pending_user_message"])
-        self.assertIn("install pytorch and flox", state["pending_user_message"])
+        message = state["pending_user_message"]
+        self.assertIn("image-spec.yaml", message)
+        self.assertIn("run_commands:  # shell commands executed in order at image BUILD time\n  - >-", message)
+        self.assertIn("validate its YAML syntax", message)
+        self.assertIn("uv run --no-project --with PyYAML", message)
+        self.assertIn("install pytorch and flox", message)
 
     @parameterized.expand(
         [

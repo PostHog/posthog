@@ -781,11 +781,11 @@ class TestTasksCard:
         assert "<https://app/project/1/tasks/abc|View on web>" in sub
         assert "<https://us.posthog.com/code/task/abc|View on desktop>" in sub
 
-    def test_both_task_links_are_withheld_from_a_viewer_without_code_access(self):
-        # A task page is as much a dead end for them as the desktop app, so the pair goes
-        # together — the same rule the reply footer's links follow.
+    def test_only_the_desktop_link_is_withheld_from_a_viewer_without_desktop_access(self):
+        # The task page enforces access itself, so the web link stays even when the
+        # desktop one is withheld — the same rule the reply footer's links follow.
         state = TasksState(
-            items=(self._item(posthog_url=None, desktop_url=None),),
+            items=(self._item(desktop_url=None),),
             has_any_tasks=True,
             page=0,
             total_pages=1,
@@ -794,7 +794,7 @@ class TestTasksCard:
         view = render_home_view(**self._kwargs(tasks_state=state))
         _, sub = self._task_items(view, expected_count=1)[0]
 
-        assert "View on web" not in sub
+        assert "View on web" in sub
         assert "View on desktop" not in sub
 
     def test_title_is_plain_text_when_neither_thread_nor_task_link_is_available(self):
@@ -1094,7 +1094,6 @@ class TestTasksControlsResolveViewState:
     def _resolved_state(self, monkeypatch, payload: dict):
         captured: dict[str, Any] = {}
         monkeypatch.setattr(slack_app_home, "_resolve_interaction_integration", lambda team_id, user_id: object())
-        monkeypatch.setattr(slack_app_home, "is_slack_app_home_enabled", lambda integration: True)
         monkeypatch.setattr(
             slack_app_home,
             "_republish_home",

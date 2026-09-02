@@ -27,18 +27,20 @@ export interface PendingTaskPrompt {
   createdAt: number;
 }
 
-export type PendingTaskPromptInput = Omit<
+type PendingTaskPromptInput = Omit<
   PendingTaskPrompt,
   "createdAt" | "interruptReason"
 >;
 
 interface PendingTaskPromptStore {
   byKey: Record<string, PendingTaskPrompt>;
+  handoffs: Record<string, PendingTaskPrompt>;
   _hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
   set: (key: string, prompt: PendingTaskPromptInput) => void;
   get: (key: string) => PendingTaskPrompt | undefined;
   move: (fromKey: string, toKey: string) => void;
+  clearHandoff: (key: string) => void;
   markInterrupted: (key: string, reason: PendingPromptInterruptReason) => void;
   clear: (key: string) => void;
 }
@@ -47,6 +49,7 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
   persist(
     (set, get) => ({
       byKey: {},
+      handoffs: {},
       _hasHydrated: false,
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
       set: (key, prompt) =>
@@ -67,9 +70,20 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
             return state;
           }
           const { [fromKey]: _removed, ...rest } = state.byKey;
-          return { byKey: { ...rest, [toKey]: entry } };
+          return {
+            byKey: { ...rest, [toKey]: entry },
+            handoffs: { ...state.handoffs, [fromKey]: entry },
+          };
         });
       },
+      clearHandoff: (key) =>
+        set((state) => {
+          if (!(key in state.handoffs)) {
+            return state;
+          }
+          const { [key]: _removed, ...rest } = state.handoffs;
+          return { handoffs: rest };
+        }),
       markInterrupted: (key, reason) =>
         set((state) => {
           const entry = state.byKey[key];
@@ -107,7 +121,7 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
   ),
 );
 
-export interface RecoverablePendingPrompt {
+interface RecoverablePendingPrompt {
   key: string;
   prompt: PendingTaskPrompt;
 }
@@ -118,6 +132,8 @@ export const pendingTaskPromptStoreApi = {
   get: (key: string) => usePendingTaskPromptStore.getState().get(key),
   move: (fromKey: string, toKey: string) =>
     usePendingTaskPromptStore.getState().move(fromKey, toKey),
+  clearHandoff: (key: string) =>
+    usePendingTaskPromptStore.getState().clearHandoff(key),
   markInterrupted: (key: string, reason: PendingPromptInterruptReason) =>
     usePendingTaskPromptStore.getState().markInterrupted(key, reason),
   clear: (key: string) => usePendingTaskPromptStore.getState().clear(key),

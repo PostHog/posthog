@@ -191,7 +191,7 @@ export function GatewayServerCard({
 
     return (
         <div
-            className={`border rounded p-3 flex items-center gap-3 hover:border-accent transition-colors ${
+            className={`border rounded p-3 flex items-center gap-3 bg-surface-primary hover:border-accent transition-colors ${
                 disabled ? 'opacity-60' : ''
             } ${recommended ? '' : 'cursor-pointer'}`}
             role={recommended ? undefined : 'button'}

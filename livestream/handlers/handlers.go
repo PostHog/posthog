@@ -135,6 +135,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		}
 
 		propertyFilters := parsePropertyFilters(c.QueryParam("properties"), c.QueryParams()["property"])
+		pathCleaner := events.NewPathCleanerFromJSON(c.QueryParam("pathCleaning"))
 
 		subscription := events.Subscription{
 			SubID:           atomic.AddUint64(&subID, 1),
@@ -145,6 +146,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 			Columns:         columns,
 			EventTypes:      eventTypes,
 			PropertyFilters: propertyFilters,
+			PathCleaner:     pathCleaner,
 			EventChan:       make(chan interface{}, 100),
 			ShouldClose:     &atomic.Bool{},
 			DroppedEvents:   &atomic.Uint64{},

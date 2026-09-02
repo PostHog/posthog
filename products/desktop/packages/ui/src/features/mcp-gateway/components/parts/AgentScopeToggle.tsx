@@ -9,12 +9,12 @@ import {
 const OPTIONS: { id: McpAgentGrantScope; label: string; hint: string }[] = [
   {
     id: "personal",
-    label: "Just my agents",
+    label: "Only me",
     hint: "The agent uses your connection only when it runs for you.",
   },
   {
     id: "team",
-    label: "All team agents",
+    label: "Everyone in this project",
     hint: "The agent uses your connection for every run in this project, including runs nobody started. Teammates can't use the connection directly, but agents act through it on their runs too.",
   },
 ];
@@ -36,7 +36,7 @@ export function AgentScopeToggle({
     <TooltipProvider>
       <div
         role="radiogroup"
-        aria-label="Which runs use your connection"
+        aria-label="Who can use this connection"
         className="inline-flex items-stretch overflow-hidden rounded-md border border-gray-5 bg-gray-2"
       >
         {OPTIONS.map((option, index) => {

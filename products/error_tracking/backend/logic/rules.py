@@ -83,7 +83,7 @@ _ReorderableRule = TypeVar(
 def _reorder_rules(model: type[_ReorderableRule], team_id: int, orders: dict[str, int]) -> None:
     rules = list(model.objects.filter(team_id=team_id, id__in=orders.keys()))
     for rule in rules:
-        rule.order_key = orders[str(rule.id)]
+        rule.order_key = orders[str(rule.id)]  # ty: ignore[invalid-assignment]
     model.objects.filter(team_id=team_id).bulk_update(rules, ["order_key"])
 
 

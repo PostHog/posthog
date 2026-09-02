@@ -23,8 +23,9 @@
 #   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
 #   external Trunk service; the upload is best-effort and a local "Fail on test
-#   failure" step owns the pass/fail verdict. Canonical can stage or filter JUnit
-#   before this upload. The shadow strips all of it because a non-blocking timing
+#   failure" step owns the pass/fail verdict. Canonical stages JUnit under per-product
+#   filenames before this upload, and can hold a product back from quarantine by naming
+#   its report as an exclusion. The shadow strips all of it because a non-blocking timing
 #   trial must not post to Trunk, and so it also omits the test
 #   steps' continue-on-error and that verdict step, letting each shard's test
 #   exit code be the verdict directly. Canonical gates each quarantine gate on the
@@ -46,6 +47,13 @@
 #   reporter can pair re-run recoveries with attempt-1 failures, and the guard that skips the
 #   job when both test matrices were skipped, with the needs: entries that feed it) need no
 #   depot bump.
+# - Hourly scheduled master run: canonical no longer runs the test matrices on master push
+#   (the merge queue's trunk-merge/** run gates every commit) and runs them from an hourly
+#   `schedule` trigger instead — the shape this shadow always had (its `!= 'push'` gates on
+#   turbo-discover / get_clickhouse_versions). A sampling trial must not run on a timer, so
+#   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
+#   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
+#   exclusion, and the paths-filter schedule skip) are depot-exempt.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
@@ -81,7 +89,8 @@
 #   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER because Depot never indirects
 #   through env:, so canonical's per-job env-scoping (workflow-level -> job-level,
 #   for the gha-workflow-env-secret Semgrep fix) is depot-exempt. Login is best-effort
-#   because these jobs only pull public images and can fall back to anonymous pulls.
+#   because these jobs only pull public images and can fall back to anonymous pulls,
+#   which canonical relies on too.
 # - Path-filter persons-SQL is folded into migrations
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
 #   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
@@ -495,7 +504,8 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # Not on master push: only feeds the matrices, which master pushes skip.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:

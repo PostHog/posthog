@@ -343,6 +343,7 @@ from .deel.source import DeelSource
 from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
+from .demodesk.source import DemodeskSource
 from .deno_deploy.source import DenoDeploySource
 from .depot.source import DepotSource
 from .deputy.source import DeputySource
@@ -999,6 +1000,7 @@ from .roark.source import RoarkSource
 from .rocket_chat.source import RocketChatSource
 from .rocket_matter.source import RocketMatterSource
 from .rocketlane.source import RocketlaneSource
+from .rokt_ads.source import RoktAdsSource
 from .rollbar.source import RollbarSource
 from .rootly.source import RootlySource
 from .rss.source import RssSource
@@ -1126,6 +1128,7 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource
+from .strato.source import StratoSource
 from .strava.source import StravaSource
 from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
