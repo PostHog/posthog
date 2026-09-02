@@ -21514,10 +21514,15 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at: string | null;
+      /**
+         * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+         * @nullable
+         */
+      readonly failing_since: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -21712,10 +21717,15 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at: string | null;
+      /**
+         * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+         * @nullable
+         */
+      readonly failing_since: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -60973,10 +60983,15 @@ export namespace Schemas {
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status?: string;
       /**
-         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
          * @nullable
          */
       readonly last_succeeded_at?: string | null;
+      /**
+         * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+         * @nullable
+         */
+      readonly failing_since?: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint?: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
