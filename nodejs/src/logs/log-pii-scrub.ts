@@ -93,12 +93,18 @@ export function scrubPlainStringWithStats(input: string): { output: string; piiR
             continue
         }
 
-        const groups = match
-        const fired = PII_RULES.findIndex((_rule, index) => groups[index + 1] !== undefined)
-        if (fired === -1) {
+        // Indexed loop, not `findIndex`: a callback here allocates a closure per match, which is
+        // the cost this loop exists to avoid.
+        let replacement: string | null = null
+        for (let i = 0; i < PII_RULES.length; i++) {
+            if (match[i + 1] !== undefined) {
+                replacement = PII_RULES[i].replacement
+                break
+            }
+        }
+        if (replacement === null) {
             continue
         }
-        const replacement = PII_RULES[fired].replacement
         piiReplacements += 1
 
         pieces ??= []

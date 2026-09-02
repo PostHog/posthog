@@ -98,7 +98,7 @@ describe('log-pattern-mask', () => {
         it.each([
             ['shared object files are not hosts', 'loading libssl.so failed', 'loading libssl.so failed'],
             ['shell scripts are not hosts', 'running deploy.sh in 2s', 'running deploy.sh in <N>s'],
-        ])('host: %s', (_name, input, expected) => {
+        ])('%s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
 
@@ -336,7 +336,7 @@ describe('log-pattern-mask', () => {
          */
         const SHAPE_DIGESTS: Record<number, string> = {
             3: 'd7b045b1054244d1',
-            4: '42f47b8f24e37b3c',
+            4: '240811af07be640e',
         }
 
         /**

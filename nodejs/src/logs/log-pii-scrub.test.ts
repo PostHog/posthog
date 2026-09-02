@@ -18,22 +18,16 @@ describe('log-pii-scrub', () => {
     })
 
     describe('scrubPlainString', () => {
-        it('redacts email addresses', () => {
-            expect(scrubPlainString('contact user@example.com please')).toBe(`contact ${PII_REDACTED} please`)
-        })
-
+        // Bearer keeps its prefix, so it is the one shape the table below cannot assert.
         it('redacts Bearer tokens', () => {
             expect(scrubPlainString('Authorization: Bearer abc.def.ghi')).toBe(`Authorization: Bearer ${PII_REDACTED}`)
         })
 
-        it('redacts Stripe-style secret keys', () => {
-            const syntheticStripeTestKey = 'sk_' + 'test_' + '123456789012345678901234'
-            expect(scrubPlainString(`key ${syntheticStripeTestKey}`)).toBe(`key ${PII_REDACTED}`)
-        })
-
-        // Built by concatenation, like the Stripe key above, so no line of this file reads as a
-        // live credential to a secret scanner.
+        // Secrets are built by concatenation, so no line of this file reads as a live credential to
+        // a secret scanner.
         it.each([
+            ['email addresses', 'user@example.com'],
+            ['Stripe-style secret keys', 'sk_' + 'test_' + '123456789012345678901234'],
             ['GitHub personal access tokens', 'gh' + 'p_' + 'A1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvWxYz'],
             ['GitHub server tokens', 'gh' + 's_' + 'A1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvWxYz'],
             ['Slack tokens', 'xox' + 'b-' + '123456789012-abcdefghijkl'],
