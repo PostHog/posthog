@@ -17,7 +17,14 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, getNextRetryTime, isFetchResponseRetriable, parseRetryAfterMs } from '../utils/cdp-fetch'
+import {
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    getNextRetryTime,
+    isFetchResponseRetriable,
+    parseRetryAfterMs,
+    RATE_LIMIT_MIN_RETRIES,
+} from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -526,7 +533,14 @@ export class HogExecutorAsyncService {
             const retryAfterMs = parseRetryAfterMs(fetchResponse)
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
-            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            const configuredMaxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            // A 429 means "come back when the window resets" - with the default 3 retries the
+            // schedule can never get there, so rate-limited requests get a higher ceiling.
+            // An explicit maxFetchRetries override (e.g. backfills) is still respected as-is.
+            const maxRetries =
+                isRateLimited && options?.maxFetchRetries === undefined
+                    ? Math.max(configuredMaxRetries, RATE_LIMIT_MIN_RETRIES)
+                    : configuredMaxRetries
             // `canRetry` only says the failure class is retriable. On the last attempt it is still
             // true while no retry follows, so the customer-facing log has to gate on the same
             // condition the scheduling below does.
