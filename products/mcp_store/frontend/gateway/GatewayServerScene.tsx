@@ -206,7 +206,11 @@ export function GatewayServerScene({
                             size="small"
                             loading={connectingServerId === server.id}
                             disabledReason={
-                                server.is_team_enabled ? undefined : 'This server is turned off for the team.'
+                                !server.is_team_enabled
+                                    ? 'This server is turned off for the team.'
+                                    : server.is_revoked_for_you
+                                      ? 'Ask an admin to restore your access first.'
+                                      : undefined
                             }
                             onClick={() => connectServer(server.id)}
                         >
