@@ -194,6 +194,25 @@ class ProvisioningCapabilityFilter(admin.SimpleListFilter):
         return queryset.filter(**{f"_provisioning_config__{capability}": True})
 
 
+def cimd_blocklist_warning(application: OAuthApplication) -> str | None:
+    """The warning to show before deleting an application, or None when it needs none.
+
+    A post_delete signal blocklists a CIMD app's metadata URL so the partner cannot register
+    again from the same document. Nothing else on the delete confirmation page says so (either
+    the single-object page or the bulk "Delete selected" one), and afterwards the only symptom
+    is authorize rejecting that client_id, so warn while the operator can still stop.
+
+    A CIMD app carries its metadata URL as its client_id, which is the value the signal blocks.
+    """
+    if not application.is_cimd_client:
+        return None
+    return format_html(
+        "Deleting this app also blocklists <code>{}</code>, so it cannot register again from "
+        "its metadata document. Remove the entry under CIMD Blocklist Entries to allow it back.",
+        application.client_id,
+    )
+
+
 # Registered manually in `posthog/admin/__init__.py::register_all_admin()`
 # after `admin.site.unregister(OAuthApplication)` clears the default that
 # `oauth2_provider`'s autodiscover sets up. `@admin.register` would race
@@ -272,6 +291,11 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
             "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
         }
         return TemplateResponse(request, "admin/posthog/oauthapplication/revoke_all_sessions_confirm.html", context)
+
+    def get_deleted_objects(self, objs, request):
+        to_delete, model_count, perms_needed, protected = super().get_deleted_objects(objs, request)
+        to_delete.extend(warning for app in objs if (warning := cimd_blocklist_warning(app)))
+        return to_delete, model_count, perms_needed, protected
 
     def view_on_site(self, obj: OAuthApplication):
         code_verifier = "test"
