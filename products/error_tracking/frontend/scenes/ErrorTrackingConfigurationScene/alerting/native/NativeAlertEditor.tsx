@@ -21,7 +21,7 @@ import { AlertPreview } from './AlertPreview'
 import { THROTTLE_OPTIONS, TRIGGER_OPTIONS, nativeAlertEditorLogic, splitChannel } from './nativeAlertEditorLogic'
 
 export function NativeAlertEditor(): JSX.Element {
-    const { isOpen, draft, preview, previewLoading, saving, deleting, saveDisabledReason } =
+    const { isOpen, draft, preview, previewLoading, savingLoading, deletingLoading, saveDisabledReason } =
         useValues(nativeAlertEditorLogic)
     const {
         closeEditor,
@@ -69,8 +69,8 @@ export function NativeAlertEditor(): JSX.Element {
                                         secondaryButton: { children: 'Cancel' },
                                     })
                                 }
-                                loading={deleting}
-                                disabledReason={saving ? 'Saving' : undefined}
+                                loading={deletingLoading}
+                                disabledReason={savingLoading ? 'Saving' : undefined}
                             >
                                 Delete
                             </LemonButton>
@@ -83,8 +83,8 @@ export function NativeAlertEditor(): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={saveAlert}
-                            loading={saving}
-                            disabledReason={saveDisabledReason ?? (deleting ? 'Deleting' : undefined)}
+                            loading={savingLoading}
+                            disabledReason={saveDisabledReason ?? (deletingLoading ? 'Deleting' : undefined)}
                         >
                             {draft.id ? 'Save' : 'Create alert'}
                         </LemonButton>

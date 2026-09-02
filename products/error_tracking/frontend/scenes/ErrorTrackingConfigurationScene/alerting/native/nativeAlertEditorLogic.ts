@@ -348,6 +348,14 @@ export const nativeAlertEditorLogic = kea<nativeAlertEditorLogicType>([
                 if (draft.triggers.length === 0) {
                     return 'Pick at least one trigger'
                 }
+                // A half-filled row would be dropped from the payload without a word, so block on it.
+                const halfFilled = draft.destinations.some(
+                    (destination) =>
+                        (destination.integrationId === null) !== (splitChannel(destination.channel) === null)
+                )
+                if (halfFilled) {
+                    return 'Pick a channel for every Slack destination, or remove the empty one'
+                }
                 if (payloadFromDraft(draft).destinations.length === 0) {
                     return 'Pick a Slack workspace and channel'
                 }

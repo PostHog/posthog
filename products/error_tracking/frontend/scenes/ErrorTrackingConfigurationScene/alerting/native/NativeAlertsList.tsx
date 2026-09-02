@@ -58,6 +58,8 @@ function AlertCard({ alert }: { alert: ErrorTrackingAlertApi }): JSX.Element {
     const { openEditor } = useActions(nativeAlertEditorLogic)
     const editDisabledReason = errorTrackingEditAccessDisabledReason() ?? undefined
     const properties = (alert.filters.properties ?? []) as AnyPropertyFilter[]
+    // Event filters can be set through the API but not in this editor; say they exist rather than hide them.
+    const eventFilterCount = alert.filters.events?.length ?? 0
 
     return (
         <LemonCard hoverEffect={false} className={alert.enabled ? 'flex flex-col p-0' : 'flex flex-col p-0 opacity-70'}>
@@ -98,7 +100,7 @@ function AlertCard({ alert }: { alert: ErrorTrackingAlertApi }): JSX.Element {
                 <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold uppercase text-secondary">Only if</span>
                     <div className="flex flex-wrap gap-1">
-                        {properties.length === 0 ? (
+                        {properties.length === 0 && eventFilterCount === 0 ? (
                             <span className="text-secondary text-sm">Every matching issue</span>
                         ) : (
                             properties.map((property, index) => (
@@ -106,6 +108,13 @@ function AlertCard({ alert }: { alert: ErrorTrackingAlertApi }): JSX.Element {
                                     {propertyLabel(property)}
                                 </LemonTag>
                             ))
+                        )}
+                        {eventFilterCount > 0 && (
+                            <LemonTag size="small" type="muted">
+                                {eventFilterCount === 1
+                                    ? '1 event filter set via the API'
+                                    : `${eventFilterCount} event filters set via the API`}
+                            </LemonTag>
                         )}
                     </div>
                 </div>
