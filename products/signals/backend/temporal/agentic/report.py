@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, TypeVar
 
 from django.conf import settings
@@ -24,6 +25,7 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.repo_corrections import WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -56,12 +58,17 @@ from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class RunAgenticReportInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
     repo_selection: RepoSelectionResult
+    # Workflow time from just before repo_selection was resolved. Lets the persist step detect a
+    # reviewer rewriting the selection while the run was in flight (a wrong-repo dismissal
+    # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
+    # older workflow history that predates this field replays cleanly (guard off).
+    repo_selection_as_of: datetime | None = None
 
 
 @dataclass
@@ -297,6 +304,38 @@ def _report_has_live_suggested_reviewers(report_id: str) -> bool:
         return True
 
 
+def _reviewer_selection_written_since(team_id: int, report_id: str, since: datetime) -> bool:
+    """Whether a reviewer superseded the run's repo selection after `since` — a wrong-repo
+    dismissal's correction or clear that landed while the run was in flight.
+
+    Two shapes count. A person editing the selection directly (a repo_selection artefact through
+    the artefacts API) carries a non-null `created_by`. A wrong-repo dismissal filed through the
+    state API records its correction on a `dismissal` artefact under the request's attribution —
+    which is null-`created_by` for an agent call, since the forwarded task id attributes the row and
+    attribution is exclusive — so filtering on `created_by` alone would miss an agent-issued
+    correction. Keying off the dismissal artefact instead is attribution-agnostic, and it cannot
+    false-positive on the activity's own retry (whose `repo_selection_as_of` does not advance past
+    its first attempt) because the pipeline never writes `dismissal` artefacts — only the
+    state-transition path does.
+    """
+    reviewer_edited_selection = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        created_at__gt=since,
+        created_by__isnull=False,
+    ).exists()
+    if reviewer_edited_selection:
+        return True
+    return SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.DISMISSAL,
+        created_at__gt=since,
+        content__contains=WRONG_REPO_CONTENT_NEEDLE,
+    ).exists()
+
+
 def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -354,6 +393,7 @@ async def _persist_agentic_report_artefacts(
     report_id: str,
     result: ReportResearchOutput,
     repo_selection: RepoSelectionResult,
+    repo_selection_as_of: datetime | None = None,
 ) -> None:
     # Resolve suggested reviewers from commit hashes (always, from the effective findings —
     # auto-start below needs them even when nothing is persisted this run)
@@ -388,8 +428,27 @@ async def _persist_agentic_report_artefacts(
     # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
+    # A reviewer can rewrite the selection while this run is in flight (a wrong-repo dismissal
+    # correcting or clearing it). The run's value predates that decision, so persisting it would
+    # bury the reviewer's row (latest-wins), handing the rejected repository to the next run and
+    # to settle-time auto-start, which reads the report's current artefacts.
+    superseded_by_reviewer = repo_selection_as_of is not None and await database_sync_to_async(
+        _reviewer_selection_written_since, thread_sensitive=False
+    )(team_id, report_id, repo_selection_as_of)
+    if superseded_by_reviewer:
+        logger.info(
+            "signals repo selection persist skipped: a reviewer rewrote the selection mid-run",
+            report_id=report_id,
+            team_id=team_id,
+            repository=repo_selection.repository,
+        )
+
     artefacts = [
-        ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution),
+        *(
+            []
+            if superseded_by_reviewer
+            else [ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution)]
+        ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
     if reviewers_content and has_new_finding:
@@ -600,6 +659,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.report_id,
                 result,
                 input.repo_selection,
+                repo_selection_as_of=input.repo_selection_as_of,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()

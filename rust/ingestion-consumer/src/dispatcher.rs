@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use common_kafka_consumer::{Offset, Partition};
 use k8s_awareness::PeerTracker;
 use metrics::{counter, gauge, histogram};
 
@@ -11,7 +12,7 @@ use crate::debug_recorder::{
 use crate::order_sentinel::{KeyOrderSentinel, SendKind};
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
-use crate::types::SerializedKafkaMessage;
+use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::{WorkerId, WorkerRegistry};
 
 /// The max offset a sub-batch carries for one routing key, over keyed
@@ -293,9 +294,23 @@ impl Dispatcher {
         }
     }
 
-    /// Assign a batch of messages to workers.
+    /// Assign a batch of messages to workers. Demuxes the messages into
+    /// groups first, as the collect path does for a poll, then assigns them
+    /// like [`Dispatcher::assign_and_send`].
+    pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
+        let mut table = self.pin_table.lock().unwrap();
+        self.assign_locked(&mut table, batch_id, demux(messages))
+    }
+
+    /// Assign a poll's groups to workers, then hand each sub-batch to `send`
+    /// before releasing the pin table. A key admitted here because nothing of
+    /// its is deferred must enter its worker stream before `defer_failed` can
+    /// stash an older group for it: with the lock released in between, the
+    /// stash could land first, the worker stream's fence could lift, and the
+    /// newer group would ride the next stream ahead of the older one. `send`
+    /// must not block.
     ///
-    /// Groups messages by routing key, then per group:
+    /// Per group:
     /// - honor an existing pin to a worker still taking work;
     /// - **defer** (stash under `batch_id`) a key pinned to a draining/dead
     ///   worker, or one that already has deferred groups pending, so newer
@@ -304,27 +319,16 @@ impl Dispatcher {
     ///   group when no worker is routable at all, so a transient full-pool
     ///   outage holds messages instead of failing the batch.
     ///
-    /// Returns one `SubBatch` per worker to send now. Deferred groups stay in
-    /// the stash and are flushed later via [`Dispatcher::flush_deferred`].
-    pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
-        let mut table = self.pin_table.lock().unwrap();
-        self.assign_locked(&mut table, batch_id, messages)
-    }
-
-    /// Assign, then hand each sub-batch to `send` before releasing the pin
-    /// table. A key admitted here because nothing of its is deferred must
-    /// enter its worker stream before `defer_failed` can stash an older group for it:
-    /// with the lock released in between, the stash could land first, the
-    /// worker stream's fence could lift, and the newer group would ride the next
-    /// stream ahead of the older one. `send` must not block.
+    /// Sends one `SubBatch` per worker. Deferred groups stay in the stash and
+    /// are flushed later via [`Dispatcher::flush_deferred`].
     pub fn assign_and_send<T>(
         &self,
         batch_id: &str,
-        messages: Vec<SerializedKafkaMessage>,
+        groups: Vec<Group>,
         send: impl FnMut(SubBatch) -> T,
     ) -> Vec<T> {
         let mut table = self.pin_table.lock().unwrap();
-        self.assign_locked(&mut table, batch_id, messages)
+        self.assign_locked(&mut table, batch_id, groups)
             .into_iter()
             .map(send)
             .collect()
@@ -334,12 +338,12 @@ impl Dispatcher {
         &self,
         table: &mut PinTable,
         batch_id: &str,
-        messages: Vec<SerializedKafkaMessage>,
+        groups: Vec<Group>,
     ) -> Vec<SubBatch> {
         let GroupedMessages {
             groups: key_groups,
             unkeyed_count,
-        } = group_messages_by_routing_key(messages);
+        } = routing_groups(groups);
 
         if unkeyed_count > 0 {
             counter!("ingestion_consumer_dispatcher_unkeyed_messages_total")
@@ -932,32 +936,56 @@ struct GroupedMessages {
     unkeyed_count: u64,
 }
 
-fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> GroupedMessages {
-    let mut grouped_messages: HashMap<String, Vec<SerializedKafkaMessage>> = HashMap::new();
-    let mut unkeyed_count = 0u64;
-
+/// Demux messages into groups the way the collect path does for a poll.
+fn demux(messages: Vec<SerializedKafkaMessage>) -> Vec<Group> {
+    let mut accumulator = Accumulator::default();
     for message in messages {
-        let routing_key = message.key.clone().unwrap_or_else(|| {
-            unkeyed_count += 1;
-            // An unkeyed message has no order to preserve, so it can go to any
-            // worker. A synthetic per-message key spreads such messages across
-            // workers instead of pinning them all to one shared fallback key.
-            format!(":{}:{}", message.partition, message.offset)
-        });
-        grouped_messages
-            .entry(routing_key)
-            .or_default()
-            .push(message);
+        accumulator.push(Partition(message.partition), message.into());
+    }
+    accumulator.into_groups()
+}
+
+fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> GroupedMessages {
+    routing_groups(demux(messages))
+}
+
+/// Name each group for the pin table. A keyed group's routing key is its
+/// Kafka key. An unkeyed message has no order to preserve, so it can go to
+/// any worker: a synthetic per-message key spreads such messages across
+/// workers instead of pinning them all to one shared fallback key.
+///
+/// The pin table is keyed by routing key alone, so a key that arrives on two
+/// partitions in one poll (a partition-count change leaves its backlog on the
+/// old partition) merges into one group: two groups for one key could route
+/// to two workers at once.
+fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
+    let mut unkeyed_count = 0u64;
+    let mut merged: Vec<MessageGroup> = Vec::with_capacity(groups.len());
+    let mut index_by_key: HashMap<String, usize> = HashMap::new();
+    for group in groups {
+        let routing_key = match group.key {
+            Some(key) => key,
+            None => {
+                unkeyed_count += 1;
+                let first = group.messages.first().map_or(Offset(-1), |m| m.offset);
+                format!(":{}:{}", group.partition, first)
+            }
+        };
+        let messages = group.messages.into_iter().map(|m| m.message);
+        match index_by_key.get(&routing_key) {
+            Some(&index) => merged[index].messages.extend(messages),
+            None => {
+                index_by_key.insert(routing_key.clone(), merged.len());
+                merged.push(MessageGroup {
+                    routing_key,
+                    messages: messages.collect(),
+                });
+            }
+        }
     }
 
     GroupedMessages {
-        groups: grouped_messages
-            .into_iter()
-            .map(|(routing_key, messages)| MessageGroup {
-                routing_key,
-                messages,
-            })
-            .collect(),
+        groups: merged,
         unkeyed_count,
     }
 }
@@ -1072,6 +1100,29 @@ mod tests {
         assert_eq!(grouped.unkeyed_count, 0);
         assert_eq!(grouped.groups.len(), 1);
         assert_eq!(grouped.groups[0].routing_key, "tok:user-1");
+        assert_eq!(grouped.groups[0].messages.len(), 2);
+    }
+
+    #[test]
+    fn test_same_routing_key_on_two_partitions_stays_one_group() {
+        let grouped = group_messages_by_routing_key(vec![
+            SerializedKafkaMessage {
+                partition: 0,
+                offset: 1,
+                ..make_msg("tok:user-1")
+            },
+            SerializedKafkaMessage {
+                partition: 3,
+                offset: 9,
+                ..make_msg("tok:user-1")
+            },
+        ]);
+
+        assert_eq!(
+            grouped.groups.len(),
+            1,
+            "one key must not split across workers"
+        );
         assert_eq!(grouped.groups[0].messages.len(), 2);
     }
 
@@ -2027,21 +2078,22 @@ mod tests {
 
         let racing = Arc::clone(&dispatcher);
         let mut race = None;
-        let sent = dispatcher.assign_and_send("batch-2", make_msgs(&["t:user-1"]), |sub_batch| {
-            // Admitted behind batch-1's live pin. batch-1's send now fails
-            // and tries to stash its messages before this group is enqueued.
-            let dispatcher = Arc::clone(&racing);
-            let handle = std::thread::spawn(move || {
-                dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
+        let sent =
+            dispatcher.assign_and_send("batch-2", demux(make_msgs(&["t:user-1"])), |sub_batch| {
+                // Admitted behind batch-1's live pin. batch-1's send now fails
+                // and tries to stash its messages before this group is enqueued.
+                let dispatcher = Arc::clone(&racing);
+                let handle = std::thread::spawn(move || {
+                    dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
+                });
+                std::thread::sleep(Duration::from_millis(50));
+                assert!(
+                    !handle.is_finished(),
+                    "defer_failed must wait until the admitted group is enqueued"
+                );
+                race = Some(handle);
+                sub_batch
             });
-            std::thread::sleep(Duration::from_millis(50));
-            assert!(
-                !handle.is_finished(),
-                "defer_failed must wait until the admitted group is enqueued"
-            );
-            race = Some(handle);
-            sub_batch
-        });
         assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
         race.take().expect("send ran").join().expect("defer_failed");
 

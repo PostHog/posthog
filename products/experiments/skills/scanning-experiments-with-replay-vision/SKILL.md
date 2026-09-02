@@ -165,4 +165,4 @@ The check that does settle it is asking the people. A short survey, triggered wh
 
 Two constraints carry over from this skill and matter as much here. Don't name the variant in the survey question, for the same reason the scanner prompt doesn't: the answer stops being evidence about the surface. And prefer asking everyone who completes the flow over targeting one variant, because a popover shown to one variant is a difference between the variants that the experiment is still measuring.
 
-→ See `references/qualitative-feedback.md` in [[diagnosing-experiment-results]]
+→ See [`references/qualitative-feedback.md`](../diagnosing-experiment-results/references/qualitative-feedback.md) in [[diagnosing-experiment-results]]
