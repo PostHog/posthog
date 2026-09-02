@@ -1,4 +1,8 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import {
+  subscriptionModelAccess,
+  type WorkspaceModeForAccess,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type ReactElement, useState } from "react";
@@ -101,7 +105,11 @@ function contextWindowOption(): SessionConfigOption {
   } as unknown as SessionConfigOption;
 }
 
-function Harness(): ReactElement {
+function Harness({
+  workspaceMode,
+}: {
+  workspaceMode?: WorkspaceModeForAccess;
+}): ReactElement {
   const [adapter, setAdapter] = useState<AgentAdapter>("claude");
   const [model, setModel] = useState("claude-opus-5");
   const [effort, setEffort] = useState("medium");
@@ -121,6 +129,26 @@ function Harness(): ReactElement {
           setModel(nextModel);
         }}
         onConfigOptionChange={() => {}}
+        showBillingMenu={workspaceMode !== undefined}
+        workspaceMode={workspaceMode}
+        // Logged out in Storybook (the status query never resolves), so the
+        // submenu shows the PostHog-checked state with the provider disabled.
+        modelAccess={
+          workspaceMode === undefined
+            ? undefined
+            : subscriptionModelAccess(
+                {
+                  flagEnabled: true,
+                  subscriptionOn: false,
+                  status: undefined,
+                  loggedIn: false,
+                  loginState: "unknown",
+                  needsConnection: false,
+                  setSubscriptionOn: () => {},
+                },
+                workspaceMode,
+              )
+        }
       />
     </div>
   );
@@ -147,5 +175,52 @@ export const GroupedModelSubmenu: Story = {
     );
     await userEvent.hover(await body.findByText("Model"));
     await body.findByText("GPT-5.6 Sol");
+  },
+};
+
+async function openBillingSubmenu(
+  canvas: ReturnType<typeof within>,
+  canvasElement: HTMLElement,
+  userEvent: {
+    click: (el: HTMLElement) => Promise<void>;
+    hover: (el: HTMLElement) => Promise<void>;
+  },
+): Promise<void> {
+  const body = within(canvasElement.ownerDocument.body);
+  await userEvent.click(
+    canvas.getByRole("button", { name: /Model and reasoning/ }),
+  );
+  await userEvent.click(await body.findByRole("button", { name: "Advanced" }));
+  await userEvent.click(await body.findByRole("menuitem", { name: /Billing/ }));
+}
+
+function BillingHarnessLocal(): ReactElement {
+  return <Harness workspaceMode="local" />;
+}
+
+function BillingHarnessCloud(): ReactElement {
+  return <Harness workspaceMode="cloud" />;
+}
+
+export const LocalBilling: StoryObj<typeof BillingHarnessLocal> = {
+  render: () => <BillingHarnessLocal />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByRole("menuitemradio", { name: "PostHog" });
+    await body.findByRole("menuitemradio", { name: "Anthropic" });
+  },
+};
+
+export const CloudBilling: StoryObj<typeof BillingHarnessCloud> = {
+  render: () => <BillingHarnessCloud />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    const provider = await body.findByRole("menuitemradio", {
+      name: "Anthropic",
+    });
+    await userEvent.hover(provider);
+    await body.findByText(/Anthropic billing only works/);
   },
 };

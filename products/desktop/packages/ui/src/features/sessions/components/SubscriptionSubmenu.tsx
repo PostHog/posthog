@@ -19,9 +19,9 @@ import {
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 
-const PLAN_LABEL: Record<Adapter, string> = {
-  claude: "Your Claude plan",
-  codex: "Your ChatGPT plan",
+const PROVIDER_LABEL: Record<Adapter, string> = {
+  claude: "Anthropic",
+  codex: "OpenAI",
 };
 
 const LOGIN_LABEL: Record<Adapter, string> = {
@@ -36,9 +36,9 @@ export const SUBSCRIPTION_LOGIN_ACTION: Record<Adapter, string> = {
 
 const CLOUD_ONLY_REASON: Record<Adapter, string> = {
   claude:
-    "Your Claude plan only works for local and worktree tasks. Cloud tasks always use PostHog credits.",
+    "Anthropic billing only works for local and worktree tasks. Cloud tasks always use PostHog.",
   codex:
-    "Your ChatGPT plan only works for local and worktree tasks. Cloud tasks always use PostHog credits.",
+    "OpenAI billing only works for local and worktree tasks. Cloud tasks always use PostHog.",
 };
 
 const TOOLTIP_DELAY_MS = 150;
@@ -61,17 +61,17 @@ export function SubscriptionSubmenu({
   }
 
   // Cloud tasks always bill PostHog credits (see effectiveModelAccess), so the
-  // plan option is disabled there instead of silently overriding the pick.
+  // provider option is disabled there instead of silently overriding the pick.
   const cloudTask = workspaceMode === "cloud";
-  const planLabel = PLAN_LABEL[adapter];
+  const providerLabel = PROVIDER_LABEL[adapter];
   const value: ModelAccess =
     cloudTask || !subscription.subscriptionOn
       ? "posthog-gateway"
       : "own-subscription";
   const valueLabel =
     subscription.subscriptionOn && subscription.loggedIn && !cloudTask
-      ? planLabel
-      : "PostHog credits";
+      ? providerLabel
+      : "PostHog";
 
   return (
     <DropdownMenuSub>
@@ -98,7 +98,7 @@ export function SubscriptionSubmenu({
             value="posthog-gateway"
             closeOnClick={closeOnChange}
           >
-            PostHog credits
+            PostHog
           </DropdownMenuRadioItem>
           {cloudTask ? (
             <TooltipProvider delay={TOOLTIP_DELAY_MS}>
@@ -110,7 +110,7 @@ export function SubscriptionSubmenu({
                     disabled
                     className="opacity-60"
                   >
-                    {planLabel}
+                    {providerLabel}
                   </DropdownMenuRadioItem>
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-60">
@@ -124,7 +124,7 @@ export function SubscriptionSubmenu({
               closeOnClick={closeOnChange}
               disabled={!subscription.loggedIn}
             >
-              {planLabel}
+              {providerLabel}
             </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>

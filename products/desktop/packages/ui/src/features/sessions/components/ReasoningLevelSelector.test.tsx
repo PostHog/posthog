@@ -851,10 +851,10 @@ describe("ReasoningLevelSelector", () => {
   }, 20000);
 
   it.each([
-    ["claude", "Your Claude plan", "Your Claude plan"],
-    ["codex", "Your ChatGPT plan", "Your ChatGPT plan"],
+    ["claude", "Anthropic", "Anthropic"],
+    ["codex", "OpenAI", "OpenAI"],
   ] as const)(
-    "disables the %s plan option for cloud tasks and names the reason",
+    "disables the %s billing option for cloud tasks and names the reason",
     async (adapter, planLabel, reasonPrefix) => {
       useAdapterSubscription.mockReturnValue(subscriptionState());
       const user = userEvent.setup({ pointerEventsCheck: 0 });
@@ -877,13 +877,13 @@ describe("ReasoningLevelSelector", () => {
       expect(planItem).toHaveAttribute("aria-disabled", "true");
 
       await expect(
-        screen.findByText(new RegExp(`^${reasonPrefix} only works`)),
+        screen.findByText(new RegExp(`^${reasonPrefix} billing only works`)),
       ).resolves.toBeInTheDocument();
     },
     20000,
   );
 
-  it("keeps the plan option selectable for local tasks", async () => {
+  it("keeps the billing option selectable for local tasks", async () => {
     useAdapterSubscription.mockReturnValue(subscriptionState());
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
@@ -900,7 +900,7 @@ describe("ReasoningLevelSelector", () => {
     await openAdvanced(user);
     await openSub(user, /^Billing/);
     expect(
-      screen.getByRole("menuitemradio", { name: "Your Claude plan" }),
+      screen.getByRole("menuitemradio", { name: "Anthropic" }),
     ).not.toHaveAttribute("aria-disabled", "true");
   }, 20000);
 });
