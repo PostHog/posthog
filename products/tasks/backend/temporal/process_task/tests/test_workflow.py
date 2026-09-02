@@ -455,12 +455,17 @@ class TestInactivityTimer:
     TIMEOUT = timedelta(minutes=30)
     NOW = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
 
-    def _workflow(self, monkeypatch, *, last_active_minutes_ago: int | None) -> tuple[ProcessTaskWorkflow, AsyncMock]:
+    def _workflow(
+        self, monkeypatch, *, last_active_minutes_ago: int | None, agent_ready_minutes_ago: int | None = None
+    ) -> tuple[ProcessTaskWorkflow, AsyncMock]:
         wf = ProcessTaskWorkflow()
         wf._context = _build_context(github_integration_id=123)
         wf._chain_started_at = self.NOW - timedelta(minutes=10)
         wf._last_active_time = (
             self.NOW - timedelta(minutes=last_active_minutes_ago) if last_active_minutes_ago is not None else None
+        )
+        wf._agent_ready_at = (
+            self.NOW - timedelta(minutes=agent_ready_minutes_ago) if agent_ready_minutes_ago is not None else None
         )
         sleep_mock = AsyncMock()
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=self.NOW))
@@ -469,17 +474,22 @@ class TestInactivityTimer:
         return wf, sleep_mock
 
     @pytest.mark.parametrize(
-        "last_active_minutes_ago,expected_seconds",
+        "last_active_minutes_ago,agent_ready_minutes_ago,expected_seconds",
         [
-            pytest.param(25, 5 * 60, id="quiet_for_part_of_the_window"),
-            pytest.param(None, 20 * 60, id="no_activity_yet_anchors_to_chain_start"),
-            pytest.param(40, None, id="quiet_past_the_window"),
+            pytest.param(25, None, 5 * 60, id="quiet_for_part_of_the_window"),
+            pytest.param(None, 5, 25 * 60, id="no_activity_yet_anchors_to_agent_ready"),
+            pytest.param(None, None, 20 * 60, id="no_activity_or_agent_ready_falls_back_to_chain_start"),
+            pytest.param(40, None, None, id="quiet_past_the_window"),
         ],
     )
     async def test_the_timer_sleeps_only_the_time_left_on_the_window(
-        self, monkeypatch, last_active_minutes_ago, expected_seconds
+        self, monkeypatch, last_active_minutes_ago, agent_ready_minutes_ago, expected_seconds
     ):
-        wf, sleep_mock = self._workflow(monkeypatch, last_active_minutes_ago=last_active_minutes_ago)
+        wf, sleep_mock = self._workflow(
+            monkeypatch,
+            last_active_minutes_ago=last_active_minutes_ago,
+            agent_ready_minutes_ago=agent_ready_minutes_ago,
+        )
 
         event = await wf._wait_for_inactivity(self.TIMEOUT)
 

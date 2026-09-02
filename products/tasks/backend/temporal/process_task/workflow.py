@@ -703,14 +703,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         workflow events, not the gap since the agent was last active, so any periodic event
         shorter than the timeout holds the exit off for the life of the run.
 
-        A run that has produced no activity yet has no last-activity anchor, so the timer
-        measures from the chain start instead. Without that fallback the timer sleeps the full
-        timeout every pass, and the periodic quota recheck keeps resetting it, so a run whose
-        agent never signals activity only exits at the wall-clock cap, recorded as failed.
+        A run that has produced no activity yet still needs a fixed anchor, or the timer sleeps
+        the full timeout every pass and a periodic event such as the quota recheck resets it, so
+        the run only exits at the wall-clock cap and is recorded as failed. That anchor is when
+        the agent became ready, falling back to the chain start when the agent-ready time is not
+        known yet. Anchoring on the chain start alone would subtract sandbox provisioning,
+        cloning, and agent startup from the window, which for a short timeout can exhaust it
+        before the agent does any work.
         """
         remaining = timeout
         if _anchored_inactivity_timer_enabled():
-            anchor = self._last_active_time or self._chain_start_time()
+            anchor = self._last_active_time or self._agent_ready_at or self._chain_start_time()
             remaining = timeout - (workflow.now() - anchor)
         if remaining.total_seconds() > 0:
             await workflow.sleep(remaining.total_seconds())
@@ -1773,7 +1776,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output, boot_excluded_ms=wizard_ms)
         self._agent_shadow_launched = bool(sandbox_output.agent_shadow_launched or agent_server_output.shadow_launched)
-        self._agent_ready_at = workflow.now() if self._agent_boot_interaction_telemetry_enabled else None
+        # Anchors the inactivity window before any agent activity, and feeds boot telemetry, so
+        # it is captured for every run rather than only when boot telemetry is on.
+        self._agent_ready_at = workflow.now()
         await self._emit_progress("agent", "completed", "Started agent", "setup")
 
         await self._track_workflow_event(
