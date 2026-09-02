@@ -1,26 +1,13 @@
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import structlog
 from rest_framework import serializers
 
-from posthog.cdp.flag_gated_templates import gated_template_enabled
-
-if TYPE_CHECKING:
-    from posthog.models import Team
-
 logger = structlog.get_logger(__name__)
 
 SRE_AGENT_TEMPLATE_ID = "d6832fb3-b05d-459e-a899-275621d68cc7"
-
-# Global workflow templates bypass action-catalog filtering, so apply dependency flags here to
-# avoid showing starters whose trigger or action is unavailable to the project.
-FEATURE_GATED_GLOBAL_TEMPLATE_FLAGS: dict[str, tuple[str, ...]] = {
-    # Slack's product flag controls the frontend registry. Its backend capability uses the
-    # instance-wide SLACK_WORKFLOW_TRIGGERS_ENABLED setting, so only gate this API on AI tasks.
-    SRE_AGENT_TEMPLATE_ID: ("workflow-ai-task-action",),
-}
 
 # List of all template JSON files - update this when adding new templates
 TEMPLATE_FILES = [
@@ -182,12 +169,6 @@ def get_global_template_by_id(template_id: str) -> Optional[dict]:
         if template.get("id") == template_id:
             return template
     return None
-
-
-def global_template_available_for_team(template_id: str, team: "Team") -> bool:
-    return all(
-        gated_template_enabled(flag_key, team) for flag_key in FEATURE_GATED_GLOBAL_TEMPLATE_FLAGS.get(template_id, ())
-    )
 
 
 def clear_template_cache() -> None:

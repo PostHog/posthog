@@ -20,12 +20,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
-from products.workflows.backend.templates import (
-    FEATURE_GATED_GLOBAL_TEMPLATE_FLAGS,
-    get_global_template_by_id,
-    global_template_available_for_team,
-    load_global_templates,
-)
+from products.workflows.backend.templates import get_global_template_by_id, load_global_templates
 
 logger = structlog.get_logger(__name__)
 
@@ -257,11 +252,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
 
         # Load global templates from files
         try:
-            file_templates = [
-                template
-                for template in load_global_templates()
-                if global_template_available_for_team(template["id"], self.team)
-            ]
+            file_templates = load_global_templates()
         except Exception as e:
             logger.warning("Failed to load global templates from files", error=str(e))
             file_templates = []
@@ -285,7 +276,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
 
         # Check if it's a global template from files
         file_template = get_global_template_by_id(template_id)
-        if file_template and global_template_available_for_team(template_id, self.team):
+        if file_template:
             return Response(file_template)
 
         # Not in files, check DB for team templates
@@ -375,11 +366,7 @@ class PublicHogFlowTemplateViewSet(
         Load and return global templates from files.
         """
         try:
-            templates = [
-                template
-                for template in load_global_templates()
-                if template["id"] not in FEATURE_GATED_GLOBAL_TEMPLATE_FLAGS
-            ]
+            templates = load_global_templates()
             # Sort by updated_at descending (most recent first)
             templates.sort(key=lambda t: t.get("updated_at", ""), reverse=True)
 

@@ -34,11 +34,6 @@ This directory contains global workflow templates that are stored in code and ve
      ]
      ```
 
-5. **Gate templates that depend on a gated capability**:
-   - Add the template ID and each required feature flag to `FEATURE_GATED_GLOBAL_TEMPLATE_FLAGS`
-   - Authenticated projects only see the template when every required flag is enabled
-   - The public template endpoint omits gated templates because it has no project context
-
 ## Editing an Existing Template
 
 You can export the current version from the UI, make changes, and paste the updated JSON back into the file. The JSON file format makes it easy to edit templates directly.

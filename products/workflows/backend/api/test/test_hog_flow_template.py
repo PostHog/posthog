@@ -1,7 +1,6 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from rest_framework import status
 
@@ -494,7 +493,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # Should return file-based templates
         results = response.json()["results"]
         assert len(results) > 0, "No templates returned from public endpoint"
-        assert SRE_AGENT_TEMPLATE_ID not in {template["id"] for template in results}
+        assert SRE_AGENT_TEMPLATE_ID in {template["id"] for template in results}
 
         # All returned templates should have scope='global'
         for template in results:
@@ -512,8 +511,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         file_template_ids = {t["id"] for t in file_templates}
         file_template_names = {t["name"] for t in file_templates}
 
-        with patch("products.workflows.backend.templates.gated_template_enabled", return_value=True):
-            response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates")
         assert response.status_code == 200
 
         api_results = response.json()["results"]
@@ -534,17 +532,14 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             if template["id"] in file_template_ids:
                 assert template["scope"] == "global", f"Template {template['id']} from files should have scope='global'"
 
-    def test_sre_agent_template_respects_feature_flags(self):
+    def test_sre_agent_template_is_available(self):
         list_url = f"/api/projects/{self.team.id}/hog_flow_templates"
         retrieve_url = f"{list_url}/{SRE_AGENT_TEMPLATE_ID}"
 
-        with patch("products.workflows.backend.templates.gated_template_enabled", return_value=False):
-            response = self.client.get(list_url)
-            assert SRE_AGENT_TEMPLATE_ID not in {template["id"] for template in response.json()["results"]}
-            assert self.client.get(retrieve_url).status_code == status.HTTP_404_NOT_FOUND
+        response = self.client.get(list_url)
+        assert SRE_AGENT_TEMPLATE_ID in {template["id"] for template in response.json()["results"]}
 
-        with patch("products.workflows.backend.templates.gated_template_enabled", return_value=True):
-            response = self.client.get(retrieve_url)
+        response = self.client.get(retrieve_url)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         template = response.json()
