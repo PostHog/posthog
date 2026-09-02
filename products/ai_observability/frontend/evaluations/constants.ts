@@ -31,6 +31,15 @@ export function evaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output
     return evaluationIsDetector(evaluation) ? EVALUATION_RESULT_FALSE_HOGQL : EVALUATION_RESULT_TRUE_HOGQL
 }
 
+/**
+ * The HogQL for a pass rate, as a percentage of the graded runs. Skipped runs leave both sides of
+ * the ratio, so a detector never reads the false a skip stores as a pass.
+ */
+export function evaluationPassRateHogQL(passedExpression: string): string {
+    const graded = `countIf(properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL})`
+    return `if(${graded} > 0, countIf((${passedExpression}) AND ${EVALUATION_NOT_SKIPPED_HOGQL}) / ${graded} * 100, 0)`
+}
+
 /** The HogQL that counts a pass across many evaluations at once, for a grouped or broken-down query. */
 export function evaluationPassedHogQLForMany(detectorEvaluationIds: string[]): string {
     if (detectorEvaluationIds.length === 0) {

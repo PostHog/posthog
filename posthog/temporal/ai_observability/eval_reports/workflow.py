@@ -316,7 +316,6 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                 evaluation_type=context.evaluation_type,
                 output_type=context.output_type,
                 true_is_failure=context.true_is_failure,
-                detector_evaluation_ids=context.detector_evaluation_ids,
                 period_start=context.period_start,
                 period_end=context.period_end,
                 previous_period_start=context.previous_period_start,

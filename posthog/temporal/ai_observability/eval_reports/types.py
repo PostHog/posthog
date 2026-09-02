@@ -66,7 +66,6 @@ class PrepareReportContextOutput:
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
     true_is_failure: bool = False
-    detector_evaluation_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -84,7 +83,6 @@ class RunEvalReportAgentInput:
     report_prompt_guidance: str = ""
     output_type: str = "boolean"
     true_is_failure: bool = False
-    detector_evaluation_ids: list[str] = dataclasses.field(default_factory=list)
     trace_id: str = ""
     session_id: str = ""
 

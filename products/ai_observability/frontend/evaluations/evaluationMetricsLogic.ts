@@ -15,6 +15,7 @@ import {
     EVALUATION_RESULT_TRUE_HOGQL,
     evaluationIsDetector,
     evaluationPassedHogQLForMany,
+    evaluationPassRateHogQL,
 } from './constants'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
@@ -347,10 +348,11 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             kind: NodeKind.EventsNode,
                             event: '$ai_evaluation',
                             math: HogQLMathType.HogQL,
-                            // Pass rate excludes N/A results, returns 0 if all results are N/A
-                            math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${evaluationPassedHogQLForMany(
-                                enabledEvaluations.filter(evaluationIsDetector).map((evaluation) => evaluation.id)
-                            )}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                            math_hogql: evaluationPassRateHogQL(
+                                evaluationPassedHogQLForMany(
+                                    enabledEvaluations.filter(evaluationIsDetector).map((evaluation) => evaluation.id)
+                                )
+                            ),
                             properties: [
                                 {
                                     key: '$ai_evaluation_id',

@@ -156,12 +156,13 @@ describe('evaluationMetricsLogic', () => {
         evaluationsLogic.actions.loadEvaluationsSuccess([detector, quality])
         metricsLogic.actions.loadStatsSuccess([stats('detector', 10, 2), stats('quality', 10, 8)])
 
-        expect(metricsLogic.values.chartQuery?.series?.[0].math_hogql).toContain(
-            "properties.$ai_evaluation_id IN ('detector')"
-        )
-        expect(metricsLogic.values.chartQuery?.series?.[0].math_hogql).toContain(
-            "properties.$ai_evaluation_result = 'false'"
-        )
+        const mathHogql = metricsLogic.values.chartQuery?.series?.[0].math_hogql ?? ''
+        expect(mathHogql).toContain("properties.$ai_evaluation_id IN ('detector')")
+        expect(mathHogql).toContain("properties.$ai_evaluation_result = 'false'")
+        // Both sides of the ratio drop skipped runs — otherwise the false a skip stores reads as
+        // a detector pass, and the chart disagrees with the list, which already excludes them.
+        expect(mathHogql).toContain(`AND ${EVALUATION_NOT_SKIPPED_HOGQL}) /`)
+        expect(mathHogql).toContain(`IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
     })
 
     it('excludes skipped runs from both counts, so a detector cannot count them as a pass', async () => {

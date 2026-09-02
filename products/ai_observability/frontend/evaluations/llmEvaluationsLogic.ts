@@ -346,10 +346,12 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             },
         ],
         // Distinguishes "settled" from "never started" — evaluationsLoading is false in both,
-        // so a caller gating on that alone can't tell whether afterMount has fired yet.
+        // so a caller gating on that alone can't tell whether afterMount has fired yet. A refetch
+        // unsettles it again, so a caller can't read polarity from the previous list mid-refresh.
         evaluationsSettled: [
             false,
             {
+                loadEvaluations: () => false,
                 loadEvaluationsSuccess: () => true,
                 loadEvaluationsFailure: () => true,
             },

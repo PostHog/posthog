@@ -452,5 +452,26 @@ describe('llmEvaluationsLogic', () => {
 
             await expect(waitForEvaluationsSettled()).resolves.toBeUndefined()
         })
+
+        it('waits again for a refetch instead of resolving against the polarity of the previous list', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationsSuccess'])
+
+            let resolveRefetch: (value: { results: EvaluationConfig[] }) => void = () => {}
+            const refetch = new Promise<{ results: EvaluationConfig[] }>((resolve) => (resolveRefetch = resolve))
+            useMocks({ get: { '/api/projects/:teamId/evaluations/': () => refetch } })
+            logic.actions.loadEvaluations()
+
+            let resolved = false
+            const waiting = waitForEvaluationsSettled().then(() => {
+                resolved = true
+            })
+
+            await Promise.resolve()
+            expect(resolved).toBe(false)
+
+            resolveRefetch({ results: [] })
+            await waiting
+            expect(resolved).toBe(true)
+        })
     })
 })

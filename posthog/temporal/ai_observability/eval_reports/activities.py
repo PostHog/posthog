@@ -612,19 +612,6 @@ async def prepare_report_context_activity(
 
         guidance = report.report_prompt_guidance or ""
 
-        from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
-            Evaluation,
-        )
-
-        # The generation detail tool lists every evaluation on a generation, not just this report's,
-        # so it needs each one's polarity to label it.
-        detector_evaluation_ids = [
-            str(evaluation_id)
-            for evaluation_id in Evaluation.objects.filter(
-                team_id=report.team_id, output_type="boolean", output_config__true_is_failure=True
-            ).values_list("id", flat=True)
-        ]
-
         return PrepareReportContextOutput(
             report_id=str(report.id),
             team_id=report.team_id,
@@ -635,7 +622,6 @@ async def prepare_report_context_activity(
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
             true_is_failure=bool(evaluation.output_config.get("true_is_failure")),
-            detector_evaluation_ids=detector_evaluation_ids,
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
@@ -664,7 +650,11 @@ async def run_eval_report_agent_activity(
 
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
             return (
-                run_eval_report_agent(inputs, evaluation_target=evaluation_target),
+                run_eval_report_agent(
+                    inputs,
+                    evaluation_target=evaluation_target,
+                    detector_evaluation_ids=_load_detector_evaluation_ids(inputs.team_id),
+                ),
                 evaluation_target,
             )
 
@@ -686,6 +676,22 @@ def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
     )
 
     return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
+
+
+def _load_detector_evaluation_ids(team_id: int) -> list[str]:
+    """The generation detail tool lists every evaluation on a generation, not just this report's,
+    so it needs each one's polarity to label it. Read here rather than in the context activity,
+    which would carry the whole team's list through two Temporal payloads to reach this one."""
+    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
+        Evaluation,
+    )
+
+    return [
+        str(evaluation_id)
+        for evaluation_id in Evaluation.objects.filter(
+            team_id=team_id, output_type="boolean", output_config__true_is_failure=True
+        ).values_list("id", flat=True)
+    ]
 
 
 @temporalio.activity.defn

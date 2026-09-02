@@ -1,6 +1,7 @@
 """LangGraph agent for evaluation report generation using create_react_agent."""
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
@@ -223,6 +224,7 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
 def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
+    detector_evaluation_ids: Sequence[str] = (),
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -315,7 +317,7 @@ def run_eval_report_agent(
         "evaluation_target": evaluation_target,
         "output_type": inputs.output_type,
         "true_is_failure": inputs.true_is_failure,
-        "detector_evaluation_ids": inputs.detector_evaluation_ids,
+        "detector_evaluation_ids": list(detector_evaluation_ids),
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,
