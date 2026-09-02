@@ -37,12 +37,13 @@ export const SqlPieGraph = ({
     // Toggled-off slices aren't persisted (SQL insights have nowhere to save them), but the legend
     // is controlled anyway so the total and the tooltip shares track the slices actually drawn.
     const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
+    const showLegend = chartSettings.showLegend ?? false
+    const visibleHiddenKeySet = useMemo(() => new Set(showLegend ? hiddenKeys : []), [showLegend, hiddenKeys])
     const total = useMemo(
-        () => series.reduce((sum, s) => (hiddenKeys.includes(s.key) ? sum : sum + (s.data[0] ?? 0)), 0),
-        [series, hiddenKeys]
+        () => series.reduce((sum, s) => (visibleHiddenKeySet.has(s.key) ? sum : sum + (s.data[0] ?? 0)), 0),
+        [series, visibleHiddenKeySet]
     )
 
-    const showLegend = chartSettings.showLegend ?? false
     // Unset means an existing chart from before the labels option — keep showing values. New pies
     // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
     const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
@@ -63,7 +64,7 @@ export const SqlPieGraph = ({
             show: showLegend,
             position: chartSettings.legendPosition ?? 'right',
             interactive: true,
-            hiddenKeys,
+            hiddenKeys: showLegend ? hiddenKeys : [],
             onToggleSeries: (key: string) =>
                 setHiddenKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key])),
             onSetHiddenSeries: setHiddenKeys,

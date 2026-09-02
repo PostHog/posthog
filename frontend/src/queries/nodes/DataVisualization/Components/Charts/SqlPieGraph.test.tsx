@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -156,6 +157,28 @@ describe('SqlPieGraph', () => {
         expect(document.querySelector('[data-attr="hog-chart-pie-legend"]')).toBeInTheDocument()
         expect(screen.getByText('alpha')).toBeInTheDocument()
         expect(screen.getByText('beta')).toBeInTheDocument()
+    })
+
+    it('restores all slices when the legend is hidden after isolating one', async () => {
+        const chartSettings: ChartSettings = { showLegend: true, pie: { sliceContent: 'labels', showTotal: true } }
+        const { rerender } = render(<SqlPieGraph {...baseProps(chartSettings, [60, 40, 0, 0])} />)
+        const user = userEvent.setup()
+
+        await waitForSlices()
+        await user.click(within(document.querySelector('[data-attr="hog-chart-pie-legend"]')!).getByText('alpha'))
+
+        await waitFor(() => {
+            expect(sliceLabelLines()).toEqual([['alpha']])
+            expect(screen.getByText('60')).toBeInTheDocument()
+        })
+
+        rerender(<SqlPieGraph {...baseProps({ ...chartSettings, showLegend: false }, [60, 40, 0, 0])} />)
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-attr="hog-chart-pie-legend"]')).not.toBeInTheDocument()
+            expect(sliceLabelLines()).toEqual([['alpha'], ['beta']])
+            expect(screen.getByText('100')).toBeInTheDocument()
+        })
     })
 
     it('shows the empty state when there are no positive values', () => {
