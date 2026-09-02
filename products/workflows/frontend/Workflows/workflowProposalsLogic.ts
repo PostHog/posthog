@@ -221,7 +221,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                     response
                         ? {
                               ...response,
-                              results: response.results.filter((proposal) => proposal.id !== proposalId),
+                              results: (response.results ?? []).filter((proposal) => proposal.id !== proposalId),
                           }
                         : response,
                 loadProposals: async () => {
