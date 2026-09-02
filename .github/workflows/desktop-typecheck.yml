@@ -122,7 +122,7 @@ jobs:
         name: Desktop Typecheck Pass
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check results
               run: |
