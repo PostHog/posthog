@@ -5184,15 +5184,26 @@ class HogFlowViewSet(
             page = self.paginate_queryset(queryset)
             return self.get_paginated_response(WorkflowProposalSerializer(page, many=True).data)
 
+        param_serializer = WorkflowProposalCreateSerializer(data=request.data)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        # A retry names the suggestion it already made, and that suggestion is still in someone's
+        # queue whatever the switch says now, so returning it is the honest answer — and the only one
+        # that keeps a retry from reading as "make another". The opt-in gates producing a new one.
+        retry_of = (
+            WorkflowProposal.objects.filter(hog_flow=instance, source_id=params.get("source_id") or None).first()
+            if params.get("source_id")
+            else None
+        )
+        if retry_of:
+            return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
+
         # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
         # the suggestions someone already has to resolve. Producing a new one is what the workflow's
         # own opt-in gates.
         if not HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance, enabled=True).exists():
             raise WorkflowNotOptimisedError()
-
-        param_serializer = WorkflowProposalCreateSerializer(data=request.data)
-        param_serializer.is_valid(raise_exception=True)
-        params = param_serializer.validated_data
 
         # An agent has no business setting secret function inputs, and proposal content is stored in
         # plaintext like a revision snapshot, so strip them rather than silently persisting them.
@@ -5220,13 +5231,6 @@ class HogFlowViewSet(
                         ]
                     }
                 )
-
-        if source_id:
-            # Idempotent by source: an MCP retry or a re-emitted finding resolves to the proposal it
-            # already created instead of stacking duplicates in someone's queue.
-            existing = WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first()
-            if existing:
-                return Response(WorkflowProposalSerializer(existing).data, status=status.HTTP_200_OK)
 
         proposal = WorkflowProposal(
             hog_flow=instance,

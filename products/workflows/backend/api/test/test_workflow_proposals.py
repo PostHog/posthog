@@ -242,6 +242,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "rationale": "y",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
                 "evidence": {"metric": "email open rate", "current_value": 0.1, "n": 100, "guardrails": []},
+                "base_version": 1,
                 "source_type": "scout",
             },
             format="json",
@@ -249,6 +250,36 @@ class TestWorkflowProposals(APIBaseTest):
         assert refused.status_code == 409, refused.json()
         assert refused.json()["code"] == "workflow_not_optimised"
         assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
+
+    def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
+        # `source_id` promises a retry resolves to the proposal it created. Refusing that retry
+        # because the switch moved would leave a producer unable to recover a suggestion that is
+        # still sitting in someone's queue.
+        flow_id = self._create_active_flow()
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": True}, format="json"
+        )
+        first = self._propose(flow_id, source_id="run-1")
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": False}, format="json"
+        )
+
+        again = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Point the webhook somewhere that answers",
+                "rationale": "The same finding, sent again after a failed response.",
+                "content": {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]},
+                "evidence": {"metric": "failure rate", "current_value": 1.0, "n": 240, "guardrails": []},
+                "base_version": 1,
+                "source_type": "scout",
+                "source_id": "run-1",
+            },
+            format="json",
+        )
+        assert again.status_code == 200, again.json()
+        assert again.json()["id"] == first["id"]
+        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
 
     def test_turning_the_workflow_off_keeps_the_suggestions_already_made(self, _mock_flag):
         flow_id = self._create_active_flow()
