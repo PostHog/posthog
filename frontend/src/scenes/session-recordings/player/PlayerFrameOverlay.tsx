@@ -5,6 +5,7 @@ import { MouseEvent } from 'react'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
+import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
@@ -166,13 +167,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                         Reload
                     </LemonButton>
                 )}
-                <LemonButton
-                    targetBlank
-                    to="https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=recording-not-found"
-                    type="secondary"
-                    fullWidth
-                    center
-                >
+                <LemonButton onClick={() => openInAppSupport('recording-not-found')} type="secondary" fullWidth center>
                     Contact support
                 </LemonButton>
             </div>

@@ -1,6 +1,7 @@
 import { IconCheck, IconEllipsis, IconRefresh, IconServer } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { HealthIssueActions } from '../../components/HealthIssueActions'
@@ -86,7 +87,7 @@ export default function DataModelingDetailContent({
             <div className="flex items-center gap-3 text-xs text-muted">
                 <Link to="https://posthog.com/docs/data-warehouse">Documentation</Link>
                 <span>&middot;</span>
-                <Link to="https://posthog.com/docs/support-options">Contact support</Link>
+                <Link onClick={() => openInAppSupport('data-modeling-detail')}>Contact support</Link>
             </div>
         </div>
     )

@@ -17,6 +17,7 @@ import {
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
+import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -371,16 +372,7 @@ function JoinValidationStatus(): JSX.Element | null {
                 <LemonBanner type="error">
                     <div className="flex flex-row items-center justify-between">
                         <div>{joinValidation.msg || 'Could not validate the join.'}</div>
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                window.open(
-                                    'https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=join-modal-validation-error',
-                                    '_blank',
-                                    'noopener'
-                                )
-                            }}
-                        >
+                        <LemonButton type="secondary" onClick={() => openInAppSupport('join-modal-validation-error')}>
                             Get help
                         </LemonButton>
                     </div>
