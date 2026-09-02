@@ -356,8 +356,17 @@ def _verify_partitions(conn: psycopg.Connection, today: date, errors: list[str])
         # Rows that fall outside every daily partition land here. Retention is keyed
         # on the partition name, so it can never reclaim them, and their presence
         # also makes the next CREATE ... PARTITION OF fail.
-        if conn.execute(f"SELECT 1 FROM {table}_default LIMIT 1").fetchall():
-            errors.append(f"{table}_default holds rows: retention cannot reclaim them")
+        #
+        # This probe takes ACCESS SHARE on the default partition, so a concurrent
+        # drop holding ACCESS EXCLUSIVE trips the session lock_timeout here. Record
+        # the failure and continue, so a blocked or missing probe does not abort the
+        # run before the S3 cleanup and Slack alert that follow it.
+        try:
+            if conn.execute(f"SELECT 1 FROM {table}_default LIMIT 1").fetchall():
+                errors.append(f"{table}_default holds rows: retention cannot reclaim them")
+        except Exception as e:
+            errors.append(f"Failed to check {table}_default for rows: {e}")
+            logger.exception("Failed to check default partition for rows", table=table)
 
 
 def _send_slack_failure(errors: list[str]) -> None:

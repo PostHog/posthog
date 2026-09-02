@@ -9,6 +9,8 @@ from typing import Any, Literal
 import pytest
 from unittest.mock import MagicMock, call, patch
 
+import psycopg
+
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
     RETENTION_STRANDED_ERROR,
@@ -315,12 +317,14 @@ class _FakePgConn:
         tables_with_default_rows: set[str] | None = None,
         tables_with_rows_out_of_range: set[str] | None = None,
         range_probe_raises: dict[str, Exception] | None = None,
+        default_probe_raises: dict[str, Exception] | None = None,
     ) -> None:
         self.partitions = partitions or {}
         self.detached = detached or {}
         self.tables_with_default_rows = tables_with_default_rows or set()
         self.tables_with_rows_out_of_range = tables_with_rows_out_of_range or set()
         self.range_probe_raises = range_probe_raises or {}
+        self.default_probe_raises = default_probe_raises or {}
         self.dropped: list[str] = []
         self.session_settings: list[str] = []
 
@@ -345,6 +349,8 @@ class _FakePgConn:
             cursor.fetchall.return_value = [(1,)] if table in self.tables_with_rows_out_of_range else []
         elif sql.startswith("SELECT 1 FROM ") and sql.endswith("_default LIMIT 1"):
             table = sql.removeprefix("SELECT 1 FROM ").removesuffix("_default LIMIT 1")
+            if table in self.default_probe_raises:
+                raise self.default_probe_raises[table]
             cursor.fetchall.return_value = [(1,)] if table in self.tables_with_default_rows else []
         elif sql.startswith("DROP TABLE IF EXISTS "):
             self.dropped.append(sql.removeprefix("DROP TABLE IF EXISTS "))
@@ -613,9 +619,15 @@ def _verify(
     partitions: dict[str, list[str]] | None = None,
     detached: dict[str, list[str]] | None = None,
     tables_with_default_rows: set[str] | None = None,
+    default_probe_raises: dict[str, Exception] | None = None,
 ) -> list[str]:
     errors: list[str] = []
-    conn = _FakePgConn(partitions, detached, tables_with_default_rows)
+    conn = _FakePgConn(
+        partitions,
+        detached,
+        tables_with_default_rows,
+        default_probe_raises=default_probe_raises,
+    )
     _verify_partitions(conn, TODAY, errors)  # type: ignore[arg-type]
     return errors
 
@@ -653,6 +665,24 @@ def test_verify_reports_rows_in_the_default_partition() -> None:
     errors = _verify(_all_expected(), tables_with_default_rows={"sourcebatchstatus"})
 
     assert errors == ["sourcebatchstatus_default holds rows: retention cannot reclaim them"]
+
+
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"),
+        psycopg.errors.UndefinedTable('relation "sourcebatch_default" does not exist'),
+    ],
+    ids=["lock_timeout", "missing_default"],
+)
+def test_verify_reports_default_probe_failure_without_raising(probe_error: Exception) -> None:
+    # The default probe is the one verification statement that takes a user-table lock, so
+    # under the session lock_timeout a concurrent drop makes it raise. If it propagated it
+    # would abort the activity before the S3 cleanup and Slack alert, the exact failure this
+    # activity exists to remove. The failure must be recorded and the next table still checked.
+    errors = _verify(_all_expected(), default_probe_raises={"sourcebatch": probe_error})
+
+    assert errors == [f"Failed to check sourcebatch_default for rows: {probe_error}"]
 
 
 @pytest.mark.asyncio
