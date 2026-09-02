@@ -295,12 +295,12 @@ def scout_definition(
     *, thread_id: str, request_id: str, brief: Brief, doc_title: str, page_url: str
 ) -> ScoutDefinition:
     """The scout that follows this hypothesis. The body is a template filled from the brief, so
-    every watch's scout has the same shape and a small model has nothing to invent."""
+    every watch's scout has the same shape and a small model has nothing to invent. It follows
+    the fleet's own anatomy and leaves where to look to the scout."""
     name = scout_name(thread_id)
-    evidence_lines = [f"- {entry.label}: `{entry.query}`" for entry in brief.evidence] or [
-        "- none yet; the page checks nothing on its own"
-    ]
-    signal_lines = [f"- {entry}" for entry in brief.signals] or ["- whatever in this project touches the claim"]
+    evidence_lines = [f"- {entry.label}: `{entry.query}`" for entry in brief.evidence] or ["- none"]
+    context_lines = [f"- {entry}" for entry in brief.signals] or ["- none"]
+    memory = f"doc-watch:{request_id}"
     verdict_call = (
         f'call doc-watch-verdict-submit {{"request_id": "{request_id}", "verdict": "<holding|moved|confirmed|refuted>", '
         '"reason": "<one line>"}'
@@ -311,7 +311,7 @@ def scout_definition(
             f"name: {name}",
             "description: >",
             f"  Follows the hypothesis “{_one_line(brief.claim)}” written on the page “{_one_line(doc_title)}” and",
-            "  reports when the project's data confirms, refutes, or moves it.",
+            "  reports when this project's data confirms, refutes, or moves it.",
             "allowed_tools:",
             "  - emit_report",
             "  - edit_report",
@@ -322,9 +322,10 @@ def scout_definition(
             "",
             f"# Hypothesis watch: {_one_line(brief.claim)}",
             "",
-            f"You watch one hypothesis a person wrote on the page “{_one_line(doc_title)}” ({page_url}).",
+            f"You follow one hypothesis a person wrote on the page “{_one_line(doc_title)}” ({page_url}).",
             "The signal-versus-noise discriminator is the claim itself: a finding is worth a report only when it",
-            "confirms the claim, refutes it, or moves the numbers it stands on. Everything else is noise; close out empty.",
+            "confirms the claim, refutes it, or moves what it stands on. Everything else is baseline. Internalize",
+            "that: you are not looking for anything interesting, you are looking for what bears on this one claim.",
             "",
             "## The hypothesis",
             "",
@@ -332,33 +333,57 @@ def scout_definition(
             f"What confirms it: {brief.confirms or 'the evidence below keeps holding'}",
             f"What refutes it: {brief.refutes or 'the evidence below turns the other way'}",
             "",
-            "## Evidence the page already rechecks every day",
+            "## Quick close-out",
             "",
-            *evidence_lines,
+            f"Read `scout-scratchpad-search` with `text={memory}` first. If nothing in this project has moved",
+            "on the claim since the last run, refresh the baseline entry and close out empty. A quiet run is a real outcome.",
             "",
-            "Do not report these numbers on their own. Report what explains a move in them, or a signal they miss.",
+            "## Orient",
+            "",
+            f"- `scout-scratchpad-search` (`text={memory}`): what you saw, reported, and ruled out before.",
+            "- `scout-runs-list` (last 7 days): what your own recent runs found.",
+            "- `scout-project-profile-get`: a first hint of what this project uses. It is not complete.",
             "",
             "## Where to look",
             "",
-            "These signals are the starting points the page named. They are not the boundary. Use every source",
-            "this project has that could touch the claim: product events, session replays, support conversations,",
-            "error issues, surveys, LLM traces, feature flags, experiments. A support ticket or a replay can",
-            "confirm or refute a claim as well as a count can.",
+            "Decide that yourself. Build your own map of this project with the read tools you have, and follow",
+            "whatever could bear on the claim, in any product this project uses. The page gives you two kinds of context,",
+            "as starting points and not as a boundary:",
             "",
-            *signal_lines,
+            "Numbers the page already rechecks every day (do not report these on their own; explain what moves them):",
             "",
-            "## Each run",
+            *evidence_lines,
             "",
-            f"1. Read your memory: `scratchpad-search` for `doc-watch:{request_id}`. It says what you reported before.",
-            "2. Look at the last 24 hours across the signals and every other source you can read. Compare with the claim.",
-            "3. Nothing that confirms, refutes, or moves the claim: close out empty and remember the run in the scratchpad.",
-            "4. Otherwise file one report with `emit_report`: title = one sentence on what changed; summary = at most",
-            '   six lines with the numbers, each cited as <hogql label="what it counts">SELECT ...</hogql>, and what it means',
-            "   for the claim. Remember the report in the scratchpad so the next run does not file it again.",
-            "5. Then set the verdict on the page through the PostHog MCP `exec` tool:",
-            f"   `{verdict_call}`",
-            "   Use confirmed or refuted only when the data leaves no doubt; those end the watch.",
+            "What the page's author thought was related:",
             "",
+            *context_lines,
+            "",
+            "## Save memory as you go",
+            "",
+            f"Write scratchpad entries under `{memory}:` with the fleet prefixes, for example `{memory}:pattern:baseline`",
+            f"for what normal looks like, `{memory}:dedupe:<finding>` for what you already filed, `{memory}:noise:<what>`",
+            "for what to ignore next time.",
+            "",
+            "## Decide",
+            "",
+            "Check `inbox-reports-list` before you author. If a report on this claim exists, `edit_report` it with the",
+            "new evidence. Otherwise `emit_report` one report: title = one sentence on what changed for the claim;",
+            'summary = at most six lines with the numbers, each cited as <hogql label="what it counts">SELECT ...</hogql>,',
+            "and what it means for the claim. Below the bar: remember it in the scratchpad instead.",
+            "",
+            "After a report, set the verdict on the page through the PostHog MCP `exec` tool:",
+            f"`{verdict_call}`",
+            "Use confirmed or refuted only when the data leaves no doubt; those end the watch.",
+            "",
+            "## Disqualifiers",
+            "",
+            "- The page's own daily numbers, unchanged: the page already shows them.",
+            "- Single-user quirks, dev or test traffic, and what the scratchpad marks as noise.",
+            "- Anything that does not bear on this claim, however interesting.",
+            "",
+            "## Close out",
+            "",
+            "One paragraph: what you looked at, what you filed or edited, what you remembered, what you ruled out.",
             "Do not edit the page. Do not build or save an insight, dashboard, or notebook.",
         ]
     )

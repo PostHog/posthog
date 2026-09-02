@@ -24,10 +24,8 @@ scout follows the signals you name and reports what confirms, refutes, or moves 
 - `evidence`: up to four `{label, query}` pairs. Each query is one HogQL `SELECT` that returns
   **one number**, or **a date and a number per row** for a trend. A table is refused. Pick
   numbers that move when the claim stops being true: a count, a share, a ratio.
-- `signals`: up to six short lines naming where a scout should look first around the claim.
-  Any source the project has counts: events, session replays, support conversations, error
-  issues, surveys, LLM traces, feature flags, experiments. Name real things from this project.
-  The scout also looks beyond these on its own; they are starting points, not a boundary.
+- `signals`: up to six short lines on what you think is related to the claim in this project.
+  They are context for the scout, not instructions: the scout decides on its own where to look.
 
 Hand it in with `doc-watch-brief-submit` and the `request_id` given in the task. Copy the id
 exactly. The tool is the only way the page receives the brief. Prose is not read.
