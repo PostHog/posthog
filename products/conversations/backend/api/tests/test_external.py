@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -300,6 +301,60 @@ class TestExternalTicketAPI(BaseTest):
             **self._auth_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("infinity", '{"sla_amount": Infinity, "sla_unit": "hour"}'),
+            ("negative_infinity", '{"sla_amount": -Infinity, "sla_unit": "hour"}'),
+            ("nan", '{"sla_amount": NaN, "sla_unit": "hour"}'),
+            ("over_hour_limit", '{"sla_amount": 2081, "sla_unit": "hour"}'),
+            ("over_minute_limit", '{"sla_amount": 124801, "sla_unit": "minute"}'),
+            ("over_day_limit", '{"sla_amount": 261, "sla_unit": "day"}'),
+        ]
+    )
+    def test_patch_rejects_out_of_range_sla_amount(self, _name, body):
+        with patch("products.conversations.backend.api.ticket_actions.capture_exception") as capture:
+            response = self.client.patch(
+                self.url,
+                body,
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("sla_amount", response.json()["error"])
+        capture.assert_not_called()
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.sla_due_at)
+
+    def test_patch_reports_amount_unreachable_in_a_narrow_window(self):
+        # One hour a week never reaches the maximum amount inside the walk cap.
+        with patch("products.conversations.backend.api.ticket_actions.capture_exception") as capture:
+            response = self.client.patch(
+                self.url,
+                {
+                    "sla_amount": 2080,
+                    "sla_unit": "hour",
+                    "sla_business_hours": {"days": ["monday"], "time": ["09:00", "10:00"], "timezone": "UTC"},
+                },
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("sla_amount", response.json()["error"])
+        capture.assert_not_called()
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.sla_due_at)
+
+    def test_patch_accepts_the_maximum_sla_amount(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 2080, "sla_unit": "hour"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
 
     def test_patch_rejects_both_sla_due_at_and_sla_amount(self):
         response = self.client.patch(
