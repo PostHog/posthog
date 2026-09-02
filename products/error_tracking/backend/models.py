@@ -91,25 +91,31 @@ class ErrorTrackingIssue(UUIDTModel):
 
     def merge(
         self, issue_ids: Sequence[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
-    ) -> ErrorTrackingIssueMergeResult:
+    ) -> "tuple[ErrorTrackingIssueMergeResult, list[UUID]]":
+        """Merge source issues into this issue.
+
+        Returns the outcome plus the source issue ids that were actually merged:
+        requested sources that already disappeared are dropped by the lock step,
+        so callers must not report the requested list as merged.
+        """
         team_id = self.team_id
         target_issue_id = self.id
         source_issue_ids = _normalize_source_issue_ids(issue_ids=issue_ids, target_issue_id=target_issue_id)
         if not source_issue_ids:
-            return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
+            return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, []
 
         with transaction.atomic():
             existing_source_issue_ids = _lock_merge_issues(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
             if existing_source_issue_ids is None:
-                return ErrorTrackingIssueMergeResult.STALE_ISSUES
+                return ErrorTrackingIssueMergeResult.STALE_ISSUES, []
             if not existing_source_issue_ids:
-                return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
+                return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, []
             if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
                 team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
             ):
-                return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+                return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, []
 
             locked_source_fingerprints = list(
                 ErrorTrackingIssueFingerprintV2.objects.select_for_update()
@@ -141,7 +147,7 @@ class ErrorTrackingIssue(UUIDTModel):
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
             )
-            return ErrorTrackingIssueMergeResult.MERGED
+            return ErrorTrackingIssueMergeResult.MERGED, existing_source_issue_ids
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
         team_id = self.team_id
