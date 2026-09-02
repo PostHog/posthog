@@ -17,10 +17,12 @@ from posthog.redis import get_client
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
 from products.signals.backend.scout_harness.slack_delivery import (
+    MAX_SCOUT_REPORT_THREAD_REPLIES,
     MAX_SCOUT_SLACK_DM_TARGETS,
     ScoutSlackDestination,
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
+    _post_scout_report_thread_replies,
     get_scout_slack_destination,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
@@ -84,6 +86,44 @@ class TestGetScoutSlackDestination(SimpleTestCase):
 
         assert destination is not None
         assert destination.thread_reports is expected
+
+
+class TestPostScoutReportThreadReplies(SimpleTestCase):
+    def _reply_blocks(self, count: int) -> list[list[dict]]:
+        return [[{"type": "section", "text": {"type": "mrkdwn", "text": f"section {i}"}}] for i in range(count)]
+
+    def test_posts_every_reply_when_under_the_cap(self) -> None:
+        client = MagicMock()
+        _post_scout_report_thread_replies(
+            client,
+            channel_id="C1",
+            thread_ts="1785418710.000100",
+            delivery_id="d1",
+            reply_blocks=self._reply_blocks(3),
+            fallback="fallback",
+        )
+
+        assert client.chat_postMessage.call_count == 3
+        assert all("client_msg_id" in call.kwargs for call in client.chat_postMessage.call_args_list)
+
+    def test_caps_replies_and_posts_one_overflow_note(self) -> None:
+        # The section split makes the reply count follow the section count, so a long report must not
+        # burst one post per section past Slack's write rate. The tail collapses to one pointer.
+        client = MagicMock()
+        _post_scout_report_thread_replies(
+            client,
+            channel_id="C1",
+            thread_ts="1785418710.000100",
+            delivery_id="d1",
+            reply_blocks=self._reply_blocks(MAX_SCOUT_REPORT_THREAD_REPLIES + 5),
+            fallback="fallback",
+        )
+
+        assert client.chat_postMessage.call_count == MAX_SCOUT_REPORT_THREAD_REPLIES + 1
+        overflow_call = client.chat_postMessage.call_args_list[-1].kwargs
+        assert "blocks" not in overflow_call
+        assert "5 more sections" in overflow_call["text"]
+        assert overflow_call["client_msg_id"] == "d1:overflow"
 
 
 class TestScoutSlackDelivery(BaseTest):

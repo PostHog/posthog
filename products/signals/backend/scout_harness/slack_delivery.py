@@ -515,6 +515,14 @@ def build_scout_report_note_slack_message(
     return blocks, fallback
 
 
+# Bound how many summary sections a threaded report posts as replies. Splitting on section labels
+# makes the reply count follow the section count instead of the summary length, so a long report
+# could otherwise burst dozens or more posts past Slack's per-channel write rate and flood the
+# channel. Mirrors `_MAX_THREAD_SIGNALS` in the sibling inbox-notification thread. The lead always
+# carries the report link, so the tail past the cap becomes one reply pointing at the full report.
+MAX_SCOUT_REPORT_THREAD_REPLIES = 30
+
+
 def _post_scout_report_thread_replies(
     client: object,
     *,
@@ -527,10 +535,11 @@ def _post_scout_report_thread_replies(
     """Post the remaining summary chunks as threaded replies under an already-delivered lead.
 
     Best-effort per reply: the lead already carries the report link, so a failed chunk logs and the
-    delivery still succeeds rather than re-posting the lead on retry."""
+    delivery still succeeds rather than re-posting the lead on retry. Capped at
+    MAX_SCOUT_REPORT_THREAD_REPLIES replies, past which one note points back at the full report."""
     if not isinstance(thread_ts, str) or not thread_ts:
         return
-    for index, blocks in enumerate(reply_blocks):
+    for index, blocks in enumerate(reply_blocks[:MAX_SCOUT_REPORT_THREAD_REPLIES]):
         try:
             client.chat_postMessage(  # type: ignore[attr-defined]
                 channel=channel_id,
@@ -547,6 +556,29 @@ def _post_scout_report_thread_replies(
                 channel=channel_id,
                 delivery_id=delivery_id,
                 chunk_index=index,
+                exc_info=True,
+            )
+
+    overflow = len(reply_blocks) - MAX_SCOUT_REPORT_THREAD_REPLIES
+    if overflow > 0:
+        overflow_text = (
+            f"{overflow} more {'section' if overflow == 1 else 'sections'} didn't fit in this thread. "
+            "Open the full report in PostHog."
+        )
+        try:
+            client.chat_postMessage(  # type: ignore[attr-defined]
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=overflow_text,
+                client_msg_id=f"{delivery_id}:overflow",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+        except Exception:
+            logger.warning(
+                "scout_slack_report_thread_overflow_note_failed",
+                channel=channel_id,
+                delivery_id=delivery_id,
                 exc_info=True,
             )
 
