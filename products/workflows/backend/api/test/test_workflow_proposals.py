@@ -315,7 +315,9 @@ class TestWorkflowProposals(APIBaseTest):
         activities = [entry.activity for entry in entries]
         assert activities.count("optimisation_enabled") == 1
         assert activities.count("optimisation_disabled") == 1, "a repeat of the same state logs nothing"
-        assert entries.filter(activity="optimisation_disabled").first().user == self.user
+        disabled_entry = entries.filter(activity="optimisation_disabled").first()
+        assert disabled_entry is not None
+        assert disabled_entry.user == self.user
 
     def test_turning_it_back_on_reuses_the_row(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -328,7 +330,9 @@ class TestWorkflowProposals(APIBaseTest):
         assert back_on.json()["enabled"] is True
         rows = HogFlowOptimisation.objects.for_team(self.team.id).filter(hog_flow_id=flow_id)
         assert rows.count() == 1
-        assert rows.first().enabled is True
+        row = rows.first()
+        assert row is not None
+        assert row.enabled is True
 
     def test_the_list_can_be_narrowed_to_workflows_with_suggestions_on(self, _mock_flag):
         # This is the producer's work list: without it an agent reads every workflow to find the few
