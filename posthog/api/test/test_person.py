@@ -901,6 +901,28 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(data["count"], 2)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_deletion_status_reports_pending_while_a_later_request_is_queued(self):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(person.uuid),
+            delete_verified_at="2021-08-25T23:00:00Z",
+        )
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Person,
+            team_id=self.team.id,
+            key=str(person.uuid),
+        )
+
+        response = self.client.get(f"/api/person/deletion_status/")
+        data = response.json()
+        self.assertEqual([result["status"] for result in data["results"]], ["pending", "pending"])
+
+        response = self.client.get(f"/api/person/deletion_status/?status=completed")
+        self.assertEqual(response.json()["count"], 0)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deletion_status_filters_by_person_uuid(self):
         person1 = _create_person(
             team=self.team,

@@ -123,6 +123,8 @@ def queue_person_event_deletion(
 ) -> None:
     if not persons:
         return
+    # A conflict means the person already has a request waiting for the next sweep. Only unverified
+    # rows are unique, so a person whose earlier request is verified gets a fresh row instead.
     AsyncDeletion.objects.bulk_create(
         [
             AsyncDeletion(

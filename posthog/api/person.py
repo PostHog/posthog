@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
+from django.db.models import Exists, OuterRef
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -283,7 +284,7 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     )
     events_queued_for_deletion = serializers.BooleanField(
         help_text="Whether event deletion was requested for the matched persons. "
-        "If a deletion was already queued for a person, it will not be duplicated."
+        "A person that already has a queued deletion is not queued a second time."
     )
     recordings_queued_for_deletion = serializers.BooleanField(
         help_text="Whether recording deletion was requested for the matched persons. "
@@ -338,13 +339,17 @@ class AsyncDeletionStatusSerializer(serializers.Serializer):
         source="key", help_text="The UUID of the person whose events are queued for deletion."
     )
     created_at = serializers.DateTimeField(help_text="When the deletion was requested.")
-    status = serializers.SerializerMethodField(help_text="Current status: 'pending' or 'completed'.")
+    status = serializers.SerializerMethodField(
+        help_text="Status for this person: 'pending' while any of their deletions is still queued, "
+        "'completed' once none is."
+    )
     delete_verified_at = serializers.DateTimeField(
-        help_text="When the deletion was verified complete. Null if still pending.", allow_null=True
+        help_text="When this deletion was verified complete. Null if this deletion is still queued.", allow_null=True
     )
 
     def get_status(self, obj: AsyncDeletion) -> str:
-        return "completed" if obj.delete_verified_at else "pending"
+        # Annotated by the deletion_status queryset: true while any request for this person is queued.
+        return "pending" if obj.person_pending else "completed"  # type: ignore[attr-defined]
 
 
 class DeletionStatusQueryParamsSerializer(serializers.Serializer):
@@ -930,7 +935,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "status",
                 OpenApiTypes.STR,
-                description="Filter by deletion status: 'pending', 'completed', or 'all'.",
+                description="Filter by the person's deletion status: 'pending', 'completed', or 'all'.",
                 required=False,
                 enum=["pending", "completed", "all"],
             ),
@@ -946,21 +951,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def deletion_status(self, request: request.Request, **kwargs):
         """
-        List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+        List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed. A person can hold more than one deletion, so the status is reported per person: while any of their deletions is still queued, all of them read as pending.
         """
         params = DeletionStatusQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
 
-        queryset = AsyncDeletion.objects.filter(
-            team_id=self.team_id,
-            deletion_type=DeletionType.Person,
-        ).order_by("-created_at")
+        queryset = (
+            AsyncDeletion.objects.filter(
+                team_id=self.team_id,
+                deletion_type=DeletionType.Person,
+            )
+            .annotate(
+                person_pending=Exists(
+                    AsyncDeletion.objects.filter(
+                        team_id=self.team_id,
+                        deletion_type=DeletionType.Person,
+                        key=OuterRef("key"),
+                        delete_verified_at__isnull=True,
+                    )
+                )
+            )
+            .order_by("-created_at")
+        )
 
         status_filter = params.validated_data.get("status", "all")
         if status_filter == "pending":
-            queryset = queryset.filter(delete_verified_at__isnull=True)
+            queryset = queryset.filter(person_pending=True)
         elif status_filter == "completed":
-            queryset = queryset.filter(delete_verified_at__isnull=False)
+            queryset = queryset.filter(person_pending=False)
 
         person_uuid = params.validated_data.get("person_uuid")
         if person_uuid:
