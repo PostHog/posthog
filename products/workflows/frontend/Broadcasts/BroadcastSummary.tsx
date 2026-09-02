@@ -2,12 +2,13 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconArrowLeft, IconCheck, IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -17,7 +18,9 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { BroadcastSendRow, BroadcastSendStatus, broadcastSentLogic } from './broadcastSentLogic'
+import { broadcastsLogic } from './broadcastsLogic'
 import { BroadcastSummaryTab, broadcastWizardLogic } from './broadcastWizardLogic'
+import { renderEmailPreview } from './emailPreview'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
@@ -96,8 +99,9 @@ function ContentTab(): JSX.Element {
 }
 
 function SentTab(): JSX.Element {
-    const { filteredSends, sendsLoading, sendsFailed, statusFilter } = useValues(broadcastSentLogic)
-    const { loadSends, setStatusFilter } = useActions(broadcastSentLogic)
+    const { filteredSends, sendsLoading, sendsFailed, statusFilter, selectedSend } = useValues(broadcastSentLogic)
+    const { loadSends, setStatusFilter, selectRecipient } = useActions(broadcastSentLogic)
+    const { email } = useValues(broadcastWizardLogic)
 
     useEffect(() => {
         loadSends()
@@ -117,7 +121,16 @@ function SentTab(): JSX.Element {
         {
             title: 'Recipient',
             key: 'recipient',
-            render: (_, row) => <span className="font-mono text-xs">{row.recipient}</span>,
+            render: (_, row) => (
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    onClick={() => selectRecipient(row.recipient)}
+                    data-attr="broadcast-view-recipient-email"
+                >
+                    <span className="font-mono text-xs">{row.recipient}</span>
+                </LemonButton>
+            ),
         },
         {
             title: 'Status',
@@ -159,8 +172,38 @@ function SentTab(): JSX.Element {
                         : 'No sends recorded yet. Recipients appear here once the send produces engagement events.'
                 }
             />
+            <LemonModal
+                isOpen={!!selectedSend}
+                onClose={() => selectRecipient(null)}
+                title={selectedSend ? `Email sent to ${selectedSend.recipient}` : ''}
+                width={760}
+            >
+                {selectedSend ? (
+                    <div className="flex flex-col gap-3">
+                        <p className="m-0 text-xs text-muted">
+                            The body is not stored per recipient, so this re-renders the broadcast's template against
+                            this person's properties, the same way the worker did at send time.
+                        </p>
+                        <div className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+                            <span className="text-muted">Subject</span>
+                            <span>{renderEmailPreview(email.subject, recipientPerson(selectedSend))}</span>
+                        </div>
+                        <iframe
+                            srcDoc={renderEmailPreview(email.html, recipientPerson(selectedSend))}
+                            sandbox=""
+                            title="Email as sent to this recipient"
+                            className="h-[26rem] w-full rounded border border-border bg-white"
+                        />
+                    </div>
+                ) : null}
+            </LemonModal>
         </div>
     )
+}
+
+// emailPreview renders against a person-shaped object; the Sent row already carries the properties.
+function recipientPerson(send: BroadcastSendRow): { id: string; properties: Record<string, any> } {
+    return { id: send.recipient, properties: send.personProperties }
 }
 
 function RecipientsTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Element {
@@ -214,6 +257,7 @@ function RecipientsTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.
 export function BroadcastSummary(): JSX.Element {
     const { broadcast, broadcastId, name, batchJobs, batchJobsLoading, summaryTab } = useValues(broadcastWizardLogic)
     const { setSummaryTab } = useActions(broadcastWizardLogic)
+    const { archiveBroadcast, restoreBroadcast, duplicateBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
 
     // Email metrics from a batch send are attributed to the batch job, not the flow (see
     // `parentRunId ?? functionId` in the plugin server's email service), so a flow-scoped query
@@ -271,16 +315,54 @@ export function BroadcastSummary(): JSX.Element {
                     <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
                         Broadcasts
                     </LemonButton>
-                    {broadcastId && (
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            sideIcon={<IconExternal />}
-                            to={urls.workflow(broadcastId, 'workflow')}
-                            data-attr="broadcast-open-in-workflow-editor"
-                        >
-                            Open in workflow editor
-                        </LemonButton>
+                    {broadcastId && broadcast && (
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                sideIcon={<IconExternal />}
+                                to={urls.workflow(broadcastId, 'workflow')}
+                                data-attr="broadcast-open-in-workflow-editor"
+                            >
+                                Open in workflow editor
+                            </LemonButton>
+                            <More
+                                overlay={
+                                    <>
+                                        <LemonButton
+                                            fullWidth
+                                            data-attr="broadcast-detail-duplicate"
+                                            onClick={() => duplicateBroadcast(broadcast)}
+                                        >
+                                            Duplicate
+                                        </LemonButton>
+                                        <LemonDivider />
+                                        <LemonButton
+                                            fullWidth
+                                            status={broadcast.status === 'archived' ? 'default' : 'danger'}
+                                            data-attr="broadcast-detail-archive"
+                                            onClick={() =>
+                                                broadcast.status === 'archived'
+                                                    ? restoreBroadcast(broadcast)
+                                                    : archiveBroadcast(broadcast)
+                                            }
+                                        >
+                                            {broadcast.status === 'archived' ? 'Restore' : 'Archive'}
+                                        </LemonButton>
+                                        {broadcast.status === 'archived' && (
+                                            <LemonButton
+                                                fullWidth
+                                                status="danger"
+                                                data-attr="broadcast-detail-delete"
+                                                onClick={() => deleteBroadcast(broadcast)}
+                                            >
+                                                Delete permanently
+                                            </LemonButton>
+                                        )}
+                                    </>
+                                }
+                            />
+                        </div>
                     )}
                 </div>
 

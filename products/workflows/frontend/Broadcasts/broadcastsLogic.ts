@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -10,7 +10,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'
 
-import { hogFlowsBatchJobsList, hogFlowsList } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsBatchJobsList,
+    hogFlowsCreate,
+    hogFlowsDestroy,
+    hogFlowsList,
+    hogFlowsPartialUpdate,
+    hogFlowsRetrieve,
+} from 'products/workflows/frontend/generated/api'
 import type {
     HogFlowBatchJobApi,
     HogFlowMinimalApi,
@@ -18,6 +25,32 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'archived'
+
+// Declared structurally rather than as a Pick: the list row types `name` as required and the full
+// record types it as optional, so only a loose shape accepts both call sites.
+/**
+ * Draft and archived map straight to the API's status; scheduled, sending and sent are all `active`
+ * server-side and are separated here from the latest batch run, so they filter client-side.
+ */
+export type BroadcastStatusFilter = 'all' | BroadcastStatus
+
+export interface BroadcastsFilters {
+    search: string
+    createdBy: string | null
+    status: BroadcastStatusFilter
+}
+
+const DEFAULT_FILTERS: BroadcastsFilters = {
+    search: '',
+    createdBy: null,
+    status: 'all',
+}
+
+export interface BroadcastRef {
+    id: string
+    name?: string | null
+    status?: string | null
+}
 
 export interface BroadcastRowDetails {
     latestBatchJob: HogFlowBatchJobApi | null
@@ -71,6 +104,8 @@ export interface broadcastsLogicValues {
     broadcasts: PaginatedHogFlowMinimalListApi
     broadcastsLoading: boolean
     hasLoadedBroadcasts: boolean
+    filters: BroadcastsFilters
+    filteredBroadcasts: HogFlowMinimalApi[]
     rowDetailsById: Record<string, BroadcastRowDetails>
 }
 
@@ -104,6 +139,21 @@ export interface broadcastsLogicActions {
         details: BroadcastRowDetails
         id: string
     }
+    archiveBroadcast: (broadcast: BroadcastRef) => {
+        broadcast: BroadcastRef
+    }
+    restoreBroadcast: (broadcast: BroadcastRef) => {
+        broadcast: BroadcastRef
+    }
+    duplicateBroadcast: (broadcast: BroadcastRef) => {
+        broadcast: BroadcastRef
+    }
+    deleteBroadcast: (broadcast: BroadcastRef) => {
+        broadcast: BroadcastRef
+    }
+    setFilters: (filters: Partial<BroadcastsFilters>) => {
+        filters: Partial<BroadcastsFilters>
+    }
 }
 
 export type broadcastsLogicType = MakeLogicType<broadcastsLogicValues, broadcastsLogicActions>
@@ -116,6 +166,11 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     actions({
         loadBroadcasts: true,
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
+        archiveBroadcast: (broadcast: BroadcastRef) => ({ broadcast }),
+        restoreBroadcast: (broadcast: BroadcastRef) => ({ broadcast }),
+        duplicateBroadcast: (broadcast: BroadcastRef) => ({ broadcast }),
+        deleteBroadcast: (broadcast: BroadcastRef) => ({ broadcast }),
+        setFilters: (filters: Partial<BroadcastsFilters>) => ({ filters }),
     }),
     loaders(({ values }) => ({
         broadcasts: [
@@ -125,7 +180,18 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     if (!values.currentProjectId) {
                         return values.broadcasts
                     }
-                    return await hogFlowsList(String(values.currentProjectId), { kind: 'broadcast', limit: 100 })
+                    const { search, createdBy, status } = values.filters
+                    // Only draft and archived narrow the query; scheduled, sending and sent are all
+                    // `active` server-side and are separated once the rows are enriched with a run.
+                    const apiStatus =
+                        status === 'draft' || status === 'archived' ? status : status === 'all' ? undefined : 'active'
+                    return await hogFlowsList(String(values.currentProjectId), {
+                        kind: 'broadcast',
+                        limit: 100,
+                        ...(search ? { search } : {}),
+                        ...(createdBy ? { created_by: createdBy } : {}),
+                        ...(apiStatus ? { status: apiStatus } : {}),
+                    })
                 },
             },
         ],
@@ -141,6 +207,30 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             false as boolean,
             {
                 loadBroadcastsSuccess: () => true,
+            },
+        ],
+        filters: [
+            DEFAULT_FILTERS,
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+    }),
+    selectors({
+        filteredBroadcasts: [
+            (s) => [s.broadcasts, s.filters, s.rowDetailsById],
+            (
+                broadcasts: PaginatedHogFlowMinimalListApi,
+                filters: BroadcastsFilters,
+                rowDetailsById: Record<string, BroadcastRowDetails>
+            ): HogFlowMinimalApi[] => {
+                const results = broadcasts.results ?? []
+                if (filters.status === 'all' || filters.status === 'draft' || filters.status === 'archived') {
+                    return results
+                }
+                return results.filter(
+                    (broadcast) => getBroadcastStatus(broadcast, rowDetailsById[broadcast.id]) === filters.status
+                )
             },
         ],
     }),
@@ -171,6 +261,38 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     }
                 })()
             }
+        },
+        setFilters: () => {
+            actions.loadBroadcasts()
+        },
+        archiveBroadcast: async ({ broadcast }) => {
+            await hogFlowsPartialUpdate(String(values.currentProjectId), broadcast.id, { status: 'archived' })
+            lemonToast.success('Broadcast archived')
+            actions.loadBroadcasts()
+        },
+        restoreBroadcast: async ({ broadcast }) => {
+            await hogFlowsPartialUpdate(String(values.currentProjectId), broadcast.id, { status: 'draft' })
+            lemonToast.success('Broadcast restored as a draft')
+            actions.loadBroadcasts()
+        },
+        duplicateBroadcast: async ({ broadcast }) => {
+            const projectId = String(values.currentProjectId)
+            // Copy the full definition rather than the list row: the list serializer omits actions
+            // and edges, and a duplicate without them would save as an empty broadcast.
+            const full = await hogFlowsRetrieve(projectId, broadcast.id)
+            await hogFlowsCreate(projectId, {
+                ...full,
+                id: undefined,
+                name: `${full.name ?? 'Broadcast'} (copy)`,
+                status: 'draft',
+            } as any)
+            lemonToast.success('Broadcast duplicated as a draft')
+            actions.loadBroadcasts()
+        },
+        deleteBroadcast: async ({ broadcast }) => {
+            await hogFlowsDestroy(String(values.currentProjectId), broadcast.id)
+            lemonToast.success('Broadcast deleted')
+            actions.loadBroadcasts()
         },
         loadBroadcastsFailure: () => {
             lemonToast.error("Couldn't load broadcasts. Refresh the page to try again.")
