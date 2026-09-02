@@ -6101,9 +6101,9 @@ snapshots:
     scenes-app-batchexports--new-postgres-export--light:
         hash: v1.k794b7964.a91e98e99f18feaab3e35cc74c61e587a93f0d5145dbb0ffe87cba47753e2b69.xH4R5lW0I6Jc6kaJhwrBbmt3aAm7WBxGgI233qSOQ5s
     scenes-app-batchexports--new-redshift-export--dark:
-        hash: v1.k794b7964.8f0388fbdd4a8d00212684d736e614f2344aad1cfe39367f3b816b20dd763c15.YHxV-ye4sDuyCfkAEScg1Cu1fJNySEqpEd9vHiCqEA4
+        hash: v1.k794b7964.ca943cf5b531f67d25f8d2ece7746ed6768af501d10aa71082bd0c4bf38ad13e.C2HPb5m5ZJdSu-GNI75wMkuiEiaEOtHxfQmzUbRrySs
     scenes-app-batchexports--new-redshift-export--light:
-        hash: v1.k794b7964.fa2185c87dad9181ffdec1888102174d0ec3acc2a11411ef597177a9d0d570b1.2wW_Q7snJas3pAN8GKb0XGnS2QMeI_CUZkMwiQ7Wkuc
+        hash: v1.k794b7964.1d608dd053858bb0b55ad2048d476c5ce19448758185e277352a4b81d42a20d4.qEj-MdakedhK-9bGnAOS7P2dpCESdvDrHyi80qbRt_A
     scenes-app-batchexports--new-s-3-compatible-export--dark:
         hash: v1.k794b7964.64732abe9af577a8d94f717698373476218db08db3d62f1fc2c37dc52db29a01.6KvN-kOY6LRFnyCA59HvtJ1_vM-3c6wt-X42C4w5fP4
     scenes-app-batchexports--new-s-3-compatible-export--light:

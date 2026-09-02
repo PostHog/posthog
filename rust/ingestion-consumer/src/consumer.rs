@@ -3,6 +3,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common_kafka_consumer::Partition;
 use futures::StreamExt;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
@@ -19,7 +20,7 @@ use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::SendError;
-use crate::types::SerializedKafkaMessage;
+use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
 /// Statistics gathered while collecting a batch, used to emit parity metrics.
@@ -47,7 +48,8 @@ impl BatchStats {
 
 /// Output of `collect_batch`.
 struct CollectedBatch {
-    messages: Vec<SerializedKafkaMessage>,
+    /// The poll's messages, demuxed per partition and routing key.
+    groups: Vec<Group>,
     offsets: HashMap<(String, i32), OffsetSpan>,
     stats: BatchStats,
 }
@@ -274,7 +276,7 @@ impl IngestionConsumer {
                             }
                         };
 
-                        if collected.messages.is_empty() {
+                        if collected.groups.is_empty() {
                             self.handle.report_healthy();
                             if in_flight_batches.is_empty() {
                                 continue;
@@ -301,7 +303,7 @@ impl IngestionConsumer {
     }
 
     fn spawn_batch_processing(&self, mut collected: CollectedBatch) -> InFlightBatch {
-        let batch_size = collected.messages.len();
+        let batch_size: usize = collected.groups.iter().map(Group::len).sum();
         let batch_id = make_batch_id();
         // Register AND assign here, on the consumer loop, so both happen in
         // true batch order. Registration first, so the stash learns batch
@@ -317,14 +319,14 @@ impl IngestionConsumer {
             partitions: debug_partition_offsets(&collected.offsets, &collected.stats.max_lag_ms),
         });
         let assign_start = Instant::now();
-        let messages = std::mem::take(&mut collected.messages);
+        let groups = std::mem::take(&mut collected.groups);
         // Send order is established here too, still on the consumer loop and
         // under the dispatcher's lock: `begin_send` is synchronous, so a key's
         // sub-batches enter its worker's stream in assignment order — spawned
         // tasks racing to send would scramble it.
         let pending = self
             .dispatcher
-            .assign_and_send(&batch_id, messages, |sub_batch| {
+            .assign_and_send(&batch_id, groups, |sub_batch| {
                 Self::begin_send(&self.transport, &batch_id, sub_batch, false)
             });
         // Assignment serializes on the consumer loop (it no longer overlaps
@@ -699,7 +701,7 @@ impl IngestionConsumer {
     /// bound still moves rather than wedging the partition — and overshoot is
     /// at most one message, itself bounded by `fetch.message.max.bytes`.
     async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
-        let mut messages = Vec::with_capacity(self.batch_size);
+        let mut accumulator = Accumulator::default();
         let mut offsets: HashMap<(String, i32), OffsetSpan> = HashMap::new();
         let mut stats = BatchStats::new();
         let deadline = Instant::now() + self.batch_timeout;
@@ -708,7 +710,7 @@ impl IngestionConsumer {
         let mut stream = self.consumer.stream();
 
         loop {
-            if messages.len() >= self.batch_size {
+            if accumulator.message_count() >= self.batch_size {
                 break;
             }
 
@@ -790,7 +792,7 @@ impl IngestionConsumer {
                         headers,
                     };
 
-                    messages.push(serialized);
+                    accumulator.push(Partition(partition), serialized.into());
                 }
                 Ok(Some(Err(err))) => {
                     warn!(error = %err, "Kafka recv error");
@@ -816,7 +818,7 @@ impl IngestionConsumer {
         }
 
         Ok(CollectedBatch {
-            messages,
+            groups: accumulator.into_groups(),
             offsets,
             stats,
         })
