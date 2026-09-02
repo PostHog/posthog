@@ -112,45 +112,50 @@ def sync_installation_repositories(
     write_db = router.db_for_write(StamphogRepoConfig)
     # One installation can expose thousands of repositories. Let the loop create the rows without a
     # per-row audit write and log the creates in one batch below; an adoption still logs its own diff.
-    with suppress_created_activity():
-        for full_name in repositories:
-            # Per-row savepoint: an IntegrityError only rolls back that row, leaving the rest of the
-            # batch (and the outer autocommit context) intact.
-            try:
-                with transaction.atomic(using=write_db):
-                    config, was_created = StamphogRepoConfig.objects.for_team(team_id).get_or_create(
-                        provider="github",
-                        installation_id=installation_id,
-                        repository=full_name,
-                        # for_team() scopes the read but not row creation, so team_id is explicit
-                        # here. Bind disabled: an installation can surface hundreds of repos, so
-                        # connect them but don't start reviewing until a human toggles each on.
-                        # enabled only seeds new rows; an existing row's toggle is never flipped.
-                        # The connecting user is seeded here too, so a new row does not need the
-                        # restamp below and its activity log shows one "connected" entry instead of
-                        # a create plus a connector change.
-                        defaults={
-                            "team_id": team_id,
-                            "enabled": False,
-                            "connected_by_user_id": connected_by_user_id,
-                        },
-                    )
-            except IntegrityError:
-                # The unique (team, repository) constraint tripped: a same-team row for this repo
-                # already exists under a different installation_id — the manually-created config
-                # (blank installation) finally being bound. Adopt it instead of skipping; only a
-                # real conflict (already bound to another installation) stays skipped.
-                adopted = _adopt_preexisting_config(team_id, full_name, installation_id)
-                if adopted is None:
-                    skipped.append(full_name)
-                else:
-                    synced.append(adopted)
-                continue
-            synced.append(config)
-            if was_created:
-                created_rows.append({"id": config.id, "repository": config.repository})
-
-    log_repo_configs_created(team_id, created_rows, user=get_current_user(), was_impersonated=get_was_impersonated())
+    # The batch runs in a finally: a row that is already committed when the loop dies would otherwise
+    # never be logged, and a retry sees it as pre-existing, so its creation is lost for good.
+    try:
+        with suppress_created_activity():
+            for full_name in repositories:
+                # Per-row savepoint: an IntegrityError only rolls back that row, leaving the rest of the
+                # batch (and the outer autocommit context) intact.
+                try:
+                    with transaction.atomic(using=write_db):
+                        config, was_created = StamphogRepoConfig.objects.for_team(team_id).get_or_create(
+                            provider="github",
+                            installation_id=installation_id,
+                            repository=full_name,
+                            # for_team() scopes the read but not row creation, so team_id is explicit
+                            # here. Bind disabled: an installation can surface hundreds of repos, so
+                            # connect them but don't start reviewing until a human toggles each on.
+                            # enabled only seeds new rows; an existing row's toggle is never flipped.
+                            # The connecting user is seeded here too, so a new row does not need the
+                            # restamp below and its activity log shows one "connected" entry instead of
+                            # a create plus a connector change.
+                            defaults={
+                                "team_id": team_id,
+                                "enabled": False,
+                                "connected_by_user_id": connected_by_user_id,
+                            },
+                        )
+                except IntegrityError:
+                    # The unique (team, repository) constraint tripped: a same-team row for this repo
+                    # already exists under a different installation_id — the manually-created config
+                    # (blank installation) finally being bound. Adopt it instead of skipping; only a
+                    # real conflict (already bound to another installation) stays skipped.
+                    adopted = _adopt_preexisting_config(team_id, full_name, installation_id)
+                    if adopted is None:
+                        skipped.append(full_name)
+                    else:
+                        synced.append(adopted)
+                    continue
+                synced.append(config)
+                if was_created:
+                    created_rows.append({"id": config.id, "repository": config.repository})
+    finally:
+        log_repo_configs_created(
+            team_id, created_rows, user=get_current_user(), was_impersonated=get_was_impersonated()
+        )
 
     if synced:
         with transaction.atomic(using=write_db):

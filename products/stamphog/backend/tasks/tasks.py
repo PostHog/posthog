@@ -22,7 +22,13 @@ from celery import shared_task
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
-from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
+from products.stamphog.backend.activity_logging import (
+    DISABLED_FIELDS,
+    installation_webhook_trigger,
+    log_repo_configs_created,
+    log_repo_configs_disabled_by_webhook,
+    suppress_created_activity,
+)
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
     ReviewMode,
@@ -850,7 +856,9 @@ def _resolve_installation_team_ids(installation_id: str) -> list[int]:
     )
 
 
-def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
+def _add_installation_repos(
+    team_id: int, installation_id: str, repos: list[dict[str, Any]], *, delivery_id: str
+) -> None:
     """Create a disabled config row per newly installed repo, skipping any that already exist.
 
     Rows start disabled so a repo added on GitHub merely appears in the toggle list — enabling reviews
@@ -873,30 +881,47 @@ def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict
         .values_list("connected_by_user_id", flat=True)
         .first()
     )
-    for repo in repos:
-        full_name = (repo or {}).get("full_name") or ""
-        if not full_name:
-            continue
-        exists = (
-            StamphogRepoConfig.objects.unscoped()
-            .filter(provider="github", installation_id=installation_id, repository=full_name)
-            .exists()
-        )
-        if exists:
-            continue
-        try:
-            with transaction.atomic(using=write_db):
-                StamphogRepoConfig.objects.for_team(team_id).create(
-                    team_id=team_id,
-                    provider="github",
-                    repository=full_name,
-                    installation_id=installation_id,
-                    enabled=False,
-                    digest_enabled=False,
-                    connected_by_user_id=connected_by_user_id,
+    created_rows: list[dict[str, Any]] = []
+    # One delivery can add many repos, so the rows are logged as one batch instead of one receiver
+    # call each. The batch runs in a finally: a row that is already committed when the loop dies
+    # would otherwise never be logged, and a retry skips it as existing, losing its creation.
+    try:
+        with suppress_created_activity():
+            for repo in repos:
+                full_name = (repo or {}).get("full_name") or ""
+                if not full_name:
+                    continue
+                exists = (
+                    StamphogRepoConfig.objects.unscoped()
+                    .filter(provider="github", installation_id=installation_id, repository=full_name)
+                    .exists()
                 )
-        except IntegrityError:
-            logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
+                if exists:
+                    continue
+                try:
+                    with transaction.atomic(using=write_db):
+                        config = StamphogRepoConfig.objects.for_team(team_id).create(
+                            team_id=team_id,
+                            provider="github",
+                            repository=full_name,
+                            installation_id=installation_id,
+                            enabled=False,
+                            digest_enabled=False,
+                            connected_by_user_id=connected_by_user_id,
+                        )
+                except IntegrityError:
+                    logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
+                    continue
+                created_rows.append({"id": config.id, "repository": config.repository})
+    finally:
+        # A webhook carries no PostHog user, so these are system rows; the trigger names the delivery.
+        log_repo_configs_created(
+            team_id,
+            created_rows,
+            trigger=installation_webhook_trigger(
+                delivery_id=delivery_id, action="added", installation_id=installation_id
+            ),
+        )
 
 
 def _supersede_runs_for_configs(team_id: int, config_ids: list[Any]) -> None:
@@ -1015,7 +1040,7 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
             added = payload.get("repositories_added") or []
             if added:
                 if len(team_ids) == 1:
-                    _add_installation_repos(team_ids[0], installation_id, added)
+                    _add_installation_repos(team_ids[0], installation_id, added, delivery_id=delivery_id)
                 else:
                     # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
                     logger.info(

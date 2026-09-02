@@ -224,19 +224,34 @@ def log_repo_config_bulk_update(
             raise
 
 
+def installation_webhook_trigger(*, delivery_id: str, action: str, installation_id: str) -> Trigger:
+    """Name the GitHub delivery behind a row a webhook wrote.
+
+    A webhook carries no PostHog user, so its rows are system rows. The trigger is what lets a
+    reader tie a batch of repos back to the one event that touched them.
+    """
+    return Trigger(
+        job_type="github_installation_webhook",
+        job_id=delivery_id,
+        payload={"action": action, "installation_id": installation_id},
+    )
+
+
 def log_repo_configs_created(
     team_id: int,
     rows: list[dict[str, Any]],
     *,
     user: "User | None" = None,
     was_impersonated: bool = False,
+    trigger: Trigger | None = None,
 ) -> None:
-    """Log the repo configs one installation sync connected, in a single batch.
+    """Log the repo configs one pass connected, in a single batch.
 
-    Pairs with `suppress_created_activity`: the sync silences the per-row receiver and calls this
+    Pairs with `suppress_created_activity`: the caller silences the per-row receiver and calls this
     once. `notify=False` drops the internal-event fan-out, because one event per connected repo
     would put thousands of messages on the topic for a single click. The rows themselves still
-    reach the activity feed.
+    reach the activity feed. A webhook caller passes `user=None` and a `trigger` naming the
+    delivery, so the batch reads as a system row a reader can trace back to one GitHub event.
     """
     if not rows:
         return
@@ -255,7 +270,7 @@ def log_repo_configs_created(
                     scope="StamphogRepoConfig",
                     activity="created",
                     # The sync binds the installation as it creates the row, so it is connected.
-                    detail=Detail(name=row["repository"], type="connected"),
+                    detail=Detail(name=row["repository"], type="connected", trigger=trigger),
                     was_impersonated=was_impersonated,
                 )
                 for row in rows
@@ -284,9 +299,5 @@ def log_repo_configs_disabled_by_webhook(
         team_id,
         before_rows,
         dict.fromkeys(DISABLED_FIELDS, False),
-        trigger=Trigger(
-            job_type="github_installation_webhook",
-            job_id=delivery_id,
-            payload={"action": action, "installation_id": installation_id},
-        ),
+        trigger=installation_webhook_trigger(delivery_id=delivery_id, action=action, installation_id=installation_id),
     )

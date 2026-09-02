@@ -701,6 +701,18 @@ def test_installation_repos_added_creates_disabled_rows_and_skips_existing(team,
         assert repo_config.enabled is True  # existing row untouched
         assert StamphogRepoConfig.objects.count() == 2
 
+    # One batch audit row per repo the delivery actually added: the per-row receiver is silenced for
+    # the loop, and the skipped repo writes nothing. No PostHog user is behind a webhook.
+    created = list(ActivityLog.objects.filter(detail__trigger__job_id="delivery-inst-added"))
+    assert [log.item_id for log in created] == [str(new_row.id)]
+    for log in created:
+        assert log.scope == "StamphogRepoConfig"
+        assert log.activity == "created"
+        assert log.user is None
+        assert log.is_system is True
+        assert log.detail is not None
+        assert log.detail["name"] == "acme/new-repo"
+
 
 @pytest.mark.parametrize(
     "payload_kwargs,expect_disabled",
