@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { type ChartTheme } from '@posthog/quill-charts'
 import {
     Metric,
@@ -11,6 +13,10 @@ import {
 } from '@posthog/quill-components/metric'
 import { Card, CardContent, cn, Skeleton } from '@posthog/quill-primitives'
 
+import { IntervalType } from '~/types'
+
+import { formatBucketLabel } from '../timeBuckets'
+
 export interface MetricTileProps {
     label: string
     value: number
@@ -18,7 +24,12 @@ export interface MetricTileProps {
     theme: ChartTheme
     loading: boolean
     data?: number[]
+    // Raw bucket keys, which the sparkline uses as its x-scale keys, so they must be unique per
+    // point. Pre-formatted text repeats (every hour of a day reads "Sep 2") and a repeat collapses
+    // two points onto one position. The tile formats them for the caption itself.
     labels?: string[]
+    // Grouping interval of the buckets, which decides whether a caption needs the bucket's time.
+    interval: IntervalType
     color?: string
     goodDirection?: 'up' | 'down'
     restingSubtitle: string
@@ -39,6 +50,7 @@ export function MetricTile({
     loading,
     data,
     labels,
+    interval,
     color,
     goodDirection,
     restingSubtitle,
@@ -50,6 +62,8 @@ export function MetricTile({
     className,
 }: MetricTileProps): JSX.Element {
     const hasSparkline = data != null && data.length > 0
+    // A stable identity per interval, so `Metric`'s memoized context does not rebuild every render.
+    const formatLabel = useMemo(() => (label: string) => formatBucketLabel(label, interval), [interval])
     return (
         <Card size="sm" flush={hasSparkline} className={cn('flex-1', className)}>
             {loading ? (
@@ -63,6 +77,7 @@ export function MetricTile({
                     value={value}
                     data={hasSparkline ? data : undefined}
                     labels={hasSparkline ? labels : undefined}
+                    formatLabel={formatLabel}
                     theme={theme}
                     color={color}
                     goodDirection={goodDirection}

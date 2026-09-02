@@ -95,6 +95,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     usersLoading={usersLoading}
                     showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                     theme={theme}
+                    interval={interval}
                     incompleteTail={kpiIncompleteTail}
                 />
             </section>
