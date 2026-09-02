@@ -37,6 +37,7 @@ from posthog.clickhouse.cleanup_snapshots import (
 from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, MutationWaiter, NodeRole
 from posthog.clickhouse.custom_metrics import MetricsClient
+from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.common.common import settings_with_log_comment
 from posthog.dags.common.dictionaries import Dictionary
@@ -1141,9 +1142,10 @@ def drop_snapshot_assets(
     for dictionary in (run.orphaned_dictionary, run.persons_dictionary):
         cluster.map_all_hosts(dictionary.drop).result()
     # The TTL would reap these anyway. Clearing them now keeps the shared tables small enough that
-    # a run's own rows stay cheap to read.
+    # a run's own rows stay cheap to read. Replicated DROP PARTITION must run on a leader-capable
+    # replica, and only online replicas can become leaders, so the drop is routed to one.
     for table in run.all_tables:
-        cluster.any_host_by_role(table.drop_run_partition, NodeRole.DATA).result()
+        cluster.any_host_by_role(table.drop_run_partition, NodeRole.DATA, Workload.ONLINE).result()
 
 
 def _drop_dictionary(client: Client, qualified_name: str) -> None:
