@@ -4,6 +4,7 @@ import {
   LightningIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
+import { isRestorableReport } from "@posthog/core/inbox/reportMembership";
 import {
   deriveHeadline,
   displayConventionalCommitTitle,
@@ -224,7 +225,7 @@ export function ReportCardView(props: ReportCardViewProps) {
   // A refunded/resolved archived report carries no actions; skip the rail (and
   // its divider) entirely rather than render an empty bordered column.
   const actions = isArchived ? (
-    isResolved ? null : (
+    isRestorableReport(report) ? (
       <UiButton
         type="button"
         variant="soft"
@@ -242,7 +243,7 @@ export function ReportCardView(props: ReportCardViewProps) {
         <ArrowCounterClockwiseIcon size={14} />
         Restore
       </UiButton>
-    )
+    ) : null
   ) : (
     <>
       <SuggestedReviewerAvatarStack
