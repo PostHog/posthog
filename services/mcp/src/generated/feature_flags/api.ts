@@ -900,7 +900,7 @@ export const FeatureFlagsActivityRetrieveQueryParams = () => zod.object({
  * flag is refused when other active flags depend on it. An already-archived flag is
  * returned unchanged.
  */
-export const FeatureFlagsArchiveCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsArchiveCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -931,7 +931,7 @@ export const FeatureFlagsDependentFlagsListParams = () => zod.object({
  * A disabled flag stops evaluating for every consumer, including a linked experiment or a
  * session replay setting. Read the full definition first to report that impact.
  */
-export const FeatureFlagsDisableCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsDisableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -948,7 +948,7 @@ export const FeatureFlagsDisableCreateParams = /* @__PURE__ */ zod.object({
  * flag whose own flag dependencies are disabled is also refused. An already-enabled flag
  * is returned unchanged.
  */
-export const FeatureFlagsEnableCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsEnableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -1011,7 +1011,7 @@ export const FeatureFlagsTestEvaluationCreateBody = () => zod.object({
  * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
  * with a separate call. An already-unarchived flag is returned unchanged.
  */
-export const FeatureFlagsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsUnarchiveCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
