@@ -200,9 +200,6 @@ def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int
     # TODO: We should support these interval or just make it not required.
     now = dt.datetime.now(dt.UTC)
 
-    # `execute_hogql_query` resolves modifiers differently than the batch
-    # export, which could potentially affect counts.
-    # TODO: How big is the difference? Is it worth aligning these two?
     query_response = execute_hogql_query(
         query=record_batch_model.get_count_hogql_query(now, now),
         team=team,

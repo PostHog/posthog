@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing
@@ -52,17 +53,18 @@ def create_hogql_context_for_batch_export(team: "Team", values: dict[str, typing
 
     Both API-side validation and worker-side execution must build the context the same
     way, otherwise a query that validates could resolve differently when it runs. This
-    builder is the single source of truth for those semantics: the database is built
-    with team-default modifiers, the context keeps plain default modifiers for printing
-    (`Database.create_for` team-defaults a copy, not this context's instance), and no
-    top-level LIMIT is applied. It reads from Postgres, so worker code must call it off
-    the event loop.
+    builder is the single source of truth for those semantics: team-default modifiers
+    on both the context and its database, so `team.modifiers` overrides (e.g. custom
+    channel type rules, bounce duration) resolve exactly as they do for insights, and
+    no top-level LIMIT. It reads from Postgres, so worker code must call it off the
+    event loop.
     """
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=create_default_modifiers_for_team(team),
         values=values if values is not None else {},
     )
     context.database = Database.create_for(team=team, modifiers=context.modifiers)

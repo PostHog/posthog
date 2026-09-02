@@ -108,6 +108,18 @@ class TestSessionsRecordBatchModel:
             in printed_query
         )
 
+    async def test_get_hogql_context_resolves_team_modifiers(self, ateam):
+        ateam.modifiers = {"bounceRateDurationSeconds": 30}
+        await ateam.asave()
+        model = SessionsRecordBatchModel(team_id=ateam.id)
+
+        context = await model.get_hogql_context()
+
+        # The team override must reach the context the worker prints with, and computed
+        # defaults must be filled in, matching how insights resolve modifiers.
+        assert context.modifiers.bounceRateDurationSeconds == 30
+        assert context.modifiers.personsOnEventsMode is not None
+
     async def test_get_hogql_query_returns_independent_ast_per_call(
         self, ateam, another_ateam, data_interval_start, data_interval_end
     ):
