@@ -13,6 +13,7 @@ import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxB
 import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
+  DEFAULT_INBOX_REPORT_STATE_FILTER,
   hasActiveInboxFilters,
   useInboxSignalsFilterStore,
 } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -108,18 +109,6 @@ export function ReportsInboxView(): React.JSX.Element {
     ? serverCounts.reviewAndMerge
     : 0;
   const needsPrCount = showNeedsDecision ? serverCounts.needsPr : 0;
-  const activeReports = useMemo(
-    () => [
-      ...(showReviewAndMerge ? sections.reviewAndMerge : []),
-      ...(showNeedsDecision ? sections.needsPr : []),
-    ],
-    [
-      sections.reviewAndMerge,
-      sections.needsPr,
-      showNeedsDecision,
-      showReviewAndMerge,
-    ],
-  );
   const triageReports = showNeedsDecision ? sections.needsPr : [];
   const visibleReports = useMemo(() => {
     const visibleIds = new Set([
@@ -144,14 +133,21 @@ export function ReportsInboxView(): React.JSX.Element {
     showReviewAndMerge,
   ]);
 
+  const terminalCount =
+    (showResolved ? serverCounts.resolved : 0) +
+    (showDismissed ? serverCounts.dismissed : 0);
+  const reportCount = reviewAndMergeCount + needsPrCount + terminalCount;
+
   useTrackReportsInboxViewed({
-    reports: activeReports,
-    totalCount: reviewAndMergeCount + needsPrCount,
+    reports: visibleReports,
+    totalCount: reportCount,
     isReady: isSuccess && !serverCounts.isLoading,
     sourceProductFilter,
     priorityFilter,
     searchQuery,
     scope: inboxReviewerScopeValue(scope),
+    reportStateFilter,
+    defaultReportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
   });
 
   useEffect(() => {
@@ -201,10 +197,6 @@ export function ReportsInboxView(): React.JSX.Element {
     );
   }
 
-  const terminalCount =
-    (showResolved ? serverCounts.resolved : 0) +
-    (showDismissed ? serverCounts.dismissed : 0);
-  const reportCount = reviewAndMergeCount + needsPrCount + terminalCount;
   const isEmpty = !serverCounts.isLoading && reportCount === 0;
 
   return (
