@@ -740,8 +740,9 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             # Codex's other spelling: the User-Agent surface. The generic `openai-mcp`
             # prefix used to swallow this and report it as plain "OpenAI".
             ("codex_user_agent_surface", {"$mcp_client_user_agent": "openai-mcp/1.0 (Codex)"}, "OpenAI Codex"),
-            # SDK-emitted vendor header, plus the legacy unprefixed spelling still
-            # resolving for historical rows stamped by PostHog's own server.
+            # The vendor header resolves from both wire keys it is captured under:
+            # $mcp_vendor_client (SDKs) and the unprefixed mcp_vendor_client
+            # (PostHog's own server).
             ("sdk_vendor_header", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             ("legacy_vendor_header", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             # An unrecognized client is still named — its own self-report beats "Other".
@@ -750,9 +751,9 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             # name shown back is the one the client reported.
             ("unrecognized_keeps_casing", {"$mcp_client_name": "NexusAgent"}, "NexusAgent"),
             ("no_identity_at_all", {}, mcp_harness.UNIDENTIFIED_HARNESS_LABEL),
-            # Deleted resolution steps: dogfood-only properties the SDKs never emit are
-            # no longer read (0% sole-resolution in production), so alone they attribute
-            # nothing.
+            # Not resolution signals: the SDKs never emit these properties and the
+            # server folds the session-pinned name into per-event $mcp_client_name,
+            # so on their own they attribute nothing.
             (
                 "session_name_no_longer_read",
                 {"mcp_session_client_name": "codex-mcp-client"},

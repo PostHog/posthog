@@ -117,9 +117,9 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
     @parameterized.expand(
         [
-            # The SDKs emit $mcp_vendor_client; the raw header value can arrive in either
-            # spelling. The unprefixed mcp_vendor_client is the legacy name PostHog's own
-            # server stamped, kept resolving for historical rows.
+            # The vendor header resolves from both wire keys it is captured under
+            # ($mcp_vendor_client from the SDKs, unprefixed mcp_vendor_client from
+            # PostHog's own server) and in both value spellings.
             ("sdk_vendor_cowork", {"$mcp_vendor_client": "Cowork"}, "Cowork"),
             ("sdk_vendor_claudecode", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
             ("sdk_vendor_hyphenated", {"$mcp_vendor_client": "claude-code"}, "Claude Code"),
@@ -176,9 +176,9 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             ),
             ("client_name_lovable", {"$mcp_client_name": "lovable"}, "Lovable"),
             ("unknown_to_other", {"$mcp_client_name": "totally-unknown-thing"}, "Other"),
-            # Deleted resolution steps: these dogfood-only properties are no longer read
-            # (0% sole-resolution in production; the server folds the session name into
-            # per-event $mcp_client_name, and the SDKs never emit either property).
+            # Not resolution signals: the SDKs never emit these properties and the
+            # server folds the session-pinned name into per-event $mcp_client_name,
+            # so on their own they attribute nothing.
             ("session_name_no_longer_read", {"mcp_session_client_name": "codex-mcp-client"}, "Other"),
             ("oauth_name_no_longer_read", {"$mcp_oauth_client_name": "lovable"}, "Other"),
         ]
@@ -194,8 +194,8 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
     def test_vendor_header_wins_over_generic_client_name(self) -> None:
         # Anthropic's pooled surfaces self-report the generic "Anthropic/ClaudeAI"
-        # clientInfo.name; the vendor header is what separates Cowork from Claude.ai.
-        # Uses the legacy vendor spelling: historical rows are exactly this shape.
+        # clientInfo.name; the vendor header is what separates Cowork from Claude.ai —
+        # including when it arrives under the unprefixed wire key.
         self._emit(properties={"mcp_vendor_client": "Cowork", "$mcp_client_name": "Anthropic/ClaudeAI"})
         flush_persons_and_events()
 

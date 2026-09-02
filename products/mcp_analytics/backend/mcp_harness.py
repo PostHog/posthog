@@ -43,11 +43,11 @@ _UA_PRODUCT = "extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')"
 # (step 2, to keep the CLI/SDK/IDE split) and as the generic fallback (step 4).
 _UA_TOKEN = f"trim(concat({_UA_PRODUCT}, ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')))"
 
-# The x-anthropic-client vendor header. The SDKs emit `$mcp_vendor_client`
-# (the canonical name); `mcp_vendor_client` is the legacy name PostHog's own
-# server stamped before adopting the SDK interface, coalesced for historical
-# rows — those often carry a *wrong* clientInfo.name (Claude Code reporting
-# "Anthropic/ClaudeAI"), so the fallback cannot be dropped when old data ages in.
+# The x-anthropic-client vendor header, coalesced across both wire keys it is
+# captured under: `$mcp_vendor_client` (the SDK name) and the unprefixed
+# `mcp_vendor_client` (PostHog's own server). The unprefixed arm is load-bearing,
+# not cosmetic: rows carrying only it often self-report a wrong clientInfo.name
+# (Claude Code as "Anthropic/ClaudeAI"), so without it they misattribute.
 _VENDOR = (
     "lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''),"
     " nullIf(toString(properties.mcp_vendor_client), '')))"
@@ -57,9 +57,8 @@ _VENDOR = (
 # that outrank clientInfo.name, then clientInfo.name, then the generic UA token.
 _RAW_TOKEN = f"""coalesce(
     multiIf(
-        -- Both spellings are live: our server historically stamped the CamelCase
-        -- header values verbatim ('ClaudeCode'), and the SDKs capture the header
-        -- raw, which can also arrive hyphenated ('claude-code').
+        -- The header is captured verbatim and its value arrives in both spellings
+        -- ('ClaudeCode' and 'claude-code'), so each vendor matches both.
         {_VENDOR} IN ('claudecode', 'claude-code'), 'claude-code',
         {_VENDOR} IN ('claudeai', 'claude-ai'), 'claude-ai',
         {_VENDOR} = 'cowork', 'cowork',
