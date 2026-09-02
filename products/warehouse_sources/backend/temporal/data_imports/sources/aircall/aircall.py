@@ -1,4 +1,3 @@
-import logging
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -21,8 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
-logger = logging.getLogger(__name__)
-
 AIRCALL_BASE_URL = "https://api.aircall.io/v1"
 # Aircall caps list pages at 50 items.
 PAGE_SIZE = 50
@@ -30,6 +27,17 @@ PAGE_SIZE = 50
 # 400. It keeps advertising a `meta.next_page_link` across that boundary, so the link cannot be
 # followed blindly: the offset it points at has to be range-checked first.
 MAX_RECORDS_PER_QUERY = 10_000
+
+
+class AircallTruncationError(Exception):
+    """Raised when a capped window cannot advance, so the rest of it is unreachable.
+
+    Aircall serves at most 10,000 records per query. The paginator moves past that cap by
+    re-anchoring `from` on the latest cursor value seen. When every record in the filled window
+    shares the boundary timestamp, the cursor cannot move, the next window would repeat the same
+    query, and the remaining records are lost. Failing here surfaces that loss as a failed sync
+    instead of letting the run report success with missing data.
+    """
 
 
 @dataclasses.dataclass
@@ -108,8 +116,9 @@ class AircallPaginator(BasePaginator):
     rejects that page with a 400: waiting for the page chain to end would never re-anchor the
     tables that actually need it. The end of a page chain re-anchors too, since a chain that ends
     at the cap boundary is indistinguishable from one that ends because the window is exhausted.
-    The strict-advance guard prevents an infinite loop when many records share the boundary
-    timestamp.
+    When many records share the boundary timestamp the cursor cannot advance, so a fresh window
+    would repeat the same query forever. The paginator raises `AircallTruncationError` there
+    rather than loop or drop the rest of the window silently.
     """
 
     def __init__(
@@ -183,14 +192,12 @@ class AircallPaginator(BasePaginator):
         if capped:
             # A window that fills the cap without its cursor advancing cannot be moved forward,
             # because the next window would open on the same timestamp and return the same
-            # records. Stop rather than loop, and make the truncation visible in the job logs.
-            logger.warning(
-                "Aircall: %s reached the %s-record query cap without %s advancing past %s, "
-                "so the rest of this window is unreachable and the table is truncated",
-                self._config.path,
-                MAX_RECORDS_PER_QUERY,
-                self._config.reanchor_field,
-                self._from_value,
+            # records. Fail rather than drop the rest of the window silently: a warning-only stop
+            # let the run finalize as complete with missing data, which is invisible to the user.
+            raise AircallTruncationError(
+                f"Aircall {self._config.path}: {self._config.reanchor_field} did not advance past "
+                f"{self._from_value} within the {MAX_RECORDS_PER_QUERY}-record query limit, so the "
+                "rest of this window cannot be fetched. The sync stopped to avoid losing data."
             )
 
         self._has_next_page = False

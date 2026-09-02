@@ -269,6 +269,9 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
     })
     .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
+/**
+ * Trigger a sync for the schema using its configured sync method. Most methods keep the existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds the whole table on every run. To force a rebuild from the source, use resync.
+ */
 export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -278,6 +281,9 @@ export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
+/**
+ * Request a full resync of the schema. For sources that can backfill, this drops the warehouse table and re-imports every row from the source, so existing data is deleted first. A webhook-only schema cannot backfill, so it keeps its existing table and resumes ingestion instead. To sync without requesting a rebuild, use reload.
+ */
 export const ExternalDataSchemasResyncCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod

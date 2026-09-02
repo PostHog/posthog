@@ -242,6 +242,9 @@ export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
 }
 
+/**
+ * Trigger a sync for the schema using its configured sync method. Most methods keep the existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds the whole table on every run. To force a rebuild from the source, use resync.
+ */
 export const externalDataSchemasReloadCreate = async (
     projectId: string,
     id: string,
@@ -257,6 +260,9 @@ export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/external_data_schemas/${id}/resync/`
 }
 
+/**
+ * Request a full resync of the schema. For sources that can backfill, this drops the warehouse table and re-imports every row from the source, so existing data is deleted first. A webhook-only schema cannot backfill, so it keeps its existing table and resumes ingestion instead. To sync without requesting a rebuild, use reload.
+ */
 export const externalDataSchemasResyncCreate = async (
     projectId: string,
     id: string,
