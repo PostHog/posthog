@@ -333,6 +333,16 @@ class TestClusteringJobSerializerValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "event_filters" in serializer.errors
 
+    def test_accepts_event_filter_with_null_value_and_label(self) -> None:
+        # A non-cohort filter never dereferences the team, so a stub get_team keeps
+        # this DB-free while still reaching field validation of the null values.
+        filters = [{"key": "$ai_model", "operator": "exact", "type": "event", "value": None, "label": None}]
+        serializer = ClusteringJobSerializer(
+            data={"event_filters": filters}, partial=True, context={"get_team": lambda: None}
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["event_filters"] == filters
+
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
     """Exercises the post_save signal in models/clustering_job.py that seeds the three
