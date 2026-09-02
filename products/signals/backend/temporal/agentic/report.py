@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
 
@@ -71,7 +70,7 @@ class RunAgenticReportInput:
     repo_selection_as_of: datetime | None = None
 
 
-@dataclass
+@frozen
 class RunAgenticReportOutput:
     title: str
     summary: str
