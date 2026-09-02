@@ -659,6 +659,18 @@ def _recovery_conflict_abort_error(retries: int) -> Exception:
     )
 
 
+def _unorderable_read_abort_error(schema: str, table_name: str) -> Exception:
+    # Non-retryable (see source.py): a full-table read orders nothing, so a re-read can only be paged
+    # by seeking on a unique key. Without one there is no safe page order at all, and every
+    # whole-activity retry re-reads into the same wall.
+    return Exception(
+        f"Read replica canceled the read of {schema}.{table_name} due to conflict with recovery, and "
+        f"the table has no unique key to resume a canceled read from. Add a primary key to the table, "
+        f"increase max_standby_streaming_delay or enable hot_standby_feedback on the replica, or sync "
+        f"from the primary database instead of the read replica."
+    )
+
+
 def _statement_timeout_as_non_retryable(
     error: BaseException,
     *,
@@ -4035,10 +4047,14 @@ def postgres_source(
                         # Paging by OFFSET needs a query that orders its rows, the precondition the
                         # connection-dropped handler below also enforces. A full-table read orders
                         # nothing, so seek on the primary key instead, and only from the start,
-                        # because rows already yielded are already written. Re-raise otherwise: the
-                        # error is retryable, so Temporal restarts the read from the first batch.
+                        # because rows already yielded are already written.
                         if not should_use_incremental_field and xmin_bounds is None:
-                            if offset > 0 or keyset_primary_keys is None:
+                            if keyset_primary_keys is None:
+                                raise _unorderable_read_abort_error(schema, table_name) from e
+                            if offset > 0:
+                                # Retryable, so Temporal restarts the read and the load overwrites
+                                # from the first batch. The next attempt can conflict before any row
+                                # is out, where seeking takes over.
                                 raise
                             logger.debug(
                                 f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."

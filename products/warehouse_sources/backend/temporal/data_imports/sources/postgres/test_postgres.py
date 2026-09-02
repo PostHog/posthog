@@ -3564,18 +3564,22 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         assert sorted(ids) == [row[0] for row in self._ROWS]
 
-    @pytest.mark.parametrize(
-        "rows_before_conflict,primary_keys",
-        [(2, ["id"]), (0, None)],
-        ids=["rows_of_an_unordered_prefix_are_already_written", "no_unique_key_to_seek_on"],
-    )
-    def test_full_refresh_refuses_to_page_an_unordered_read(self, rows_before_conflict, primary_keys):
+    def test_full_refresh_stays_retryable_when_rows_are_already_written(self):
         with pytest.raises(psycopg.errors.SerializationFailure):
+            self._read_ids(should_use_incremental_field=False, rows_before_conflict=2, primary_keys=["id"])
+
+    @pytest.mark.parametrize("rows_before_conflict", [0, 2])
+    def test_full_refresh_without_a_unique_key_fails_non_retryably(self, rows_before_conflict):
+        with pytest.raises(Exception) as exc_info:
             self._read_ids(
                 should_use_incremental_field=False,
                 rows_before_conflict=rows_before_conflict,
-                primary_keys=primary_keys,
+                primary_keys=None,
             )
+
+        message = str(exc_info.value)
+        assert "no unique key to resume a canceled read" in message
+        assert any(fragment in message for fragment in PostgresSource().get_non_retryable_errors())
 
 
 class TestSafeCloseConnection:

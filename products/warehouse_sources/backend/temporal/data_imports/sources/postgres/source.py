@@ -775,6 +775,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
                 "connection at the primary database, then re-enable the sync."
             ),
+            # A recovery conflict on a full-table read of a table with no unique key. The re-read can
+            # only be paged by seeking on a unique key, so there is no safe page order and a
+            # whole-activity retry re-reads into the same wall. Non-retryable for that reason, unlike
+            # the same conflict on a table that has a key, which stays retryable.
+            "no unique key to resume a canceled read": (
+                "Your read replica canceled the sync's read of this table "
+                '("canceling statement due to conflict with recovery"), and the table has no primary '
+                "key, so PostHog can't read it again without duplicating or missing rows. Add a "
+                "primary key to the table, increase max_standby_streaming_delay on the replica, "
+                "enable hot_standby_feedback, or point the connection at the primary database, then "
+                "re-enable the sync."
+            ),
             # Activity-layer twin of the `QueryTimeoutException` key above, for the read-replica path:
             # when a recovery conflict forces the offset-chunking fallback and a chunk then hits the
             # 10-minute statement_timeout, `get_rows` raises `QueryTimeoutException` with this message.
