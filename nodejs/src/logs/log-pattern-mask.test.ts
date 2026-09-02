@@ -6,7 +6,6 @@ import {
     KEY_SET_MAX_KEYS,
     type LogPatternResult,
     MASK_RULES,
-    MESSAGE_KEYS,
     PATTERN_CAPS,
     PATTERN_VERSION,
     buildLogPattern,
@@ -14,7 +13,12 @@ import {
 } from './log-pattern-mask'
 
 describe('log-pattern-mask', () => {
-    const patternResult = (body: string | null | undefined): LogPatternResult => buildLogPattern(body, MESSAGE_KEYS)
+    // The list is per team in production, so no single list is a global shape input. The ratchet
+    // below pins this one so the digest keeps covering the masker and the selection mechanism, and
+    // makes no claim about any team's configured list.
+    const TEST_MESSAGE_KEYS: readonly string[] = ['message', 'msg', 'event']
+    const patternResult = (body: string | null | undefined): LogPatternResult =>
+        buildLogPattern(body, TEST_MESSAGE_KEYS)
 
     describe('maskString', () => {
         it.each([
@@ -228,9 +232,9 @@ describe('log-pattern-mask', () => {
          * Bodies chosen to reach every branch that decides a pattern's shape: each mask rule, the
          * message keys, the key-set and array forms, both caps, and the order of parse and cap.
          *
-         * The message-key bodies are derived from `MESSAGE_KEYS` so a new key joins the corpus, and
-         * moves the digest, on arrival. Mask rules cannot be derived that way, so a coverage test
-         * below holds the equivalent line for them.
+         * The message-key bodies are derived from `TEST_MESSAGE_KEYS`, the fixed list the ratchet is
+         * pinned to. Mask rules cannot be derived that way, so a coverage test below holds the
+         * equivalent line for them.
          */
         const CORPUS: (string | null)[] = [
             null,
@@ -241,7 +245,7 @@ describe('log-pattern-mask', () => {
             'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 took 7141ms',
             'mail ops@example.com via api.example.com at 10.0.0.7 slot 0xdeadbeef',
             'checksum deadbeefdeadbeef00 verified',
-            ...MESSAGE_KEYS.map((key) => JSON.stringify({ [key]: 'served 3 requests', level: 'info' })),
+            ...TEST_MESSAGE_KEYS.map((key) => JSON.stringify({ [key]: 'served 3 requests', level: 'info' })),
             '{"msg":"loses 2","message":"wins 1"}',
             // Reach `extractJsonMessage` itself, not just the keys it reads. Widening it to accept a
             // number, or trimming what it returns, reshapes real bodies while leaving every other
@@ -286,7 +290,7 @@ describe('log-pattern-mask', () => {
         const SHAPE_INPUTS = JSON.stringify({
             rules: MASK_RULES.map((rule) => [rule.name, rule.pattern, rule.replacement]),
             caps: PATTERN_CAPS,
-            messageKeys: MESSAGE_KEYS,
+            messageKeys: TEST_MESSAGE_KEYS,
             keySetMaxKeys: KEY_SET_MAX_KEYS,
             jsonArray: JSON_ARRAY,
         })

@@ -41,7 +41,7 @@ describe('log-pattern-stage', () => {
     }
 
     it('tallies body kinds, rule fires, and input caps across a batch without touching the body', async () => {
-        const stage = makePatternMaskingStage()
+        const stage = makePatternMaskingStage(['message'])
         const records = [
             makeRecord(null),
             makeRecord('plain 5'),
@@ -71,7 +71,7 @@ describe('log-pattern-stage', () => {
         ['a plain body', 'retry 5', 'retry <N>'],
         ['an empty body, which must still carry a version or it reads as written before masking', null, ''],
     ])('stamps pattern and version onto the record: %s', async (_name, body, expected) => {
-        const stage = makePatternMaskingStage()
+        const stage = makePatternMaskingStage(['message'])
         const record = makeRecord(body)
 
         await stage.run([record])
@@ -80,7 +80,7 @@ describe('log-pattern-stage', () => {
     })
 
     it('keeps the batch when masking throws, so a measurement fault cannot DLQ customer logs', async () => {
-        const stage = makePatternMaskingStage()
+        const stage = makePatternMaskingStage(['message'])
         const record = makeRecord(null)
         Object.defineProperty(record, 'body', {
             get: () => {

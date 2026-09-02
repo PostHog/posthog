@@ -14,6 +14,7 @@ import {
     LogsIngestionOutputsConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
+import { LogsConfigCache } from '~/logs/logs-config-cache'
 import { LogsIngestionConsumer } from '~/logs/logs-ingestion-consumer'
 import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
@@ -130,6 +131,7 @@ export class IngestionLogsServer implements NodeServer {
             ? new LogsMetricsEmitter(this.config.LOGS_METRICS_RULES_EXPORT_URL)
             : undefined
         const retentionRulesCache = new RetentionRulesCache(this.postgres)
+        const logsConfigCache = new LogsConfigCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -170,6 +172,7 @@ export class IngestionLogsServer implements NodeServer {
                 metricsEmitter,
                 logsTransformer,
                 retentionRulesCache,
+                logsConfigCache,
                 usageBatch,
             })
             await consumer.start()

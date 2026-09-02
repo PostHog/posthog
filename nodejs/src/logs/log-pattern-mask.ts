@@ -126,8 +126,6 @@ export type LogPatternResult = {
     ruleFires: number[]
 }
 
-export const MESSAGE_KEYS = ['message', 'msg', 'event'] as const
-
 function extractJsonMessage(value: object, messageKeys: readonly string[]): string | null {
     if (Array.isArray(value)) {
         return null

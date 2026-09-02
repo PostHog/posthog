@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks'
 import { Counter, Histogram } from 'prom-client'
 
-import { MASK_RULES, MESSAGE_KEYS, PATTERN_VERSION, buildLogPattern } from './log-pattern-mask'
+import { MASK_RULES, PATTERN_VERSION, buildLogPattern } from './log-pattern-mask'
 import type { LogRecord } from './log-record-avro'
 import type { PipelineStage } from './pipeline/log-processing-pipeline'
 
@@ -51,13 +51,13 @@ export const logsPatternStageErrorCounter = new Counter({
     help: 'Batches where the pattern masking stage threw. The records survive. Any record the throw came before keeps its stamp, and the rest stay unstamped, which reads as version 0.',
 })
 
-export function makePatternMaskingStage(): PipelineStage {
+export function makePatternMaskingStage(messageKeys: readonly string[]): PipelineStage {
     return {
         kind: 'mutate',
         name: 'pattern_masking',
         run: (records) => {
             try {
-                stampBatch(records)
+                stampBatch(records, messageKeys)
             } catch {
                 logsPatternStageErrorCounter.inc()
             }
@@ -65,14 +65,14 @@ export function makePatternMaskingStage(): PipelineStage {
     }
 }
 
-function stampBatch(records: LogRecord[]): void {
+function stampBatch(records: LogRecord[], messageKeys: readonly string[]): void {
     const kindCounts = new Map<string, number>()
     const ruleFires: number[] = new Array(MASK_RULES.length).fill(0)
     let inputCapped = 0
 
     for (const record of records) {
         const start = performance.now()
-        const result = buildLogPattern(record.body, MESSAGE_KEYS)
+        const result = buildLogPattern(record.body, messageKeys)
         record.pattern = result.pattern
         record.pattern_version = PATTERN_VERSION
         logsPatternMaskingDurationHistogram.observe((performance.now() - start) / 1000)
