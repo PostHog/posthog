@@ -64,6 +64,13 @@ export function Spinner({
             )}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"
+            // Intrinsic size and colors so the spinner stays small and outlined if Spinner.scss
+            // does not load. Without them the SVG fills its container and the circles fall back to
+            // solid black, which renders a scene-filling black disc.
+            width="1em"
+            height="1em"
+            fill="none"
+            stroke="currentColor"
         >
             <g className="Spinner__layer">
                 <circle cx="24" cy="24" r="16" />
