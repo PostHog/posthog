@@ -22,9 +22,15 @@ The cost is that deduplication is scoped to a UTC day, so a reprocess that cross
 `inserted_at` is the engine's version column but is deliberately absent from the HogQL schema.
 `timestamp` is monotonic per resend, so `argMax(quantity, timestamp)` reads what a merge would keep, and one time column cannot be confused for the other.
 
-Read with `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `FINAL` outright, so this is the only correct shape there.
+A read that must be exact uses `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `FINAL` outright, so this is the only exact shape there.
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
+
+That shape does not scale, so do not reach for it by default.
+`record_id` is unique per row, so grouping by the sort key holds one aggregation state per row, and the query exceeds ClickHouse's per-query memory limit.
+A plain `sum(quantity)` stays inside the limit and overstates a total by a fraction of a percent, because a resend is rare.
+So a monitoring or in-product read sums raw rows and says it is not the billed number.
+Reserve the exact shape for a read that is scoped tightly enough to afford it.
 
 | producer_id         | usage_key                                                         | unit           | record_id                                                                                       | deployment                         |
 | ------------------- | ----------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
