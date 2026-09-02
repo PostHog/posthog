@@ -63,6 +63,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         labelGroupType,
         shouldShowMeanPerBreakdown,
         showTrendLines,
+        timezone,
         xAxisLabels,
         getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
@@ -162,10 +163,13 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 showTrendLines,
                 series,
                 tooltip: INSIGHT_TOOLTIP_CONFIG,
+                isIntervalView,
+                period,
+                timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [isPercentage, goalLines, showTrendLines, series, retentionFilter?.chartStyle]
+        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
