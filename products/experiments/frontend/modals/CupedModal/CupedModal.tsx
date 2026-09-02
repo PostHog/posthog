@@ -2,13 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { CupedSelection, getCupedSelection, resolveCupedLookbackDays } from 'scenes/experiments/ExperimentView/cuped'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import { DEFAULT_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
-
-import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
-import { CupedSelection, getCupedSelection, resolveCupedLookbackDays } from './cuped'
 
 export function CupedModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
