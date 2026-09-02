@@ -216,6 +216,59 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('widget draft preservation on save', () => {
+        it('clears the saved draft but keeps unsaved sibling drafts', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setGreetingInputValue('new greeting')
+            logic.actions.setPlaceholderTextValue('unsaved placeholder')
+
+            // A save persists the greeting; the server echoes it back on success.
+            logic.actions.updateCurrentTeamSuccess({
+                conversations_settings: { widget_greeting_text: 'new greeting' },
+            } as unknown as TeamType)
+
+            expect(logic.values.greetingInputValue).toBeNull()
+            expect(logic.values.placeholderTextValue).toBe('unsaved placeholder')
+        })
+
+        it('clears a bot field draft that was blanked to remove the override', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Clearing the input yields an empty-string draft; the save persists it as null.
+            logic.actions.setSlackBotDisplayNameValue('')
+
+            logic.actions.updateCurrentTeamSuccess({
+                conversations_settings: { slack_bot_display_name: null },
+            } as unknown as TeamType)
+
+            expect(logic.values.slackBotDisplayNameValue).toBeNull()
+        })
+
+        it('keeps a whitespace-only emoji edit when an unrelated field saves', async () => {
+            initKeaTests(true, {
+                conversations_settings: { slack_ticket_emoji: '🎫' },
+            } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The emoji saver sends the raw value, so a spaced draft is not yet persisted.
+            logic.actions.setSlackTicketEmojiValue(' 🎫 ')
+
+            // An unrelated save echoes the still-stored emoji back.
+            logic.actions.updateCurrentTeamSuccess({
+                conversations_settings: { slack_ticket_emoji: '🎫' },
+            } as unknown as TeamType)
+
+            expect(logic.values.slackTicketEmojiValue).toBe(' 🎫 ')
+        })
+    })
+
     describe('teamsChannelPairs selector', () => {
         it('reads the teams_channels list when present', async () => {
             initKeaTests(true, {

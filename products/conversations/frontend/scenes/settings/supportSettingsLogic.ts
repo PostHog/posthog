@@ -1643,13 +1643,52 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
         updateCurrentTeamSuccess: ({ payload }) => {
-            actions.setGreetingInputValue(null)
-            actions.setIdentificationFormTitleValue(null)
-            actions.setIdentificationFormDescriptionValue(null)
-            actions.setPlaceholderTextValue(null)
-            actions.setSlackTicketEmojiValue(null)
-            actions.setSlackBotIconUrlValue(null)
-            actions.setSlackBotDisplayNameValue(null)
+            // Clear only the drafts that this save persisted, so unsaved edits to
+            // sibling widget fields survive when a neighboring field is saved.
+            const saved = values.currentTeam?.conversations_settings
+            // A draft is persisted when its save-time representation matches the stored value.
+            // Each save listener transforms the draft differently, so normalize per field to
+            // match — otherwise a cleared field stays stuck and a whitespace-only edit is lost.
+            const isPersisted = (
+                draft: string | null,
+                storedValue: string | null | undefined,
+                normalize: (value: string) => string | null
+            ): boolean => draft !== null && storedValue === normalize(draft)
+
+            // Widget text savers send the trimmed value and reject blanks.
+            const trimmed = (value: string): string => value.trim()
+            // Slack bot savers send the trimmed value, or null when blank.
+            const trimmedOrNull = (value: string): string | null => value.trim() || null
+            // The emoji saver sends the raw value.
+            const raw = (value: string): string => value
+
+            if (isPersisted(values.greetingInputValue, saved?.widget_greeting_text, trimmed)) {
+                actions.setGreetingInputValue(null)
+            }
+            if (isPersisted(values.identificationFormTitleValue, saved?.widget_identification_form_title, trimmed)) {
+                actions.setIdentificationFormTitleValue(null)
+            }
+            if (
+                isPersisted(
+                    values.identificationFormDescriptionValue,
+                    saved?.widget_identification_form_description,
+                    trimmed
+                )
+            ) {
+                actions.setIdentificationFormDescriptionValue(null)
+            }
+            if (isPersisted(values.placeholderTextValue, saved?.widget_placeholder_text, trimmed)) {
+                actions.setPlaceholderTextValue(null)
+            }
+            if (isPersisted(values.slackTicketEmojiValue, saved?.slack_ticket_emoji, raw)) {
+                actions.setSlackTicketEmojiValue(null)
+            }
+            if (isPersisted(values.slackBotIconUrlValue, saved?.slack_bot_icon_url, trimmedOrNull)) {
+                actions.setSlackBotIconUrlValue(null)
+            }
+            if (isPersisted(values.slackBotDisplayNameValue, saved?.slack_bot_display_name, trimmedOrNull)) {
+                actions.setSlackBotDisplayNameValue(null)
+            }
             if (payload?.conversations_enabled) {
                 const storedSource = sessionStorage.getItem('support_activation_source')
                 const source = storedSource ? JSON.parse(storedSource) : { source: 'support_settings' }
