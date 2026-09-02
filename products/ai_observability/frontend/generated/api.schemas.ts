@@ -1264,12 +1264,15 @@ export const AnalysisLevelEnumApi = {
     Evaluation: 'evaluation',
 } as const
 
+export type ClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
     analysis_level: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at: string
     readonly updated_at: string
@@ -1284,12 +1287,15 @@ export interface PaginatedClusteringJobListApi {
     results: ClusteringJobApi[]
 }
 
+export type PatchedClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
     analysis_level?: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at?: string
     readonly updated_at?: string
@@ -3123,6 +3129,13 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number30: 30,
     Number60: 60,
 } as const
+
+export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean
+}
 
 export type DatasetItemsListParams = {
     /**
