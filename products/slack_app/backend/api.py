@@ -93,6 +93,7 @@ from products.slack_app.backend.services.slack_settings import resolve_untagged_
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
     get_cached_bot_user_id,
+    get_cached_workspace_bot_user_id,
     get_slack_user_info,
     normalize_slack_response,
     persist_slack_user_info,
@@ -2064,6 +2065,14 @@ def _route_reaction_added(
     channel = item.get("channel")
     message_ts = item.get("ts")
     if turn_feedback.reaction_sentiment(event.get("reaction")) is None or item.get("type") != "message":
+        return ROUTE_HANDLED_LOCALLY
+
+    # The reacted message's author rides on the event, and the bot's user id is the same
+    # for every install of the workspace, so a warm workspace cache rejects a thumb on a
+    # human message here, before the first database query. A miss falls through: the
+    # handler re-checks against the integration-scoped lookup, which also warms this cache.
+    workspace_bot_user_id = get_cached_workspace_bot_user_id(slack_team_id)
+    if workspace_bot_user_id is not None and event.get("item_user") != workspace_bot_user_id:
         return ROUTE_HANDLED_LOCALLY
 
     # Same candidate loading as the mention pipeline: broken-token installs are filtered

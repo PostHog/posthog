@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID, turn_feedback_block
+from products.slack_app.backend.services.slack_user_info import cache_workspace_bot_user_id
 from products.slack_app.backend.services.turn_feedback import (
     _MODAL_TEXT_ACTION_ID,
     _MODAL_TEXT_BLOCK_ID,
@@ -68,6 +69,9 @@ class TestTurnFeedback(TestCase):
         bot_id = patch("products.slack_app.backend.services.turn_feedback.get_cached_bot_user_id", return_value="U_BOT")
         bot_id.start()
         self.addCleanup(bot_id.stop)
+        # The router's early author gate reads the workspace-level cache; pin it so the
+        # reaction tests exercise that gate whatever earlier tests left in the cache.
+        cache_workspace_bot_user_id(self.slack_team_id, "U_BOT")
 
     def _post(self, payload: dict):
         body = f"payload={json.dumps(payload)}"
