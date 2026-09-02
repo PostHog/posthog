@@ -26,6 +26,7 @@ OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_dist
 | `resource_fingerprint`  | UInt64                              | Hash of `resource_attributes`                                                                      |
 | `instrumentation_scope` | String                              | Instrumentation library                                                                            |
 | `event_name`            | String                              | OTel event name (often empty)                                                                      |
+| `pattern`               | String                              | Mined message template with the variable parts masked; empty when no pattern was mined             |
 | `time_bucket`           | DateTime                            | `toStartOfDay(timestamp)`                                                                          |
 | `timestamp`             | DateTime64(9)                       | Log time                                                                                           |
 | `observed_timestamp`    | DateTime64(9)                       | Ingest time                                                                                        |
