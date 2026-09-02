@@ -1144,7 +1144,8 @@ class SignalReportViewSet(
         if not scope or scope == "entire_project":
             return queryset
         if scope == "for_me":
-            return self._filter_signal_reports_by_suggested_reviewers(queryset, [str(self.request.user.uuid)])
+            user = cast(User, self.request.user)
+            return self._filter_signal_reports_by_suggested_reviewers(queryset, [str(user.uuid)])
         if scope == "teammate":
             teammate_uuid = (self.request.query_params.get("teammate_uuid") or "").strip()
             if not teammate_uuid:
