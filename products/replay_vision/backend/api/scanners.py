@@ -1747,10 +1747,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ObserveAlreadyScannedSerializer({"observation_id": already_scanned.id}).data,
                 status=status.HTTP_200_OK,
             )
-        # No replay, no scan: the workflow would only reach `fetch_session_events` and settle as
-        # ineligible, leaving an observation whose recording the player can never load.
+        # No replay data, no scan: the workflow would only reach `fetch_session_events` and settle as
+        # ineligible, leaving an observation whose recording the player can never load. The check reads
+        # ClickHouse, which a persisted (LTS) recording can outlive while still playing, so the message
+        # speaks to the analysis data this needs rather than claiming the recording itself is gone.
         if not session_has_replay_data(team=self.team, session_id=session_id):
-            raise ValidationError("No recording is stored for this session, so there is nothing to watch.")
+            raise ValidationError("This session doesn't have the replay data Replay vision needs to analyze it.")
 
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
