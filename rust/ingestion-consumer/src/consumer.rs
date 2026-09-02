@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
-use crate::config::Config;
+use crate::config::{CompletionGranularity, Config};
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
@@ -199,6 +199,8 @@ pub struct IngestionConsumerOptions {
     pub deferred_flush_timeout: Duration,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
+    /// The unit that completes and commits.
+    pub completion_granularity: CompletionGranularity,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
@@ -226,6 +228,8 @@ pub struct IngestionConsumer {
     /// from. Shared with the consumer's [`SentinelContext`], which forgets
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
+    /// Selects the unit that completes and commits.
+    completion_granularity: CompletionGranularity,
 }
 
 impl IngestionConsumer {
@@ -255,6 +259,7 @@ impl IngestionConsumer {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
+            completion_granularity: options.completion_granularity,
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -325,6 +330,7 @@ impl IngestionConsumer {
             commit_sentinel,
             debug_recorder,
             topic_offset_ledger,
+            completion_granularity: config.consumer_completion_granularity,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -359,7 +365,10 @@ impl IngestionConsumer {
             return;
         }
 
-        info!("Consumer loop starting");
+        info!(
+            completion_granularity = ?self.completion_granularity,
+            "Consumer loop starting"
+        );
         record_if(&self.debug_recorder, || DebugEventKind::ConsumerStarted {
             group_id: self.group_id.clone(),
             workers: self.worker_urls.clone(),
