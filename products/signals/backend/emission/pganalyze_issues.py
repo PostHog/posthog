@@ -65,8 +65,9 @@ PASSTHROUGH_FIELDS = (
 # `cited_queries` is derived from `references` rather than selected, so it is on `extra` only.
 EXTRA_FIELDS = (*PASSTHROUGH_FIELDS, "cited_queries")
 
-# The gate has to recognize what a statement reads, not review the whole plan. Both caps stay well
-# inside the pipeline's record metadata budget, so the cited SQL cannot crowd out the rest of `extra`.
+# Both caps bound only the copy of the cited SQL that lands on `extra`, which the gate prompt reads,
+# so it cannot crowd out the rest of the record metadata block. The deterministic drop decision reads
+# every full statement, so a cap never changes a verdict.
 MAX_CITED_QUERIES = 3
 MAX_CITED_QUERY_CHARS = 400
 
@@ -112,10 +113,12 @@ def _cited_queries(references: list[dict[str, Any]]) -> list[str]:
     for reference in references:
         query_text = reference.get("queryText") if isinstance(reference, dict) else None
         if isinstance(query_text, str) and query_text.strip():
-            queries.append(query_text.strip()[:MAX_CITED_QUERY_CHARS])
-        if len(queries) == MAX_CITED_QUERIES:
-            break
+            queries.append(query_text.strip())
     return queries
+
+
+def _bounded_for_metadata(queries: list[str]) -> list[str]:
+    return [query[:MAX_CITED_QUERY_CHARS] for query in queries[:MAX_CITED_QUERIES]]
 
 
 def _is_monitoring_relation(relation: str) -> bool:
@@ -147,6 +150,7 @@ def pganalyze_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitt
     server_name = record.get("server_name") or record.get("server_human_id") or "unknown server"
     references = _parse_references(record)
     cited_queries = _cited_queries(references)
+    # Every full cited statement decides the drop, not just the sample that fits the metadata budget.
     # The prompt states this rule too, and must keep stating it. This check reads only FROM and JOIN
     # clauses, so the LLM stays the backstop for the forms it misses.
     if cited_queries and all(_reads_only_monitoring_relations(query) for query in cited_queries):
@@ -171,17 +175,19 @@ def pganalyze_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitt
         source_id=str(issue_id),
         description=signal_description,
         weight=1.0,
-        extra=_build_extra(record, references, cited_queries),
+        extra=_build_extra(record, references, _bounded_for_metadata(cited_queries)),
     )
 
 
-def _build_extra(record: dict[str, Any], references: list[dict[str, Any]], cited_queries: list[str]) -> dict[str, Any]:
+def _build_extra(
+    record: dict[str, Any], references: list[dict[str, Any]], bounded_queries: list[str]
+) -> dict[str, Any]:
     extra = {k: v for k, v in record.items() if k in PASSTHROUGH_FIELDS}
     extra["references"] = references
     # Omitted when the finding cites no SQL, so the gate prompt stays as it was for every non-query
     # finding, such as an index, vacuum, or log finding.
-    if cited_queries:
-        extra["cited_queries"] = cited_queries
+    if bounded_queries:
+        extra["cited_queries"] = bounded_queries
     return extra
 
 

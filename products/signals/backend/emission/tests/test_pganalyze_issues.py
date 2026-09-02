@@ -113,8 +113,30 @@ class TestPgAnalyzeIssueEmitter:
             ("SELECT t.id FROM posthog_team t JOIN posthog_organization o ON o.id = t.organization_id",),
             ("SELECT count(*) FROM pg_stat_activity", "SELECT id FROM posthog_team WHERE api_token = $1"),
             ("VACUUM ANALYZE posthog_team",),
+            # The product query sits past the 3-statement metadata cap, so the drop decision only sees
+            # it if the full citation list, not the bounded sample, feeds the check.
+            (
+                "SELECT count(*) FROM pg_stat_activity",
+                "SELECT relname FROM pg_stat_user_tables",
+                "SELECT table_name FROM information_schema.tables",
+                "SELECT id FROM posthog_team WHERE api_token = $1",
+            ),
+            # The product JOIN sits past the 400-character metadata truncation, so the same holds
+            # inside a single long statement.
+            (
+                "SELECT * FROM pg_stat_activity WHERE query = '"
+                + "x" * MAX_CITED_QUERY_CHARS
+                + "' JOIN posthog_team ON true",
+            ),
         ],
-        ids=["app_table", "joined_app_tables", "monitoring_plus_app_query", "no_relation_parsed"],
+        ids=[
+            "app_table",
+            "joined_app_tables",
+            "monitoring_plus_app_query",
+            "no_relation_parsed",
+            "app_query_past_statement_cap",
+            "app_relation_past_char_truncation",
+        ],
     )
     def test_emits_issue_citing_any_non_monitoring_query(self, pganalyze_issue_record, query_texts):
         record = _citing(pganalyze_issue_record, *query_texts)
