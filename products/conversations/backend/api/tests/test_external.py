@@ -1,17 +1,25 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import ActivityLog, Team
+from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
 
+from products.conversations.backend.api.ticket_actions import _truncate_bytes
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
+
+# Shaped like the markdown _build_content_with_attachments appends for an inbound email image.
+_IMAGE_ATTACHMENT = "![image001.png](https://us.posthog.com/uploaded_media/0199a0b1-2c3d-4e5f-8a9b-0c1d2e3f4a5b)"
 
 
 class TestExternalTicketAPI(BaseTest):
@@ -96,6 +104,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(data["message_count"], 0)
         self.assertIsNone(data["last_message_at"])
         self.assertIsNone(data["last_message_text"])
+        self.assertIsNone(data["first_message_text"])
         self.assertEqual(data["unread_team_count"], 0)
         self.assertEqual(data["unread_customer_count"], 0)
         self.assertIsNone(data["sla"])
@@ -402,6 +411,110 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(data["email_from"], "customer@example.com")
         self.assertEqual(data["email_to"], "support@example.com")
         self.assertEqual(data["cc_participants"], ["cc1@example.com", "cc2@example.com"])
+
+    # -- GET first_message_text -------------------------------------------
+
+    def _create_message(
+        self,
+        content: str | None,
+        *,
+        minutes_ago: int,
+        item_context: dict | None = None,
+        deleted: bool = False,
+    ) -> Comment:
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content=content,
+            item_context=item_context,
+            deleted=deleted,
+        )
+        # created_at is auto_now_add, so pin it after the fact to keep ordering deterministic.
+        Comment.objects.filter(pk=comment.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+        return comment
+
+    @parameterized.expand(
+        [
+            ("team_authored", {"is_private": False, "author_type": "support"}, False, "Second message"),
+            ("soft_deleted", {"author_type": "customer"}, True, "Second message"),
+            ("no_item_context", None, False, "Second message"),
+            ("customer_missing_is_private_key", {"author_type": "customer"}, False, "First message"),
+            ("customer_not_private", {"is_private": False, "author_type": "customer"}, False, "First message"),
+        ]
+    )
+    def test_get_ticket_first_message_only_quotes_the_customer(self, _name, item_context, deleted, expected):
+        self._create_message("First message", minutes_ago=10, item_context=item_context, deleted=deleted)
+        self._create_message("Second message", minutes_ago=5, item_context={"author_type": "customer"})
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_message_text"], expected)
+
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("null", None),
+            ("whitespace_only", "\n\n  "),
+            # An inbound email carrying only a screenshot has no body text at all.
+            ("image_attachment_only", _IMAGE_ATTACHMENT),
+            # Enough inline images to run past the scan window, so the window cuts the last one
+            # in half. The fragment left behind must not become the preview.
+            ("images_past_the_scan_window", _IMAGE_ATTACHMENT * 30),
+        ]
+    )
+    def test_get_ticket_first_message_skips_messages_with_nothing_to_quote(self, _name, unquotable):
+        self._create_message(unquotable, minutes_ago=10, item_context={"author_type": "customer"})
+        self._create_message("Actual question", minutes_ago=5, item_context={"author_type": "customer"})
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_message_text"], "Actual question")
+
+    @parameterized.expand(
+        [
+            ("image_stripped", "Why is this broken?\n\n![shot.png](/uploaded_media/abc)", "Why is this broken?"),
+            ("file_label_kept", "See\n\n[report.pdf](/uploaded_media/abc)", "See report.pdf"),
+            ("prose_kept_when_images_run_past_the_scan_window", "It broke\n\n" + _IMAGE_ATTACHMENT * 30, "It broke"),
+            # Brackets are ordinary in a support message, so nothing here may be treated as a
+            # severed attachment.
+            ("bracketed_prose_kept", "[2026-01-01] ERROR failed on a[0]", "[2026-01-01] ERROR failed on a[0]"),
+        ]
+    )
+    def test_get_ticket_first_message_strips_attachment_markdown(self, _name, content, expected):
+        self._create_message(content, minutes_ago=10, item_context={"author_type": "customer"})
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_message_text"], expected)
+
+    def test_get_ticket_first_message_keeps_bracketed_prose_in_a_body_long_enough_to_cut(self):
+        # Only a body past the scan window reaches the severed-attachment strip, so a shorter
+        # message cannot show whether that strip leaves a customer's own brackets alone.
+        self._create_message(
+            "[2026-01-01] ERROR failed on a[0]. " + "Padding sentence. " * 200,
+            minutes_ago=10,
+            item_context={"author_type": "customer"},
+        )
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["first_message_text"].startswith("[2026-01-01] ERROR failed on a[0]."))
+
+    @parameterized.expand(
+        [
+            ("ascii", "x" * 900, "x" * 200),
+            # 3 bytes per character, so the cap lands at 66 characters (198 bytes). A
+            # character-based cap would emit 600 bytes against the workflow variable budget.
+            ("multibyte", "あ" * 300, "あ" * 66),
+        ]
+    )
+    def test_get_ticket_truncates_first_message_to_200_bytes(self, _name, content, expected):
+        self._create_message(content, minutes_ago=10, item_context={"author_type": "customer"})
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_message_text"], expected)
 
     def test_get_ticket_returns_tags(self):
         from posthog.models import Tag
@@ -715,3 +828,13 @@ class TestExternalTicketAPI(BaseTest):
             ).count(),
             1,
         )
+
+
+class TestTruncateBytes(SimpleTestCase):
+    def test_drops_a_joiner_the_cut_left_dangling(self):
+        # The cut lands inside the emoji following a joiner, so errors="ignore" drops the
+        # partial character and would otherwise end the preview on the joiner itself.
+        truncated = _truncate_bytes("xxx" + "👨‍👩‍👧" * 20, 200)
+
+        self.assertFalse(truncated.endswith("‍"))
+        self.assertLessEqual(len(truncated.encode("utf-8")), 200)

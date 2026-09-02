@@ -6,6 +6,7 @@ Two routes wrap these handlers with different authentication: the public externa
 by config presence (#82564), so the two must behave identically.
 """
 
+import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -25,6 +26,7 @@ from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
+from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
 
@@ -119,6 +121,89 @@ def workflow_trigger_from_request(request: Request) -> Trigger | None:
     return Trigger(job_type="hog_flow", job_id=hog_flow_id, payload={})
 
 
+# The CDP worker spreads this whole response into workflow variables and rejects the step once
+# their combined size passes 5KB, so this preview has to stay small enough to be a rounding
+# error against that budget. The bound counts UTF-8 bytes rather than characters so that
+# multibyte text cannot quietly cost several times its length. The worker measures the budget
+# after JSON encoding, which escapes quotes, newlines and control characters, so a quote-heavy
+# message can still cost roughly twice the figure below.
+FIRST_MESSAGE_PREVIEW_BYTES = 200
+
+# How far down the thread to look for a message with something quotable in it. Bounded so a
+# ticket that opens with a run of attachments cannot turn this into a scan of the whole thread.
+FIRST_MESSAGE_CANDIDATES = 5
+
+# Attachments arrive as markdown appended to the message body, and an inbound email carrying
+# only a screenshot has no other text at all. A truncated image URL identifies nothing, so drop
+# image markdown outright and keep only the label of a file or link.
+_IMAGE_MARKDOWN = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_LINK_MARKDOWN = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+
+# How much of a message body those regexes are allowed to scan. They are linear on ordinary
+# prose, but they restart at every bracket that opens no link, so a body of unclosed brackets
+# costs O(n^2), and an inbound email may carry 50,000 characters of them. This ceiling is an
+# order of magnitude wider than the preview it feeds.
+FIRST_MESSAGE_SCAN_CHARS = 2000
+
+# Taking that window can cut an attachment in half, and a fragment like `![shot.png](/uploaded`
+# no longer matches the patterns above, so it would survive into the preview. This drops the
+# unterminated construct a cut leaves behind. The run cannot cross a bracket, so a closed
+# bracket with text after it is left alone and a log line pasted as "[2026-01-01] ERROR ..."
+# survives. A window ending on the bracket itself still matches, which is why the caller
+# applies this only when the body was long enough to be cut.
+_PARTIAL_MARKDOWN_TAIL = re.compile(r"!?\[[^\[\]]*(?:\](?:\([^)]*)?)?$")
+
+
+def _quotable_text(content: str) -> str:
+    window = content[:FIRST_MESSAGE_SCAN_CHARS]
+    # Only a window that actually cut the body can hold a severed construct. Applying this to a
+    # whole short message would eat a trailing bracket the customer meant to type.
+    if len(content) > FIRST_MESSAGE_SCAN_CHARS:
+        window = _PARTIAL_MARKDOWN_TAIL.sub("", window)
+    text = _LINK_MARKDOWN.sub(r"\1", _IMAGE_MARKDOWN.sub("", window))
+    return " ".join(text.split())
+
+
+def _truncate_bytes(text: str, max_bytes: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    # Slicing encoded bytes can land inside a character, so errors="ignore" drops the partial
+    # trailing one. That can also expose the joiner of a split emoji sequence, which renders as
+    # a dangling glyph, so strip any joiner the cut left at the end.
+    return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip("‍")
+
+
+def _first_message_text(team_id: int, ticket_id: str) -> str | None:
+    """
+    Preview of what the customer first asked, so a workflow can remind them which ticket it
+    is writing about on channels that carry no email subject.
+
+    Only the customer's own messages qualify, because a ticket can open with a team message
+    such as an agent composing outbound mail or a teammate's Slack post that seeded the
+    ticket, and quoting that back to the customer as "what you asked us" would be wrong.
+
+    author_type must say "customer" explicitly. Display code elsewhere treats a missing value
+    as the customer's, but a wrong guess here is emailed out, so an unlabelled message is left
+    out and the workflow renders no reminder instead.
+    """
+    candidates = (
+        visible_ticket_messages(team_id, ticket_id)
+        .filter(item_context__author_type="customer")
+        .exclude(content__isnull=True)
+        .exclude(content="")
+        # Zendesk-imported messages carry second-resolution timestamps, so created_at alone can
+        # tie. Tie-breaking on id keeps the preview stable from one call to the next.
+        .order_by("created_at", "id")
+        .values_list("content", flat=True)[:FIRST_MESSAGE_CANDIDATES]
+    )
+    for content in candidates:
+        quotable = _quotable_text(content or "")
+        if quotable:
+            return _truncate_bytes(quotable, FIRST_MESSAGE_PREVIEW_BYTES) or None
+    return None
+
+
 def handle_ticket_get(team: Team, ticket_id: str | uuid.UUID) -> Response:
     """Fetch a ticket's data for an already-authenticated team."""
     if error := validate_ticket_id(ticket_id):
@@ -162,6 +247,7 @@ def handle_ticket_get(team: Team, ticket_id: str | uuid.UUID) -> Response:
             "message_count": ticket.message_count,
             "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
             "last_message_text": ticket.last_message_text,
+            "first_message_text": _first_message_text(team.id, str(ticket.id)),
             "unread_team_count": ticket.unread_team_count,
             "unread_customer_count": ticket.unread_customer_count,
             "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
