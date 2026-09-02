@@ -325,12 +325,15 @@ describe('PropertyValue', () => {
         )
 
         // The name comes with the id, so the id stays available to copy or to compare.
-        expect(
-            screen.getByText(editable ? '(Fjellride AB) org-abc-123' : '(Fjellride AB) org-abc-123 or org-def-456')
-        ).toBeInTheDocument()
+        const resolved = screen.getByText(
+            editable ? '(Fjellride AB) org-abc-123' : '(Fjellride AB) org-abc-123 or org-def-456'
+        )
+        expect(resolved).toBeInTheDocument()
         // An id the caller could not resolve keeps its raw value rather than showing a name.
         if (editable) {
             expect(screen.getByText('org-def-456')).toBeInTheDocument()
+            // The resolved group name must stay out of session replay, like GroupActorDisplay.
+            expect(resolved.closest('.ph-no-capture')).toBeInTheDocument()
         }
     })
 })

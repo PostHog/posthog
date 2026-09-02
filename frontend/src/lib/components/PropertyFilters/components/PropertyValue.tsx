@@ -553,7 +553,12 @@ export function PropertyValue({
                               .map(([raw, formatted]) => ({
                                   key: formatted,
                                   label: formatted,
-                                  labelComponent: labelWithGroupName(raw, groupKeyNames, formatted),
+                                  // Mask the resolved group name in session replay, matching the suggestion option above.
+                                  labelComponent: (
+                                      <span key={formatted} className="ph-no-capture">
+                                          {labelWithGroupName(raw, groupKeyNames, formatted)}
+                                      </span>
+                                  ),
                                   tooltip: showGroupCardOnValue ? groupCardTooltip(raw) : undefined,
                               }))
                         : []),

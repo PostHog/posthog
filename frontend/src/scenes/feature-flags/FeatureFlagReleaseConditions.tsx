@@ -84,7 +84,8 @@ function PropertyValueComponent({
     return (
         <>
             {propertyValues.map((val, idx) => (
-                <LemonSnack key={idx}>
+                // Keep the resolved group or person name out of session replay, like GroupActorDisplay.
+                <LemonSnack key={idx} className="ph-no-capture">
                     {isDistinctId ? getDistinctIdName(String(val)) : labelWithGroupName(String(val), groupKeyNames)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&

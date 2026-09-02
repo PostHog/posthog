@@ -68,7 +68,12 @@ function PropertyValueDisplay({
             {propertyValues.map((val, idx) => {
                 const strVal = String(val)
                 const display = isDistinctId ? getDistinctIdName(strVal) : labelWithGroupName(strVal, groupKeyNames)
-                return <LemonSnack key={idx}>{display}</LemonSnack>
+                // Keep the resolved group or person name out of session replay, like GroupActorDisplay.
+                return (
+                    <LemonSnack key={idx} className="ph-no-capture">
+                        {display}
+                    </LemonSnack>
+                )
             })}
         </>
     )
