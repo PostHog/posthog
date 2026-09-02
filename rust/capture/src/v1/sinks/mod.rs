@@ -12,8 +12,6 @@ use std::time::Duration;
 
 use envconfig::Envconfig;
 
-use crate::config::CaptureMode;
-
 pub use event::Event;
 pub use kafka::KafkaSink;
 pub use prepare::{serialize_batch, SerializedBatch, DEFAULT_SCATTER_GATHER_MIN_BATCH};
@@ -95,9 +93,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// `capture_mode` decides which topics this deployment must have wired;
-    /// see `kafka::config::Config::reachable_topics`.
-    pub fn validate(&self, capture_mode: CaptureMode) -> anyhow::Result<()> {
+    pub fn validate(&self) -> anyhow::Result<()> {
         let msg_timeout = Duration::from_millis(self.kafka.message_timeout_ms as u64);
         anyhow::ensure!(
             self.produce_timeout >= msg_timeout,
@@ -106,7 +102,7 @@ impl Config {
             self.produce_timeout,
             msg_timeout,
         );
-        self.kafka.validate(capture_mode)?;
+        self.kafka.validate()?;
         Ok(())
     }
 }
@@ -123,7 +119,7 @@ pub struct Sinks {
 }
 
 impl Sinks {
-    pub fn validate(&self, capture_mode: CaptureMode) -> anyhow::Result<()> {
+    pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.configs.is_empty(), "no v1 sinks configured");
         anyhow::ensure!(
             self.configs.contains_key(&self.default),
@@ -131,15 +127,8 @@ impl Sinks {
             self.default,
         );
         for (&name, cfg) in &self.configs {
-            // The per-sink hints in the inner error are suffixes; only the
-            // caller knows which sink's namespace they hang off, so the prefix
-            // is named here rather than leaving an operator to guess it.
-            cfg.validate(capture_mode).map_err(|e| {
-                anyhow::anyhow!(
-                    "sink {name}: {e} (per-sink variables are prefixed {})",
-                    name.env_prefix()
-                )
-            })?;
+            cfg.validate()
+                .map_err(|e| anyhow::anyhow!("sink {}: {e}", name))?;
         }
         Ok(())
     }
@@ -448,7 +437,7 @@ mod tests {
     fn config_validate_ok() {
         let env = test_env_for(SinkName::Msk);
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        assert!(cfg.validate(CaptureMode::Events).is_ok());
+        assert!(cfg.validate().is_ok());
     }
 
     #[test]
@@ -463,7 +452,7 @@ mod tests {
             "20000".into(),
         );
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        let err = cfg.validate(CaptureMode::Events).unwrap_err();
+        let err = cfg.validate().unwrap_err();
         assert!(
             err.to_string().contains("produce_timeout"),
             "expected produce_timeout in error: {err}"
@@ -475,7 +464,7 @@ mod tests {
         let mut env = test_env_for(SinkName::Msk);
         env.insert("CAPTURE_V1_SINK_MSK_KAFKA_HOSTS".into(), "".into());
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        let err = cfg.validate(CaptureMode::Events).unwrap_err();
+        let err = cfg.validate().unwrap_err();
         assert!(
             err.to_string().contains("empty kafka hosts"),
             "expected empty hosts in error: {err}"
@@ -488,7 +477,7 @@ mod tests {
             default: SinkName::Msk,
             configs: HashMap::new(),
         };
-        assert!(sinks.validate(CaptureMode::Events).is_err());
+        assert!(sinks.validate().is_err());
     }
 
     #[test]
@@ -496,7 +485,7 @@ mod tests {
         let mut env = test_env_for(SinkName::Msk);
         env.insert("CAPTURE_V1_SINK_MSK_KAFKA_QUEUE_MIB".into(), "0".into());
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        let err = cfg.validate(CaptureMode::Events).unwrap_err();
+        let err = cfg.validate().unwrap_err();
         assert!(
             err.to_string().contains("queue_mib"),
             "expected queue_mib in error: {err}"
@@ -511,7 +500,7 @@ mod tests {
             default: SinkName::Ws,
             configs: [(SinkName::Msk, cfg)].into_iter().collect(),
         };
-        let err = sinks.validate(CaptureMode::Events).unwrap_err();
+        let err = sinks.validate().unwrap_err();
         assert!(
             err.to_string().contains("default sink"),
             "expected 'default sink' in error: {err}"
@@ -527,70 +516,10 @@ mod tests {
             default: SinkName::Msk,
             configs: [(SinkName::Msk, cfg)].into_iter().collect(),
         };
-        let err = sinks.validate(CaptureMode::Events).unwrap_err();
+        let err = sinks.validate().unwrap_err();
         assert!(
             err.to_string().contains("sink msk"),
             "expected sink name in error: {err}"
-        );
-    }
-
-    /// The env capture-ai will actually ship: broker hosts and a DLQ topic,
-    /// and nothing else. Every other test here starts from a full topic set and
-    /// blanks one field on the already-parsed struct, so none of them prove the
-    /// minimal env parses at all -- which is the entire point of making the
-    /// analytics topics per-mode optional.
-    ///
-    /// The same env must still fail on an analytics mode, or the check would be
-    /// passing for the wrong reason.
-    #[test]
-    fn ai_mode_accepts_the_minimal_sink_env_that_analytics_rejects() {
-        let env: HashMap<String, String> = [
-            ("CAPTURE_V1_SINK_WS_KAFKA_HOSTS", "localhost:9092"),
-            ("CAPTURE_V1_SINK_WS_KAFKA_TOPIC_DLQ", "events_dlq"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-
-        let sinks = load_sinks_from("ws", &env).expect("minimal AI sink env must parse");
-
-        sinks
-            .validate(CaptureMode::Ai)
-            .expect("the AI lane reaches only the DLQ and the AI topic");
-
-        let err = sinks
-            .validate(CaptureMode::Events)
-            .expect_err("an analytics deployment reaches every lane");
-        assert!(
-            format!("{err:#}").contains("KAFKA_TOPIC_MAIN"),
-            "should name the first analytics topic it is missing: {err:#}"
-        );
-    }
-
-    /// A missing topic must tell an operator the whole variable to set. The
-    /// inner error carries the suffix and the wrapper carries the sink's
-    /// prefix, so the two have to concatenate into the real name.
-    #[test]
-    fn sinks_validate_error_names_the_full_env_var() {
-        let mut env = test_env_for(SinkName::Ws);
-        env.insert("CAPTURE_V1_SINK_WS_KAFKA_TOPIC_MAIN".into(), "".into());
-        let cfg = load_sink_config(SinkName::Ws, &env).unwrap();
-        let sinks = Sinks {
-            default: SinkName::Ws,
-            configs: [(SinkName::Ws, cfg)].into_iter().collect(),
-        };
-
-        let msg = format!("{:#}", sinks.validate(CaptureMode::Events).unwrap_err());
-
-        assert!(msg.contains("KAFKA_TOPIC_MAIN"), "missing suffix: {msg}");
-        assert!(
-            msg.contains(SinkName::Ws.env_prefix()),
-            "missing prefix: {msg}"
-        );
-        let full = format!("{}KAFKA_TOPIC_MAIN", SinkName::Ws.env_prefix());
-        assert_eq!(
-            full, "CAPTURE_V1_SINK_WS_KAFKA_TOPIC_MAIN",
-            "the two halves must concatenate to the variable charts actually sets"
         );
     }
 }

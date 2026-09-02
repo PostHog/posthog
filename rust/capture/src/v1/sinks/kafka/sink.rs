@@ -17,7 +17,7 @@ use crate::ordering::OrderingGuarantee;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Outcome, PreparedEvent, SinkResult};
-use crate::v1::sinks::{Config, Destination, SinkName};
+use crate::v1::sinks::{Config, SinkName};
 
 use super::constants::*;
 use super::producer::ProduceRecord;
@@ -141,28 +141,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
             let topic = match self.config.kafka.topic_for(&event.destination) {
                 Some(t) => t,
-                // `Drop` is the one destination that legitimately maps to no
-                // topic; skipping it is the intended behavior.
-                None if matches!(event.destination, Destination::Drop) => continue,
-                // Every other unmapped destination is reported, never skipped.
-                // `merge_sink_results` leaves an event with no result at its
-                // incoming `Ok`, so a bare `continue` here would answer 200 for
-                // an event that was never produced.
-                None => {
-                    let sink_err = KafkaSinkError::UnmappedDestination(dest_tag);
-                    counter!(
-                        KAFKA_PUBLISH_TOTAL,
-                        "mode" => labels.mode,
-                        "cluster" => labels.sink,
-                        "outcome" => sink_err.outcome().as_tag(),
-                        "path" => labels.path,
-                        "attempt" => labels.attempt,
-                        "destination" => dest_tag,
-                    )
-                    .increment(1);
-                    results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
-                    continue;
-                }
+                None => continue,
             };
 
             // `None` is passed to rdkafka so it round-robins. Passing

@@ -277,14 +277,6 @@ Callers have two orthogonal ways to prevent an event from being produced:
 | `should_publish() == false` | Pipeline validation (e.g. `EventResult != Ok`) | Silently skipped, no `SinkResult` returned |
 | `Destination::Drop` | Routing logic (e.g. quota limiter) | `topic_for()` returns `None`, event skipped |
 
-`Destination::Drop` is the only destination allowed to skip. `topic_for()` can
-also return `None` for a destination whose topic is unset. Eight destinations
-can, because the analytics topics are optional per capture mode. That is a
-misconfiguration rather than an instruction. The sink reports it as a fatal
-`KafkaSinkError::UnmappedDestination` with a counter, because an event skipped
-without a `SinkResult` keeps its incoming `Ok` in `merge_sink_results` and the
-client is told 200 for something never produced.
-
 ### Header construction
 
 Each `Event` implementation builds the full `CapturedEventHeaders`
@@ -801,15 +793,13 @@ only needs to specify hosts and topics.
 | `retry_backoff_max_ms` | `1000` | `retry.backoff.max.ms` | Upper bound on exponential retry backoff |
 | `socket_send_buffer_bytes` | `0` | `socket.send.buffer.bytes` | TCP send buffer size; 0 = OS default |
 | `socket_receive_buffer_bytes` | `0` | `socket.receive.buffer.bytes` | TCP receive buffer size; 0 = OS default |
-| `topic_main` | _(required on analytics modes)_ | — | Analytics main topic |
-| `topic_historical` | _(required on analytics modes)_ | — | Historical migration topic |
-| `topic_overflow` | _(required on analytics modes)_ | — | Overflow topic |
+| `topic_main` | _(required)_ | — | Analytics main topic |
+| `topic_historical` | _(required)_ | — | Historical migration topic |
+| `topic_overflow` | _(required)_ | — | Overflow topic |
 | `topic_dlq` | _(required)_ | — | Dead letter queue topic |
-| `topic_exception` | _(required on analytics modes)_ | — | Error tracking events topic |
-| `topic_heatmap` | _(required on analytics modes)_ | — | Heatmap ingestion topic |
-| `topic_client_ingestion_warning` | _(required on analytics modes)_ | — | Client ingestion warning topic |
-
-The analytics-lane topics are unreachable on an AI-mode deployment, which drops non-AI events before the sink; `Config::validate` takes the capture mode and requires each topic only where the pipeline can route to it (see `Config::reachable_topics`).
+| `topic_exception` | _(required)_ | — | Error tracking events topic |
+| `topic_heatmap` | _(required)_ | — | Heatmap ingestion topic |
+| `topic_client_ingestion_warning` | _(required)_ | — | Client ingestion warning topic |
 
 Topic resolution is handled by `Config::topic_for(&Destination)`:
 

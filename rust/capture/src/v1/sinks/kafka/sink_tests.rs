@@ -156,7 +156,6 @@ impl TestHarness {
             ack_delay: None,
             not_ready: false,
             liveness: None,
-            unset_ai_overflow_topic: false,
         }
     }
 }
@@ -169,18 +168,9 @@ struct HarnessBuilder {
     ack_delay: Option<Duration>,
     not_ready: bool,
     liveness: Option<(Duration, Duration)>,
-    unset_ai_overflow_topic: bool,
 }
 
 impl HarnessBuilder {
-    /// Blank `topic_ai_overflow`, reproducing a sink that can be routed a
-    /// destination it has no topic for. `reachable_topics` does not require
-    /// this topic on any mode, so `Config::validate` will not catch it.
-    fn unset_ai_overflow_topic(mut self) -> Self {
-        self.unset_ai_overflow_topic = true;
-        self
-    }
-
     fn produce_timeout(mut self, d: Duration) -> Self {
         self.produce_timeout = d;
         self
@@ -255,10 +245,7 @@ impl HarnessBuilder {
 
         let producer = Arc::new(mock);
 
-        let mut kafka_config = crate::v1::test_utils::test_kafka_config();
-        if self.unset_ai_overflow_topic {
-            kafka_config.topic_ai_overflow = None;
-        }
+        let kafka_config = crate::v1::test_utils::test_kafka_config();
 
         let config = Config {
             produce_timeout: self.produce_timeout,
@@ -347,51 +334,6 @@ async fn destination_drop_skips_without_result() {
 
     assert!(results.is_empty());
     assert_eq!(h.producer.record_count(), 0);
-}
-
-// ---------------------------------------------------------------------------
-// 3b. A destination with no configured topic is REPORTED, not skipped
-// ---------------------------------------------------------------------------
-
-/// The counterpart to `destination_drop_skips_without_result`: `Drop` is the
-/// only destination allowed to leave the sink without a result. Any other
-/// unmapped destination must produce a fatal result instead, because
-/// `merge_sink_results` leaves an event with no entry at its incoming `Ok` —
-/// so skipping here answers the client 200 for an event never produced.
-///
-/// `AiEventsOverflow` is used deliberately: it is not in `reachable_topics`
-/// for any capture mode, so `Config::validate` cannot catch a sink that is
-/// routed one without `TOPIC_AI_OVERFLOW` set.
-#[tokio::test]
-async fn unmapped_destination_is_reported_as_fatal_not_skipped() {
-    let h = TestHarness::builder().unset_ai_overflow_topic().build();
-    let event = FakeEvent::ok("evt-1").with_destination(Destination::AiEventsOverflow);
-    let events = prepared(&[&event], &h.ctx);
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1, "unmapped destination must yield a result");
-    assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::FatalError);
-    assert_eq!(results[0].cause(), Some("unmapped_destination"));
-    assert_eq!(h.producer.record_count(), 0, "nothing may be produced");
-}
-
-/// The same sink still publishes normally once the topic is configured, so the
-/// test above is isolating the missing mapping and not the destination itself.
-#[tokio::test]
-async fn mapped_ai_overflow_destination_publishes() {
-    let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_destination(Destination::AiEventsOverflow);
-    let events = prepared(&[&event], &h.ctx);
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].outcome(), Outcome::Success);
-    h.producer.with_records(|records| {
-        assert_eq!(records[0].topic, "ai_events_overflow");
-    });
 }
 
 // ---------------------------------------------------------------------------

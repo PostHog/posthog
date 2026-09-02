@@ -1,6 +1,5 @@
 use envconfig::Envconfig;
 
-use crate::config::CaptureMode;
 use crate::v1::sinks::types::Destination;
 
 /// Per-sink Kafka producer configuration. Loaded via `Envconfig::init_from_hashmap`
@@ -95,22 +94,16 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub socket_receive_buffer_bytes: u32,
 
-    // -- Topics --
-    //
-    // The optional ones are only reachable on the analytics modes, so whether
-    // absence is an error depends on the deployment's capture mode and is
-    // decided by [`Config::validate`] via [`Config::reachable_topics`].
-    pub topic_main: Option<String>,
-    pub topic_historical: Option<String>,
-    pub topic_overflow: Option<String>,
-    /// Required on every mode: a `redirect_to_dlq` restriction applies to every
-    /// pipeline's slice, the AI one included.
+    // -- Topics (all required -- envconfig errors if any are missing) --
+    pub topic_main: String,
+    pub topic_historical: String,
+    pub topic_overflow: String,
     pub topic_dlq: String,
 
-    // -- Non-analytics topics --
-    pub topic_exception: Option<String>,
-    pub topic_heatmap: Option<String>,
-    pub topic_client_ingestion_warning: Option<String>,
+    // -- Non-analytics topics (also required) --
+    pub topic_exception: String,
+    pub topic_heatmap: String,
+    pub topic_client_ingestion_warning: String,
 
     /// Dedicated topic for `$ai_*` events. Not meant to be set via per-sink
     /// env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
@@ -128,88 +121,10 @@ const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
 const VALID_COMPRESSION: &[&str] = &["none", "gzip", "snappy", "lz4", "zstd"];
 
 impl Config {
-    /// The topics `validate` requires for this capture mode, paired with a hint
-    /// naming the variable that sets each, so a missing one refuses the boot
-    /// instead of failing at first produce. Per-sink hints are suffixes -- the
-    /// caller prepends the sink's `env_prefix` -- except the AI topic, which is
-    /// injected from a deployment-level variable and so names it in full.
-    ///
-    /// An analytics deployment can reach every lane, since `Destination` is
-    /// assigned from the event name. `CaptureMode::Ai` drops non-AI events
-    /// before the sink sees them, leaving the AI topics plus the two places a
-    /// restriction can still send an AI event: the DLQ, and a custom topic,
-    /// which carries its own name on the event. `CaptureMode::Recordings`
-    /// registers no v1 route at all; it is grouped with Ai because both are
-    /// "not an analytics deployment".
-    ///
-    /// This is deliberately *not* every destination a running pipeline can
-    /// produce. Two are reachable and not required here, each closed by its own
-    /// invariant rather than by this check:
-    ///
-    /// - `AiEventsOverflow`: only ever assigned when `ai_events_overflow_enabled`,
-    ///   which `setup::ai_events_overflow_valve` arms only when the deployment's
-    ///   AI overflow topic is set and non-empty. Topic set is the precondition
-    ///   for the destination existing, so requiring it here would be redundant.
-    /// - `Custom(topic)`: carries its own topic name, and an empty
-    ///   `redirect_to_topic` is discarded when restrictions load.
-    ///
-    /// Requiring either would also make it impossible to run a deployment that
-    /// simply does not want AI overflow. `KafkaSink` reports an unmapped
-    /// destination as a fatal result, so a future break in one of those
-    /// invariants surfaces as a drop with a counter, not a silent skip.
-    fn reachable_topics(&self, capture_mode: CaptureMode) -> Vec<(&'static str, &str)> {
-        let mut topics = vec![
-            ("KAFKA_TOPIC_DLQ", self.topic_dlq.as_str()),
-            // Injected by setup from the deployment-level variable; it is not
-            // settable per sink, so the hint names what an operator can set.
-            ("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC", self.topic_ai.as_str()),
-        ];
-        match capture_mode {
-            CaptureMode::Events | CaptureMode::Import => topics.extend([
-                (
-                    "KAFKA_TOPIC_MAIN",
-                    self.topic_main.as_deref().unwrap_or_default(),
-                ),
-                (
-                    "KAFKA_TOPIC_HISTORICAL",
-                    self.topic_historical.as_deref().unwrap_or_default(),
-                ),
-                (
-                    "KAFKA_TOPIC_OVERFLOW",
-                    self.topic_overflow.as_deref().unwrap_or_default(),
-                ),
-                (
-                    "KAFKA_TOPIC_EXCEPTION",
-                    self.topic_exception.as_deref().unwrap_or_default(),
-                ),
-                (
-                    "KAFKA_TOPIC_HEATMAP",
-                    self.topic_heatmap.as_deref().unwrap_or_default(),
-                ),
-                (
-                    "KAFKA_TOPIC_CLIENT_INGESTION_WARNING",
-                    self.topic_client_ingestion_warning
-                        .as_deref()
-                        .unwrap_or_default(),
-                ),
-            ]),
-            CaptureMode::Ai | CaptureMode::Recordings => {}
-        }
-        topics
-    }
-
     /// Validate kafka-specific configuration invariants that would otherwise
     /// blow up at rdkafka producer creation or silently break runtime health.
-    pub fn validate(&self, capture_mode: CaptureMode) -> anyhow::Result<()> {
+    pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.hosts.is_empty(), "empty kafka hosts");
-
-        for (env_key, topic) in self.reachable_topics(capture_mode) {
-            anyhow::ensure!(
-                !topic.is_empty(),
-                "{env_key} is unset, but capture mode '{}' can route events to it",
-                capture_mode.as_tag(),
-            );
-        }
 
         anyhow::ensure!(
             self.queue_mib > 0,
@@ -245,41 +160,20 @@ impl Config {
     }
 
     /// Resolve which topic to use for the given destination on this sink.
-    ///
-    /// A destination whose topic is unset or empty resolves to `None`. The sink
-    /// turns that into a fatal `KafkaSinkError::UnmappedDestination`, so the
-    /// event is reported as dropped rather than silently skipped.
-    ///
-    /// [`Config::validate`] covers most of this at boot, but not all of it:
-    /// `reachable_topics` is keyed on capture mode and omits
-    /// `Destination::AiEventsOverflow` and `Destination::Custom`, both of which
-    /// a running pipeline can produce. Those two are closed elsewhere — the
-    /// overflow valve only arms when its topic is set (`setup.rs`), and an empty
-    /// `redirect_to_topic` is discarded at restriction-load time — so there is
-    /// no reachable misconfiguration today. The error path exists because that
-    /// is an invariant spread across three files, not a type-level guarantee.
     pub fn topic_for<'a>(&'a self, dest: &'a Destination) -> Option<&'a str> {
-        let topic: &str = match dest {
-            Destination::AnalyticsMain => self.topic_main.as_deref().unwrap_or_default(),
-            Destination::AnalyticsHistorical => {
-                self.topic_historical.as_deref().unwrap_or_default()
-            }
-            Destination::Overflow => self.topic_overflow.as_deref().unwrap_or_default(),
-            Destination::Dlq => &self.topic_dlq,
-            Destination::ExceptionErrorTracking => {
-                self.topic_exception.as_deref().unwrap_or_default()
-            }
-            Destination::HeatmapMain => self.topic_heatmap.as_deref().unwrap_or_default(),
-            Destination::ClientIngestionWarning => self
-                .topic_client_ingestion_warning
-                .as_deref()
-                .unwrap_or_default(),
-            Destination::AiEvents => &self.topic_ai,
-            Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref().unwrap_or_default(),
-            Destination::Custom(t) => t.as_str(),
-            Destination::Drop => "",
-        };
-        (!topic.is_empty()).then_some(topic)
+        match dest {
+            Destination::AnalyticsMain => Some(&self.topic_main),
+            Destination::AnalyticsHistorical => Some(&self.topic_historical),
+            Destination::Overflow => Some(&self.topic_overflow),
+            Destination::Dlq => Some(&self.topic_dlq),
+            Destination::ExceptionErrorTracking => Some(&self.topic_exception),
+            Destination::HeatmapMain => Some(&self.topic_heatmap),
+            Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
+            Destination::AiEvents => Some(&self.topic_ai),
+            Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref(),
+            Destination::Custom(t) => Some(t.as_str()),
+            Destination::Drop => None,
+        }
     }
 }
 
@@ -290,7 +184,7 @@ mod tests {
     use envconfig::Envconfig;
     use rstest::rstest;
 
-    use super::{CaptureMode, Config};
+    use super::Config;
     use crate::v1::sinks::Destination;
 
     fn required_kafka_env() -> HashMap<String, String> {
@@ -365,7 +259,7 @@ mod tests {
         assert_eq!(cfg.retry_backoff_max_ms, 2000);
         assert_eq!(cfg.socket_send_buffer_bytes, 65536);
         assert_eq!(cfg.socket_receive_buffer_bytes, 65536);
-        assert_eq!(cfg.topic_main.as_deref(), Some("events_main"));
+        assert_eq!(cfg.topic_main, "events_main");
     }
 
     #[test]
@@ -399,13 +293,15 @@ mod tests {
         assert_eq!(cfg.socket_receive_buffer_bytes, 0);
     }
 
-    /// The parse only demands what no capture mode can do without: a broker
-    /// list, and a DLQ every mode's restrictions can redirect to. Everything
-    /// else is a `validate` question, since which topics are reachable depends
-    /// on the mode.
     #[rstest]
     #[case("HOSTS")]
+    #[case("TOPIC_MAIN")]
+    #[case("TOPIC_HISTORICAL")]
+    #[case("TOPIC_OVERFLOW")]
     #[case("TOPIC_DLQ")]
+    #[case("TOPIC_EXCEPTION")]
+    #[case("TOPIC_HEATMAP")]
+    #[case("TOPIC_CLIENT_INGESTION_WARNING")]
     fn missing_required_field_errors(#[case] key: &str) {
         let mut env = required_kafka_env();
         env.remove(key);
@@ -432,7 +328,7 @@ mod tests {
 
     #[test]
     fn validate_accepts_defaults() {
-        assert!(valid_config().validate(CaptureMode::Events).is_ok());
+        assert!(valid_config().validate().is_ok());
     }
 
     #[test]
@@ -455,7 +351,7 @@ mod tests {
             let mut cfg = valid_config();
             mutate(&mut cfg);
             assert!(
-                cfg.validate(CaptureMode::Events).is_err(),
+                cfg.validate().is_err(),
                 "case '{label}' should fail validation"
             );
         }
@@ -466,10 +362,7 @@ mod tests {
         for acks in ["0", "1", "-1", "all"] {
             let mut cfg = valid_config();
             cfg.acks = acks.to_string();
-            assert!(
-                cfg.validate(CaptureMode::Events).is_ok(),
-                "acks={acks} should be valid"
-            );
+            assert!(cfg.validate().is_ok(), "acks={acks} should be valid");
         }
     }
 
@@ -478,10 +371,7 @@ mod tests {
         for codec in ["none", "gzip", "snappy", "lz4", "zstd"] {
             let mut cfg = valid_config();
             cfg.compression_codec = codec.to_string();
-            assert!(
-                cfg.validate(CaptureMode::Events).is_ok(),
-                "codec={codec} should be valid"
-            );
+            assert!(cfg.validate().is_ok(), "codec={codec} should be valid");
         }
     }
 
@@ -491,89 +381,10 @@ mod tests {
         cfg.metadata_refresh_interval_ms = 5000;
 
         cfg.metadata_max_age_ms = 14999;
-        assert!(
-            cfg.validate(CaptureMode::Events).is_err(),
-            "just under 3x should fail"
-        );
+        assert!(cfg.validate().is_err(), "just under 3x should fail");
 
         cfg.metadata_max_age_ms = 15000;
-        assert!(
-            cfg.validate(CaptureMode::Events).is_ok(),
-            "exactly 3x should pass"
-        );
-    }
-
-    // -- mode-aware topic completeness --
-
-    /// Blank each analytics topic in turn: the modes that can route to it must
-    /// refuse to boot, and the AI lane, which drops every non-AI event before
-    /// the sink, must not care. The error names the env var to set.
-    #[rstest]
-    #[case("TOPIC_MAIN", |c: &mut Config| c.topic_main = None)]
-    #[case("TOPIC_HISTORICAL", |c: &mut Config| c.topic_historical = None)]
-    #[case("TOPIC_OVERFLOW", |c: &mut Config| c.topic_overflow = None)]
-    #[case("TOPIC_EXCEPTION", |c: &mut Config| c.topic_exception = None)]
-    #[case("TOPIC_HEATMAP", |c: &mut Config| c.topic_heatmap = None)]
-    #[case("TOPIC_CLIENT_INGESTION_WARNING", |c: &mut Config| c.topic_client_ingestion_warning = None)]
-    fn analytics_topics_are_required_only_where_reachable(
-        #[case] env_key: &str,
-        #[case] blank: fn(&mut Config),
-    ) {
-        for mode in [CaptureMode::Events, CaptureMode::Import] {
-            let mut cfg = valid_config();
-            blank(&mut cfg);
-            let err = cfg
-                .validate(mode)
-                .expect_err("{mode:?} routes here, so a blank topic must fail");
-            assert!(
-                format!("{err:#}").contains(env_key),
-                "error should name {env_key}: {err:#}"
-            );
-        }
-
-        let mut cfg = valid_config();
-        blank(&mut cfg);
-        assert!(
-            cfg.validate(CaptureMode::Ai).is_ok(),
-            "the AI lane never routes to {env_key}"
-        );
-    }
-
-    /// The two topics every mode can reach: the AI lane by event name, the DLQ
-    /// by a `redirect_to_dlq` restriction on any pipeline's slice.
-    ///
-    /// Each case asserts the message names a variable an operator can actually
-    /// set. For the AI topic that is the deployment-level
-    /// `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, not the per-sink `TOPIC_AI` that
-    /// setup overwrites on every sink config.
-    #[rstest]
-    #[case("KAFKA_TOPIC_DLQ", |c: &mut Config| c.topic_dlq.clear())]
-    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC", |c: &mut Config| c.topic_ai.clear())]
-    fn universally_reachable_topics_are_required_on_every_mode(
-        #[case] env_key: &str,
-        #[case] blank: fn(&mut Config),
-    ) {
-        for mode in [CaptureMode::Events, CaptureMode::Import, CaptureMode::Ai] {
-            let mut cfg = valid_config();
-            blank(&mut cfg);
-            let err = cfg
-                .validate(mode)
-                .expect_err("a blank topic every mode can reach must fail");
-            assert!(
-                format!("{err:#}").contains(env_key),
-                "error should name {env_key}: {err:#}"
-            );
-        }
-    }
-
-    /// An explicitly empty topic must resolve like an unset one, to the `None`
-    /// arm the sink already skips, not to a topic named "" that every produce
-    /// would reject.
-    #[test]
-    fn empty_topic_resolves_to_no_topic() {
-        let mut cfg = valid_config();
-        cfg.topic_main = Some(String::new());
-        assert_eq!(cfg.topic_for(&Destination::AnalyticsMain), None);
+        assert!(cfg.validate().is_ok(), "exactly 3x should pass");
     }
 
     #[rstest]

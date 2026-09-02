@@ -203,9 +203,9 @@ async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         assert_eq!(records.len(), batch_size, "v1 must produce every event");
         let record = &records[observe];
         Observed {
-            lane: if Some(record.topic.as_str()) == cfg.topic_main.as_deref() {
+            lane: if record.topic == cfg.topic_main {
                 Lane::Main
-            } else if Some(record.topic.as_str()) == cfg.topic_overflow.as_deref() {
+            } else if record.topic == cfg.topic_overflow {
                 Lane::Overflow
             } else {
                 Lane::Other(record.topic.clone())

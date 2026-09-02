@@ -136,13 +136,20 @@ pub async fn process_batch(
         .await;
     }
 
-    apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
+    let oversize_dropped = apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
 
     // The validation sweep runs before this stage, so an oversized AI event
     // would otherwise drop with no customer-visible signal at all. v0 raises
     // `MessageSizeTooLarge` for the same condition; this keeps a project owner
-    // seeing it once the AI lane moves to v1.
-    emit_drop_warnings(state, context, &events, Some(DETAIL_AI_EVENT_TOO_BIG));
+    // seeing it on the AI lane.
+    //
+    // Two guards. The mode keeps the AI lane's reporting out of an analytics
+    // deployment, which this endpoint does not change. The count keeps the scan
+    // off both hot paths in the case that always holds, which is that no event
+    // in the batch was oversized.
+    if state.capture_mode == CaptureMode::Ai && oversize_dropped > 0 {
+        emit_drop_warnings(state, context, &events, Some(DETAIL_AI_EVENT_TOO_BIG));
+    }
 
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
         apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
@@ -943,9 +950,9 @@ fn on_ai_lane(event: &WrappedEvent) -> bool {
 ///
 /// Charged bytes are the event's properties, which dominate an AI event's wire
 /// size; the serialized envelope is not built until the sink.
-fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) {
+fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) -> u64 {
     if max_event_bytes == 0 {
-        return;
+        return 0;
     }
 
     let mut dropped: u64 = 0;
@@ -966,6 +973,8 @@ fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) 
         metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "ai_event_too_big")
             .increment(dropped);
     }
+
+    dropped
 }
 
 /// Charge the AI lane's per-project byte budget, dropping the events that take

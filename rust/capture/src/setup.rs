@@ -483,14 +483,6 @@ fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config) {
     }
 }
 
-/// The v1-sink counterpart to [`warn_if_ai_ceiling_exceeds_producer_cap`].
-///
-/// That check reads `KAFKA_PRODUCER_MESSAGE_MAX_BYTES`, which governs only the
-/// v0 producer. Every v1 sink carries its own `message_max_bytes`
-/// (`CAPTURE_V1_SINK_<NAME>_KAFKA_MESSAGE_MAX_BYTES`, default 1MB), so a
-/// deployment whose AI traffic runs on a v1 sink can pass the v0 check with a
-/// correctly-raised cap on a producer it never uses, and still have every event
-/// between the sink cap and the ceiling refused by the broker.
 /// Every v1 sink whose `message_max_bytes` sits at or below the AI ceiling,
 /// sorted by sink name so the result is stable to assert on.
 fn v1_sinks_below_ai_ceiling(
@@ -512,6 +504,14 @@ fn v1_sinks_below_ai_ceiling(
     offenders
 }
 
+/// The v1-sink counterpart to [`warn_if_ai_ceiling_exceeds_producer_cap`].
+///
+/// That check reads `KAFKA_PRODUCER_MESSAGE_MAX_BYTES`, which governs only the
+/// v0 producer. Every v1 sink carries its own `message_max_bytes`
+/// (`CAPTURE_V1_SINK_<NAME>_KAFKA_MESSAGE_MAX_BYTES`, default 1MB), so a
+/// deployment whose AI traffic runs on a v1 sink can pass the v0 check with a
+/// correctly-raised cap on a producer it never uses, and still have every event
+/// between the sink cap and the ceiling refused by the broker.
 fn warn_if_ai_ceiling_exceeds_v1_sink_caps(config: &Config, sinks_cfg: &crate::v1::sinks::Sinks) {
     for (name, message_max_bytes) in v1_sinks_below_ai_ceiling(config, sinks_cfg) {
         warn!(
@@ -560,6 +560,9 @@ fn create_v1_sink_router(
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
     let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
+    sinks_cfg
+        .validate()
+        .context("v1 sink config validation failed")?;
 
     for cfg in sinks_cfg.configs.values_mut() {
         cfg.kafka.topic_ai = config.kafka.capture_analytics_ai_events_topic.clone();
@@ -568,13 +571,6 @@ fn create_v1_sink_router(
             .capture_analytics_ai_events_overflow_topic
             .clone();
     }
-
-    // After the injection above, so the topic completeness check sees the
-    // values the sinks will actually produce to rather than the per-sink env
-    // parse.
-    sinks_cfg
-        .validate(config.capture_mode)
-        .context("v1 sink config validation failed")?;
 
     warn_if_ai_ceiling_exceeds_v1_sink_caps(config, &sinks_cfg);
 
