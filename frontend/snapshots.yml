@@ -6101,9 +6101,9 @@ snapshots:
     scenes-app-batchexports--new-postgres-export--light:
         hash: v1.k794b7964.a91e98e99f18feaab3e35cc74c61e587a93f0d5145dbb0ffe87cba47753e2b69.xH4R5lW0I6Jc6kaJhwrBbmt3aAm7WBxGgI233qSOQ5s
     scenes-app-batchexports--new-redshift-export--dark:
-        hash: v1.k794b7964.8f0388fbdd4a8d00212684d736e614f2344aad1cfe39367f3b816b20dd763c15.YHxV-ye4sDuyCfkAEScg1Cu1fJNySEqpEd9vHiCqEA4
+        hash: v1.k794b7964.ca943cf5b531f67d25f8d2ece7746ed6768af501d10aa71082bd0c4bf38ad13e.C2HPb5m5ZJdSu-GNI75wMkuiEiaEOtHxfQmzUbRrySs
     scenes-app-batchexports--new-redshift-export--light:
-        hash: v1.k794b7964.fa2185c87dad9181ffdec1888102174d0ec3acc2a11411ef597177a9d0d570b1.2wW_Q7snJas3pAN8GKb0XGnS2QMeI_CUZkMwiQ7Wkuc
+        hash: v1.k794b7964.1d608dd053858bb0b55ad2048d476c5ce19448758185e277352a4b81d42a20d4.qEj-MdakedhK-9bGnAOS7P2dpCESdvDrHyi80qbRt_A
     scenes-app-batchexports--new-s-3-compatible-export--dark:
         hash: v1.k794b7964.64732abe9af577a8d94f717698373476218db08db3d62f1fc2c37dc52db29a01.6KvN-kOY6LRFnyCA59HvtJ1_vM-3c6wt-X42C4w5fP4
     scenes-app-batchexports--new-s-3-compatible-export--light:
@@ -8381,9 +8381,13 @@ snapshots:
     scenes-app-settings-user--settings-user-notifications--light:
         hash: v1.k794b7964.22b7ef8dce439a47cc7ca3da644d7f647f2615a7b16c3a55a0837dcea0f3cc2a.QnD-njyuDUa0lrABBsIuNCY8TExZql8lQCQBW7Vw6q4
     scenes-app-settings-user--settings-user-profile--dark:
-        hash: v1.k794b7964.f6aff3447ed345a76c38966128dde52e4b99f4f2ba1475a003b3763a2b1d5696.MK6D9UYCfHMCwIkX_YDsPSshVAWGmrLqBB3iwvHpIdo
+        hash: v1.k794b7964.477a820fd8ddcbd96fb4789d7407a6e21d1b37d889323e8bdcfcb7b4c1b2215c.OiIp-MDSCgN7eFiofAkbaB_vFBF9lVAd-E6rXlfI40A
     scenes-app-settings-user--settings-user-profile--light:
-        hash: v1.k794b7964.309e988a79cb7d9d505a2d53fa80e874d244058708999c3ba594fecf58590dff.eLlA-q2geaN4iT6sG9eHkMQ99d-KBXtPM-l564tEEvQ
+        hash: v1.k794b7964.c5b1e953a68dcc2a7440de9061298b07a705a4f786b1948f385ff364fecd76bb.tpJwhfDqbEMdWhFcueay9wUV0sTGjxBSyQ63IWZgSqs
+    scenes-app-settings-user--settings-user-profile-hedgehog-avatar--dark:
+        hash: v1.k794b7964.c4331c34e1eca9ef27b39bf54eb2f63d1938d5860c58761289ef6f22553298b7.-fUQly4FV_2sclXXFOsbFrLvj52Hy1jGHUPvsBuyAdE
+    scenes-app-settings-user--settings-user-profile-hedgehog-avatar--light:
+        hash: v1.k794b7964.21df030ff0d23324c716f8da3ba1bcb157eda37de4456006591d24c4be43799a.VY-j0yn8MJtQDqWoRtkbNdH2rc1dZ6zRp3n8yfUJf3c
     scenes-app-settings-user--settings-user-reminders-modal--dark:
         hash: v1.k794b7964.242ae233bc621d826310883788ad4e89b47d5d9d9c2c09279c675165f94384ce.nApdQbX5odqe7aMVihM5X4WlwlneicqcFebSJ_N1hVE
     scenes-app-settings-user--settings-user-reminders-modal--light:
