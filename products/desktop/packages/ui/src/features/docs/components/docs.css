@@ -254,9 +254,9 @@
   background: color-mix(in srgb, var(--gray-9) 10%, transparent);
 }
 
-/* A watched phrase carries an eye in a small chip, so it reads as a control.
-   The mask clips backgrounds, so the chip and the glyph are two elements. */
-.doc-discussion-anchor[data-kind="watch"]::before {
+/* A watched phrase ends in a small chip with an eye, so it reads as a control.
+   The eye is a background image, so one element carries border, fill, and glyph. */
+.doc-discussion-anchor[data-kind="watch"]::after {
   content: "";
   display: inline-block;
   width: 18px;
@@ -265,48 +265,29 @@
   vertical-align: -4px;
   border: 1px solid var(--gray-6);
   border-radius: var(--radius-2);
-  background: var(--gray-1);
+  background:
+    var(--gray-1)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='%23d97706'%3E%3Cpath d='M247.31 124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57 61.26 162.88 48 128 48S61.43 61.26 36.34 86.35C17.51 105.18 9 124 8.69 124.76a8 8 0 0 0 0 6.5c.35.79 8.82 19.57 27.65 38.4C61.43 194.74 93.12 208 128 208s66.57-13.26 91.66-38.34c18.83-18.83 27.3-37.61 27.65-38.4a8 8 0 0 0 0-6.5ZM128 192c-30.78 0-57.67-11.19-79.93-33.25A133.47 133.47 0 0 1 25 128a133.33 133.33 0 0 1 23.07-30.75C70.33 75.19 97.22 64 128 64s57.67 11.19 79.93 33.25A133.46 133.46 0 0 1 231.05 128C223.84 141.46 192.43 192 128 192Zm0-112a48 48 0 1 0 48 48 48.05 48.05 0 0 0-48-48Zm0 80a32 32 0 1 1 32-32 32 32 0 0 1-32 32Z'/%3E%3C/svg%3E")
+    center / 11px no-repeat;
   transition:
     background-color 120ms,
     border-color 120ms;
 }
 
-.doc-discussion-anchor[data-kind="watch"]::after {
-  content: "";
-  display: inline-block;
-  width: 11px;
-  height: 11px;
-  margin-left: -14.5px;
-  margin-right: 3.5px;
-  vertical-align: -1px;
-  background-color: var(--amber-11);
-  mask:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath d='M247.31 124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57 61.26 162.88 48 128 48S61.43 61.26 36.34 86.35C17.51 105.18 9 124 8.69 124.76a8 8 0 0 0 0 6.5c.35.79 8.82 19.57 27.65 38.4C61.43 194.74 93.12 208 128 208s66.57-13.26 91.66-38.34c18.83-18.83 27.3-37.61 27.65-38.4a8 8 0 0 0 0-6.5ZM128 192c-30.78 0-57.67-11.19-79.93-33.25A133.47 133.47 0 0 1 25 128a133.33 133.33 0 0 1 23.07-30.75C70.33 75.19 97.22 64 128 64s57.67 11.19 79.93 33.25A133.46 133.46 0 0 1 231.05 128C223.84 141.46 192.43 192 128 192Zm0-112a48 48 0 1 0 48 48 48.05 48.05 0 0 0-48-48Zm0 80a32 32 0 1 1 32-32 32 32 0 0 1-32 32Z'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-}
-
-.doc-discussion-anchor[data-kind="watch"]:hover::before {
+.doc-discussion-anchor[data-kind="watch"]:hover::after {
   border-color: var(--amber-8);
-  background: color-mix(in srgb, var(--amber-9) 12%, var(--gray-1));
+  background-color: color-mix(in srgb, var(--amber-9) 12%, var(--gray-1));
 }
 
 .doc-discussion-anchor[data-kind="watch"][data-watch="moved"] {
   border-bottom-color: var(--amber-9);
 }
 
-.doc-discussion-anchor[data-kind="watch"][data-watch="moved"]::after {
-  background-color: var(--amber-9);
-}
-
-.doc-discussion-anchor[data-kind="watch"][data-watch="stale"]::after {
-  background-color: var(--gray-9);
-}
-
+.doc-discussion-anchor[data-kind="watch"][data-watch="stale"]::after,
 .doc-discussion-anchor[data-kind="watch"][data-resolved="true"]::after {
-  background-color: var(--gray-8);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='%238a8a8a'%3E%3Cpath d='M247.31 124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57 61.26 162.88 48 128 48S61.43 61.26 36.34 86.35C17.51 105.18 9 124 8.69 124.76a8 8 0 0 0 0 6.5c.35.79 8.82 19.57 27.65 38.4C61.43 194.74 93.12 208 128 208s66.57-13.26 91.66-38.34c18.83-18.83 27.3-37.61 27.65-38.4a8 8 0 0 0 0-6.5ZM128 192c-30.78 0-57.67-11.19-79.93-33.25A133.47 133.47 0 0 1 25 128a133.33 133.33 0 0 1 23.07-30.75C70.33 75.19 97.22 64 128 64s57.67 11.19 79.93 33.25A133.46 133.46 0 0 1 231.05 128C223.84 141.46 192.43 192 128 192Zm0-112a48 48 0 1 0 48 48 48.05 48.05 0 0 0-48-48Zm0 80a32 32 0 1 1 32-32 32 32 0 0 1-32 32Z'/%3E%3C/svg%3E");
 }
 
-/* The state of a watched claim, as a small pill in the panel and on the space home. */
 .doc-verdict {
   display: inline-flex;
   align-items: center;
@@ -317,8 +298,8 @@
   font-weight: 600;
   line-height: 16px;
   letter-spacing: 0.01em;
-  background: color-mix(in srgb, var(--primary) 12%, transparent);
-  color: var(--primary);
+  background: color-mix(in srgb, var(--blue-9) 12%, transparent);
+  color: var(--blue-11);
 }
 
 .doc-verdict[data-verdict="moved"] {
@@ -442,13 +423,17 @@
   color: var(--gray-12);
 }
 
+.doc-dossier-scroll {
+  container-type: inline-size;
+}
+
 .doc-dossier-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 15rem;
   gap: 0 28px;
 }
 
-@media (max-width: 44rem) {
+@container (max-width: 44rem) {
   .doc-dossier-body {
     grid-template-columns: minmax(0, 1fr);
     gap: 24px;
@@ -468,7 +453,7 @@
   border-left: 1px solid var(--gray-4);
 }
 
-@media (max-width: 44rem) {
+@container (max-width: 44rem) {
   .doc-dossier-rail {
     padding-left: 0;
     border-left: 0;
@@ -612,7 +597,7 @@ button.doc-door:hover {
 }
 
 .doc-door-cta {
-  margin-top: 2px;
+  margin-left: auto;
   font-size: 11.5px;
   color: var(--door-text);
   opacity: 0;
@@ -627,7 +612,7 @@ button.doc-door:focus-visible .doc-door-cta {
 /* The numbers as tiles: figure, change, and the line of checks. */
 .doc-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
   gap: 10px;
 }
 
@@ -812,6 +797,13 @@ button.doc-door:focus-visible .doc-door-cta {
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--gray-12);
+}
+
+.doc-timeline-text[data-open="false"] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .doc-timeline-more {

@@ -33,7 +33,7 @@ import { useState } from "react";
 import { Spark } from "../extensions/DataValue";
 
 type Watch = DocSchemas.DocWatch;
-type Decision = "confirmed" | "refuted";
+export type Decision = "confirmed" | "refuted";
 
 const VERDICT_LABEL: Record<DocSchemas.WatchVerdictState, string> = {
   pending: "Compiling",
@@ -196,7 +196,7 @@ export function WatchStrip({
 }
 
 /** Ask for the one line behind a decision, then close the watch with it. */
-function DecideDialog({
+export function DecideDialog({
   decision,
   onClose,
   onDecide,
@@ -285,7 +285,7 @@ export function WatchHeaderActions({
   const busy = pendingAction !== null && pendingAction !== "arm";
   return (
     <>
-      {active && watch.brief ? (
+      {active && watch.brief && watch.brief.evidence.length > 0 ? (
         <Tooltip>
           <TooltipTrigger
             render={

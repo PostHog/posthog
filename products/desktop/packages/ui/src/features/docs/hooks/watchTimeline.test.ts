@@ -111,8 +111,8 @@ describe("watchTimeline", () => {
     expect(entries.map((entry) => [entry.kind, entry.title])).toEqual([
       ["started", "Watch started"],
       ["brief", "Watching. 1 check runs daily."],
-      ["check", "signups 5"],
-      ["check", "signups 5"],
+      ["check", "5 signups"],
+      ["check", "5 signups"],
       ["moved", "“signups” moved from 5 to 2."],
       ["report", "Signups fell in the EU"],
       ["comment", "Looking."],

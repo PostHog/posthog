@@ -117,7 +117,7 @@ export function watchTimeline(
     for (const [at, value] of evidence.history) {
       const lines = checks.get(at) ?? [];
       lines.push(
-        `${evidence.label || "evidence"} ${formatValue(typeof value === "number" ? value : null)}`,
+        `${formatValue(typeof value === "number" ? value : null)} ${evidence.label || "evidence"}`,
       );
       checks.set(at, lines);
     }
