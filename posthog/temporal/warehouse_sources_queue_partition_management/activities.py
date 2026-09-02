@@ -14,7 +14,7 @@ from asgiref.sync import sync_to_async
 
 logger = structlog.get_logger(__name__)
 
-PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
+PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "queuejob", "queuejobstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
 

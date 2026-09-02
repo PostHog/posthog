@@ -12,6 +12,7 @@ from django.db import connection
 
 import psycopg
 
+from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE, JOB_STATUS_TABLE, JOB_TABLE
 from products.warehouse_sources_queue.backend.core.jobs_db import (
     BATCH_TABLE,
     LEASE_TABLE,
@@ -147,3 +148,77 @@ BATCH_DEFAULTS: dict[str, Any] = {
 async def insert_batch(conn: psycopg.AsyncConnection[Any], **overrides: Any) -> str:
     params = {**BATCH_DEFAULTS, **overrides}
     return await BatchQueue.insert(conn, **params)
+
+
+def ensure_generic_job_tables(conn: psycopg.Connection[Any]) -> None:
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {JOB_TABLE} (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            kind VARCHAR(100) NOT NULL,
+            lane VARCHAR(16) NOT NULL,
+            group_key VARCHAR(400) NOT NULL,
+            team_id BIGINT NOT NULL,
+            run_id VARCHAR(200),
+            sequence INT NOT NULL DEFAULT 0,
+            payload JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            priority SMALLINT NOT NULL DEFAULT 0,
+            dedup_key VARCHAR(400),
+            latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+            latest_attempt SMALLINT NOT NULL DEFAULT 0,
+            state_changed_at TIMESTAMPTZ,
+            superseded BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS qj_claimable_idx ON {JOB_TABLE} (lane, kind, team_id, created_at, sequence)
+            WHERE latest_state IN ('pending', 'waiting_retry')
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS qj_run_gate_idx ON {JOB_TABLE} (run_id, latest_state, sequence)
+            WHERE latest_state IN ('executing', 'waiting_retry', 'failed')
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS qj_group_busy_idx ON {JOB_TABLE} (lane, group_key)
+            WHERE latest_state = 'executing'
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS qj_dedup_idx ON {JOB_TABLE} (kind, dedup_key)
+            WHERE dedup_key IS NOT NULL
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {JOB_STATUS_TABLE} (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            job_id UUID NOT NULL,
+            job_state VARCHAR(32) NOT NULL,
+            attempt SMALLINT NOT NULL DEFAULT 0,
+            exec_time TIMESTAMPTZ,
+            error_response JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {JOB_LEASE_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            lane VARCHAR(16) NOT NULL,
+            group_key VARCHAR(400) NOT NULL,
+            owner_token VARCHAR(64) NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT qjl_lane_group_uniq UNIQUE (lane, group_key)
+        )
+    """)
+
+
+def truncate_generic_job_tables(conn: psycopg.Connection[Any]) -> None:
+    conn.execute(f"TRUNCATE {JOB_STATUS_TABLE}, {JOB_TABLE}, {JOB_LEASE_TABLE} RESTART IDENTITY CASCADE")
+
+
+JOB_DEFAULTS: dict[str, Any] = {
+    "kind": "test.kind",
+    "lane": "test",
+    "group_key": "1:group-1",
+    "team_id": 1,
+    "payload": {},
+}
