@@ -10,6 +10,30 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("updateTaskChannelAutoArchive", () => {
+    it("rejects a successful response that did not save the setting", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "channel-1", name: "personal" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.updateTaskChannelAutoArchive("channel-1", 7),
+      ).rejects.toThrow(
+        "Automatic archiving isn't available on this server yet",
+      );
+    });
+  });
+
   describe("setUserSpendLimit", () => {
     // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
     // unwrapped for the settings toast rather than the raw fetcher string.
@@ -114,6 +138,43 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getEvidencePreview", () => {
+    it("retrieves an Inbox report from the signals endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "rep-1",
+            title: "Checkout latency increased",
+            summary: "Requests became slower after the latest release.",
+            status: "ready",
+            priority: "P1",
+            signal_count: 3,
+            total_weight: 3,
+            artefact_count: 1,
+            created_at: "2026-01-02T10:00:00Z",
+            updated_at: "2026-01-03T10:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview("report", "rep-1"),
+      ).resolves.toMatchObject({
+        title: "Checkout latency increased",
+        status: { label: "Ready", tone: "positive" },
+      });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        "/api/projects/42/signals/reports/rep-1/",
+      );
+    });
+
     it("builds experiment presentation data from metric and exposure query responses", async () => {
       const metricResponse = {
         kind: "ExperimentQuery",
@@ -390,6 +451,28 @@ describe("PostHogAPIClient", () => {
       isComplete: false,
       tasks: [{ id: "task-1" }, { id: "task-2" }],
     });
+  });
+
+  it("fetches every task page when requested", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-3" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { fetchAll: true }),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }, { id: "task-3" }],
+    });
+    expect(getTasksPage).toHaveBeenCalledTimes(3);
   });
 
   it.each([
@@ -1720,7 +1803,7 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getSignalReports", () => {
-    it("sends count-only requests to the reports endpoint", async () => {
+    it("sends report filters to the reports endpoint", async () => {
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({ count: 3, results: [] }),
@@ -1741,12 +1824,15 @@ describe("PostHogAPIClient", () => {
       };
 
       await expect(
-        client.getSignalReports({ count_only: true }),
+        client.getSignalReports({
+          actionability: "immediately_actionable,requires_human_input",
+          count_only: true,
+        }),
       ).resolves.toEqual({ count: 3, results: [] });
 
       const request = fetch.mock.calls[0]?.[0] as { url: URL };
       expect(request.url.toString()).toBe(
-        "http://localhost:8000/api/projects/123/signals/reports/?count_only=true",
+        "http://localhost:8000/api/projects/123/signals/reports/?actionability=immediately_actionable%2Crequires_human_input&count_only=true",
       );
     });
   });
@@ -2234,6 +2320,26 @@ describe("PostHogAPIClient", () => {
       );
       // attribution survives the fallback path
       expect(results[0].task_id).toBe("t1");
+    });
+
+    it.each([
+      [
+        "asks for the full log when a caller reads every row",
+        { limit: 1000 },
+        "1000",
+      ],
+      ["leaves list callers on the server page size", undefined, null],
+    ])("%s", async (_name, options, expected) => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 0, results: [] }),
+      });
+      const client = makeClient(fetch);
+
+      await client.getSignalReportArtefacts("r1", options);
+
+      const { url } = fetch.mock.calls[0][0] as { url: URL };
+      expect(url.searchParams.get("limit")).toBe(expected);
     });
   });
 

@@ -94,6 +94,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -168,6 +169,22 @@ export interface PostHogAPIClientOptions {
 
 export function getPosthogApiClientAppVersion(): string {
   return clientAppVersion;
+}
+
+/**
+ * A scout endpoint answered with a non-2xx. Carries the status so a caller can tell a
+ * refusal it has to live with — 403 for a member without `signal_scout:write`, 404 for a
+ * stale project id — from a real outage worth retrying or reporting.
+ */
+export class ScoutRequestError extends Error {
+  constructor(
+    readonly status: number,
+    subPath: string,
+    statusText: string,
+  ) {
+    super(`Scout request failed (${subPath}): ${statusText}`);
+    this.name = "ScoutRequestError";
+  }
 }
 
 export class SandboxCustomImagesDisabledError extends Error {
@@ -2171,8 +2188,10 @@ export class PostHogAPIClient {
       path: urlPath,
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2182,9 +2201,13 @@ export class PostHogAPIClient {
     projectId: number,
     subPath: string,
     body: unknown,
+    query?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
     const urlPath = `/api/projects/${projectId}/signals/scout/${subPath}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    for (const [key, value] of Object.entries(query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
@@ -2194,8 +2217,10 @@ export class PostHogAPIClient {
       },
     });
     if (!response.ok) {
-      throw new Error(
-        `Scout request failed (${subPath}): ${response.statusText}`,
+      throw new ScoutRequestError(
+        response.status,
+        subPath,
+        response.statusText,
       );
     }
     return (await response.json()) as T;
@@ -2205,6 +2230,19 @@ export class PostHogAPIClient {
     const data = await this.scoutGet<
       { results: ScoutConfig[] } | ScoutConfig[]
     >(projectId, "configs/");
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  /**
+   * Materialize the project's scout fleet and return it: the backend seeds the
+   * canonical `signals-scout-*` skills, registers a config for every scout
+   * missing one, and retires the ones no longer shipped. Idempotent, and the
+   * only way a project the Temporal coordinator never reached gets any scouts.
+   */
+  async syncScoutConfigs(projectId: number): Promise<ScoutConfig[]> {
+    const data = await this.scoutPost<
+      { results: ScoutConfig[] } | ScoutConfig[]
+    >(projectId, "configs/sync/", {}, { surface: "desktop" });
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
@@ -2560,9 +2598,11 @@ export class PostHogAPIClient {
 
   async getTasksWithStatus(
     options?: TaskListOptions,
-    pagination?: { maxPages?: number },
+    pagination?: { maxPages?: number; fetchAll?: boolean },
   ): Promise<{ tasks: Task[]; isComplete: boolean }> {
-    const maxPages = pagination?.maxPages ?? 1;
+    const maxPages = pagination?.fetchAll
+      ? Number.POSITIVE_INFINITY
+      : (pagination?.maxPages ?? 1);
     const pageSize = Math.min(options?.limit ?? 100, 100);
     const tasks: Task[] = [];
     let count = 0;
@@ -3035,6 +3075,34 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelAutoArchive(
+    id: string,
+    inactivityDays: number | null,
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ auto_archive_after_days: inactivityDays }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update automatic archiving: ${response.statusText}`,
+      );
+    }
+    const updatedChannel = (await response.json()) as TaskChannel;
+    if (updatedChannel.auto_archive_after_days !== inactivityDays) {
+      throw new Error(
+        "Automatic archiving isn't available on this server yet. Try again after it has been updated.",
+      );
+    }
+    return updatedChannel;
   }
 
   async deleteTaskChannel(id: string): Promise<void> {
@@ -4808,6 +4876,9 @@ export class PostHogAPIClient {
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
     }
+    if (params?.actionability) {
+      url.searchParams.set("actionability", params.actionability);
+    }
     if (params?.count_only != null) {
       url.searchParams.set("count_only", String(params.count_only));
     }
@@ -4931,14 +5002,25 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * The list is newest-first and truncates to the server page size, which drops the oldest
+   * rows — including the scout `task_run` written when the report was created. Pass `limit`
+   * from callers that read the whole log. Callers that need only the newest row of a
+   * latest-wins type should omit it: artefacts carry diffs and code excerpts, and list rows
+   * fetch this once per card.
+   */
   async getSignalReportArtefacts(
     reportId: string,
+    options?: { limit?: number },
   ): Promise<SignalReportArtefactsResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
+    if (options?.limit !== undefined) {
+      url.searchParams.set("limit", String(options.limit));
+    }
 
     try {
       const response = await this.api.fetcher.fetch({
@@ -6866,6 +6948,10 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id } },
         );
         return shapeTicketPreview(ticket);
+      }
+      case "report": {
+        const report = await this.getSignalReport(id);
+        return report ? shapeInboxReportPreview(report) : null;
       }
       case "person": {
         if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {

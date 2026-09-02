@@ -41,6 +41,8 @@ const STATUS_FILTERS: { value: OverviewStatusFilter; label: string }[] = [
     { value: 'never_run', label: 'Not run yet' },
 ]
 
+const NEW_CHECK_ACTION_ID = 'data-quality-overview-new-check'
+
 function focusFirstAvailable(elementIds: string[]): void {
     // Runs after the removed row has left the DOM, so the first id that still resolves wins.
     window.requestAnimationFrame(() => {
@@ -71,7 +73,7 @@ export function DataQualityOverview(): JSX.Element {
         overviewSummary,
         lastActionCheckId,
     } = useValues(dataQualityOverviewLogic)
-    const { setFilters, runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
+    const { setFilters, runChecks, loadOverview, setLastActionCheck } = useActions(dataQualityOverviewLogic)
 
     const editorProps: DataQualityCheckEditorLogicProps = {
         surface: 'data-quality-overview',
@@ -83,8 +85,16 @@ export function DataQualityOverview(): JSX.Element {
         onClosed: () => {
             if (lastActionCheckId) {
                 focusFirstAvailable([rowActionsId(lastActionCheckId)])
+            } else {
+                focusFirstAvailable([NEW_CHECK_ACTION_ID])
             }
         },
+    }
+    const { openEditor } = useActions(dataQualityCheckEditorLogic(editorProps))
+
+    const addCheck = (): void => {
+        setLastActionCheck(null)
+        openEditor(null, null)
     }
 
     const runningAll = (startingRun || isRunning) && runTarget?.kind === 'all'
@@ -125,7 +135,7 @@ export function DataQualityOverview(): JSX.Element {
                     <div className="flex flex-wrap items-center gap-2">
                         <DataQualityGateToggle />
                         <LemonButton
-                            type="primary"
+                            type="secondary"
                             onClick={() => runChecks({ kind: 'all' })}
                             loading={runningAll}
                             disabledReason={
@@ -138,6 +148,14 @@ export function DataQualityOverview(): JSX.Element {
                             data-attr="data-quality-overview-run-all"
                         >
                             Run all checks
+                        </LemonButton>
+                        <LemonButton
+                            id={NEW_CHECK_ACTION_ID}
+                            type="primary"
+                            onClick={addCheck}
+                            data-attr="data-quality-overview-new-check"
+                        >
+                            New check
                         </LemonButton>
                     </div>
                 </div>
@@ -166,7 +184,7 @@ export function DataQualityOverview(): JSX.Element {
                 )}
 
                 {checks.length === 0 ? (
-                    <NoChecksYet />
+                    <NoChecksYet onAddCheck={addCheck} />
                 ) : subjectGroups.length === 0 ? (
                     <div className="flex items-center gap-2">
                         <span className="text-secondary">No checks match these filters.</span>
@@ -189,14 +207,17 @@ export function DataQualityOverview(): JSX.Element {
     )
 }
 
-function NoChecksYet(): JSX.Element {
+function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
     return (
         <div className="border rounded p-4 flex flex-col items-start gap-2">
             <h4 className="mb-0">No checks yet</h4>
-            <p className="mb-0 text-secondary">Add a check from a table or view to monitor data quality here.</p>
+            <p className="mb-0 text-secondary">Add a check here, or browse tables and views first.</p>
+            <LemonButton type="primary" size="small" onClick={onAddCheck} data-attr="data-quality-overview-first-check">
+                Add your first check
+            </LemonButton>
             <LemonButton
                 id={BROWSE_ACTION_ID}
-                type="primary"
+                type="secondary"
                 size="small"
                 to={urls.database()}
                 data-attr="data-quality-overview-browse"

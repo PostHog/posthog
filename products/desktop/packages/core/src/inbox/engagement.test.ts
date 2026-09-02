@@ -32,7 +32,7 @@ const NO_FILTERS = {
   sourceProductFilter: [],
   priorityFilter: [],
   searchQuery: "",
-  isDefaultScope: true,
+  scope: "for-you" as const,
 };
 
 describe("buildBulkActionEvents", () => {
@@ -79,25 +79,23 @@ describe("buildBulkActionEvents", () => {
     expect(events.every((e) => e.dismissal_reason === undefined)).toBe(true);
   });
 
-  it("attaches dismissal reason/note only for dismiss, truncating the note", () => {
-    const longNote = "x".repeat(600);
+  it("attaches only the dismissal category for dismiss", () => {
     const [dismissed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "dismiss",
       surface: "toolbar",
-      dismissal: { reason: "not_relevant", note: longNote },
+      dismissalReason: "not_relevant",
     });
     expect(dismissed.dismissal_reason).toBe("not_relevant");
-    expect(dismissed.dismissal_note).toHaveLength(500);
+    expect(dismissed).not.toHaveProperty("dismissal_note");
 
     const [snoozed] = buildBulkActionEvents({
       reports: [fakeReport({ id: "a" })],
       actionType: "snooze",
       surface: "toolbar",
-      dismissal: { reason: "not_relevant", note: longNote },
+      dismissalReason: "not_relevant",
     });
     expect(snoozed.dismissal_reason).toBeUndefined();
-    expect(snoozed.dismissal_note).toBeUndefined();
   });
 });
 
@@ -171,7 +169,7 @@ describe("buildInboxViewedProperties", () => {
     ["source product", { sourceProductFilter: ["error_tracking"] }],
     ["priority", { priorityFilter: ["P0"] }],
     ["search", { searchQuery: "  crash  " }],
-    ["non-default scope", { isDefaultScope: false }],
+    ["non-default scope", { scope: "entire-project" as const }],
   ])("flags has_active_filters for a %s filter", (_label, partial) => {
     const props = buildInboxViewedProperties({
       visibleReports: [fakeReport()],
@@ -203,6 +201,7 @@ describe("buildInboxViewedProperties", () => {
 
     expect(props.pulls_tab_count).toBeUndefined();
     expect(props.reports_tab_count).toBeUndefined();
+    expect(props.scope).toBe("for-you");
   });
 });
 

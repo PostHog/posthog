@@ -254,6 +254,7 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -310,6 +311,7 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -383,6 +385,7 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -443,6 +446,7 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -932,17 +936,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 // When the org has more than one installation the caller passes the chosen
                 // installationId, since the backend can't auto-resolve between them.
                 linkExistingGithubInstallation: async (installationId?: string) => {
-                    try {
-                        const integration = await api.integrations.githubLinkExisting(
-                            installationId ? { installation_id: installationId } : {}
-                        )
-                        lemonToast.success('Linked the existing GitHub installation to this project.')
-                        actions.loadIntegrations()
-                        return integration
-                    } catch (e) {
-                        toastApiError(e)
-                        throw e
-                    }
+                    // The global kea-loaders failure handler shows the API detail. Do not add a
+                    // local toast here because the rejected loader would then show both messages.
+                    const integration = await api.integrations.githubLinkExisting(
+                        installationId ? { installation_id: installationId } : {}
+                    )
+                    lemonToast.success('Linked the existing GitHub installation to this project.')
+                    actions.loadIntegrations()
+                    return integration
                 },
             },
         ],

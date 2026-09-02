@@ -16,7 +16,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
-from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator
+from posthog.hogql_queries.paginators import HogQLCursorPaginator
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension

@@ -1,6 +1,7 @@
 import type {
   InboxReportActionProperties,
   InboxReportActionSurface,
+  InboxReviewerScope,
   InboxViewedProperties,
 } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/domain-types";
@@ -57,8 +58,10 @@ export interface BuildBulkActionEventsInput {
   reports: SignalReport[];
   actionType: InboxBulkActionType;
   surface: InboxReportActionSurface;
-  /** Dismissal metadata, only meaningful for `dismiss`. Note is truncated to 500 chars. */
-  dismissal?: { reason?: string; note?: string };
+  triageId?: string;
+  bulkSize?: number;
+  /** Dismissal category, only meaningful for `dismiss`. */
+  dismissalReason?: string;
 }
 
 /**
@@ -73,12 +76,11 @@ export interface BuildBulkActionEventsInput {
 export function buildBulkActionEvents(
   input: BuildBulkActionEventsInput,
 ): InboxReportActionProperties[] {
-  const { reports, actionType, surface, dismissal } = input;
-  const bulkSize = reports.length;
+  const { reports, actionType, surface, triageId, dismissalReason } = input;
+  const bulkSize = input.bulkSize ?? reports.length;
   const isBulk = bulkSize > 1;
   return reports.map((report) => ({
     report_id: report.id,
-    report_title: report.title ?? null,
     report_age_hours: reportAgeHours(report.created_at),
     priority: report.priority ?? null,
     actionability: report.actionability ?? null,
@@ -88,11 +90,9 @@ export function buildBulkActionEvents(
     bulk_size: bulkSize,
     rank: 0,
     list_size: 0,
-    ...(actionType === "dismiss" && dismissal?.reason
-      ? { dismissal_reason: dismissal.reason }
-      : {}),
-    ...(actionType === "dismiss" && dismissal?.note
-      ? { dismissal_note: dismissal.note.slice(0, 500) }
+    ...(triageId ? { triage_id: triageId } : {}),
+    ...(actionType === "dismiss" && dismissalReason
+      ? { dismissal_reason: dismissalReason }
       : {}),
   }));
 }
@@ -105,12 +105,8 @@ interface InboxViewedFilterStateBase {
 interface DesktopInboxViewedFilterState extends InboxViewedFilterStateBase {
   surface: "desktop";
   searchQuery: string;
-  /**
-   * True when the reviewer scope is the default ("For you"). False when the
-   * user has narrowed to a teammate or the whole project — treated as an
-   * active filter for `has_active_filters`.
-   */
-  isDefaultScope: boolean;
+  /** Canonical scope value. Teammate UUIDs must not enter analytics. */
+  scope: InboxReviewerScope;
 }
 
 interface MobileInboxViewedFilterState extends InboxViewedFilterStateBase {
@@ -196,7 +192,7 @@ export function buildInboxViewedProperties(
     statusFiltered ||
     (filters.surface === "mobile" &&
       filters.suggestedReviewerFilter.length > 0) ||
-    (filters.surface === "desktop" && !filters.isDefaultScope);
+    (filters.surface === "desktop" && filters.scope !== "for-you");
 
   return {
     report_count: visibleReports.length,
@@ -219,6 +215,7 @@ export function buildInboxViewedProperties(
       actionabilityCounts.requires_human_input,
     actionability_not_actionable_count: actionabilityCounts.not_actionable,
     actionability_unknown_count: actionabilityCounts.unknown,
+    ...(filters.surface === "desktop" ? { scope: filters.scope } : {}),
     ...(tabCounts
       ? {
           pulls_tab_count: tabCounts.pulls,

@@ -4,8 +4,12 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import RoktAdsResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
+    RoktAdsError,
+    RoktAdsResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.settings import (
     ENDPOINTS,
     INCREMENTAL_LOOKBACK_SECONDS,
@@ -197,6 +201,36 @@ class TestNonRetryableErrors:
         errors = RoktAdsSource().get_non_retryable_errors()
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
+        assert any("400" in key for key in errors)
+
+    def test_account_capability_errors_stop_retrying(self):
+        errors = RoktAdsSource().get_non_retryable_errors()
+        assert "Deselect this table or ask Rokt to enable those dimensions" in errors
+        assert "Rokt account grants none of the metrics" in errors
+
+    @parameterized.expand(
+        [
+            ("400 Client Error: Bad Request for url", "endDate cannot be in the future"),
+            ("404 Client Error: Not Found for url", "account not found"),
+        ]
+    )
+    def test_a_permanent_http_error_stops_the_retry_storm(self, status_line: str, reason: str):
+        # A report request Rokt rejects permanently (a bad request, or a gone account/resource) is a
+        # config problem, not a transient failure, so the pipeline must classify the RoktAdsError as
+        # non-retryable. The client wraps the HTTPError but keeps the status line in the message, so
+        # this guards that the map keys still match it. Without the 404 key the sync would retry a
+        # missing account until its budget is spent.
+        raised = RoktAdsError(f"{status_line}: https://api.rokt.com/v1/query/accounts/acc_1/campaigns/ — {reason}")
+        errors = RoktAdsSource().get_non_retryable_errors()
+        assert error_message_matches(str(raised), errors.keys())
+
+    def test_a_token_endpoint_400_is_not_read_as_a_report_error(self):
+        # The report 400 key is pinned to the Query API path, so a 400 from the OAuth token endpoint
+        # (same host) must not borrow the report copy that tells the user to check the tables and
+        # account ID when their credentials are the real fault. Un-pinning the key would re-match it.
+        token_error = "400 Client Error: Bad Request for url: https://api.rokt.com/auth/oauth2/token"
+        errors = RoktAdsSource().get_non_retryable_errors()
+        assert not error_message_matches(token_error, errors.keys())
 
 
 class TestCanonicalDescriptions:
