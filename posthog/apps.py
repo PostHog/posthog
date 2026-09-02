@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
+from posthog.organization_caching import connect_signal_handlers as connect_organization_cache_signal_handlers
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -40,6 +41,7 @@ class PostHogConfig(AppConfig):
 
         connect_signal_handlers()
         connect_gateway_credential_signal_handlers()
+        connect_organization_cache_signal_handlers()
 
         # Connect core signal receivers at app-population. They used to wire in as an import
         # side effect of viewset modules; with the lazy API router those no longer load at
