@@ -18,6 +18,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
@@ -813,6 +814,79 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert Canvas.objects.unscoped().get(id=canvas_id).legacy_code is None
 
 
+class TestCanvasViewEndpoint(CanvasAPIBaseTest):
+    def _view(self, canvas_id: str, **headers):
+        return self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/view/", **headers)
+
+    def _mark_published(self, canvas_id: str) -> CanvasBuild:
+        build = CanvasBuild.objects.unscoped().filter(canvas_id=canvas_id).first()
+        assert build is not None
+        build.status = CanvasBuild.STATUS_READY
+        build.artifact_object_prefix = f"canvas_artifact/team_{self.team.id}/{canvas_id}/{build.id}"
+        build.manifest = {
+            "entryHtml": "index.html",
+            "assets": [],
+            "dependencies": {},
+            "canvasSdkVersion": "0.1.0",
+            "capabilities": {},
+        }
+        build.save()
+        Canvas.objects.unscoped().filter(pk=canvas_id).update(published_build=build)
+        return build
+
+    def test_view_before_first_build_returns_source_and_active_build(self):
+        canvas_id = self._create_canvas()
+        self._publish(canvas_id, expected_current_version_id=None)
+        body = self._view(canvas_id).json()
+        assert body["canvas"]["id"] == canvas_id
+        assert body["published_build"] is None
+        assert body["has_active_build"] is True
+        assert "src/canvas.tsx" in body["source"]["files"]
+        assert body["layout"] is None
+
+    def test_view_after_build_returns_artifact_url_and_omits_source(self):
+        canvas_id = self._create_canvas()
+        self._publish(canvas_id, expected_current_version_id=None)
+        build = self._mark_published(canvas_id)
+        body = self._view(canvas_id).json()
+        assert body["published_build"]["id"] == str(build.id)
+        assert body["published_build"]["artifact_url"].endswith("/index.html")
+        assert body["source"] is None
+
+    def test_view_revalidates_with_etag(self):
+        canvas_id = self._create_canvas()
+        first = self._publish(canvas_id, expected_current_version_id=None)
+        response = self._view(canvas_id)
+        etag = response["ETag"]
+        assert self._view(canvas_id, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_304_NOT_MODIFIED
+        # A new publish moves the head, so the cached payload is no longer current.
+        self._publish(
+            canvas_id,
+            self._project("export default function C() { return 2 }"),
+            expected_current_version_id=first.json()["current_version_id"],
+        )
+        assert self._view(canvas_id, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_200_OK
+
+    def test_view_of_grid_returns_layout(self):
+        canvas_id = self._create_canvas(kind="grid")
+        body = self._view(canvas_id).json()
+        assert body["layout"]["placements"] == []
+        assert body["component_lifecycles"] == []
+        assert body["source"] is None
+
+    def test_view_survives_storage_outage_without_caching_the_degraded_payload(self):
+        canvas_id = self._create_canvas()
+        self._publish(canvas_id, expected_current_version_id=None)
+        with patch.object(build_service, "current_source_project", side_effect=ObjectStorageError("down")):
+            response = self._view(canvas_id)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source"] is None
+        # No validator on a degraded payload: a later revalidation must not
+        # 304-pin the missing source after storage recovers.
+        assert not response.headers.get("ETag")
+        assert response["Cache-Control"] == "private, no-store"
+
+
 class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
     def _published_canvas(self) -> tuple[str, str, str]:
         canvas_id = self._create_canvas()
@@ -903,6 +977,48 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert str(historical.id) in {build["id"] for build in response.json()["builds"]}
+
+    def test_builds_slim_scope_drops_stale_history_but_keeps_render_state(self):
+        canvas_id, v1, v2 = self._published_canvas()
+        published = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id, source_version_id=v1)
+        published.status = CanvasBuild.STATUS_READY
+        published.save(update_fields=["status"])
+        Canvas.objects.unscoped().filter(pk=canvas_id).update(published_build=published)
+        # Stale history: failed builds of the old (non-head) version.
+        with team_scope(self.team.id):
+            stale_ids = [
+                str(
+                    CanvasBuild.objects.create(
+                        team_id=self.team.id,
+                        canvas_id=canvas_id,
+                        source_version_id=v1,
+                        status=CanvasBuild.STATUS_FAILED,
+                    ).id
+                )
+                for _ in range(3)
+            ]
+
+        slim = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/?scope=slim").json()
+        slim_ids = {build["id"] for build in slim["builds"]}
+        assert str(published.id) in slim_ids
+        # The head version's queued build stays because its outcome is what the author watches.
+        head_build = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id, source_version_id=v2)
+        assert str(head_build.id) in slim_ids
+        assert not slim_ids.intersection(stale_ids)
+
+        full = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
+        assert set(stale_ids).issubset({build["id"] for build in full["builds"]})
+
+    def test_builds_etag_revalidation(self):
+        canvas_id, _, v2 = self._published_canvas()
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/"
+        etag = self.client.get(url)["ETag"]
+        assert self.client.get(url, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_304_NOT_MODIFIED
+        with team_scope(self.team.id):
+            CanvasBuild.objects.create(
+                team_id=self.team.id, canvas_id=canvas_id, source_version_id=v2, status=CanvasBuild.STATUS_FAILED
+            )
+        assert self.client.get(url, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_200_OK
 
     def test_build_with_pruned_artifacts_advertises_no_url(self):
         canvas_id, v1, _ = self._published_canvas()

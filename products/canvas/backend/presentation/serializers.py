@@ -871,6 +871,87 @@ class CanvasBuildsResponseSerializer(serializers.Serializer):
     )
 
 
+class CanvasComponentLifecycleSerializer(serializers.Serializer):
+    """The renderable build of one component referenced by a grid layout, shaped
+    like the builds endpoint's response so clients reuse one lifecycle reader."""
+
+    canvas_id = serializers.CharField(help_text="Id of the component canvas.")
+    requested_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="The source version the placement pins, or null when it follows the latest.",
+    )
+    published_build_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the component's live build. Null until a build completes.",
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the source version the component's head points at.",
+    )
+    builds = CanvasBuildSerializer(
+        many=True,
+        help_text="The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable.",
+    )
+
+
+class CanvasViewResponseSerializer(serializers.Serializer):
+    """Everything a client needs to open a canvas, in one round trip.
+
+    Replaces the record → builds → source waterfall: the record, the live
+    build (with its signed artifact URL), and — only when there is nothing
+    built to render — the head source project (freeform/component) or the
+    layout document (grid)."""
+
+    canvas = CanvasSerializer(help_text="The canvas record.")
+    published_build = CanvasBuildSerializer(
+        allow_null=True,
+        help_text="The live build with its signed artifact URL. Null until a build completes.",
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the source version the canvas's head points at. Null before the first publish.",
+    )
+    has_active_build = serializers.BooleanField(
+        help_text="True while a build is queued or running — poll the builds endpoint until it settles.",
+    )
+    source = CanvasSourceProjectSerializer(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The head source project, present only when the canvas has no live build to render "
+            "(the client-side fallback tier). Null otherwise, and always null for grid canvases."
+        ),
+    )
+    layout = CanvasLayoutSerializer(
+        allow_null=True,
+        required=False,
+        help_text="For grid canvases: the head layout document. Null for other kinds.",
+    )
+    component_lifecycles = CanvasComponentLifecycleSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "For grid canvases: the renderable build of every component the layout's live placements "
+            "reference, so the grid renders from this one call. Absent for other kinds."
+        ),
+    )
+
+
+class CanvasLayoutWithComponentsResponseSerializer(CanvasLayoutResponseSerializer):
+    """The layout response, plus (when requested) the renderable build of every
+    component the layout places — so a grid opens on one round trip instead of
+    one builds fetch per placement."""
+
+    component_lifecycles = CanvasComponentLifecycleSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "One entry per distinct (component, pinned version) the layout's live placements reference, "
+            "present only when the request passes include_components. Components the caller may not see are omitted."
+        ),
+    )
+
+
 class CanvasBuildActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["retry", "pin", "unpin", "cancel"])
     build_id = serializers.UUIDField()

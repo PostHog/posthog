@@ -4,6 +4,10 @@
         "id": {
             "description": "ID of the grid canvas whose layout to read.",
             "type": "string"
+        },
+        "include_components": {
+            "description": "Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.",
+            "type": "boolean"
         }
     },
     "required": ["id"],

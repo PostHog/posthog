@@ -17,6 +17,7 @@ import {
     CanvasesLayoutPublishCreateBody,
     CanvasesLayoutPublishCreateParams,
     CanvasesLayoutRetrieveParams,
+    CanvasesLayoutRetrieveQueryParams,
     CanvasesListQueryParams,
     CanvasesPromoteCreateBody,
     CanvasesPromoteCreateParams,
@@ -48,6 +49,7 @@ const canvasBuildsRetrieve = (): ToolBase<typeof CanvasBuildsRetrieveSchema, Sch
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/builds/`,
             query: {
+                scope: params.scope,
                 version_id: params.version_id,
             },
         })
@@ -174,18 +176,21 @@ const canvasEditCreate = (): ToolBase<typeof CanvasEditCreateSchema, Schemas.Can
     },
 })
 
-const CanvasLayoutGetSchema = CanvasesLayoutRetrieveParams.omit({ project_id: true }).extend({
-    id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.'),
-})
+const CanvasLayoutGetSchema = CanvasesLayoutRetrieveParams.omit({ project_id: true })
+    .extend(CanvasesLayoutRetrieveQueryParams.omit({ version_id: true }).shape)
+    .extend({ id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.') })
 
-const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.CanvasLayoutResponse> => ({
+const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.CanvasLayoutWithComponentsResponse> => ({
     name: 'canvas-layout-get',
     schema: CanvasLayoutGetSchema,
     handler: async (context: Context, params: z.infer<typeof CanvasLayoutGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CanvasLayoutResponse>({
+        const result = await context.api.request<Schemas.CanvasLayoutWithComponentsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/`,
+            query: {
+                include_components: params.include_components,
+            },
         })
         return result
     },

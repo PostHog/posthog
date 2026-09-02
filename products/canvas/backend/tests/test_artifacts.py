@@ -85,6 +85,20 @@ class TestCanvasArtifacts(APIBaseTest):
     def test_url_is_stable_within_a_bucket(self):
         assert self._url() == self._url()
 
+    def test_shared_cache_mode_keeps_bridge_headers(self):
+        # CDN mode must change ONLY the cache policy: the CORS and CSP headers
+        # are what let the sandboxed iframe fetch its modules and keep the
+        # postMessage data/state bridge working, so losing any of them would
+        # break live-data and stateful canvases the moment a CDN fronts the
+        # artifact origin.
+        with self.settings(CANVAS_ARTIFACT_SHARED_CACHE_SECONDS=300):
+            response = self.client.get(self._url())
+        assert response.status_code == 200
+        assert response["Cache-Control"] == "public, max-age=31536000, s-maxage=300, immutable"
+        assert response["Access-Control-Allow-Origin"] == "*"
+        assert response["Cross-Origin-Resource-Policy"] == "cross-origin"
+        assert response["Content-Security-Policy"].startswith("sandbox allow-scripts; default-src 'none'")
+
     def test_expired_bucket_is_rejected(self):
         url = self._url()
         two_buckets = artifacts.ARTIFACT_TOKEN_BUCKET_SECONDS * 2

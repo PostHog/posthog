@@ -15925,6 +15925,32 @@ export namespace Schemas {
     }
 
     /**
+     * The renderable build of one component referenced by a grid layout, shaped
+     * like the builds endpoint's response so clients reuse one lifecycle reader.
+     */
+    export interface CanvasComponentLifecycle {
+      /** Id of the component canvas. */
+      canvas_id: string;
+      /**
+         * The source version the placement pins, or null when it follows the latest.
+         * @nullable
+         */
+      requested_version_id: string | null;
+      /**
+         * Id of the component's live build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /**
+         * Id of the source version the component's head points at.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable. */
+      builds: CanvasBuild[];
+    }
+
+    /**
      * Payload for creating a new, empty canvas in a channel.
      */
     export interface CanvasCreate {
@@ -16372,9 +16398,11 @@ export namespace Schemas {
     }
 
     /**
-     * A grid canvas's layout plus the version pointer edits must be based on.
+     * The layout response, plus (when requested) the renderable build of every
+     * component the layout places — so a grid opens on one round trip instead of
+     * one builds fetch per placement.
      */
-    export interface CanvasLayoutResponse {
+    export interface CanvasLayoutWithComponentsResponse {
       /** Identity and version pointers for the canvas. */
       canvas: CanvasSummary;
       /** The layout document. A grid canvas with no versions yet returns the default empty layout. */
@@ -16384,6 +16412,8 @@ export namespace Schemas {
          * @nullable
          */
       current_version_id: string | null;
+      /** One entry per distinct (component, pinned version) the layout's live placements reference, present only when the request passes include_components. Components the caller may not see are omitted. */
+      component_lifecycles?: CanvasComponentLifecycle[];
     }
 
     /**
@@ -16748,6 +16778,34 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** When the version was published. */
       created_at: string;
+    }
+
+    /**
+     * Everything a client needs to open a canvas, in one round trip.
+     *
+     * Replaces the record → builds → source waterfall: the record, the live
+     * build (with its signed artifact URL), and — only when there is nothing
+     * built to render — the head source project (freeform/component) or the
+     * layout document (grid).
+     */
+    export interface CanvasViewResponse {
+      /** The canvas record. */
+      canvas: Canvas;
+      /** The live build with its signed artifact URL. Null until a build completes. */
+      published_build: CanvasBuild | null;
+      /**
+         * Id of the source version the canvas's head points at. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** True while a build is queued or running — poll the builds endpoint until it settles. */
+      has_active_build: boolean;
+      /** The head source project, present only when the canvas has no live build to render (the client-side fallback tier). Null otherwise, and always null for grid canvases. */
+      source?: CanvasSourceProject | null;
+      /** For grid canvases: the head layout document. Null for other kinds. */
+      layout?: CanvasLayout | null;
+      /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
+      component_lifecycles?: CanvasComponentLifecycle[];
     }
 
     export interface CapabilityReadiness {
@@ -91353,6 +91411,10 @@ export namespace Schemas {
 
     export type CanvasesBuildsRetrieveParams = {
     /**
+     * "slim" returns only what rendering needs — the live build, the head version's builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.
+     */
+    scope?: string;
+    /**
      * Include the retained ready build for this historical source version.
      */
     version_id?: string;
@@ -91370,6 +91432,10 @@ export namespace Schemas {
     };
 
     export type CanvasesLayoutRetrieveParams = {
+    /**
+     * Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.
+     */
+    include_components?: boolean;
     /**
      * Read this historical layout version instead of the head (for version browsing).
      */

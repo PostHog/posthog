@@ -1,11 +1,15 @@
 import json
+import time
+import hashlib
 from typing import Any, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.http import HttpResponseBase
 from django.utils import timezone
+from django.utils.cache import get_conditional_response
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -22,12 +26,14 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
+from products.canvas.backend.artifacts import ARTIFACT_TOKEN_BUCKET_SECONDS
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
@@ -56,7 +62,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasLayoutPatchSerializer,
     CanvasLayoutPublishResponseSerializer,
     CanvasLayoutPublishSerializer,
-    CanvasLayoutResponseSerializer,
+    CanvasLayoutWithComponentsResponseSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasPublishCurrentVersionSerializer,
@@ -79,6 +85,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
     CanvasVersionSerializer,
+    CanvasViewResponseSerializer,
     canvas_url,
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
@@ -160,6 +167,133 @@ def _non_grid_rejection(canvas: Canvas) -> Response | None:
     )
 
 
+def _canvas_etag(*parts: Any) -> str:
+    seed = "|".join("" if part is None else str(part) for part in parts)
+    return '"' + hashlib.sha256(seed.encode()).hexdigest() + '"'
+
+
+def _with_revalidation_headers(response: HttpResponseBase, etag: str) -> HttpResponseBase:
+    # no-cache means "store, but revalidate every time": polling clients that
+    # send If-None-Match pay a hash comparison instead of a full body.
+    response["ETag"] = etag
+    response["Cache-Control"] = "private, no-cache"
+    return response
+
+
+def _conditional_response(request: Request, payload: dict[str, Any]) -> HttpResponseBase:
+    """The payload with a content ETag, or 304 when the client already has it.
+
+    get_conditional_response (not a string compare) matches weak validators
+    too, so a proxy or middleware that weakens the ETag cannot silently break
+    the 304 path."""
+    etag = _canvas_etag(json.dumps(payload, sort_keys=True, default=str))
+    not_modified = get_conditional_response(request._request, etag=etag)
+    if not_modified is not None:
+        return _with_revalidation_headers(not_modified, etag)
+    return _with_revalidation_headers(Response(payload), etag)
+
+
+def _renderable_build(build: CanvasBuild | None) -> CanvasBuild | None:
+    """The build if it can actually be served: ready, artifacts retained, and
+    manifest frozen (the serializer needs the manifest to mint the entry URL)."""
+    if (
+        build is not None
+        and build.status == CanvasBuild.STATUS_READY
+        and build.artifact_object_prefix
+        and isinstance(build.manifest, dict)
+    ):
+        return build
+    return None
+
+
+def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:
+    """The renderable build for each distinct (component, pinned version) the
+    layout's live placements reference.
+
+    Visibility-filtered like ``validate_layout_references``: a component the
+    caller may not see is omitted, identically to one that is missing, so the
+    response does not disclose which."""
+    placements = layout.get("placements")
+    if not isinstance(placements, list):
+        return []
+    wanted: set[tuple[str, str | None]] = set()
+    for placement in placements:
+        if not isinstance(placement, dict) or placement.get("status") != "live":
+            continue
+        component = placement.get("component")
+        if not isinstance(component, str):
+            continue
+        version = placement.get("version")
+        pinned: str | None = None
+        if isinstance(version, str) and version != "latest":
+            try:
+                pinned = str(UUID(version))
+            except ValueError:
+                continue
+        try:
+            component = str(UUID(component))
+        except ValueError:
+            continue
+        wanted.add((component, pinned))
+    if not wanted:
+        return []
+
+    component_ids = {component_id for component_id, _ in wanted}
+    pinned_version_ids = {version_id for _, version_id in wanted if version_id}
+    with team_scope(team_id):
+        components = {
+            str(canvas.id): canvas
+            for canvas in Canvas.objects.for_team(team_id)
+            .filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT, deleted=False)
+            .filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
+            .select_related("published_build")
+        }
+        pinned_builds: dict[str, CanvasBuild] = {}
+        if pinned_version_ids:
+            # One row per version (its newest ready build) instead of loading a
+            # retry-loop's whole build history with manifests.
+            for build in (
+                CanvasBuild.objects.for_team(team_id)
+                .filter(
+                    source_version_id__in=pinned_version_ids,
+                    canvas_id__in=component_ids,
+                    status=CanvasBuild.STATUS_READY,
+                    artifact_object_prefix__isnull=False,
+                )
+                .order_by("source_version_id", "-created_at")
+                .distinct("source_version_id")
+            ):
+                pinned_builds[str(build.source_version_id)] = build
+
+    entries: list[dict[str, Any]] = []
+    for component_id, pinned_version_id in sorted(wanted, key=lambda pair: (pair[0], pair[1] or "")):
+        component_canvas = components.get(component_id)
+        if component_canvas is None:
+            continue
+        if pinned_version_id:
+            pinned_build = _renderable_build(pinned_builds.get(pinned_version_id))
+            builds = [pinned_build] if pinned_build is not None and str(pinned_build.canvas_id) == component_id else []
+        else:
+            published = _renderable_build(component_canvas.published_build)
+            builds = [published] if published is not None else []
+        entries.append(
+            {
+                "canvas_id": component_id,
+                "requested_version_id": pinned_version_id,
+                "published_build_id": (
+                    str(component_canvas.published_build_id) if component_canvas.published_build_id else None
+                ),
+                "current_version_id": (
+                    str(component_canvas.current_source_version_id)
+                    if component_canvas.current_source_version_id
+                    else None
+                ),
+                "builds": builds,
+            }
+        )
+    return entries
+
+
 def _wrong_kind_response(detail: str) -> Response:
     return Response({"detail": detail, "code": "wrong_canvas_kind"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -208,6 +342,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "validate",
         "state",
         "layout",
+        "view",
     ]
     scope_object_write_actions = [
         "create",
@@ -527,6 +662,78 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
         }
         return Response(response)
+
+    @extend_schema(
+        operation_id="canvases_view_retrieve",
+        responses={
+            200: CanvasViewResponseSerializer,
+            304: OpenApiResponse(description="Not modified — the client's cached view payload is current."),
+        },
+        request=None,
+    )
+    @action(methods=["GET"], detail=True)
+    def view(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        """Everything needed to open the canvas, in one round trip.
+
+        Returns the record, the live build (with its signed artifact URL), and —
+        only when there is nothing built to render — the head source project
+        (freeform/component) or the layout document (grid). Send the response's
+        ETag back as If-None-Match to revalidate without a body.
+        """
+        canvas = self.get_object()
+        live_build = _renderable_build(canvas.published_build)
+        newest_active = (
+            canvas.builds.filter(status__in=CanvasBuild.ACTIVE_STATUSES)
+            .order_by("-created_at")
+            .values_list("id", "status")
+            .first()
+        )
+        # Signed artifact URLs are minted per time bucket, so the bucket is part
+        # of the validator: a cached view revalidates into a fresh URL when the
+        # bucket rolls over. Checked before any object-storage read.
+        bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
+        etag = _canvas_etag(
+            canvas.updated_at,
+            canvas.current_source_version_id,
+            canvas.published_build_id,
+            newest_active,
+            bucket,
+        )
+        not_modified = get_conditional_response(request._request, etag=etag)
+        if not_modified is not None:
+            return _with_revalidation_headers(not_modified, etag)
+
+        source: dict[str, Any] | None = None
+        layout: dict[str, Any] | None = None
+        degraded = False
+        # Object storage is read only when there is no artifact to render. A
+        # storage hiccup degrades to the client's per-endpoint fallback instead
+        # of failing the whole open.
+        try:
+            if canvas.kind == Canvas.KIND_GRID:
+                layout = self._read_current_layout(canvas)
+            elif live_build is None:
+                source, _ = build_service.current_source_project(canvas)
+        except ObjectStorageError:
+            degraded = True
+        instance: dict[str, Any] = {
+            "canvas": canvas,
+            "published_build": live_build,
+            "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
+            "has_active_build": newest_active is not None,
+            "source": source,
+            "layout": layout,
+        }
+        if layout is not None:
+            user = self._request_user()
+            instance["component_lifecycles"] = _component_lifecycles(self.team_id, user.id if user else None, layout)
+        response = Response(CanvasViewResponseSerializer(instance=instance).data)
+        if degraded:
+            # A payload missing its source/layout must not revalidate as
+            # current after storage recovers: no validator, no caching.
+            response["Cache-Control"] = "private, no-store"
+            return response
+        return _with_revalidation_headers(response, etag)
 
     @extend_schema(
         operation_id="canvases_versions_retrieve",
@@ -958,7 +1165,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         operation_id="canvases_builds_retrieve",
-        responses={200: CanvasBuildsResponseSerializer},
+        responses={
+            200: CanvasBuildsResponseSerializer,
+            304: OpenApiResponse(description="Not modified — the client's cached lifecycle is current."),
+        },
         request=None,
         parameters=[
             OpenApiParameter(
@@ -966,19 +1176,40 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 type=OpenApiTypes.UUID,
                 required=False,
                 description="Include the retained ready build for this historical source version.",
-            )
+            ),
+            OpenApiParameter(
+                name="scope",
+                type=OpenApiTypes.STR,
+                required=False,
+                description=(
+                    '"slim" returns only what rendering needs — the live build, the head version\'s builds, '
+                    "and anything still in flight — instead of the full recent-build history. Any other value "
+                    "(or none) returns the full window."
+                ),
+            ),
         ],
     )
     @action(methods=["GET"], detail=True)
-    def builds(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def builds(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Read the canvas's build lifecycle: live pointers plus recent builds.
 
         A publish queues a build; poll this until it is ready (the live pointer
         advances) or failed (fix the error diagnostics and publish again — the
-        last good build stays live).
+        last good build stays live). Send the response's ETag back as
+        If-None-Match to make the poll revalidate without a body.
         """
         canvas = self.get_object()
-        builds = list(canvas.builds.order_by("-created_at")[:BUILDS_WINDOW])
+        if request.query_params.get("scope") == "slim":
+            # Pollers re-read this every couple of seconds; they need render
+            # state, not 20 manifests of history.
+            slim_q = Q(status__in=CanvasBuild.ACTIVE_STATUSES)
+            if canvas.published_build_id:
+                slim_q |= Q(id=canvas.published_build_id)
+            if canvas.current_source_version_id:
+                slim_q |= Q(source_version_id=canvas.current_source_version_id)
+            builds = list(canvas.builds.filter(slim_q).order_by("-created_at")[:BUILDS_WINDOW])
+        else:
+            builds = list(canvas.builds.order_by("-created_at")[:BUILDS_WINDOW])
         # The live build must always be visible, even when newer (e.g. failed)
         # builds have pushed it past the window.
         if canvas.published_build_id and all(build.id != canvas.published_build_id for build in builds):
@@ -1000,17 +1231,18 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             if historical_build is not None and all(build.id != historical_build.id for build in builds):
                 builds.append(historical_build)
-        response = {
+        payload = {
             "published_build_id": str(canvas.published_build_id) if canvas.published_build_id else None,
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
             "builds": CanvasBuildSerializer(builds, many=True).data,
         }
-        return Response(response)
+        return _conditional_response(request, payload)
 
     @extend_schema(
         operation_id="canvases_layout_retrieve",
         responses={
-            200: CanvasLayoutResponseSerializer,
+            200: CanvasLayoutWithComponentsResponseSerializer,
+            304: OpenApiResponse(description="Not modified — the client's cached layout is current."),
             400: OpenApiResponse(description="The canvas is not a grid canvas."),
         },
         request=None,
@@ -1020,11 +1252,20 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 type=str,
                 required=False,
                 description="Read this historical layout version instead of the head (for version browsing).",
-            )
+            ),
+            OpenApiParameter(
+                name="include_components",
+                type=OpenApiTypes.BOOL,
+                required=False,
+                description=(
+                    "Also return the renderable build (with signed artifact URL) of every component the layout's "
+                    "live placements reference, so a grid renders from this one call."
+                ),
+            ),
         ],
     )
     @action(methods=["GET"], detail=True)
-    def layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def layout(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Read a grid canvas's layout document and its `current_version_id`.
 
         Always call this before editing: pass the returned version id as
@@ -1056,17 +1297,15 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"detail": "The canvas's layout is temporarily unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response(
-            CanvasLayoutResponseSerializer(
-                instance={
-                    "canvas": canvas,
-                    "layout": layout,
-                    "current_version_id": (
-                        str(canvas.current_source_version_id) if canvas.current_source_version_id else None
-                    ),
-                }
-            ).data
-        )
+        instance: dict[str, Any] = {
+            "canvas": canvas,
+            "layout": layout,
+            "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
+        }
+        if request.query_params.get("include_components") in ("1", "true"):
+            user = self._request_user()
+            instance["component_lifecycles"] = _component_lifecycles(self.team_id, user.id if user else None, layout)
+        return _conditional_response(request, CanvasLayoutWithComponentsResponseSerializer(instance=instance).data)
 
     @extend_schema(
         operation_id="canvases_layout_publish_create",

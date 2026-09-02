@@ -108,6 +108,49 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert read.json()["current_version_id"] == version_id
         self.enqueue.assert_not_called()
 
+    def test_layout_include_components_returns_renderable_builds_for_visible_components_only(self):
+        grid_id = self._create_grid()
+        component_id = self._create_component()
+        with team_scope(self.team.id):
+            build = CanvasBuild.objects.for_team(self.team.id).get(canvas_id=component_id)
+            build.manifest = {
+                "entryHtml": "index.html",
+                "assets": [],
+                "dependencies": {},
+                "canvasSdkVersion": "0.1.0",
+                "capabilities": {},
+            }
+            build.save(update_fields=["manifest"])
+            # A component filed in another user's personal channel: placeable
+            # only by them, so its entry must be omitted for this caller.
+            other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+            private_channel = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=other_user
+            )
+            private_component = Canvas.objects.create(
+                team=self.team, channel=private_channel, name="Private", kind=Canvas.KIND_COMPONENT
+            )
+        doc = layout(
+            placements=[
+                placement(id="p1", status="live", component=component_id),
+                placement(id="p2", status="live", component=str(private_component.id), x=2),
+            ]
+        )
+        with patch("products.canvas.backend.presentation.views._layout_diagnostics", return_value=[]):
+            assert self._publish_layout(grid_id, doc).status_code == status.HTTP_200_OK
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{grid_id}/layout/?include_components=true")
+        assert response.status_code == status.HTTP_200_OK
+        lifecycles = response.json()["component_lifecycles"]
+        assert [entry["canvas_id"] for entry in lifecycles] == [component_id]
+        entry = lifecycles[0]
+        assert entry["published_build_id"] == str(build.id)
+        assert entry["requested_version_id"] is None
+        assert entry["builds"][0]["artifact_url"].endswith("/index.html")
+
+        without = self._get_layout(grid_id)
+        assert "component_lifecycles" not in without.json()
+
     def test_unpublished_grid_returns_default_layout(self):
         grid_id = self._create_grid()
         read = self._get_layout(grid_id)

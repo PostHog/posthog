@@ -159,7 +159,15 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
 
 def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict) -> HttpResponse:
     response["ETag"] = etag
-    response["Cache-Control"] = "private, max-age=31536000, immutable"
+    shared_cache_seconds = settings.CANVAS_ARTIFACT_SHARED_CACHE_SECONDS
+    if shared_cache_seconds > 0:
+        # CDN mode. Every header below still applies, and in particular the
+        # CORS and CSP headers must survive the CDN unchanged, or the sandboxed
+        # iframe's module fetches (and with them ph.query/ph.state canvases)
+        # break. Configure the CDN to forward these headers as-is.
+        response["Cache-Control"] = f"public, max-age=31536000, s-maxage={shared_cache_seconds}, immutable"
+    else:
+        response["Cache-Control"] = "private, max-age=31536000, immutable"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
     # The canvas iframe is sandboxed without allow-same-origin, so its document
     # has an opaque origin and the entry's module scripts are fetched in CORS

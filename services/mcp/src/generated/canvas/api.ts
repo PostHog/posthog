@@ -84,7 +84,8 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
  *
  * A publish queues a build; poll this until it is ready (the live pointer
  * advances) or failed (fix the error diagnostics and publish again — the
- * last good build stays live).
+ * last good build stays live). Send the response's ETag back as
+ * If-None-Match to make the poll revalidate without a body.
  */
 export const CanvasesBuildsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
@@ -96,6 +97,12 @@ export const CanvasesBuildsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const CanvasesBuildsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    scope: zod
+        .string()
+        .optional()
+        .describe(
+            '\"slim\" returns only what rendering needs — the live build, the head version\'s builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.'
+        ),
     version_id: zod
         .string()
         .optional()
@@ -414,6 +421,12 @@ export const CanvasesLayoutRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const CanvasesLayoutRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    include_components: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call."
+        ),
     version_id: zod
         .string()
         .optional()
