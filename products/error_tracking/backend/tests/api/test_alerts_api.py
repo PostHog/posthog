@@ -331,6 +331,51 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert retrieve.status_code == 404
 
 
+class TestErrorTrackingAlertDestinationReconciliation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        flag_patcher = patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True)
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_put_keeps_destination_rows_whose_channel_is_unchanged(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"team": {"name": "PostHog"}})
+        payload = {
+            "name": "Production errors",
+            "triggers": ["issue_created"],
+            "filters": {},
+            "throttle_seconds": 0,
+            "destinations": [
+                {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C1"}},
+                {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C2"}},
+            ],
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/error_tracking/alerts/", payload, format="json")
+        assert created.status_code == 201, created.json()
+        ids = {d["config"]["channel"]: d["id"] for d in created.json()["destinations"]}
+
+        # Rename the alert, rename C1 for display, and repoint C2 to C3: only C2's row should be replaced.
+        payload["name"] = "Renamed"
+        payload["destinations"] = [
+            {
+                "channel_type": "slack",
+                "integration_id": integration.id,
+                "config": {"channel": "C1", "channel_name": "#one"},
+            },
+            {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": "C3"}},
+        ]
+        updated = self.client.put(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/{created.json()['id']}/", payload, format="json"
+        )
+        assert updated.status_code == 200, updated.json()
+        after = {d["config"]["channel"]: d for d in updated.json()["destinations"]}
+        assert set(after) == {"C1", "C3"}
+        assert after["C1"]["id"] == ids["C1"]
+        assert after["C1"]["config"]["channel_name"] == "#one"
+        assert after["C3"]["id"] not in ids.values()
+        assert ErrorTrackingAlertDestination.objects.for_team(self.team.id).count() == 2
+
+
 class TestErrorTrackingAlertPreview(APIBaseTest):
     def setUp(self):
         super().setUp()

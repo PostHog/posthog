@@ -160,18 +160,40 @@ def update_alert(
 
         alert.save()
         if destinations is not None:
-            # Destinations are replaced wholesale: threads cascade with removed rows,
-            # so a repointed channel starts a fresh conversation (per the alerting RFC).
-            alert.destinations.all().delete()
-            for destination in destinations:
-                ErrorTrackingAlertDestination.objects.for_team(alert.team_id, canonical=True).create(
-                    team_id=alert.team_id,
-                    alert=alert,
-                    channel_type=destination["channel_type"],
-                    integration_id=destination["integration_id"],
-                    config=destination["config"],
-                )
+            _reconcile_destinations(alert, destinations)
     return get_alert(team_id, alert.id)
+
+
+def _destination_key(channel_type: str, integration_id: Any, config: dict[str, Any]) -> tuple[str, Any, Any]:
+    return (channel_type, integration_id, config.get("channel"))
+
+
+def _reconcile_destinations(alert: ErrorTrackingAlert, destinations: list[dict[str, Any]]) -> None:
+    # A destination that still points at the same channel keeps its row, so its open
+    # threads and delivery history survive an edit to the alert's other fields. Only a
+    # removed or repointed channel drops its row, and its threads cascade with it so the
+    # new channel starts a fresh conversation.
+    existing = {
+        _destination_key(row.channel_type, row.integration_id, row.config): row
+        for row in ErrorTrackingAlertDestination.objects.for_team(alert.team_id, canonical=True).filter(alert=alert)
+    }
+    wanted = {_destination_key(d["channel_type"], d["integration_id"], d["config"]): d for d in destinations}
+    for key, row in existing.items():
+        if key not in wanted:
+            row.delete()
+    for key, destination in wanted.items():
+        current = existing.get(key)
+        if current is None:
+            ErrorTrackingAlertDestination.objects.for_team(alert.team_id, canonical=True).create(
+                team_id=alert.team_id,
+                alert=alert,
+                channel_type=destination["channel_type"],
+                integration_id=destination["integration_id"],
+                config=destination["config"],
+            )
+        elif current.config != destination["config"]:
+            current.config = destination["config"]
+            current.save(update_fields=["config", "updated_at"])
 
 
 def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
