@@ -6,22 +6,25 @@ import { LemonButton, LemonCard, LemonSkeleton, Link, Tooltip } from '@posthog/l
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { CardHeader } from '../components/CardHeader'
 import { LabeledRow } from '../components/LabeledRow'
-import { observationPinnedPropertiesLogic } from './observationPinnedPropertiesLogic'
+import {
+    PINNED_PROPERTY_GROUPS,
+    PinnedProperty,
+    observationPinnedPropertiesLogic,
+} from './observationPinnedPropertiesLogic'
 import { ObservationPinnedPropertiesPicker } from './ObservationPinnedPropertiesPicker'
-import { observationSessionPropertiesLogic } from './observationSessionPropertiesLogic'
+import { observationSessionPropertiesLogic, pinnedPropertyId } from './observationSessionPropertiesLogic'
 
-function propertyLabel(property: string): string {
-    return getCoreFilterDefinition(property, TaxonomicFilterGroupType.SessionProperties)?.label ?? property
+function propertyLabel(property: PinnedProperty): string {
+    return getCoreFilterDefinition(property.key, PINNED_PROPERTY_GROUPS[property.type])?.label ?? property.key
 }
 
-function PinnedPropertyValue({ property, value }: { property: string; value: string | null }): JSX.Element {
+function PinnedPropertyValue({ property, value }: { property: PinnedProperty; value: string | null }): JSX.Element {
     if (!value) {
         return <span className="text-muted">—</span>
     }
@@ -29,7 +32,7 @@ function PinnedPropertyValue({ property, value }: { property: string; value: str
     return (
         <Tooltip title={value}>
             <span className="flex items-center gap-1 min-w-0">
-                <PropertyIcon property={property} value={value} />
+                <PropertyIcon property={property.key} value={value} />
                 {isUrl ? (
                     <Link to={value} target="_blank" className="truncate">
                         {value}
@@ -50,7 +53,7 @@ function PinnedPropertyValue({ property, value }: { property: string; value: str
 }
 
 /**
- * A fixed strip of session properties for the observed session. It sits in the same place on every
+ * A fixed strip of properties for the observed session. It sits in the same place on every
  * observation so paging through a scanner's results with prev/next reads as a comparison.
  */
 export function ObservationPinnedProperties({ sessionId }: { sessionId: string }): JSX.Element {
@@ -63,7 +66,7 @@ export function ObservationPinnedProperties({ sessionId }: { sessionId: string }
         <LemonCard className="p-4" hoverEffect={false}>
             <CardHeader
                 icon={<IconPin />}
-                title="Session properties"
+                title="Pinned properties"
                 actions={
                     <Popover
                         visible={pickerOpen}
@@ -84,11 +87,12 @@ export function ObservationPinnedProperties({ sessionId }: { sessionId: string }
             />
             {pinnedProperties.length === 0 ? (
                 <p className="text-sm text-muted m-0">
-                    Pin the session properties you compare across results, like the referring domain or campaign source.
+                    Pin the properties you compare across results, like the referring domain, the campaign source, or
+                    the person's plan.
                 </p>
             ) : queryablePinnedProperties.length === 0 ? (
                 <p className="text-sm text-muted m-0">
-                    None of the pinned properties exist on this project's sessions.{' '}
+                    None of the pinned session properties exist in this project.{' '}
                     <Link onClick={resetPinnedProperties}>Reset to the defaults</Link>.
                 </p>
             ) : sessionPropertiesLoading ? (
@@ -97,11 +101,11 @@ export function ObservationPinnedProperties({ sessionId }: { sessionId: string }
                 <div className="@container/pinned">
                     <div className="grid grid-cols-1 gap-x-6 gap-y-3 @md/pinned:grid-cols-2 @3xl/pinned:grid-cols-4">
                         {queryablePinnedProperties.map((property) => (
-                            <div key={property} className="min-w-0">
+                            <div key={pinnedPropertyId(property)} className="min-w-0">
                                 <LabeledRow label={propertyLabel(property)}>
                                     <PinnedPropertyValue
                                         property={property}
-                                        value={sessionProperties?.[property] ?? null}
+                                        value={sessionProperties?.[pinnedPropertyId(property)] ?? null}
                                     />
                                 </LabeledRow>
                             </div>

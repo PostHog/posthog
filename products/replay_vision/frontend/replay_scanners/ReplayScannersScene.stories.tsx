@@ -307,8 +307,9 @@ const monitorObservationDetail = observation({
     },
 })
 
-// The pinned strip reads these off the sessions table; the values are invented.
-const sessionPropertiesRow = ['google.com', 'Paid Search', 'google', 'https://example.com/checkout?utm_source=google']
+// The pinned strip's default pins, in order: three session columns then a geo event property.
+// The values are invented.
+const sessionPropertiesRow = ['google.com', 'Paid Search', 'google', 'US']
 
 const promptSuggestion: ReplayScannerPromptSuggestionApi = {
     id: '00000000-0000-0000-0000-0000000000e1',
@@ -391,6 +392,13 @@ const observationsTrend = {
     ],
 }
 
+const paginated = (names: string[]): Record<string, any> => ({
+    count: names.length,
+    next: null,
+    previous: null,
+    results: names.map((name) => ({ id: name, name, property_type: 'String' })),
+})
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
@@ -431,24 +439,25 @@ const meta: Meta = {
                 '/api/projects/:team_id/signals/scout/metadata/current/': {},
                 '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [],
                 '/api/projects/:team_id/vision/alerts/': { count: 0, next: null, previous: null, results: [] },
-                // Feeds the pinned-properties picker on the observation page.
-                '/api/environments/:team_id/sessions/property_definitions/': {
-                    count: 4,
-                    next: null,
-                    previous: null,
-                    results: [
-                        { id: '$entry_referring_domain', name: '$entry_referring_domain', property_type: 'String' },
-                        { id: '$channel_type', name: '$channel_type', property_type: 'String' },
-                        { id: '$entry_utm_source', name: '$entry_utm_source', property_type: 'String' },
-                        { id: '$entry_current_url', name: '$entry_current_url', property_type: 'String' },
-                    ],
+                // The three namespaces the pinned-properties picker offers.
+                '/api/environments/:team_id/sessions/property_definitions/': paginated([
+                    '$entry_referring_domain',
+                    '$channel_type',
+                    '$entry_utm_source',
+                    '$entry_current_url',
+                ]),
+                '/api/projects/:team_id/property_definitions/': ({ request }) => {
+                    const type = new URL(request.url).searchParams.get('type')
+                    return type === 'person'
+                        ? paginated(['email', 'plan', 'company_size'])
+                        : paginated(['$geoip_country_code', '$browser', '$device_type', '$os'])
                 },
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const body = (await request.json()) as { query?: { query?: string } } | null
-                    // The observation page's pinned strip is the only reader of the sessions table here.
-                    return body?.query?.query?.includes('FROM sessions')
+                    // The observation page's pinned strip is the only query aliasing its columns this way.
+                    return body?.query?.query?.includes('as pinned_0')
                         ? { results: [sessionPropertiesRow] }
                         : observationsTrend
                 },
