@@ -3676,6 +3676,22 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 50000
 
+    def test_programmatic_schedule_on_schedule_trigger_needs_no_audience_token(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"] = {"type": "schedule"}
+        hog_flow["status"] = "active"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+
+        scheduled = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/schedules",
+            {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO", "starts_at": "2026-08-03T09:00:00Z"},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert scheduled.status_code == 201, scheduled.json()
+
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )

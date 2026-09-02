@@ -2067,6 +2067,15 @@ def _hog_flow_run_idempotency_cache_key(team_id: int, hog_flow_id: str, idempote
     return f"hog_flow_run_idempotency:{team_id}:{hog_flow_id}:{idempotency_key}"
 
 
+def _trigger_has_audience(hog_flow: HogFlow) -> bool:
+    """Whether a dispatch of this workflow fans out to persons matched by the trigger's filters.
+
+    Only the batch trigger does. A schedule trigger fires one person-less run, so there is no
+    audience to preview and no blast-radius token to demand.
+    """
+    return (hog_flow.trigger or {}).get("type") == "batch"
+
+
 def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
     # Sends are counted at send time but bounces/complaints at webhook time, so feedback arriving
     # just inside the window for sends just outside it can push the ratio past 1 (worst case: a
@@ -4147,6 +4156,7 @@ class HogFlowViewSet(
         )
 
     def _require_audience_confirm_token(self, request: Request, hog_flow: HogFlow) -> None:
+        """Only meaningful for triggers that fan out to a person audience; see _trigger_has_audience."""
         confirm_token = request.data.get("confirm_token")
         if not confirm_token:
             raise exceptions.ValidationError(
@@ -5126,10 +5136,11 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
 
         if request.method == "POST":
-            # A schedule is a recurring batch dispatch - without this, an agent could sidestep the
-            # batch_jobs token gate by scheduling the send instead. Same scoping: the web builder
-            # keeps its own confirm UI, headless callers stay token-free.
-            if get_event_source(request) in AGENT_EVENT_SOURCES:
+            # A schedule on a batch trigger is a recurring batch dispatch - without this, an agent
+            # could sidestep the batch_jobs token gate by scheduling the send instead. Same scoping:
+            # the web builder keeps its own confirm UI, headless callers stay token-free. A schedule
+            # trigger runs once per firing with no person audience, so there is nothing to size.
+            if get_event_source(request) in AGENT_EVENT_SOURCES and _trigger_has_audience(hog_flow):
                 # A draft's trigger can still be edited after the audience was sized, so a schedule
                 # staged on a draft could fire on a broadened audience once enabled. Same rule the
                 # MCP tool enforces, applied at the API boundary.
