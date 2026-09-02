@@ -200,6 +200,13 @@ A table added to the catalog later without a branch is not on the allowlist, so 
 The allowlist is not a statement of full coverage: `accounts.properties` and `pg_embeddings.properties` are name collisions masked nowhere by design, and `ai_events.properties` carries event properties but has no branch yet, so its blob is still returned unmasked.
 Covering a table means removing its exemption, so the list cannot keep a stale entry.
 
+### Typed columns that mirror a property are not masked
+
+Masking rewrites `properties.<key>` reads and strips keys from a JSON blob. It does not reach a physical column that holds a copy of the same value.
+Several catalog tables expose such columns because reading them scans far less data than digging the value out of the blob: `events` exposes `$session_id`, `$window_id`, and `$group_0`..`$group_4`, and `flag_evaluations` exposes `flag_key`, `response`, and `request_id`.
+Restricting the property those columns mirror masks the blob read and leaves the column readable.
+Closing this needs a mapping from each column to the property it copies, consulted at print time; no such mapping exists today.
+
 ### No user: default rules apply
 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.
