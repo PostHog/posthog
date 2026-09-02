@@ -1,11 +1,45 @@
 ---
 name: querying-posthog-data
-description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations PostHog entities (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse, persons, etc.) and query analytics data (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces). Also the first stop for a governed business number (MRR, activation, revenue): check the semantic layer (canonical metrics in system.information_schema.metrics) for an approved definition before deriving from raw events. Covers HogQL syntax differences from ClickHouse SQL, system table schemas (system.*), available functions, query examples, and the schema-discovery workflow.'
+description: 'Explains how to query PostHog data with typed query tools and SQL. Use it for analytics such as trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, and LLM traces, plus system-entity discovery and data-warehouse queries. Prefer the typed query-* tools for supported analytics; use the SQL guidance for system-table discovery or analyses the typed tools cannot express.'
 ---
 
 # Querying data in PostHog
 
-The [guidelines](./references/guidelines.md) contain the same instructions as `posthog:execute-sql`. If you've already read `posthog:execute-sql`, you don't need to read them again.
+The [guidelines](./references/guidelines.md) describe the SQL fallback. Read them when you choose `posthog:execute-sql`; typed-query requests do not need them.
+
+## Choose the query path
+
+### Typed query tools
+
+For analytics questions that match a supported insight type, start with the typed `posthog:query-*` tool. These tools return typed, saveable results and attach the `query-results` UI.
+
+For common analytics questions, use:
+
+- `posthog:query-trends` for counts, time series, and period comparisons.
+- `posthog:query-funnel` for conversion rates, drop-off, and step completion.
+- `posthog:query-retention` for users returning over time.
+- `posthog:query-stickiness` for engagement frequency.
+- `posthog:query-paths` for navigation flows.
+- `posthog:query-lifecycle` for new, returning, resurrecting, and dormant users.
+
+### SQL fallback
+
+Use `posthog:execute-sql` when:
+
+- The request searches `system.*` tables for PostHog entities.
+- No typed query tool expresses the analysis.
+- The analysis needs custom joins, CTEs, window functions, or warehouse SQL.
+- SQL must pre-filter or shape data before a typed query.
+
+Before using SQL for an analytics question, check the available `query-*` tools and their descriptions. Do not choose SQL just because an example in this skill looks similar. Do not replace a typed query with SQL solely to produce a chart or table.
+
+## Render typed query results
+
+Typed query tools declare `query-results` as their UI resource. When calling `posthog:query-trends` or another `query-*` tool directly, an MCP Apps client renders `query-results` automatically. Do not call `posthog:render-ui` for the same result.
+
+In clients that expose `posthog:render-ui` instead of automatic query rendering, call it after building and validating the query: `posthog:render-ui({ "tool_name": "query-trends", "tool_input": { ...same input passed to query-trends... } })`.
+
+Pass the exact input used for the query. `render-ui` fetches the data itself; it is not a discovery step. Keep a written summary alongside the visualization.
 
 ## When to use this skill
 
@@ -21,7 +55,7 @@ Don't try to reconstruct the entity from SQL — `execute-sql` is for discovery,
 
 ### Querying analytics data
 
-When the user wants analytics data (trends, funnels, retention, paths, sessions, LLM traces, web analytics, errors, logs, etc.) and the existing insight schemas don't fit the request:
+When the user wants analytics data and no typed query tool can express the request:
 
 1. Look for a matching example under Analytics Query Examples. The list is not exhaustive — there may not be an example for every scenario. If one is a close fit (same domain, similar aggregation), read it; otherwise skip this step.
 2. Adapt the example query (if one was found) to the user's request and run it via `posthog:execute-sql`. If no example fit, compose the query from scratch using the Data Schema and HogQL References.
@@ -100,7 +134,7 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 
 ## Analytics Query Examples
 
-Use the examples below to create optimized analytical queries.
+These examples show query specs for trends, funnels, and other analytics, rendered as HogQL. Use them to understand the corresponding typed `query-*` input and SQL fallback. Prefer the typed tool when it supports the question.
 
 - [Trends (unique users, specific time range, single series)](./references/example-trends-unique-users.md)
 - [Trends (total count with multiple breakdowns)](./references/example-trends-breakdowns.md)
