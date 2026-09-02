@@ -164,7 +164,11 @@ from products.notebooks.backend.facade import (
 # the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding, schema_binding
-from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
+from products.workflows.backend.services.template_input_usage import (
+    HogFlowReference,
+    filter_hog_flow_references_by_access_level,
+    get_hog_flows_referencing_template_input_keys,
+)
 
 from . import contracts
 
@@ -1127,6 +1131,7 @@ def delete_customer_profile_config(
 def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
     references: list[contracts.CustomPropertyReference] | None = None,
+    has_workflow_reference: bool = False,
     user_access_control: "UserAccessControl | None" = None,
     enrichment_by_source_id: "dict[Any, tuple[Any, CustomPropertySyncRun | None]] | None" = None,
 ) -> contracts.CustomPropertyDefinitionView:
@@ -1143,6 +1148,7 @@ def _to_custom_property_definition_view(
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
         references=references or [],
+        has_workflow_reference=has_workflow_reference,
         source=_definition_source_view(definition, user_access_control, enrichment_by_source_id),
         options=_to_custom_property_options(definition.options),
     )
@@ -1156,32 +1162,30 @@ def _to_custom_property_options(
     return [contracts.CustomPropertyOption(**option) for option in options]
 
 
-def _can_read_workflow_references(user_access_control: "UserAccessControl") -> bool:
-    """Whether the caller may see the workflows that reference a custom property.
-
-    ``references`` exposes HogFlow metadata (id, name, status), so it's gated on the caller
-    having at least viewer access to the ``hog_flow`` resource — the property-definition API is
-    authorized as ``account``, and a caller without workflow read access must not enumerate
-    workflows through it. Without RBAC restrictions this resolves to the default (allowed)."""
-    return user_access_control.check_access_level_for_resource("hog_flow", "viewer")
-
-
 def _custom_property_references_by_definition_id(
     team_id: int, definition_id: str | None = None
-) -> dict[str, list[contracts.CustomPropertyReference]]:
+) -> dict[str, list[HogFlowReference]]:
     """Map each referenced definition id to the workflows that set it via the "Update account
     property" action. One scan of the team's workflows, matched by definition id. Pass
     ``definition_id`` to scan for just that one definition (the single-definition lookup)."""
     usage = get_hog_flows_referencing_template_input_keys(
-        team_id, _ACCOUNT_PROPERTY_TEMPLATE_ID, _ACCOUNT_PROPERTY_INPUT_KEY, only_value_key=definition_id
+        team_id,
+        _ACCOUNT_PROPERTY_TEMPLATE_ID,
+        _ACCOUNT_PROPERTY_INPUT_KEY,
+        only_value_key=definition_id,
     )
-    return {
-        referenced_id: [
-            contracts.CustomPropertyReference(id=ref.id, name=ref.name, status=ref.status, type="workflow")
-            for ref in refs
-        ]
-        for referenced_id, refs in usage.items()
-    }
+    return usage
+
+
+def _to_custom_property_references(
+    workflow_references: list[HogFlowReference],
+) -> list[contracts.CustomPropertyReference]:
+    return [
+        contracts.CustomPropertyReference(
+            id=reference.id, name=reference.name, status=reference.status, type="workflow"
+        )
+        for reference in workflow_references
+    ]
 
 
 def _definition_source_view(
@@ -1215,19 +1219,16 @@ def list_custom_property_definitions(
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
     """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
 
-    ``references`` (the workflows referencing each definition) is included only when the caller can
-    read workflows — see ``_can_read_workflow_references``. ``exclude_group_targets`` hides group-target
-    definitions from callers without ``group`` read authorization."""
+    ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
+    metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
+    without ``group`` read authorization."""
     queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
-    references = (
-        _custom_property_references_by_definition_id(team_id)
-        if _can_read_workflow_references(user_access_control)
-        else {}
-    )
+    workflow_references = _custom_property_references_by_definition_id(team_id)
+    references = filter_hog_flow_references_by_access_level(team_id, workflow_references, user_access_control)
     sources: list[CustomPropertySource] = []
     for d in page:
         try:
@@ -1236,9 +1237,20 @@ def list_custom_property_definitions(
             pass
     enrichment = _batch_source_enrichment(team_id, sources, user_access_control)
     return [
-        _to_custom_property_definition_view(d, references.get(str(d.id), []), user_access_control, enrichment)
+        _to_custom_property_definition_view(
+            d,
+            _to_custom_property_references(references.get(str(d.id), [])),
+            has_workflow_reference=bool(workflow_references.get(str(d.id))),
+            user_access_control=user_access_control,
+            enrichment_by_source_id=enrichment,
+        )
         for d in page
     ], total_count
+
+
+def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    return definition.target_type if definition is not None else None
 
 
 def get_custom_property_definition(
@@ -1247,12 +1259,19 @@ def get_custom_property_definition(
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
     if definition is None:
         return None
-    references: list[contracts.CustomPropertyReference] = []
-    if _can_read_workflow_references(user_access_control):
-        references = _custom_property_references_by_definition_id(team_id, definition_id=str(definition.id)).get(
-            str(definition.id), []
-        )
-    return _to_custom_property_definition_view(definition, references, user_access_control)
+    workflow_references_by_definition_id = _custom_property_references_by_definition_id(
+        team_id, definition_id=str(definition.id)
+    )
+    workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
+    references = filter_hog_flow_references_by_access_level(
+        team_id, workflow_references_by_definition_id, user_access_control
+    ).get(str(definition.id), [])
+    return _to_custom_property_definition_view(
+        definition,
+        _to_custom_property_references(references),
+        has_workflow_reference=bool(workflow_references),
+        user_access_control=user_access_control,
+    )
 
 
 def list_custom_property_value_suggestions(team_id: int, definition_id: str, search: str | None) -> list[str]:
@@ -1370,7 +1389,23 @@ def update_custom_property_definition(
         was_impersonated=was_impersonated,
         previous=previous,
     )
-    return _to_custom_property_definition_view(definition, user_access_control=user_access_control)
+    workflow_references_by_definition_id = _custom_property_references_by_definition_id(
+        team_id, definition_id=str(definition.id)
+    )
+    workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
+    references = (
+        filter_hog_flow_references_by_access_level(
+            team_id, workflow_references_by_definition_id, user_access_control
+        ).get(str(definition.id), [])
+        if user_access_control is not None
+        else []
+    )
+    return _to_custom_property_definition_view(
+        definition,
+        _to_custom_property_references(references),
+        has_workflow_reference=bool(workflow_references),
+        user_access_control=user_access_control,
+    )
 
 
 def delete_custom_property_definition(
