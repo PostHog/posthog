@@ -88,7 +88,7 @@ class ElementStatsSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of events matching this element chain")
     hash = serializers.CharField(
         allow_null=True,
-        help_text="Stable identity of the element chain the response carries, for deduplicating rows across pages",
+        help_text="Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages",
     )
     type = serializers.CharField(help_text="Event type: $autocapture, $rageclick, or $dead_click")
     elements = ElementSerializer(many=True, help_text="Parsed elements of the chain, clicked element first")
