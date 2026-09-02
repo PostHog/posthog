@@ -635,14 +635,19 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
         )
         _write_cached_warmable_queries(days, minimum_query_count, max_shapes, queries)
 
-    # Union in shapes that check-missed since the selection was cached: they are
-    # proven lazy-eligible (recorded from inside the lazy gate) and their teams
-    # have live demand right now, so waiting for the selection blob's TTL leaves
-    # them re-missing for hours. No dedupe against the selection here — the warm
-    # pass already dedupes replays by (team_id, cache key), so an overlap costs
-    # one `skipped_duplicate`, not a double build. `representative_query_count=1`
-    # keeps any shape whose eligibility has since changed under the raw-replay
-    # demand bar, so stickiness can never mint raw background scans.
+    # `cap_reached` reflects the selection query alone: sticky entries are
+    # appended below and must not read as the selection hitting its LIMIT.
+    selection_cap_reached = len(queries) >= max_shapes
+
+    # Union in shapes that check-missed twice since the selection was cached:
+    # they are proven lazy-eligible (recorded from inside the lazy gate) and
+    # their teams have repeat demand right now, so waiting for the selection
+    # blob's TTL leaves them re-missing for hours. No dedupe against the
+    # selection here — the warm pass already dedupes replays by (team_id, cache
+    # key), so an overlap costs one `skipped_duplicate`, not a double build.
+    # `representative_query_count=1` keeps any shape whose eligibility has since
+    # changed under the raw-replay demand bar, so stickiness can never mint raw
+    # background scans.
     sticky = get_sticky_warm_shapes()
     for entry in sticky:
         query_json = entry.get("query") or {}
@@ -672,7 +677,7 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
             "query_count": len(queries),
             "team_count": team_count,
             "sticky_count": len(sticky),
-            "cap_reached": len(queries) >= max_shapes,
+            "cap_reached": selection_cap_reached,
             "from_cache": from_cache,
         }
     )

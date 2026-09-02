@@ -677,41 +677,58 @@ class TestStickyWarmShapes(BaseTest):
         runner._test_account_filters = []
         return runner
 
-    def test_record_read_roundtrip_dedupes_date_variants(self):
-        # Date-range variants share one bucket namespace, so they must collapse
-        # to one entry — otherwise the warmer replays the same namespace once
-        # per variant. A genuinely different shape (filters) gets its own entry.
+    def test_single_miss_leaves_only_a_marker(self):
+        # A one-off exploration (a filter combo tried once) must never be
+        # warmed — the whole point of the two-touch bar. First miss = marker,
+        # invisible to the warmer.
+        record_sticky_warm_shape(team=self.team, runner=self._runner())
+        assert get_sticky_warm_shapes() == []
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1  # the marker
+
+    def test_second_miss_upgrades_and_date_variants_share_one_entry(self):
+        # Date-range variants share one bucket namespace, so their misses must
+        # count as touches of ONE entry — otherwise the warmer replays the same
+        # namespace once per variant. Two variant misses = two touches = sticky.
         record_sticky_warm_shape(team=self.team, runner=self._runner(_overview(date_from="-7d")))
         record_sticky_warm_shape(team=self.team, runner=self._runner(_overview(date_from="-30d")))
+        # A different shape (filters) touched once stays a marker.
         filtered = _overview(properties=[EventPropertyFilter(key="$host", value="a.com", operator="exact")])
         record_sticky_warm_shape(team=self.team, runner=self._runner(filtered))
 
         entries = get_sticky_warm_shapes()
-        assert len(entries) == 2
-        assert all(e["team_id"] == self.team.id for e in entries)
-        assert all(e["query"]["kind"] == "WebOverviewQuery" for e in entries)
+        assert len(entries) == 1
+        assert entries[0]["team_id"] == self.team.id
+        assert entries[0]["query"]["kind"] == "WebOverviewQuery"
+        # A third miss of the sticky shape is a no-op, not a rewrite.
+        record_sticky_warm_shape(team=self.team, runner=self._runner(_overview(date_from="-7d")))
+        assert len(get_sticky_warm_shapes()) == 1
 
     @mock.patch(f"{_COMMON}.STICKY_SHAPE_MAX_ENTRIES", 1)
-    def test_full_set_refuses_new_shapes(self):
-        record_sticky_warm_shape(team=self.team, runner=self._runner())
+    def test_full_set_refuses_new_shapes_but_upgrades_existing_markers(self):
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # marker fills the cap
         filtered = _overview(properties=[EventPropertyFilter(key="$host", value="a.com", operator="exact")])
-        record_sticky_warm_shape(team=self.team, runner=self._runner(filtered))
+        record_sticky_warm_shape(team=self.team, runner=self._runner(filtered))  # refused: cap
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1
+        # Upgrading the capped shape's own marker adds no field, so it proceeds.
+        record_sticky_warm_shape(team=self.team, runner=self._runner())
         assert len(get_sticky_warm_shapes()) == 1
 
     def test_read_prunes_aged_and_undecodable_entries(self):
         record_sticky_warm_shape(team=self.team, runner=self._runner())
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # upgrade to full
         client = redis.get_client()
+        aged = time.time() - 48 * 3600
         client.hset(
-            STICKY_WARM_SHAPES_KEY,
-            "9999:aged",
-            json.dumps({"team_id": 9999, "recorded_at": time.time() - 48 * 3600, "query": {}}),
+            STICKY_WARM_SHAPES_KEY, "9999:aged", json.dumps({"team_id": 9999, "recorded_at": aged, "query": {}})
         )
+        client.hset(STICKY_WARM_SHAPES_KEY, "9999:oldmark", json.dumps({"team_id": 9999, "recorded_at": aged}))
         client.hset(STICKY_WARM_SHAPES_KEY, "9999:garbage", "not json")
 
         entries = get_sticky_warm_shapes()
         assert len(entries) == 1
         assert entries[0]["team_id"] == self.team.id
-        # Pruned from Redis too, not just filtered from the return value.
+        # Aged entries, aged markers, and garbage are pruned from Redis too, not
+        # just filtered from the return value.
         assert client.hlen(STICKY_WARM_SHAPES_KEY) == 1
 
 
