@@ -194,10 +194,11 @@ export function ReportTriageFocus({
   const canRemoveSelfFromReviewers =
     bulkActions.removeReviewerDisabledReason === null &&
     report?.is_suggested_reviewer === true;
+  const removingReviewer = bulkActions.isRemovingReviewer;
   const handleRemoveReviewer = useCallback(() => {
-    if (bulkActions.isRemovingReviewer) return;
+    if (removingReviewer) return;
     void bulkActions.removeReviewerSelected();
-  }, [bulkActions]);
+  }, [bulkActions, removingReviewer]);
 
   const handleDismissConfirm = useCallback(
     async (result: DismissReportDialogResult) => {
@@ -209,11 +210,16 @@ export function ReportTriageFocus({
     [bulkActions],
   );
 
-  const goNext = useCallback(
-    () => setIndex((i) => Math.min(i + 1, reports.length - 1)),
-    [reports.length],
-  );
-  const goPrev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
+  // In the "For you" scope the removed report drops out of the queue once the
+  // refetch lands. Moving the index before that would skip the next report.
+  const goNext = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.min(i + 1, reports.length - 1));
+  }, [reports.length, removingReviewer]);
+  const goPrev = useCallback(() => {
+    if (removingReviewer) return;
+    setIndex((i) => Math.max(i - 1, 0));
+  }, [removingReviewer]);
   const handleExit = useCallback(() => {
     finishSession("exited");
     onExit();
