@@ -196,7 +196,7 @@ export function ReportTriageFocus({
   const handleDismissConfirm = useCallback(
     async (result: DismissReportDialogResult) => {
       const ok = isDismissalReasonSnooze(result.reason)
-        ? await bulkActions.snoozeSelected()
+        ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
       if (ok) setDismissOpen(false);
     },
@@ -301,6 +301,7 @@ export function ReportTriageFocus({
               report={report}
               variant="triage-actions"
               prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
+              resolveHotkey={dismissOpen ? undefined : "r"}
               surface="triage"
               triageId={triageIdRef.current}
             />
