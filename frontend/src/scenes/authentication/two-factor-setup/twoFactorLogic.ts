@@ -52,9 +52,6 @@ export interface twoFactorLogicValues {
     isTokenSubmitting: boolean
     isTokenValid: boolean
     isTwoFactorSetupModalOpen: boolean
-    setupCallState: {
-        isOngoing: boolean
-    }
     showTokenErrors: boolean
     startSetup: {
         secret: string
@@ -99,6 +96,30 @@ export interface twoFactorLogicActions {
     }
     closeTwoFactorSetupModal: () => {
         value: true
+    }
+    closeTwoFactorSetupModalFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    closeTwoFactorSetupModalSuccess: (
+        startSetup: {
+            secret: string
+            success: boolean
+        } | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        startSetup: {
+            secret: string
+            success: boolean
+        } | null
+        payload?: {
+            value: true
+        }
     }
     disable2FA: () => {
         value: true
@@ -152,30 +173,6 @@ export interface twoFactorLogicActions {
     openTwoFactorSetupModal: (forceOpen?: boolean) => {
         forceOpen: boolean | undefined
     }
-    openTwoFactorSetupModalFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    openTwoFactorSetupModalSuccess: (
-        startSetup: {
-            secret: string
-            success: boolean
-        } | null,
-        payload?: {
-            forceOpen: boolean | undefined
-        }
-    ) => {
-        startSetup: {
-            secret: string
-            success: boolean
-        } | null
-        payload?: {
-            forceOpen: boolean | undefined
-        }
-    }
     resetToken: (values?: { token: string }) => {
         values?: {
             token: string
@@ -187,9 +184,6 @@ export interface twoFactorLogicActions {
     ) => {
         code: string
         detail: string
-    }
-    setSetupCallOngoing: (ongoing: boolean) => {
-        ongoing: boolean
     }
     setTokenManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -209,6 +203,33 @@ export interface twoFactorLogicActions {
         values: DeepPartial<{
             token: string
         }>
+    }
+    startTotpSetup: () => {
+        value: true
+    }
+    startTotpSetupFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    startTotpSetupSuccess: (
+        startSetup: {
+            secret: string
+            success: boolean
+        } | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        startSetup: {
+            secret: string
+            success: boolean
+        } | null
+        payload?: {
+            value: true
+        }
     }
     submitToken: () => {
         value: boolean
@@ -273,7 +294,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         closeTwoFactorSetupModal: true,
         toggleDisable2FAModal: (open: boolean) => ({ open }),
         toggleBackupCodesModal: (open: boolean) => ({ open }),
-        setSetupCallOngoing: (ongoing: boolean) => ({ ongoing }),
+        startTotpSetup: true,
     }),
     reducers({
         isTwoFactorSetupModalOpen: [
@@ -309,15 +330,6 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 clearGeneralError: () => null,
             },
         ],
-        setupCallState: [
-            { isOngoing: false } as { isOngoing: boolean },
-            {
-                setSetupCallOngoing: (_, { ongoing }) => ({ isOngoing: ongoing }),
-                startSetupSuccess: (state) => ({ ...state, isOngoing: false }),
-                startSetupFailure: (state) => ({ ...state, isOngoing: false }),
-                closeTwoFactorSetupModal: (state) => ({ ...state, isOngoing: false }),
-            },
-        ],
         status: [
             null as TwoFactorStatus | null,
             {
@@ -342,24 +354,15 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             (user: null | import('../../../types').UserType): boolean => (user?.organizations || []).length > 1,
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(() => ({
         startSetup: [
             null as { secret: string; success: boolean } | null,
             {
-                openTwoFactorSetupModal: async (_, breakpoint) => {
-                    const { isOngoing } = values.setupCallState
-
-                    if (isOngoing) {
-                        return values.startSetup
-                    }
-
-                    // We need this to prevent triggering the setup API call multiple times, which breaks the flow
-                    actions.setSetupCallOngoing(true)
-
+                startTotpSetup: async (_, breakpoint) => {
                     breakpoint()
-                    const response = await api.get('api/users/@me/two_factor_start_setup/')
-                    return response
+                    return await api.get('api/users/@me/two_factor_start_setup/')
                 },
+                closeTwoFactorSetupModal: () => null,
             },
         ],
         status: [
@@ -397,7 +400,15 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             },
         },
     })),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
+        openTwoFactorSetupModal: () => {
+            // Each enrollment call mints a new secret and replaces the one behind the QR code. Ask
+            // for one only when the user has no authenticator and this modal does not hold one.
+            if (values.startSetup?.secret || values.startSetupLoading || values.status?.has_totp) {
+                return
+            }
+            actions.startTotpSetup()
+        },
         submitTokenSuccess: () => {
             lemonToast.success('2FA method added successfully')
             actions.loadStatus()

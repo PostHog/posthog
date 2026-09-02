@@ -107,7 +107,11 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     } else if (
                         responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
-                        !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
+                        !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen &&
+                        // A request that was already in flight when the user finished setup still
+                        // answers 403. Re-opening on that would send them back through enrollment.
+                        !twoFactorLogic.findMounted()?.values.is2FAEnabled &&
+                        !userLogic.findMounted()?.values.user?.is_2fa_enabled
                     ) {
                         twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
                     } else if (

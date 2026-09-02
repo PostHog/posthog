@@ -1537,16 +1537,28 @@ class UserViewSet(
         )
         if not form.is_valid():
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
-        form.save()
-        otp_login(request, default_device(request.user))
-        set_two_factor_verified_in_session(request)
 
-        send_two_factor_auth_enabled_email.delay(request.user.id)
+        with transaction.atomic():
+            # Enrolling again replaces the authenticator. Without this the previous secret stays
+            # live, so the user keeps a second working entry they believe they replaced.
+            TOTPDevice.objects.filter(user=request.user).delete()
+            device = form.save()
+
+        otp_login(request, device)
+        set_two_factor_verified_in_session(request)
 
         session_cache.delete("django_two_factor-hex")
         session_cache.delete("django_two_factor-qr_secret_key")
 
         revoke_other_sessions_for_request(request, cast(User, request.user))
+
+        # The device is live and the session is verified here. Django discards the session write on
+        # a 5xx response, so a failure to queue the notification would send the user back to setup
+        # for a device that already exists.
+        try:
+            send_two_factor_auth_enabled_email.delay(request.user.id)
+        except Exception as e:
+            capture_exception(e)
 
         return Response({"success": True})
 
@@ -1556,7 +1568,9 @@ class UserViewSet(
         from posthog.helpers.two_factor_session import has_passkeys
 
         user = self.get_object()
-        totp_device = TOTPDevice.objects.filter(user=user).first()
+        # Read the device through default_device, the lookup the enforcement gate uses, so the
+        # status a user is shown cannot disagree with whether the gate lets them through.
+        totp_device = default_device(user)
         static_device = StaticDevice.objects.filter(user=user).first()
         user_has_passkeys = has_passkeys(user)
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
@@ -1574,7 +1588,7 @@ class UserViewSet(
 
         return Response(
             {
-                "is_enabled": default_device(user) is not None or passkeys_enabled_for_2fa,
+                "is_enabled": totp_device is not None or passkeys_enabled_for_2fa,
                 "backup_codes": backup_codes if totp_device else [],
                 "method": method,
                 "has_passkeys": user_has_passkeys,

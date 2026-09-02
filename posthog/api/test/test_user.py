@@ -1,6 +1,7 @@
 import re
 import uuid
 import datetime
+from base64 import b32decode
 from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote, urlparse
@@ -19,6 +20,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
+from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
@@ -3314,6 +3316,32 @@ class TestUserTwoFactor(APIBaseTest):
                 "attr": None,
             },
         )
+
+    def _enroll_totp(self) -> str:
+        secret = self.client.get("/api/users/@me/two_factor_start_setup/").json()["secret"]
+        response = self.client.post("/api/users/@me/two_factor_validate/", {"token": totp(b32decode(secret))})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return secret
+
+    @patch("posthog.api.user.send_two_factor_auth_enabled_email")
+    def test_two_factor_validation_replaces_the_previous_authenticator(self, _mock_send_email):
+        first_secret = self._enroll_totp()
+        second_secret = self._enroll_totp()
+
+        self.assertNotEqual(first_secret, second_secret)
+        # A second live secret leaves the first authenticator entry working after the user believes
+        # they replaced it.
+        self.assertEqual(TOTPDevice.objects.filter(user=self.user).count(), 1)
+
+    @patch("posthog.api.user.send_two_factor_auth_enabled_email")
+    def test_two_factor_validation_survives_a_notification_email_failure(self, mock_send_email):
+        mock_send_email.delay.side_effect = Exception("broker unavailable")
+
+        self._enroll_totp()
+
+        self.assertEqual(TOTPDevice.objects.filter(user=self.user).count(), 1)
+        # Django drops the session write on a 5xx, which would send the user back through setup.
+        self.assertTrue(self.client.session.get("two_factor_verified"))
 
     def test_two_factor_status_when_disabled(self):
         response = self.client.get(f"/api/users/@me/two_factor_status/")
