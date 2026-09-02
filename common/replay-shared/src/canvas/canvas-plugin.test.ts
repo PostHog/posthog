@@ -392,6 +392,22 @@ describe('CanvasReplayerPlugin', () => {
                 expect(mockImage.getAttribute('class')).toBe('my-canvas')
             }
         )
+
+        it('drops a stale attribute when the same id is rebuilt without it', () => {
+            const painting = document.createElement('canvas')
+            painting.setAttribute('class', 'painting')
+
+            const plugin = CanvasReplayerPlugin([])
+            plugin.onBuild?.(painting, { id: 1, replayer: mockReplayer } as any)
+            expect(mockImage.getAttribute('class')).toBe('painting')
+
+            // A backward seek rebuilds the full snapshot and passes a new canvas node for the
+            // same id that never had the class. The reused image must not keep the stale value.
+            const rebuilt = document.createElement('canvas')
+            plugin.onBuild?.(rebuilt, { id: 1, replayer: mockReplayer } as any)
+
+            expect(mockImage.hasAttribute('class')).toBe(false)
+        })
     })
 
     describe('attribute mutations after the image replaces the canvas', () => {

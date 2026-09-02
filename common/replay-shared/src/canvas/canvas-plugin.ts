@@ -109,6 +109,14 @@ export const CanvasReplayerPlugin = (
     }
 
     const copyAttributes = (id: number, canvas: HTMLCanvasElement, img: HTMLImageElement): void => {
+        // A backward seek rebuilds the id and reuses the same <img>, so it can still carry a
+        // copyable attribute the rebuilt canvas no longer has. Drop those first; copyAttribute
+        // removes the absent attribute and re-applies the presentation styles when it clears style.
+        for (const { name } of Array.from(img.attributes)) {
+            if (isCopyableAttribute(name) && !canvas.hasAttribute(name)) {
+                copyAttribute(id, canvas, img, name)
+            }
+        }
         for (const { name } of Array.from(canvas.attributes)) {
             copyAttribute(id, canvas, img, name)
         }
