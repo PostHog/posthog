@@ -119,7 +119,10 @@ flox activate -- bash -c 'cd rust && cargo test -p usage-ingestion --test load -
 It asserts that every request succeeds, that concurrent throughput is at least
 5x the sequential baseline measured on the same machine, and that ClickHouse
 ends with exactly one row per record with every retry winning on event
-timestamp.
+timestamp. It also flushes the accepted requests to Valkey Cluster, then
+checks the 27 hourly/daily hashes stay at four fields each and within a
+64-byte–1-KiB per-key memory budget. Add a counter series only with an
+intentional budget adjustment.
 The throughput floor is deliberately loose: it exists to catch a lock or single
 worker serializing the request path, not to pin a number to a laptop.
 
