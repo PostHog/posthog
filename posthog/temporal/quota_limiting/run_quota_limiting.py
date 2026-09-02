@@ -4,8 +4,11 @@ import dataclasses
 from datetime import timedelta
 
 import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from temporalio import activity, common, workflow
+from temporalio.exceptions import ApplicationError
 
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -13,6 +16,9 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 logger = structlog.get_logger()
 logging.basicConfig(level=logging.INFO)
+
+# Cluster trouble the next attempt can get past: a busy or unreachable ClickHouse host.
+RETRIABLE_ERRORS = (*CH_TRANSIENT_ERRORS, NetworkError, SocketTimeoutError)
 
 
 @dataclasses.dataclass
@@ -57,7 +63,11 @@ async def run_quota_limiting_all_orgs(
         except Exception as e:
             capture_exception(e)
             # Raise exception without large context to avoid "Failure exceeds size limit"
-            raise Exception(f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...")
+            raise ApplicationError(
+                f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...",
+                # A deterministic failure repeats, so only retry the transient classes.
+                non_retryable=not isinstance(e, RETRIABLE_ERRORS),
+            )
     return result
 
 
@@ -77,7 +87,10 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
                 RunQuotaLimitingAllOrgsInputs(),
                 start_to_close_timeout=timedelta(hours=12),
                 retry_policy=common.RetryPolicy(
-                    maximum_attempts=1,
+                    # A shard host that refuses connections stays down for minutes, so the waits
+                    # (2 then 4 minutes) must outlast it and still fit the 15-minute schedule.
+                    maximum_attempts=3,
+                    initial_interval=timedelta(minutes=2),
                 ),
                 heartbeat_timeout=timedelta(minutes=2),
             )
