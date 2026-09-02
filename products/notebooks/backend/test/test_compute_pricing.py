@@ -260,6 +260,35 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         ).json()
         assert status_payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
 
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        return_value=True,
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_a_failed_resize_retries_on_an_identical_second_request(
+        self, mock_runtime: MagicMock, _alive: MagicMock
+    ) -> None:
+        # A transient restart failure leaves the sandbox on the old shape. Re-sending the same size
+        # has to attempt the restart again, or the resize is wedged until the sandbox idles out.
+        mock_runtime.return_value.restart.side_effect = [RuntimeError("lock timeout"), None]
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        self._live_kernel(notebook)
+
+        first = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"cpu_cores": 8, "memory_gb": 16},
+        )
+        assert first.status_code == 200, first.json()
+        assert first.json()["restarted"] is False
+
+        second = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"cpu_cores": 8, "memory_gb": 16},
+        )
+        assert second.status_code == 200, second.json()
+        assert second.json()["restarted"] is True
+        assert mock_runtime.return_value.restart.call_count == 2
+
     def test_status_prices_the_running_sandbox_not_the_configuration(self) -> None:
         # The notebook is configured for a bigger shape than the live sandbox was built with,
         # which is the state a resize leaves until a restart applies it.
