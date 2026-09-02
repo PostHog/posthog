@@ -49,15 +49,18 @@ pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total"
 /// `full_columns` is the signal to read the run's census for which event names block it.
 pub const CHUNKS_PROJECTED: &str = "seeder_chunks_projected_total";
 /// Shadow-compare verdicts per chunk, labelled by closed `result`
-/// (`match`/`diff`/`error`/`not_projected`) and `team_id` (counter). Emitted only while
-/// `SEEDER_SCAN_SHADOW_COMPARE` is on, once per chunk that finishes its scan. A chunk cancelled
-/// by shutdown or a lost lease increments nothing and runs again later.
+/// (`match`/`diff`/`error`/`no_rows`/`not_projected`) and `team_id` (counter). Emitted only while
+/// `SEEDER_SCAN_SHADOW_COMPARE` is on, once per chunk that finishes its scan. A chunk cancelled by
+/// shutdown or a lost lease increments nothing and runs again later.
 ///
 /// `diff` is the validation failure signal — the paired `warn!` carries the chunk attribution and
 /// exemplars. `error` means the diagnostic wide scan itself failed and the chunk's projected tiles
-/// were emitted unverified. `not_projected` means the authoritative scan was already wide, so
-/// re-running it would compare a query against itself; those chunks are counted rather than
-/// scanned twice, and they are not evidence about projecting.
+/// were emitted unverified.
+///
+/// The last two values are chunks no second query was issued for, because it could only have
+/// agreed: `no_rows` where the authoritative scan read nothing, and `not_projected` where it was
+/// already wide. Neither is evidence about projecting, so read compare coverage as `match` and
+/// `diff` against their sum, not against the chunk count.
 pub const SHADOW_COMPARE: &str = "seeder_shadow_compare_total";
 /// Wall time of one chunk's diagnostic wide re-scan, including its fold and diff (histogram).
 ///

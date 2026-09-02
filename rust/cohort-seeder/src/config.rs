@@ -263,9 +263,9 @@ pub struct Config {
     /// run that silently skipped it reads exactly like a clean one. Nothing downstream depends on
     /// it either way: the projected arm's tiles are what a chunk emits regardless.
     ///
-    /// Turn it off to finish a long reseed at full speed once the measurement is in hand — a
-    /// chunk costs its projected scan plus a full wide one while this is on, so `1 + the
-    /// projection's savings factor`. Then delete the layer.
+    /// Turn it off in charts to finish a long reseed at full speed once the measurement is in
+    /// hand, then delete the layer. While it is on a chunk pays its projected scan plus a full
+    /// wide one.
     #[envconfig(default = "true")]
     pub seeder_scan_shadow_compare: bool,
 

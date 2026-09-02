@@ -25,7 +25,7 @@ use crate::domain::{
     conditions_active_on, diff_tiles, ActiveConditions, AggregateError, BlobSource, CancelCause,
     ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk,
     ConditionAnalyses, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome,
-    RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, UtcMillis,
+    RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, TileDiff, UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
@@ -154,17 +154,13 @@ impl ChunkScanner {
         drop(timer);
 
         if self.shadow_compare {
-            // A chunk whose authoritative scan is already wide would be compared against its own
-            // query: `scan_sql` renders `FullColumns` identically for both arms, so the verdict is
-            // `match` by construction and says nothing about projecting. Counting it keeps the
-            // verdict series complete without paying a second full-width read for no reading.
-            match projection {
-                ChunkProjection::FullColumns => {
+            match CompareSkip::of(&projection, projected_fold) {
+                Some(skip) => {
                     let team = team_label(&self.allowlist, run.team_id);
-                    counter!(SHADOW_COMPARE, "result" => "not_projected", "team_id" => team)
+                    counter!(SHADOW_COMPARE, "result" => skip.as_str(), "team_id" => team)
                         .increment(1);
                 }
-                ChunkProjection::Projected(_) => {
+                None => {
                     self.compare_scan(
                         spec,
                         run,
@@ -246,9 +242,10 @@ impl ChunkScanner {
     /// A scan *failure* here is metered and swallowed: the diagnostic never fails a chunk. A
     /// *cancellation* propagates and is then handled exactly as one raised during the projected
     /// arm — so a lost lease still spends the attempt, and this arm widens the window in which
-    /// that can happen to a fully computed chunk. Swallowing it is worse: pressing on to confirm
-    /// a chunk whose lease is gone would invert the lease protocol, and a shutdown must stay
-    /// prompt.
+    /// that can happen to a fully computed chunk. Swallowing it is worse: another worker reclaims
+    /// a `scanning` chunk once its lease expires (`store/chunks.rs`), so pressing on would produce
+    /// tiles for a chunk this worker no longer owns, alongside the worker that now does. A
+    /// shutdown must also stay prompt.
     #[allow(clippy::too_many_arguments)]
     async fn compare_scan(
         &self,
@@ -307,16 +304,16 @@ impl ChunkScanner {
         // the same parse on both arms and explains no divergence. Recorded whatever the verdict,
         // and at zero too, because on a blob the projection emptied this is the only count of
         // malformed rows anything will ever take.
-        let legacy_only_skips = legacy_fold.legacy_only_skips(projected_fold);
-        counter!(SHADOW_COMPARE_LEGACY_SKIPPED, "team_id" => team.clone())
-            .increment(legacy_only_skips);
-
-        let diff = diff_tiles(projected_tiles, &legacy_tiles);
+        let diff = record_compare(
+            team,
+            projected_tiles,
+            &legacy_tiles,
+            projected_fold,
+            legacy_fold,
+        );
         if diff.is_match() {
-            counter!(SHADOW_COMPARE, "result" => "match", "team_id" => team.clone()).increment(1);
             return Ok(());
         }
-        counter!(SHADOW_COMPARE, "result" => "diff", "team_id" => team).increment(1);
         warn!(
             run_id = %run.run_id.0,
             team_id = run.team_id.0,
@@ -326,7 +323,7 @@ impl ChunkScanner {
             missing = diff.missing,
             extra = diff.extra,
             count_differs = diff.count_differs,
-            legacy_only_globals_parse_errors = legacy_only_skips,
+            legacy_only_globals_parse_errors = legacy_fold.legacy_only_skips(projected_fold),
             legacy_globals_parse_errors = legacy_fold.globals_parse_errors,
             projected_globals_parse_errors = projected_fold.globals_parse_errors,
             exemplars = ?diff.exemplars,
@@ -366,6 +363,58 @@ fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>
         BlobSource::Keys(keys) => keys.count(),
     };
     histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
+}
+
+/// Why a chunk's compare is not worth issuing, when it is not. Each case would spend a second
+/// full-width ClickHouse query on a diff that can only agree, and the second query's right side is
+/// an unbounded `person_distinct_id_overrides` aggregate over the whole team.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompareSkip {
+    /// The authoritative scan read no rows. Both arms build their FROM, JOIN and WHERE from the
+    /// same [`ScanSpec`] and vary only in the SELECT list, so the wide arm has nothing to diff and
+    /// nothing to skip. Only the unfenced overrides join could put rows on one side, which is a
+    /// divergence with no projection defect behind it.
+    NoRows,
+    /// The authoritative scan was already wide, so `scan_sql` renders both arms identically and
+    /// the verdict is `match` by construction.
+    NotProjected,
+}
+
+impl CompareSkip {
+    /// `None` when the compare is worth running.
+    fn of(projection: &ChunkProjection, fold: FoldSummary) -> Option<Self> {
+        match (fold.rows, projection) {
+            (RowsSeen::None, _) => Some(Self::NoRows),
+            (RowsSeen::Some, ChunkProjection::FullColumns) => Some(Self::NotProjected),
+            (RowsSeen::Some, ChunkProjection::Projected(_)) => None,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoRows => "no_rows",
+            Self::NotProjected => "not_projected",
+        }
+    }
+}
+
+/// Publish a chunk's compare verdict and the skips only its wide arm took, and hand back the diff
+/// the caller logs. Free-standing because [`ChunkScanner::compare_scan`] needs a ClickHouse cursor
+/// and this needs two tile vectors, which is what lets the verdict the backfill gate reads be
+/// tested at all.
+fn record_compare(
+    team: Arc<str>,
+    projected_tiles: &[SeedTile],
+    legacy_tiles: &[SeedTile],
+    projected_fold: FoldSummary,
+    legacy_fold: FoldSummary,
+) -> TileDiff {
+    counter!(SHADOW_COMPARE_LEGACY_SKIPPED, "team_id" => team.clone())
+        .increment(legacy_fold.legacy_only_skips(projected_fold));
+    let diff = diff_tiles(projected_tiles, legacy_tiles);
+    let result = if diff.is_match() { "match" } else { "diff" };
+    counter!(SHADOW_COMPARE, "result" => result, "team_id" => team).increment(1);
+    diff
 }
 
 /// Whether the cursor yielded anything, which is what separates a chunk with no matching history
@@ -591,6 +640,7 @@ mod tests {
     use uuid::Uuid;
 
     use std::collections::BTreeSet;
+    use std::num::NonZeroU32;
 
     use super::*;
     use crate::domain::{
@@ -803,6 +853,107 @@ mod tests {
         assert_eq!(fold(9).legacy_only_skips(fold(4)), 5);
         // Override drift can put the projected arm ahead; the count floors instead of wrapping.
         assert_eq!(fold(2).legacy_only_skips(fold(5)), 0);
+    }
+
+    fn tile(person: u128, count: u32) -> SeedTile {
+        SeedTile::new(
+            TeamId(2),
+            Uuid::from_u128(person),
+            ConditionHash::parse(HASH).unwrap(),
+            NonZeroU32::new(count).expect("a tile's count is non-zero by construction"),
+            20_000,
+            SChunkMs(1),
+            RunId(Uuid::nil()),
+            ClaimEpoch(1),
+        )
+    }
+
+    fn fold(rows: RowsSeen, globals_parse_errors: u64) -> FoldSummary {
+        FoldSummary {
+            rows,
+            globals_parse_errors,
+        }
+    }
+
+    /// Each skip removes a full-width ClickHouse query. Issuing one anyway is invisible in the
+    /// output, since both arms agree on exactly these chunks, so nothing but this test says the
+    /// gate still holds.
+    #[test]
+    fn the_compare_is_issued_only_where_the_two_arms_can_disagree() {
+        let projected = ChunkProjection::Projected(ColumnPlan::full());
+        let cases = [
+            (
+                fold(RowsSeen::None, 0),
+                &projected,
+                Some(CompareSkip::NoRows),
+            ),
+            (
+                fold(RowsSeen::None, 0),
+                &ChunkProjection::FullColumns,
+                Some(CompareSkip::NoRows),
+            ),
+            (
+                fold(RowsSeen::Some, 0),
+                &ChunkProjection::FullColumns,
+                Some(CompareSkip::NotProjected),
+            ),
+            (fold(RowsSeen::Some, 0), &projected, None),
+        ];
+        for (summary, projection, expected) in cases {
+            assert_eq!(
+                CompareSkip::of(projection, summary),
+                expected,
+                "{summary:?} on {}",
+                projection.outcome()
+            );
+        }
+    }
+
+    /// The verdict the backfill gate reads. A change that inverts the match/diff choice, or drops
+    /// the skip increment, produces a clean-looking signal from a run that diverged, on a rebuild
+    /// no later run corrects.
+    #[test]
+    fn the_compare_verdict_and_the_skips_only_the_wide_arm_took_reach_prometheus() {
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            let agreed = record_compare(
+                Arc::from("2"),
+                &[tile(1, 3)],
+                &[tile(1, 3)],
+                fold(RowsSeen::Some, 4),
+                fold(RowsSeen::Some, 9),
+            );
+            assert!(agreed.is_match());
+            let diverged = record_compare(
+                Arc::from("3"),
+                &[tile(1, 3)],
+                &[tile(1, 5)],
+                fold(RowsSeen::Some, 0),
+                fold(RowsSeen::Some, 0),
+            );
+            assert_eq!(diverged.count_differs, 1);
+        });
+        let rendered = handle.render();
+
+        // Each verdict is pinned to the team whose arms produced it. One shared label would let a
+        // swapped match/diff choice render the very same two series.
+        for (team, verdict) in [("2", "match"), ("3", "diff")] {
+            assert!(
+                rendered.contains(&format!(
+                    "{SHADOW_COMPARE}{{result=\"{verdict}\",team_id=\"{team}\"}} 1"
+                )),
+                "team {team} did not publish {verdict}:\n{rendered}"
+            );
+        }
+        // 9 wide skips against 4 projected ones: only the 5 the projection caused are published,
+        // and the second call adds nothing, which is the "at zero as well" claim.
+        assert!(
+            rendered.contains(&format!(
+                "{SHADOW_COMPARE_LEGACY_SKIPPED}{{team_id=\"2\"}} 5"
+            )),
+            "the published skip count is not the difference between the arms:\n{rendered}"
+        );
     }
 
     #[test]

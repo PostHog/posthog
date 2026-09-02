@@ -9,6 +9,12 @@
 //! vocabulary rather than the one value a gate names — a `reason` or `class` panel that breaks
 //! them out should show every value it can ever show. That does put a flat zero line on those
 //! panels for values production never produces.
+//!
+//! The two `seeder_shadow_compare_*` counters solve the same problem without priming, which is why
+//! they are absent here. Their `team_id` label has no value until a chunk is scanned.
+//! `seeder_shadow_compare_total` then publishes one of a closed `result` vocabulary per chunk, so
+//! a clean run makes the family present, and `seeder_shadow_compare_legacy_skipped_total` is
+//! incremented by zero on every path that reaches it.
 
 use cohort_core::hogvm::VmErrorClass;
 use metrics::counter;
@@ -26,7 +32,7 @@ pub fn prime_zero_series() {
     for class in VmErrorClass::ALL {
         counter!(HOGVM_ERRORS, "class" => class.as_str()).increment(0);
     }
-    for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
+    for kind in RunKind::ALL {
         counter!(CHUNKS_POISONED, "kind" => kind.as_str()).increment(0);
     }
 }
