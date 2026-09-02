@@ -5,9 +5,9 @@ Each entry here becomes (or updates) an ``MCPServerTemplate`` row via the
 environment — adding a server to the store is a PR to this file, not a data migration.
 
 The catalog owns a template's *content* (name, description, category, icon_domain,
-docs_url, auth_type). Operational state — ``is_active`` after creation, and the
-``oauth_credentials`` an operator provisions for servers without Dynamic Client
-Registration — lives on the row and is never touched by the sync. See
+docs_url, auth_type, and any existing instance credential source). Operational
+state — ``is_active`` after creation, and the ``oauth_credentials`` an operator
+provisions for other servers without Dynamic Client Registration — lives on the row. See
 ``catalog_sync.py`` for the exact semantics, including the probe-gated activation
 of newly created entries.
 
@@ -23,6 +23,8 @@ endpoint before approving. This file is CODEOWNERS-gated for that reason.
 
 from posthog.dataclasses import frozen
 
+from .oauth_credentials import OAuthCredentialsSource
+
 
 @frozen
 class CatalogEntry:
@@ -34,6 +36,7 @@ class CatalogEntry:
     icon_domain: str  # the vendor's brand domain, rendered via the logo.dev proxy
     docs_url: str = ""
     oauth_scope_allowlist: tuple[str, ...] | None = None
+    oauth_credentials_source: OAuthCredentialsSource | None = None
     disabled: bool = False
 
 
@@ -311,6 +314,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         category="productivity",
         icon_domain="slack.com",
         docs_url="https://docs.slack.dev/ai/slack-mcp-server/",
+        oauth_credentials_source="slack_app",
         # Private-channel, DM, email, and write scopes require separate security approval.
         oauth_scope_allowlist=(
             "channels:read",

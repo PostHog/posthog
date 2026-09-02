@@ -19,6 +19,7 @@ from rest_framework import serializers, status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
@@ -3891,6 +3892,47 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         assert installation.template_id == template.id
+
+    def test_install_template_oauth_uses_instance_credential_source(self):
+        template = self._template(
+            oauth_credentials_source="slack_app",
+            oauth_credentials={},
+        )
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        params = parse_qs(urlparse(response.json()["redirect_url"]).query)
+        assert params["client_id"] == ["slack-client"]
+        assert MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    def test_install_template_oauth_fails_closed_when_instance_credentials_are_missing(self):
+        template = self._template(
+            oauth_credentials_source="slack_app",
+            oauth_credentials={"client_id": "stale-template-client"},
+        )
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", ""),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", ""),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Template OAuth client is not configured"
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
 
     def test_install_template_rejects_nonmatching_oauth_scope_allowlist(self):
         template = self._template(

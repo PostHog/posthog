@@ -8,6 +8,8 @@ from django.test import SimpleTestCase, TestCase
 import requests
 from parameterized import parameterized
 
+from posthog.models.instance_setting import override_instance_config
+
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
     TIMEOUT,
@@ -1157,6 +1159,38 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert ctx.client_id == "template-client"
         assert ctx.client_secret == "template-secret"
         assert ctx.token_endpoint_auth_method == expected_auth_method
+
+    def test_template_backed_install_uses_instance_credential_source(self):
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url="https://mcp.slack.test.example/mcp",
+            auth_type="oauth",
+            oauth_metadata={
+                "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
+                "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            },
+            oauth_credentials_source="slack_app",
+            oauth_credentials={},
+            created_by=self.user,
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "tok"},
+        )
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+        ):
+            ctx = resolve_installation_oauth_context(installation)
+
+        assert ctx.client_id == "slack-client"
+        assert ctx.client_secret == "slack-secret"
+        assert ctx.token_endpoint_auth_method == "client_secret_post"
 
     def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
         # DCR templates carry no shared client_id AND no trusted metadata —

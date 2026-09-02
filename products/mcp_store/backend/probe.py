@@ -65,24 +65,34 @@ class ProbeResult:
             return False
         if self.auth_flavor == "oauth_dcr":
             return self.dcr_registered and self.authorize_endpoint_ok
-        # oauth_shared needs manually provisioned shared client credentials, and
+        if self.auth_flavor == "oauth_shared":
+            return self.authorize_endpoint_ok
         # api_key_or_unknown carries no MCP evidence (a bare 401/403 could be any
-        # protected endpoint) — neither may auto-activate.
+        # protected endpoint), so it may not auto-activate.
         return self.auth_flavor == "open"
 
 
-def probe_mcp_server(url: str, scope_allowlist: Sequence[str] | None = None) -> ProbeResult:
+def probe_mcp_server(
+    url: str,
+    scope_allowlist: Sequence[str] | None = None,
+    shared_client_id: str | None = None,
+) -> ProbeResult:
     """Probe ``url`` and return a :class:`ProbeResult`. Never raises."""
     result = ProbeResult()
     try:
-        _run_probe(url, result, scope_allowlist)
+        _run_probe(url, result, scope_allowlist, shared_client_id)
     except Exception as exc:
         logger.exception("MCP server probe failed unexpectedly", server_url=url)
         result.errors.append(f"Probe aborted unexpectedly: {exc}")
     return result
 
 
-def _run_probe(url: str, result: ProbeResult, scope_allowlist: Sequence[str] | None) -> None:
+def _run_probe(
+    url: str,
+    result: ProbeResult,
+    scope_allowlist: Sequence[str] | None,
+    shared_client_id: str | None,
+) -> None:
     outcome = _probe_initialize(url, result)
     if outcome == "failed":
         return
@@ -113,6 +123,10 @@ def _run_probe(url: str, result: ProbeResult, scope_allowlist: Sequence[str] | N
     client_id = _register_probe_client(metadata, result, scope_allowlist)
     if client_id is None:
         result.auth_flavor = "oauth_shared"
+        if shared_client_id:
+            result.authorize_endpoint_ok = _check_authorize_endpoint(
+                metadata, shared_client_id, result, scope_allowlist
+            )
         return
 
     result.auth_flavor = "oauth_dcr"

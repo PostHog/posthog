@@ -149,12 +149,12 @@ def normalize_mcp_icon_domain(value: str) -> str:
 
 
 class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """A curated, pre-registered MCP server. PostHog operators register a real
-    OAuth app with the provider ahead of time and paste the client_id /
-    client_secret in Django admin. The credentials are shared across every user
-    who installs the template — users only get their own per-user access/refresh
-    tokens. User-added servers (see MCPServerInstallation without a template
-    FK) go through per-user DCR instead."""
+    """A curated, pre-registered MCP server.
+
+    Shared OAuth clients use an existing instance credential source or encrypted
+    credentials provisioned on the template. Each installation still stores its
+    own user tokens. User-added servers use per-user DCR instead.
+    """
 
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)
@@ -170,6 +170,7 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_scope_allowlist = models.JSONField(null=True, blank=True, default=None)
+    oauth_credentials_source = models.CharField(max_length=64, blank=True, default="", db_default="")
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
 

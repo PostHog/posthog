@@ -67,11 +67,11 @@ Settings supplies its own navigation shell so the gateway workflows fit the main
 The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per server.
 At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
 
-- Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, and OAuth scope allowlist). The catalog owns content. Edit it in code, not admin.
-- **Operational state stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. Rows absent from the catalog remain untouched.
-- **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. Servers that need shared OAuth credentials (no DCR) are born inactive until an operator provisions them.
-- **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it does not reactivate the row; an operator must re-vet it first.
-- Probes run **only on creation** — a DCR probe mints a real client on the provider, so re-probing every sync would leak registrations.
+- Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, OAuth scope allowlist, and credential source). The catalog owns content. Edit it in code, not admin.
+- **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. A catalog-managed credential source is the exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. Rows absent from the catalog remain untouched.
+- **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. A reviewed instance credential source can satisfy the shared-client gate without copying secrets into the template.
+- **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it lets a configured credential source retry its shared-client probe; other entries still require operator review.
+- Probes run **only on creation**, except when a configured credential source is inactive or first adopted. DCR probes never repeat because they mint real clients.
 
 To add a server, follow the `adding-mcp-store-servers` skill (`.agents/skills/adding-mcp-store-servers/`).
 To probe a server by hand:
@@ -88,6 +88,7 @@ Only **hosted (remote) MCP servers** on a public HTTPS endpoint speaking the str
 Adds and auto-activates on merge:
 
 - OAuth servers with Dynamic Client Registration — the probe mints a real DCR client and verifies the authorization page.
+- OAuth servers backed by a configured, catalog-reviewed instance credential source — the probe verifies the shared client and authorization page.
 - API-key and unauthenticated servers that answer the MCP initialize handshake without credentials.
 
 Adds but ships **inactive** until an operator finishes activation (see the runbook below):
@@ -151,12 +152,15 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 ## Auth models
 
 - **OAuth with DCR** (most modern remote servers): nothing to provision. Each install discovers OAuth metadata fresh and mints a per-user client via RFC 7591. Template `oauth_credentials`/`oauth_metadata` stay empty.
+- **OAuth with an instance credential source**: a catalog entry can reuse a client already configured for that PostHog environment. The template stores only the source name; installs resolve the current credentials at runtime, so rotation does not create another secret copy.
 - **OAuth without DCR** ("shared creds"): an operator registers one OAuth app with the vendor and pastes `client_id`/`client_secret` into Django admin (stored encrypted per template). The sync pre-fills `oauth_metadata` from discovery; installs then share the client while each user gets their own tokens. Redirect URI: `{SITE_URL}/api/mcp_store/oauth_redirect/`.
 - **API key**: users supply their own key at install; nothing on the template.
 
 OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and authorization to reviewed scopes. Without an allowlist, the client requests every scope advertised by the server. Shared clients derive their token endpoint authentication method from discovered metadata unless `oauth_credentials.token_endpoint_auth_method` overrides it.
 
-## Operator runbook: activating a shared-creds server
+Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` instance settings. Catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
+
+## Operator runbook: activating a manually provisioned shared-creds server
 
 1. Register these redirect URIs in the vendor's developer console:
    - `https://us.posthog.com/api/mcp_store/oauth_redirect/`
@@ -167,7 +171,7 @@ OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and 
 5. Complete one internal authorization and tool discovery in each environment.
 6. Tick "is active". Repeat per environment because templates are per-database rows.
 
-If the catalog entry has `disabled=True`, remove the suspension in a follow-up only after these checks pass. Removing the suspension does not reactivate an existing row.
+If the catalog entry has `disabled=True`, remove the suspension in a follow-up only after these checks pass. Removing the suspension does not reactivate a manually provisioned row.
 
 ## Reaching connected servers from an agent
 

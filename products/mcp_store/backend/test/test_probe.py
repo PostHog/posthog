@@ -70,7 +70,7 @@ def _url_router(routes):
 
 
 class TestProbeMCPServer(SimpleTestCase):
-    def _probe(self, *, post_routes, get_routes=None, scope_allowlist=None):
+    def _probe(self, *, post_routes, get_routes=None, scope_allowlist=None, shared_client_id=None):
         post_router = _url_router(post_routes)
         get_router = _url_router(get_routes or {})
 
@@ -86,7 +86,7 @@ class TestProbeMCPServer(SimpleTestCase):
             patch("products.mcp_store.backend.oauth.requests.post", side_effect=post_router) as post,
             patch("products.mcp_store.backend.oauth.requests.get", side_effect=get_router) as get,
         ):
-            result = probe_mcp_server(SERVER_URL, scope_allowlist)
+            result = probe_mcp_server(SERVER_URL, scope_allowlist, shared_client_id)
         return result, post, get, pinned
 
     @parameterized.expand(
@@ -187,6 +187,24 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertFalse(result.authorize_endpoint_ok)
         self.assertEqual(result.oauth_metadata["token_endpoint"], f"{ORIGIN}/token")
         self.assertFalse(result.passed_activation_gate)
+
+    def test_oauth_shared_client_checks_authorization_endpoint(self):
+        metadata = {k: v for k, v in AUTH_SERVER_METADATA_BODY.items() if k != "registration_endpoint"}
+        result, _post, _get, pinned = self._probe(
+            post_routes={SERVER_URL: _mock_response(401, text="unauthorized", content_type="text/plain")},
+            get_routes={
+                PROTECTED_RESOURCE_URL: _mock_response(200, json_body=PROTECTED_RESOURCE_BODY),
+                AUTH_SERVER_METADATA_URL: _mock_response(200, json_body=metadata),
+                AUTHORIZE_URL: _mock_response(200, text="<html>log in</html>", content_type="text/html"),
+            },
+            shared_client_id="shared-client",
+        )
+
+        self.assertEqual(result.auth_flavor, "oauth_shared")
+        self.assertTrue(result.authorize_endpoint_ok)
+        self.assertTrue(result.passed_activation_gate)
+        authorize_call = next(call for call in pinned.call_args_list if call.args[1].startswith(f"{AUTHORIZE_URL}?"))
+        self.assertEqual(parse_qs(urlparse(authorize_call.args[1]).query)["client_id"], ["shared-client"])
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_required_without_metadata_is_unverified_and_fails_gate(self, _name, status_code):
@@ -315,7 +333,8 @@ class TestPassedActivationGate(SimpleTestCase):
             ("oauth_dcr_full_pass", "oauth_dcr", True, True, True, True, True),
             ("oauth_dcr_authorize_down", "oauth_dcr", True, True, True, False, False),
             ("oauth_dcr_not_registered", "oauth_dcr", True, True, False, True, False),
-            ("oauth_shared", "oauth_shared", True, True, False, False, False),
+            ("oauth_shared_without_client", "oauth_shared", True, True, False, False, False),
+            ("oauth_shared_with_client", "oauth_shared", True, True, False, True, True),
         ]
     )
     def test_gate(self, _name, auth_flavor, reachable, speaks_mcp, dcr_registered, authorize_endpoint_ok, expected):

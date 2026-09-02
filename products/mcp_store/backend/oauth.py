@@ -3,7 +3,7 @@ import base64
 import hashlib
 import secrets
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -14,7 +14,8 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.security.url_validation import is_url_allowed
 
-from .models import MCPServerInstallation
+from .models import MCPServerInstallation, MCPServerTemplate, TemplateOAuthCredentials
+from .oauth_credentials import resolve_oauth_credentials_source
 
 logger = structlog.get_logger(__name__)
 
@@ -446,7 +447,9 @@ class TokenRefreshError(Exception):
     pass
 
 
-def _credential_auth_method(credentials: dict, auth_method_key: str, client_secret: str | None, metadata: dict) -> str:
+def _credential_auth_method(
+    credentials: Mapping[str, object], auth_method_key: str, client_secret: str | None, metadata: dict
+) -> str:
     method = credentials.get(auth_method_key)
     if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
         return method
@@ -461,12 +464,24 @@ class InstallationOAuthContext:
     token_endpoint_auth_method: str
 
 
+def resolve_template_oauth_credentials(template: MCPServerTemplate) -> TemplateOAuthCredentials:
+    if template.oauth_credentials_source:
+        credentials = resolve_oauth_credentials_source(template.oauth_credentials_source)
+        if not credentials["client_id"] or not credentials["client_secret"]:
+            raise ValueError(f"OAuth credential source '{template.oauth_credentials_source}' is not configured")
+        return TemplateOAuthCredentials(
+            client_id=credentials["client_id"],
+            client_secret=credentials["client_secret"],
+        )
+    return TemplateOAuthCredentials(**(template.oauth_credentials or {}))
+
+
 def resolve_installation_oauth_context(installation: MCPServerInstallation) -> InstallationOAuthContext:
     """Resolve the OAuth metadata + client credentials for an installation.
 
     Returns an ``InstallationOAuthContext``.
-    Secrets come from the shared template when set, or from the installation's
-    encrypted ``sensitive_configuration`` for user-added servers.
+    Shared client secrets come from a template credential source or the template's
+    encrypted credentials. User-added servers use the installation's encrypted state.
 
     Raises ``ValueError`` if the installation is missing required OAuth state.
     """
@@ -474,12 +489,11 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
 
     template = installation.template
     if template is not None:
-        credentials = template.oauth_credentials or {}
+        credentials = resolve_template_oauth_credentials(template)
         shared_client_id = credentials.get("client_id", "")
         if shared_client_id:
-            # Shared-creds template: every installation of this template
-            # authenticates with the same client against the admin-seeded
-            # metadata on the template.
+            # Shared-creds template: every installation authenticates with the
+            # same client against the trusted metadata on the template.
             metadata = dict(template.oauth_metadata or {})
             if not metadata:
                 raise ValueError("Template missing OAuth metadata")
@@ -644,9 +658,8 @@ def exchange_oauth_token(
 ) -> dict:
     """Exchange an authorization code for tokens using the installation's resolved client creds.
 
-    Works for both template-backed installs (shared client creds from
-    ``MCPServerTemplate.oauth_credentials``) and user-added installs (per-user
-    DCR creds stored in ``sensitive_configuration``).
+    Works for both template-backed installs with a shared client and user-added
+    installs with per-user DCR credentials.
     """
     if not pkce_verifier:
         raise OAuthTokenExchangeError("Missing PKCE verifier")

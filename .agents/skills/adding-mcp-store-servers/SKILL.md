@@ -31,7 +31,7 @@ Adding a server is a small PR to that file.
    The JSON verdict tells you everything the entry needs:
    - `speaks_mcp: false` → the probe could not verify MCP. Stop and re-research — with one exception: `reachable: true` plus the error "Initialize was rejected and no OAuth metadata was discovered" is the auth-walled API-key case (last bullet below).
    - `auth_flavor: "oauth_dcr"` with `passed_activation_gate: true` → OAuth with Dynamic Client Registration. The entry is `auth_type="oauth"` and will **activate automatically on merge**.
-   - `auth_flavor: "oauth_shared"` → OAuth without DCR. The entry is `auth_type="oauth"` but ships **inactive**; an operator must register an OAuth app with the vendor and paste credentials in Django admin (see the operator checklist below — include it in your PR description).
+   - `auth_flavor: "oauth_shared"` → OAuth without DCR. The entry is `auth_type="oauth"` but normally ships **inactive**; an operator must register an OAuth app with the vendor and paste credentials in Django admin (see the operator checklist below — include it in your PR description). If PostHog already provisions that exact OAuth app through an instance credential source, declare the reviewed source instead; catalog sync verifies and activates it without copying secrets.
    - `auth_flavor: "open"` → the handshake completed without credentials. `auth_type="api_key"`; activates automatically on merge.
    - `auth_flavor: "api_key_or_unknown"` with `reachable: true` → an auth-walled API-key server; a bare 401/403 gives the probe no MCP evidence. `auth_type="api_key"`, but the entry ships **inactive** — verify it with a real install (Gate B) before adding it, and note in the PR that an operator flips it active in Django admin per environment (users bring their own key; nothing to provision).
 
@@ -59,7 +59,7 @@ Adding a server is a small PR to that file.
 
 6. **Open the PR** — one server per PR, on an `mcp-store/`-prefixed branch (e.g. `mcp-store/add-pagerduty`), with a `feat(mcp-store)` title: `feat(mcp-store): add <name> to the MCP server catalog`.
    State the probe verdict and verification tier in the description.
-   For `oauth_shared` servers, include the operator checklist so activation isn't forgotten.
+   For `oauth_shared` servers without an existing instance credential source, include the operator checklist so activation isn't forgotten.
 
 ## Operator checklist for oauth_shared servers (paste into the PR)
 
@@ -77,5 +77,6 @@ This server does not support Dynamic Client Registration, so it ships inactive. 
 
 - Don't add entries with unprobed URLs — a dead catalog entry is user-visible breakage.
 - Don't edit `is_active`, `oauth_credentials`, or `oauth_metadata` expectations into the catalog — those are operational state owned by the row, not by code.
+- Don't add an instance credential source for a newly registered vendor app. Sources are only for an existing client already provisioned across every target environment.
 - Don't add icon assets or `icon_key` values — icons resolve from `icon_domain` via logo.dev at render time.
 - Don't batch unrelated servers into one PR unless explicitly doing a scaffold sweep; per-server PRs keep review and reverts clean.
