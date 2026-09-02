@@ -124,8 +124,7 @@ def test_find_repo_root_walks_to_repository_markers(tmp_path: Path) -> None:
     "junit_file",
     [
         "",
-        # pytest reports the decorator's own file for tests wrapped in mock.patch/freeze_time/
-        # parameterized; a path escaping the repo must fall back to classname inference.
+        # a decorator's site-packages path (see normalize_pytest_file)
         "../../../../../opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/unittest/mock.py",
     ],
 )
