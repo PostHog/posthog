@@ -55,7 +55,11 @@ from products.notebooks.backend.widget_generation import (
     generate_widget_source,
     review_widget_source,
 )
-from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL
+from products.notebooks.backend.widget_models import (
+    DEFAULT_WIDGET_MODEL,
+    MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+    MAX_WIDGET_PROMPT_LENGTH,
+)
 from products.notebooks.backend.widgets import (
     JOB_STALE_AFTER,
     MAX_FRAME_BYTES,
@@ -349,6 +353,43 @@ class TestWidgetGeneration(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert "model" in serializer.errors
+
+    def test_generate_request_accepts_an_effective_prompt_for_regeneration(self) -> None:
+        serializer = WidgetGenerateRequestSerializer(
+            data={
+                "prompt": "x" * MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+                "generation_id": str(uuid4()),
+                "generation_operation": "regenerate",
+            }
+        )
+
+        assert serializer.is_valid(), serializer.errors
+
+    def test_generate_request_keeps_initial_prompts_bounded(self) -> None:
+        serializer = WidgetGenerateRequestSerializer(
+            data={
+                "prompt": "x" * (MAX_WIDGET_PROMPT_LENGTH + 1),
+                "generation_id": str(uuid4()),
+                "generation_operation": "initial",
+            }
+        )
+
+        assert not serializer.is_valid()
+        assert serializer.errors["prompt"] == [
+            f"Keep widget instructions to {MAX_WIDGET_PROMPT_LENGTH:,} characters or fewer."
+        ]
+
+    def test_generate_request_requires_the_current_version_for_an_improvement(self) -> None:
+        serializer = WidgetGenerateRequestSerializer(
+            data={
+                "prompt": "Make it lighter",
+                "generation_id": str(uuid4()),
+                "generation_operation": "improve",
+            }
+        )
+
+        assert not serializer.is_valid()
+        assert "expected_current_version_id" in serializer.errors
 
     def test_canvas_validation_rejects_network(self) -> None:
         diagnostics = validate_notebook_canvas_source(
@@ -1042,6 +1083,54 @@ class TestWidgetData(APIBaseTest):
         assert job.status == GeneratedWidgetGenerationJob.Status.QUEUED
         assert job.error_code is None
 
+    def test_improvement_rejects_a_stale_current_version_before_creating_a_job(self) -> None:
+        self._mapping()
+
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            self.assertRaises(WidgetError) as error,
+        ):
+            start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Make it lighter",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=uuid4(),
+                operation=GeneratedWidgetVersion.Operation.IMPROVE,
+                expected_current_version_id=uuid4(),
+            )
+
+        assert error.exception.code == "generation_conflict"
+        assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+
+    def test_improvement_rejects_prompt_history_that_cannot_fit_the_effective_limit(self) -> None:
+        instance = self._mapping()
+        current_version = self._pinned_version(instance)
+        current_version.prompt_delta = "x" * MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH
+        current_version.prompt_history = [current_version.prompt_delta]
+        current_version.save(update_fields=["prompt_delta", "prompt_history"])
+
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            self.assertRaises(WidgetError) as error,
+        ):
+            start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Make it lighter",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=uuid4(),
+                operation=GeneratedWidgetVersion.Operation.IMPROVE,
+                expected_current_version_id=current_version.id,
+            )
+
+        assert error.exception.code == "effective_prompt_too_long"
+        assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+
     def test_generation_requires_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -1158,6 +1247,7 @@ class TestWidgetData(APIBaseTest):
                 model="claude-sonnet-4-6",
                 generation_id=generation_id,
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
+                expected_current_version_id=current_version.id,
             )
 
         assert result.active_job is not None
@@ -1178,6 +1268,7 @@ class TestWidgetData(APIBaseTest):
                 model="claude-sonnet-4-6",
                 generation_id=generation_id,
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
+                expected_current_version_id=current_version.id,
             )
         assert error.exception.code == "generation_id_conflict"
 
@@ -1230,6 +1321,7 @@ class TestWidgetData(APIBaseTest):
                 model="claude-sonnet-4-6",
                 generation_id=generation_id,
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
+                expected_current_version_id=self._pinned_version(instance).id,
             )
 
         own_job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(idempotency_key=generation_id)
