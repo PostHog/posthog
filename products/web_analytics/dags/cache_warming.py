@@ -43,6 +43,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     BACKGROUND_WARMING_TRIGGERS,
     MAX_PRECOMPUTE_DAYS,
     SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
+    get_sticky_warm_shapes,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute as can_use_overview_lazy_precompute,
@@ -634,6 +635,33 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
         )
         _write_cached_warmable_queries(days, minimum_query_count, max_shapes, queries)
 
+    # Union in shapes that check-missed since the selection was cached: they are
+    # proven lazy-eligible (recorded from inside the lazy gate) and their teams
+    # have live demand right now, so waiting for the selection blob's TTL leaves
+    # them re-missing for hours. No dedupe against the selection here — the warm
+    # pass already dedupes replays by (team_id, cache key), so an overlap costs
+    # one `skipped_duplicate`, not a double build. `representative_query_count=1`
+    # keeps any shape whose eligibility has since changed under the raw-replay
+    # demand bar, so stickiness can never mint raw background scans.
+    sticky = get_sticky_warm_shapes()
+    for entry in sticky:
+        query_json = entry.get("query") or {}
+        date_from = (query_json.get("dateRange") or {}).get("date_from")
+        queries.append(
+            {
+                "team_id": entry["team_id"],
+                "query_json": query_json,
+                "query_count": 1,
+                "representative_query_count": 1,
+                # Stable per-shape int for the staleness jitter, derived the same
+                # way selection derives it — from the payload content.
+                "normalized_query_hash": zlib.crc32(json.dumps(query_json, sort_keys=True).encode()),
+                "observed_date_froms": [date_from] if date_from else [],
+            }
+        )
+    if sticky:
+        context.log.info(f"Unioned {len(sticky)} sticky check-miss shapes into the warm pass")
+
     team_count = len({q["team_id"] for q in queries})
 
     WARMING_SHAPES_SELECTED_GAUGE.set(len(queries))
@@ -643,6 +671,7 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
         {
             "query_count": len(queries),
             "team_count": team_count,
+            "sticky_count": len(sticky),
             "cap_reached": len(queries) >= max_shapes,
             "from_cache": from_cache,
         }

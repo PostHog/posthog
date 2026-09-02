@@ -10,6 +10,7 @@ too, bounding how many namespaces the loosened filter gate lets a team mint.
 """
 
 import json
+import time
 import hashlib
 from collections.abc import Callable
 from dataclasses import replace
@@ -276,6 +277,88 @@ REVALIDATION_TEAM_BUDGET_PER_WINDOW = 25
 # (team, family, shape) per debounce window — a trickle, not a backlog.
 REVALIDATION_START_DELAY_SECONDS = 20
 
+# Sticky warm set: lazy-eligible user reads that check-missed record their shape
+# here, and the hourly warmer unions the set into its selection. This closes the
+# gap between new demand and the hours-stale cached demand selection, and keeps
+# reactively built namespaces warm instead of letting them expire and re-miss.
+# One Redis hash; the key TTL is refreshed on write, and each entry carries
+# `recorded_at` so the warmer prunes entries older than the max age. Entries are
+# keyed per bucket namespace (`compute_shape_cap_key`), so date-range variants of
+# one shape collapse to a single entry — warming any variant serves them all.
+STICKY_WARM_SHAPES_KEY = "{web_precompute_sticky_shapes}:v1"
+STICKY_SHAPE_KEY_TTL_SECONDS = 48 * 3600
+STICKY_SHAPE_MAX_AGE_SECONDS = 24 * 3600
+# Bounds the hash (payloads are query JSONs, ~1-2 KB each). When full, new
+# shapes simply are not recorded — they keep self-healing via check-miss builds.
+STICKY_SHAPE_MAX_ENTRIES = 10_000
+
+WEB_ANALYTICS_STICKY_WARM_RECORDED = Counter(
+    "web_analytics_sticky_warm_shapes_recorded_total",
+    "Check-missed shapes recorded into (or refused by) the sticky warm set.",
+    labelnames=["outcome"],  # recorded | full | error
+)
+
+
+def record_sticky_warm_shape(*, team: Team, runner: Any) -> None:
+    """Record a check-missed shape for the warmer's next pass. Best-effort: runs
+    on the user-facing read path, so any failure degrades to "not sticky" — the
+    shape still self-heals through the check-miss build, it just is not kept
+    warm until the demand selection picks it up."""
+    try:
+        field = compute_shape_cap_key(runner.query, team.timezone, getattr(runner, "_test_account_filters", None))[:24]
+        field = f"{team.id}:{field}"
+        client = redis.get_client()
+        if client.hexists(STICKY_WARM_SHAPES_KEY, field):
+            return
+        if client.hlen(STICKY_WARM_SHAPES_KEY) >= STICKY_SHAPE_MAX_ENTRIES:
+            WEB_ANALYTICS_STICKY_WARM_RECORDED.labels(outcome="full").inc()
+            return
+        payload = json.dumps(
+            {
+                "team_id": team.id,
+                "recorded_at": time.time(),
+                "query": runner.query.model_dump(mode="json", exclude_none=True),
+            }
+        )
+        pipe = client.pipeline()
+        pipe.hset(STICKY_WARM_SHAPES_KEY, field, payload)
+        pipe.expire(STICKY_WARM_SHAPES_KEY, STICKY_SHAPE_KEY_TTL_SECONDS)
+        pipe.execute()
+        WEB_ANALYTICS_STICKY_WARM_RECORDED.labels(outcome="recorded").inc()
+    except Exception:
+        WEB_ANALYTICS_STICKY_WARM_RECORDED.labels(outcome="error").inc()
+        logger.exception("web_precompute.sticky_warm_record_failed", team_id=team.id)
+
+
+def get_sticky_warm_shapes() -> list[dict]:
+    """Sticky entries for the warmer: `[{team_id, recorded_at, query}]`. Prunes
+    aged and undecodable entries as it reads (the hourly warmer is the single
+    reader, so the lazy HDEL cannot race another consumer). Fails open to an
+    empty list — the warmer then runs on the demand selection alone."""
+    try:
+        raw = redis.get_client().hgetall(STICKY_WARM_SHAPES_KEY)
+    except Exception:
+        logger.exception("web_precompute.sticky_warm_read_failed")
+        return []
+    now = time.time()
+    entries: list[dict] = []
+    dead_fields: list = []
+    for hash_field, blob in raw.items():
+        try:
+            entry = json.loads(blob)
+            if now - float(entry["recorded_at"]) > STICKY_SHAPE_MAX_AGE_SECONDS:
+                dead_fields.append(hash_field)
+                continue
+            entries.append(entry)
+        except Exception:
+            dead_fields.append(hash_field)
+    if dead_fields:
+        try:
+            redis.get_client().hdel(STICKY_WARM_SHAPES_KEY, *dead_fields)
+        except Exception:
+            logger.warning("web_precompute.sticky_warm_prune_failed", exc_info=True)
+    return entries
+
 
 def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
     """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
@@ -436,6 +519,10 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
         # so the next visit is served from precompute while this one goes live.
         WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS.labels(family=family).inc()
         enqueue_stale_revalidation(team=team, query=runner.query, family=family)
+        # Sticky: the shape reached this point through the lazy gate, so it is
+        # proven lazy-eligible — record it so the hourly warmer keeps its buckets
+        # warm instead of letting the one-off reactive build expire and re-miss.
+        record_sticky_warm_shape(team=team, runner=runner)
     if result.memory_exceeded:
         pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned
         if not pinned:
