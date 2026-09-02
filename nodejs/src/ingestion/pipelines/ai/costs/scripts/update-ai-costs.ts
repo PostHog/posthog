@@ -159,9 +159,11 @@ export const isVendorPromotion = (route: RouteRate, routes: RouteRate[]): boolea
     )
 }
 
-/** True when no route outside the model's vendor exists, so neither refutation
- * above had anything to search. The verdict stands on the vendor's word. */
-export const isSoleVendorModel = (routes: RouteRate[]): boolean => !routes.some((route) => !route.firstParty)
+/** True when no route could have satisfied either refutation above: none outside
+ * the vendor to carry the rate, and none undiscounted to carry the price. The
+ * verdict then stands on the vendor's word alone. */
+export const hasNoRefuter = (routes: RouteRate[]): boolean =>
+    !routes.some((route) => !route.firstParty || route.discount === 0)
 
 /** Keeps a cost at the price OpenRouter serves, promotion included. */
 export const buildServedCost = (
@@ -203,9 +205,12 @@ export interface EndpointCandidate {
     cost: ModelCost
     discount: number
     vendorPromotion: boolean
-    /** True when the model has no route outside its vendor, so nothing could
-     * have refuted `vendorPromotion`. */
-    soleVendor: boolean
+    /** True when nothing in the model could have refuted `vendorPromotion`. */
+    unrefutable: boolean
+    /** Served price and where dividing the rate out would put it, carried so the
+     * report can show a reader the spread it asks them to check. */
+    servedPrompt: number | undefined
+    listPrompt: number | undefined
 }
 
 /*
@@ -250,7 +255,9 @@ export interface DiscountReportEntry {
         /** What was stored, carried rather than read back off the verdict: the
          * report is the only audit surface for these prices. */
         vendorPromotion: boolean
-        soleVendor: boolean
+        unrefutable: boolean
+        servedPrompt: number | undefined
+        listPrompt: number | undefined
     }>
 }
 
@@ -259,6 +266,16 @@ export const UNCHECKED_WARN_FRACTION = 0.1
 
 /** Table rows rendered before the remainder collapses into a count line. */
 export const DISCOUNT_REPORT_ROW_LIMIT = 200
+
+/** Served price against the one dividing the rate out recovers, per million
+ * tokens. Only kept routes get it: the reader has to judge those by hand. */
+const renderSpread = (endpoint: DiscountReportEntry['endpoints'][number]): string => {
+    if (!endpoint.vendorPromotion || endpoint.servedPrompt === undefined || endpoint.listPrompt === undefined) {
+        return ''
+    }
+    const perMillion = (value: number): string => `$${parseFloat((value * 1e6).toPrecision(6))}`
+    return `${perMillion(endpoint.servedPrompt)} vs ${perMillion(endpoint.listPrompt)}`
+}
 
 /** Confines a third-party string to inert text in one table cell. An allowlist,
  * because a denylist has to anticipate every markdown construct that renders. */
@@ -293,7 +310,7 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     // The platform's own promotions: a vendor's is not OpenRouter running one.
     const endpointCount = allEndpoints.length - kept.length
     const modelCount = rows.filter((row) => row.endpoints.some((e) => !e.vendorPromotion)).length
-    const unrefutable = kept.filter((e) => e.soleVendor).length
+    const unrefuted = kept.filter((e) => e.unrefutable).length
 
     const flatFeeList = [...FLAT_FEE_FIELDS]
         .sort()
@@ -313,14 +330,14 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
         `The \`default\` key is left as OpenRouter serves it, and so are **${kept.length} endpoint(s)**`,
         'marked `served` below, where the model vendor runs the route and neither an',
         'unrelated operator on the same rate nor an undiscounted sibling price',
-        `contradicts it. **${unrefutable}** of those sit on models with no route outside the`,
-        'vendor, so nothing could have contradicted them: check those against the',
-        "vendor's own pricing page before trusting a large rate.",
+        `contradicts it. **${unrefuted}** of those had no route that could have refuted`,
+        "either way, so they stand on the vendor's word: the spread column gives the",
+        'served and recovered prices to check against the vendor’s own pricing page.',
         '',
         `Independently confirmed against an undiscounted sibling route: ${confirmed}/${checkable} checkable model(s).`,
         unchecked,
-        '| Model | Endpoint | Rate | Stored | Confirmed |',
-        '| --- | --- | --- | --- | --- |',
+        '| Model | Endpoint | Rate | Stored | Spread /1M | Confirmed |',
+        '| --- | --- | --- | --- | --- | --- |',
     ]
 
     // Bounded on emitted rows, not models: the widest model carries 32 endpoints,
@@ -335,9 +352,9 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
         for (const [index, endpoint] of row.endpoints.entries()) {
             const model = index === 0 ? sanitizeReportCell(row.model) : ''
             const confirmation = endpoint.confirmation
-            const stored = endpoint.vendorPromotion ? (endpoint.soleVendor ? 'served (sole)' : 'served') : 'list'
+            const stored = endpoint.vendorPromotion ? (endpoint.unrefutable ? 'served (unrefuted)' : 'served') : 'list'
             lines.push(
-                `| ${model} | \`${sanitizeReportCell(endpoint.key)}\` | ${Math.round(endpoint.discount * 100)}% | ${stored} | ${confirmation} |`
+                `| ${model} | \`${sanitizeReportCell(endpoint.key)}\` | ${Math.round(endpoint.discount * 100)}% | ${stored} | ${renderSpread(endpoint)} | ${confirmation} |`
             )
         }
         emitted += row.endpoints.length
@@ -401,7 +418,7 @@ export const buildModelRow = (
         }
     })
 
-    const soleVendor = isSoleVendorModel(routes)
+    const unrefutable = hasNoRefuter(routes)
 
     for (const route of routes) {
         const vendorPromotion = isVendorPromotion(route, routes)
@@ -418,7 +435,9 @@ export const buildModelRow = (
             cost: endpointCost,
             discount: route.discount,
             vendorPromotion,
-            soleVendor,
+            unrefutable,
+            servedPrompt: route.servedPrompt,
+            listPrompt: route.listPrompt,
         })
     }
 
@@ -441,7 +460,9 @@ export const buildModelRow = (
                           discount: candidate.discount,
                           confirmation: confirmDiscountAgainstSiblings(candidate, candidates),
                           vendorPromotion: candidate.vendorPromotion,
-                          soleVendor: candidate.soleVendor,
+                          unrefutable: candidate.unrefutable,
+                          servedPrompt: candidate.servedPrompt,
+                          listPrompt: candidate.listPrompt,
                       })),
                   }
                 : undefined,

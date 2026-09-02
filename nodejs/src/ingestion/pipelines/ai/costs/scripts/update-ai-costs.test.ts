@@ -26,8 +26,8 @@ import {
     fetchOpenRouterCosts,
     finalizeTotals,
     foldModelIntoTotals,
+    hasNoRefuter,
     isFirstPartyRoute,
-    isSoleVendorModel,
     isVendorPromotion,
     parseDiscountRate,
     readEndpointsFromOpenRouter,
@@ -51,7 +51,9 @@ const candidate = (key: string, promptPrice: string, discount: number, vendorPro
     cost: cost(promptPrice, discount)!,
     discount,
     vendorPromotion,
-    soleVendor: false,
+    unrefutable: false,
+    servedPrompt: undefined,
+    listPrompt: undefined,
 })
 
 /** An endpoints-payload entry shaped the way OpenRouter serves it. */
@@ -183,20 +185,29 @@ describe('isFirstPartyRoute()', () => {
         }
     })
 
-    it('maps every alias onto a provider key that serves that namespace', () => {
-        // Binds the table to the price book rather than to itself: a stale or
-        // typo'd vendor matches no route and silently reverts to de-discounting.
+    it('maps every alias onto a vendor that hosts most of its own namespace', () => {
+        // Binds the table to the price book rather than to itself. Mere presence
+        // is too weak: resellers appear on other vendors' namespaces too, and
+        // `qwen: 'together'` would pass that. A vendor hosts the bulk of its own
+        // models (80-100% live) where a reseller reaches a third at most.
         const book: Array<{ model: string; cost: Record<string, unknown> }> = parseJSON(
             fs.readFileSync(path.join(__dirname, '../providers/llm-costs.json'), 'utf8')
         )
 
+        let checked = 0
         for (const [namespace, vendor] of Object.entries(MODEL_NAMESPACE_VENDORS)) {
-            const keys = book
-                .filter((row) => row.model.startsWith(`${namespace}/`))
-                .flatMap((row) => Object.keys(row.cost))
-            expect(keys.length).toBeGreaterThan(0)
-            expect(keys.filter((key) => key === vendor || key.startsWith(`${vendor}-`))).not.toHaveLength(0)
+            const models = book.filter((row) => row.model.startsWith(`${namespace}/`))
+            // A namespace the catalogue drops makes its entry inert, not wrong.
+            if (models.length === 0) {
+                continue
+            }
+            const hosted = models.filter((row) =>
+                Object.keys(row.cost).some((key) => key === vendor || key.startsWith(`${vendor}-`))
+            )
+            expect(hosted.length / models.length).toBeGreaterThan(0.5)
+            checked += 1
         }
+        expect(checked).toBeGreaterThan(0)
     })
 })
 
@@ -228,6 +239,22 @@ describe('isVendorPromotion()', () => {
             subject: route(0.5, true),
             routes: [route(0.5, true), route(0.2, false)],
             expected: true,
+        },
+        {
+            // 4e-8 / 0.2 is 2.0000000000000004e-7 in float, so this matches only
+            // because both sides round first. Pins that rounding.
+            description: 'refutes on a price whose division is inexact',
+            subject: route(0.8, true, 4e-8),
+            routes: [route(0.8, true, 4e-8), route(0, false, 2e-7)],
+            expected: false,
+        },
+        {
+            // A negative rate is a markup: the served price sits above list, and
+            // dividing it out is what recovers list.
+            description: 'never holds for a markup',
+            subject: route(-0.2, true),
+            routes: [route(-0.2, true)],
+            expected: false,
         },
         {
             description: 'fails when de-discounting lands on an undiscounted price',
@@ -262,11 +289,13 @@ describe('isVendorPromotion()', () => {
 
     it('holds on a vendor-only model, where nothing can refute it', () => {
         // gemini-3.7-flash is this shape: every route is Google's, so both
-        // refutations scan an empty set. `isSoleVendorModel` marks it in the report.
+        // refutations scan an empty set. `hasNoRefuter` marks it in the report.
         const routes = [route(0.5, true), route(0.5, true, 3.5e-7)]
         expect(isVendorPromotion(routes[0], routes)).toBe(true)
-        expect(isSoleVendorModel(routes)).toBe(true)
-        expect(isSoleVendorModel([route(0.5, true), route(0, false)])).toBe(false)
+        expect(hasNoRefuter(routes)).toBe(true)
+        // An undiscounted route could refute on price even when it is the vendor's own.
+        expect(hasNoRefuter([route(0.5, true), route(0, true)])).toBe(false)
+        expect(hasNoRefuter([route(0.5, true), route(0.5, false)])).toBe(false)
     })
 })
 
@@ -490,7 +519,9 @@ describe('buildModelRow()', () => {
                     discount: 0.5,
                     confirmation: 'confirmed' as const,
                     vendorPromotion: false,
-                    soleVendor: false,
+                    unrefutable: false,
+                    servedPrompt: 5e-7,
+                    listPrompt: 0.000001,
                 },
             ],
         })
@@ -558,7 +589,7 @@ describe('buildModelRow()', () => {
             endpoint('google-ai-studio', '0.0000005', 0.5),
         ])
         expect(built!.cost['google-ai-studio'].prompt_token).toBe(0.0000005)
-        expect(built!.discount?.endpoints[0].soleVendor).toBe(true)
+        expect(built!.discount?.endpoints[0].unrefutable).toBe(true)
     })
 
     it('keeps a vendor promotion when a reseller runs a different rate', () => {
@@ -645,14 +676,18 @@ describe('confirmDiscountAgainstSiblings()', () => {
             cost: buildModelCost({ prompt: '0.0000005', completion: '0.000009', discount: 0.5 })!,
             discount: 0.5,
             vendorPromotion: false,
-            soleVendor: false,
+            unrefutable: false,
+            servedPrompt: undefined,
+            listPrompt: undefined,
         }
         const sibling: EndpointCandidate = {
             key: 'azure',
             cost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
             discount: 0,
             vendorPromotion: false,
-            soleVendor: false,
+            unrefutable: false,
+            servedPrompt: undefined,
+            listPrompt: undefined,
         }
         expect(confirmDiscountAgainstSiblings(discounted, [discounted, sibling])).toBe('confirmed')
     })
@@ -701,7 +736,9 @@ describe('renderDiscountReport()', () => {
                 discount: 0.5,
                 confirmation: 'confirmed' as const,
                 vendorPromotion: false,
-                soleVendor: false,
+                unrefutable: false,
+                servedPrompt: undefined,
+                listPrompt: undefined,
             },
         ],
         ...over,
@@ -749,7 +786,9 @@ describe('renderDiscountReport()', () => {
                         discount: 0.5,
                         confirmation: 'unconfirmed' as const,
                         vendorPromotion: false,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                 ],
             }),
@@ -761,14 +800,18 @@ describe('renderDiscountReport()', () => {
                         discount: 0.35,
                         confirmation: 'not-checkable' as const,
                         vendorPromotion: false,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                     {
                         key: 'streamlake',
                         discount: 0.4,
                         confirmation: 'not-checkable' as const,
                         vendorPromotion: false,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                 ],
             }),
@@ -791,14 +834,18 @@ describe('renderDiscountReport()', () => {
                         discount: 0.5,
                         confirmation: 'not-applicable' as const,
                         vendorPromotion: true,
-                        soleVendor: true,
+                        unrefutable: true,
+                        servedPrompt: 7.5e-7,
+                        listPrompt: 1.5e-6,
                     },
                     {
                         key: 'google-vertex-global',
                         discount: 0.5,
                         confirmation: 'not-applicable' as const,
                         vendorPromotion: true,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                 ],
             }),
@@ -807,9 +854,31 @@ describe('renderDiscountReport()', () => {
         expect(report).toContain('**1 model(s)**')
         expect(report).toContain('1/1 checkable')
         expect(report).toContain('**2 endpoint(s)**')
-        expect(report).toContain('**1** of those sit on models with no route outside the')
-        expect(report).toContain('| `google-ai-studio` | 50% | served (sole) | not-applicable |')
-        expect(report).toContain('| `google-vertex-global` | 50% | served | not-applicable |')
+        expect(report).toContain('**1** of those had no route that could have refuted')
+        expect(report).toContain('| `google-ai-studio` | 50% | served (unrefuted) | $0.75 vs $1.5 | not-applicable |')
+        expect(report).toContain('| `google-vertex-global` | 50% | served |  | not-applicable |')
+    })
+
+    it('reads what was stored off the flag, not off the verdict', () => {
+        // The two agree in production. Held apart here so a regression back to
+        // deriving `Stored` from the enum cannot pass.
+        const report = renderDiscountReport([
+            entry({
+                endpoints: [
+                    {
+                        key: 'openai',
+                        discount: 0.5,
+                        confirmation: 'not-applicable' as const,
+                        vendorPromotion: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
+                    },
+                ],
+            }),
+        ])
+        expect(report).toContain('| 50% | list |')
+        expect(report).toContain('**1 endpoint(s)**')
     })
 
     it('puts the confirmation verdict on the row it belongs to', () => {
@@ -821,7 +890,9 @@ describe('renderDiscountReport()', () => {
                         discount: 0.5,
                         confirmation: 'unconfirmed' as const,
                         vendorPromotion: false,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                 ],
             }),
@@ -838,14 +909,18 @@ describe('renderDiscountReport()', () => {
                         discount: 0.5,
                         confirmation: 'confirmed' as const,
                         vendorPromotion: false,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                     {
                         key: 'openai-flex',
                         discount: 0.5,
                         confirmation: 'confirmed' as const,
                         vendorPromotion: false,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                 ],
             }),
@@ -875,7 +950,9 @@ describe('renderDiscountReport()', () => {
                     discount: 0.5,
                     confirmation: 'confirmed' as const,
                     vendorPromotion: false,
-                    soleVendor: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
                 })),
             })
         )
@@ -920,7 +997,9 @@ describe('renderDiscountReport()', () => {
                         discount: 0.5,
                         confirmation: 'confirmed' as const,
                         vendorPromotion: false,
-                        soleVendor: false,
+                        unrefutable: false,
+                        servedPrompt: undefined,
+                        listPrompt: undefined,
                     },
                 ],
             }),
@@ -957,7 +1036,9 @@ describe('accumulateModelRow()', () => {
                     discount: 0.5,
                     confirmation: 'confirmed' as const,
                     vendorPromotion: false,
-                    soleVendor: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
                 },
             ],
         }
@@ -983,7 +1064,15 @@ describe('accumulateModelRow()', () => {
         const discount: DiscountReportEntry = {
             model: 'a',
             endpoints: [
-                { key: 'openai', discount: 0.5, confirmation: 'confirmed', vendorPromotion: false, soleVendor: false },
+                {
+                    key: 'openai',
+                    discount: 0.5,
+                    confirmation: 'confirmed',
+                    vendorPromotion: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
+                },
             ],
         }
         accumulateModelRow(built({ checked: false, discount }), 'a', base)
@@ -1293,7 +1382,15 @@ describe('writeOutputs()', () => {
         const promo: DiscountReportEntry = {
             model: 'openai/gpt-5.6-luna',
             endpoints: [
-                { key: 'openai', discount: 0.5, confirmation: 'confirmed', vendorPromotion: false, soleVendor: false },
+                {
+                    key: 'openai',
+                    discount: 0.5,
+                    confirmation: 'confirmed',
+                    vendorPromotion: false,
+                    unrefutable: false,
+                    servedPrompt: undefined,
+                    listPrompt: undefined,
+                },
             ],
         }
 
