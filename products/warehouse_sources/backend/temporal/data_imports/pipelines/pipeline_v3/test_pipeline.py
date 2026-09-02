@@ -312,20 +312,21 @@ class TestCDCSeqProvenanceSurvivesStaging:
         assert has_engine_seq(pq.read_table(buf))
 
 
-class TestZeroBatchRunIsRecordedAsSynced:
+class TestZeroBatchRunStampsTheFullRunMarker:
     @pytest.mark.asyncio
-    async def test_a_run_that_extracted_nothing_is_still_recorded_as_synced(self) -> None:
+    async def test_a_run_that_extracted_nothing_still_counts_as_a_full_run(self) -> None:
         pipeline = _make_pipeline()
         pipeline._batch_results = []
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_last_synced_at",
-            new=AsyncMock(),
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_sync_type_config_keys",
+            new=MagicMock(),
         ) as update:
             await pipeline._finalize(row_count=0)
 
-        update.assert_awaited_once()
-        assert update.await_args.kwargs["schema_id"] == str(pipeline._schema.id)
+        update.assert_called_once()
+        assert "last_full_run_at" in update.call_args.kwargs["updates"]
+        assert "extra_model_fields" not in update.call_args.kwargs
 
     @pytest.mark.asyncio
     async def test_a_bookkeeping_failure_does_not_fail_the_sync(self) -> None:
@@ -333,7 +334,7 @@ class TestZeroBatchRunIsRecordedAsSynced:
         pipeline._batch_results = []
 
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_last_synced_at",
-            new=AsyncMock(side_effect=RuntimeError("pooler is down")),
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_sync_type_config_keys",
+            new=MagicMock(side_effect=RuntimeError("pooler is down")),
         ):
             await pipeline._finalize(row_count=0)
