@@ -9276,6 +9276,7 @@ export namespace Schemas {
     export const AgentKeyEnum = {
       Support: 'support',
       Scout: 'scout',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -50470,6 +50471,8 @@ export namespace Schemas {
       name: string;
       /** Server description. */
       description: string;
+      /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+      url: string;
       /** Deprecated brand icon key. Empty for custom servers. */
       icon_key: string;
       /** Brand domain. Empty for custom servers. */
@@ -50482,6 +50485,8 @@ export namespace Schemas {
        * * `disabled` - disabled
        * * `missing_credential` - missing_credential */
       connection_state: ConnectionStateEnum;
+      /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+      reachable: boolean;
     }
 
     export interface MCPServiceAccount {
@@ -57230,6 +57235,11 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /**
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -91079,6 +91089,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -91176,6 +91187,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     /**
@@ -91259,6 +91271,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -91344,6 +91357,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
