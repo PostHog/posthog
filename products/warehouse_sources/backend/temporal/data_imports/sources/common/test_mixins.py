@@ -485,3 +485,41 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
                 OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
 
         assert get.call_count == 2
+
+
+class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
+    # A direct database connection is a raw socket that the HTTP egress proxy never sees, and the
+    # sync path reaches these entry points from stored config without re-running
+    # `is_database_host_valid`, so what they do here is the only control on where it connects.
+    @staticmethod
+    def _resolves_to(ip: str) -> list:
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
+
+    @staticmethod
+    def _connection_cm(entrypoint: str, config, team_id: int):
+        if entrypoint == "open_ssh_tunnel":
+            return open_ssh_tunnel(config, team_id)
+        return make_ssh_tunnel_factory(config, team_id)()
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_yields_the_hostname_so_sni_and_multi_address_failover_survive(self, entrypoint: str):
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("93.184.216.34")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with self._connection_cm(entrypoint, config, 999) as (host, port):
+                assert (host, port) == ("db.example.com", 5432)
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_host_resolving_to_an_internal_ip_is_refused(self, entrypoint: str):
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("169.254.169.254")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(Exception, match="Database host not allowed"):
+                with self._connection_cm(entrypoint, config, 999):
+                    pass

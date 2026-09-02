@@ -263,6 +263,36 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     return resolution.connect_host
 
 
+def _check_direct_host(config, team_id: int | None) -> None:
+    """Refuse a direct database connection to a host that resolves somewhere internal.
+
+    The connect-time counterpart to `is_database_host_valid`, which runs at the API layer on
+    create, update, and direct query. The sync path goes from the stored config straight to the
+    connection, so without this a host that resolved to a public address at setup is never
+    re-checked on any later scheduled run. A direct database connection is a raw socket, so the
+    HTTP egress proxy is not in its path either.
+
+    Unlike `_pinned_ssh_host` this checks without pinning: the caller goes on to connect by
+    hostname, because the database clients downstream need it for SNI and for libpq's
+    multi-address failover (see `_resolve_hostaddr_with_timeout`). Pinning the address that is
+    actually dialed belongs in those clients, where the hostname can be kept alongside it. Until
+    it lives there, a host that answers public here and private on the connect is still reachable
+    — this closes the standing exposure, not the resolve-to-connect race.
+
+    A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
+    same either way; it only costs the internal-host exemption on entry points that don't carry a
+    team yet (`open_ssh_tunnel(config)` in the Redshift, MySQL and MSSQL clients).
+
+    The resolve inside `resolve_safe_host` is unbounded, and for Postgres it now runs ahead of the
+    bounded `_resolve_hostaddr_with_timeout`. A stalled resolver therefore hangs the activity until
+    Temporal's `start_to_close_timeout` rather than failing fast and retryably — the failure that
+    bounded lookup exists to prevent. Bounding this one is the follow-up.
+    """
+    resolution = resolve_safe_host(config.host, team_id)
+    if resolution.connect_host is None:
+        raise Exception(f"Database host not allowed: {resolution.error}")
+
+
 @contextmanager
 def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
@@ -279,6 +309,7 @@ def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, 
 
                 yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
         else:
+            _check_direct_host(config, team_id)
             yield config.host, config.port
 
 
@@ -311,6 +342,9 @@ def make_ssh_tunnel_factory(
     @contextmanager
     def without_ssh_func():
         with _logged_connection(config, team_id):
+            # Checked per reopen, not once when the factory is built, so a long-running
+            # sync that reconnects re-checks the host each time.
+            _check_direct_host(config, team_id)
             yield config.host, config.port
 
     return without_ssh_func
