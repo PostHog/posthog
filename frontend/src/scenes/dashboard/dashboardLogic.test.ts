@@ -559,6 +559,71 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('saving a layout change does not persist leftover view filters', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload).toEqual(
+                expect.objectContaining({
+                    tiles: expect.any(Array),
+                })
+            )
+            expect(payload).not.toHaveProperty('filters')
+        })
+
+        it('saving a color or theme change does not persist leftover view filters', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
+                logic.actions.setDataColorThemeId(123)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload).toEqual(
+                expect.objectContaining({
+                    breakdown_colors: expect.arrayContaining([
+                        expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                    ]),
+                    data_color_theme_id: 123,
+                })
+            )
+            expect(payload).not.toHaveProperty('filters')
+        })
+
         it('dashboard save after changing global dates runs tile refresh to repopulate insight results missing from PATCH', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
