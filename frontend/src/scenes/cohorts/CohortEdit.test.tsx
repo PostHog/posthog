@@ -364,6 +364,54 @@ describe('cohortEditLogic', () => {
             }).toDispatchActions(['submitCohort'])
         })
 
+        it('disables the retry button while the recalculation PATCH is in flight', async () => {
+            const cohortId = 6
+            const failed = {
+                id: cohortId,
+                name: 'Test Cohort',
+                is_static: false,
+                filters: { properties: { type: 'AND', values: [] } },
+                version: 1,
+                pending_version: 2,
+                is_calculating: false,
+                errors_calculating: 1,
+                last_calculation: '2024-01-01T00:00:00Z',
+                last_error_message: 'Query execution timed out',
+            }
+            let releasePatch: () => void = () => {}
+            useMocks({
+                get: { [`/api/projects/:team_id/cohorts/${cohortId}/`]: failed },
+                // Hold the PATCH open so the in-flight window is observable rather than a fast resolve.
+                patch: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: async () => {
+                        await new Promise<void>((resolve) => {
+                            releasePatch = resolve
+                        })
+                        return { ...failed, is_calculating: true, errors_calculating: 0, pending_version: 3 }
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+            await screen.findByText(/Calculation failed:/)
+
+            const retryButton = (): HTMLElement | null =>
+                document.querySelector('[data-attr="cohort-retry-calculation"]')
+            // Enabled once the initial load settles.
+            await waitFor(() => expect(retryButton()).toHaveAttribute('aria-disabled', 'false'))
+
+            await userEvent.click(retryButton() as HTMLElement)
+
+            // While the recalculation is queued, the button shows its loading/disabled state so the
+            // click doesn't read as inert — the dead-end symptom the PR fixes.
+            await waitFor(() => expect(retryButton()).toHaveAttribute('aria-disabled', 'true'))
+
+            // Release the PATCH and let the loader settle so nothing is left in flight; the banner
+            // then leaves the error state.
+            releasePatch()
+            await waitFor(() => expect(screen.queryByText(/Calculation failed:/)).not.toBeInTheDocument())
+        })
+
         it('shows the error banner, not a pending state, when a stuck calculation has failed', async () => {
             const cohortId = 3
 
