@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sin
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import update_last_synced_at
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -502,6 +503,19 @@ class PipelineV3(Generic[ResumableData]):
             str(self._job.id), self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
         )
 
+    async def _record_checked_without_extracting(self) -> None:
+        """Mark the schema as checked after a run that produced no batches.
+
+        Best-effort: a bookkeeping failure must not fail an otherwise successful sync, which is
+        how the observed-columns write above treats the same risk.
+        """
+        try:
+            await update_last_synced_at(
+                job_id=str(self._job.id), schema_id=str(self._schema.id), team_id=self._job.team_id
+            )
+        except Exception:
+            await self._logger.aexception("V3 Pipeline: Failed to record a zero-batch run as synced")
+
     async def _finalize(self, row_count: int) -> None:
         # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.
         if self._observed_columns:
@@ -518,6 +532,12 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = len(self._batch_results)
 
         if total_batches == 0:
+            # A run that extracted nothing still checked the source, so it owes the same
+            # bookkeeping every other path gets from post-load. Post-load never runs here:
+            # with no batches the load consumer is never notified, so nothing downstream
+            # writes `last_synced_at` and the schema reads as stale for as long as the source
+            # stays quiet. The v2 pipeline already writes it on its own zero-row path.
+            await self._record_checked_without_extracting()
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             return
 

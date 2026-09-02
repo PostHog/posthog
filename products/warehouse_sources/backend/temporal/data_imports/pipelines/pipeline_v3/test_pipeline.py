@@ -15,6 +15,7 @@ def _make_logger() -> MagicMock:
     logger.ainfo = AsyncMock()
     logger.awarning = AsyncMock()
     logger.aerror = AsyncMock()
+    logger.aexception = AsyncMock()
     logger.exception = MagicMock()
     return logger
 
@@ -309,3 +310,30 @@ class TestCDCSeqProvenanceSurvivesStaging:
         buf.seek(0)
 
         assert has_engine_seq(pq.read_table(buf))
+
+
+class TestZeroBatchRunIsRecordedAsSynced:
+    @pytest.mark.asyncio
+    async def test_a_run_that_extracted_nothing_is_still_recorded_as_synced(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = []
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_last_synced_at",
+            new=AsyncMock(),
+        ) as update:
+            await pipeline._finalize(row_count=0)
+
+        update.assert_awaited_once()
+        assert update.await_args.kwargs["schema_id"] == str(pipeline._schema.id)
+
+    @pytest.mark.asyncio
+    async def test_a_bookkeeping_failure_does_not_fail_the_sync(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._batch_results = []
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_last_synced_at",
+            new=AsyncMock(side_effect=RuntimeError("pooler is down")),
+        ):
+            await pipeline._finalize(row_count=0)
