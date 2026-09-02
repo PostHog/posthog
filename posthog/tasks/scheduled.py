@@ -70,6 +70,7 @@ from posthog.tasks.tasks import (
 )
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
+from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
@@ -118,6 +119,7 @@ from products.tasks.backend.facade.tasks import (
     reconcile_loop_trigger_schedules_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
+    sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
@@ -362,6 +364,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sweep loop task retention",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="15"),
+        sweep_inactive_tasks_task.s(),
+        name="archive inactive tasks",
+    )
+
     # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules
     # stranded pending/failed by a transient Temporal outage during create/edit.
     add_periodic_task_with_expiry(
@@ -427,6 +436,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="45"),
         cleanup_stale_remote_config_expiry_tracking_task.s(),
         name="remote config cache expiry tracking cleanup",
+    )
+
+    # Abandoned presigned media uploads cleanup - daily at 4:15 AM
+    sender.add_periodic_task(
+        crontab(hour="4", minute="15"),
+        sweep_abandoned_media_uploads_task.s(),
+        name="sweep abandoned media uploads",
     )
 
     # Team metadata cache verification - hourly at minute 20

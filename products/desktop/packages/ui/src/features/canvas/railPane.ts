@@ -75,6 +75,27 @@ export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
 }
 
+const NON_RESTORABLE_ROOTS = [
+  "/settings",
+  "/folders",
+  "/skills",
+  "/mcp-servers",
+  "/usage",
+  "/inbox/agents",
+];
+
+export function isRestorableVisitHref(
+  pane: NavRailPane,
+  href: string,
+): boolean {
+  const path = href.replace(/[?#].*$/, "");
+  const blocked = NON_RESTORABLE_ROOTS.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+  if (blocked) return false;
+  return railPaneForPath(path) === pane;
+}
+
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "spaces",
   "activity",

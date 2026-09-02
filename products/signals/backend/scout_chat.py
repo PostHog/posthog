@@ -25,14 +25,15 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import usage_limit_response
 
-SCOUT_AUTHOR_PROMPT = """I'd like to make a new scout for this PostHog project.
+SCOUT_AUTHOR_PROMPT = f"""I'd like to make a new scout for this PostHog project.
 
 Use the authoring-scouts skill from the PostHog MCP to guide creating a new signals scout.
 
-First, take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value.
+First, {SCOUT_PROJECT_SCAN_GUIDANCE}
 
 Then ask me what sort of scout I'd like to make, and offer a few concrete suggestions tailored to what you found (for example specific funnels, error or latency spikes, churn or activation signals, or revenue metrics worth watching) – and call out gaps the current fleet doesn't already cover. Once I pick a direction, walk me through authoring the scout end to end.
 
@@ -66,6 +67,27 @@ SCOUT_CHAT_TEMPLATES: dict[str, tuple[str, str]] = {
     "recent_signals": ("What signals were emitted recently?", SCOUT_RECENT_SIGNALS_PROMPT),
 }
 SCOUT_CHAT_DAILY_ATTEMPT_CAP = 15
+
+
+def consume_daily_attempt(key_prefix: str, scope_id: int | str, cap: int) -> bool:
+    """Fixed UTC-day counter in the cache: True while `scope_id` is within `cap` attempts today."""
+    window = int(time.time()) // 86400
+    key = f"{key_prefix}:{scope_id}:{window}"
+    cache.add(key, 0, timeout=86400)
+    try:
+        attempts = cache.incr(key)
+    except ValueError:
+        attempts = 1
+    return attempts <= cap
+
+
+def refund_daily_attempt(key_prefix: str, scope_id: int | str) -> None:
+    """Give back one attempt consumed this UTC day, for a request that did no work."""
+    window = int(time.time()) // 86400
+    try:
+        cache.decr(f"{key_prefix}:{scope_id}:{window}")
+    except ValueError:
+        pass
 
 
 class ScoutChatBurstRateThrottle(UserRateThrottle):
@@ -135,14 +157,7 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
-        window = int(time.time()) // 86400
-        key = f"signals_scout_chat_attempts:{request.user.id}:{window}"
-        cache.add(key, 0, timeout=86400)
-        try:
-            attempts = cache.incr(key)
-        except ValueError:
-            attempts = 1
-        if attempts > SCOUT_CHAT_DAILY_ATTEMPT_CAP:
+        if not consume_daily_attempt("signals_scout_chat_attempts", request.user.id, SCOUT_CHAT_DAILY_ATTEMPT_CAP):
             raise exceptions.Throttled(detail="You've reached today's limit for scout chats. Try again tomorrow.")
 
         title, prompt = SCOUT_CHAT_TEMPLATES[request.validated_data["chat_type"]]

@@ -166,15 +166,18 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
     Dynamically retrieve field-level access control requirements from model fields.
     This function looks for fields decorated with @requires_access.
     """
-    field_access_map = {}
+    field_access_map: dict[str, tuple[APIScopeObject, AccessControlLevel]] = {}
 
     # Iterate through all fields in the model
     for field in model_class._meta.get_fields():
         # Check if the field has access control metadata
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
-            field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
+            field_access_map[field.name] = (
+                cast(APIScopeObject, field._access_control_resource),
+                cast(AccessControlLevel, field._access_control_level),
+            )
 
-    return field_access_map  # ty: ignore[invalid-return-type]
+    return field_access_map
 
 
 def resource_to_display_name(resource: APIScopeObject) -> str:

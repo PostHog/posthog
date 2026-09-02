@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    ExportRendererAuthentication,
     IDJagAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
@@ -624,6 +625,8 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
         return list(authenticator.scopes or [])
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
         return list(authenticator.project_secret_api_key.scopes or [])
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return list(authenticator.scopes)
     return None
 
 
@@ -657,6 +660,8 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     credential = get_authenticator_user_credential(authenticator)
     if credential is not None:
         return list(credential.scoped_teams or []) or None
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return [authenticator.team_id]
     return None
 
 
@@ -782,7 +787,8 @@ class APIScopePermission(ScopeBasePermission):
             OAuthAccessTokenAuthentication
             | PersonalAPIKeyAuthentication
             | JwtAuthentication
-            | IDJagAccessTokenAuthentication,
+            | IDJagAccessTokenAuthentication
+            | ExportRendererAuthentication,
         ):
             raise ValueError("Unexpected authentication type")
 

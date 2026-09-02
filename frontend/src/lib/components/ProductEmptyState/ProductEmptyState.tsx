@@ -5,6 +5,8 @@ import { IconBook, IconGear } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
@@ -63,6 +65,13 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
     const primaryAction = resolvePrimaryAction(config.primaryAction, mode)
+    // Safe to call unconditionally: it answers with a loading reason until the team lands, and
+    // the widest scope is a no-op for actions that declare no restriction.
+    const restrictionReason = useRestrictedArea({
+        scope: primaryAction?.restriction?.scope ?? RestrictionScope.Project,
+        minimumAccessLevel: primaryAction?.restriction?.minimumAccessLevel ?? TeamMembershipLevel.Member,
+    })
+    const primaryActionRestriction = primaryAction?.restriction ? restrictionReason : null
     const primaryActionButton = primaryAction ? (
         <LemonButton
             type="primary"
@@ -72,6 +81,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 primaryAction.onClick?.()
             }}
             className="self-start"
+            disabledReason={primaryActionRestriction}
             data-attr={primaryAction.dataAttr ?? 'product-empty-state-primary-action'}
         >
             {primaryAction.label}
@@ -99,14 +109,14 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 copyLabel={`${config.productName} wizard command`}
                 onCopy={() => captureClick('wizard command copied')}
             />
-            {guardedPrimaryAction ? (
+            {config.PrimaryAction || guardedPrimaryAction ? (
                 <>
                     <div className="flex items-center gap-3">
                         <div className="h-px flex-1 bg-border-primary" />
                         <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
                         <div className="h-px flex-1 bg-border-primary" />
                     </div>
-                    {guardedPrimaryAction}
+                    {config.PrimaryAction ? <config.PrimaryAction /> : guardedPrimaryAction}
                 </>
             ) : null}
         </>
@@ -165,7 +175,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 
                     <div className="flex items-center gap-4">
-                        {showWizard && !primaryActionButton && manualUrl ? (
+                        {showWizard && !primaryActionButton && !config.PrimaryAction && manualUrl ? (
                             <LemonButton
                                 type="secondary"
                                 icon={<IconGear />}

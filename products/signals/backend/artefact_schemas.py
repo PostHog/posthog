@@ -225,6 +225,19 @@ class ChannelAssignment(BaseModel):
     channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
 
 
+# Reason code shared by the dismissal writer (the state API) and the corrections reader
+# (`repo_corrections`), defined here so the two cannot drift apart.
+DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+# Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
+# dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
+# unbounded row is a cost on every repository selection, not just on the write.
+DISMISSAL_NOTE_MAX_LENGTH = 4000
+DISMISSAL_REASON_MAX_LENGTH = 128
+# GitHub caps owners at 39 and repositories at 100 characters.
+DISMISSAL_REPOSITORY_MAX_LENGTH = 512
+DISMISSAL_IDENTITY_MAX_LENGTH = 128
+
+
 class Dismissal(BaseModel):
     """Content schema for a `dismissal` artefact: feedback captured when a report is dismissed/snoozed.
 
@@ -232,12 +245,37 @@ class Dismissal(BaseModel):
     rows and readers; new rows also carry attribution on the artefact row itself.
     """
 
-    reason: str | None = Field(default=None, description="Caller-owned dismissal reason code.")
-    note: str | None = Field(default=None, description="Free-form dismissal note.")
+    reason: str | None = Field(
+        default=None, max_length=DISMISSAL_REASON_MAX_LENGTH, description="Caller-owned dismissal reason code."
+    )
+    note: str | None = Field(
+        default=None, max_length=DISMISSAL_NOTE_MAX_LENGTH, description="Free-form dismissal note."
+    )
+    selected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the pipeline had selected when the report was dismissed, in 'owner/repo' "
+            "format. Recorded on wrong-repo dismissals so selection mistakes are queryable without "
+            "joining the repo_selection artefact history."
+        ),
+    )
+    corrected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the dismisser said the report should have targeted, in 'owner/repo' format. "
+            "Fed back into future repository selection for the project."
+        ),
+    )
     user_id: int | None = Field(default=None, description="ID of the dismissing user, when known.")
-    user_uuid: str | None = Field(default=None, description="UUID of the dismissing user, when known.")
+    user_uuid: str | None = Field(
+        default=None, max_length=DISMISSAL_IDENTITY_MAX_LENGTH, description="UUID of the dismissing user, when known."
+    )
     slack_user_id: str | None = Field(
-        default=None, description="Slack user who dismissed via a Slack action, when that's where the click came from."
+        default=None,
+        max_length=DISMISSAL_IDENTITY_MAX_LENGTH,
+        description="Slack user who dismissed via a Slack action, when that's where the click came from.",
     )
 
 

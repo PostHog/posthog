@@ -12,14 +12,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -32,11 +30,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { VisionDocsLink } from '../components/DocsLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
-    AlertConfigFrequencyEnumApi,
+    AlertFrequencyEnumApi,
     DeliveryTargetTypeEnumApi,
-    VisionActionModeEnumApi,
+    ActionModeEnumApi,
     VisionAlertDirectionEnumApi,
-    VisionAlertMetricEnumApi,
+    VisionActionAlertMetricEnumApi,
 } from '../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
@@ -367,7 +365,7 @@ function AlertMatchLine({ scannerId }: { scannerId: string }): JSX.Element | nul
             break
         }
         case 'scorer': {
-            if (actionForm.alert_metric === VisionAlertMetricEnumApi.AvgScore) {
+            if (actionForm.alert_metric === VisionActionAlertMetricEnumApi.AvgScore) {
                 return null
             }
             const scale = scanner.scanner_config?.scale
@@ -415,14 +413,13 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const everyMatch = actionForm.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
+    const everyMatch = actionForm.alert_frequency === AlertFrequencyEnumApi.EveryMatch
     const isScorer = scanner?.scanner_type === 'scorer'
     // Direction is only offered for the average score ("below a floor" is the natural quality alarm).
     // A count threshold is always "at least" — "at most N matches" reads backwards from intent and is
     // really a went-quiet alarm, so we don't expose it for counts (buildActionBody pins it to above).
-    const isAvg = actionForm.alert_metric === VisionAlertMetricEnumApi.AvgScore
+    const isAvg = actionForm.alert_metric === VisionActionAlertMetricEnumApi.AvgScore
 
     // Summarizer observations have no verdict/tags/score to threshold on, so the only sensible
     // alert is "every new summary" — no controls to show. The logic normalizes the form to
@@ -448,14 +445,14 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                 value={actionForm.alert_frequency}
                 onChange={(value) => {
                     setActionFormValue('alert_frequency', value)
-                    if (value === AlertConfigFrequencyEnumApi.EveryMatch) {
+                    if (value === AlertFrequencyEnumApi.EveryMatch) {
                         // every_match counts new matches; an average makes no sense there.
-                        setActionFormValue('alert_metric', VisionAlertMetricEnumApi.Count)
+                        setActionFormValue('alert_metric', VisionActionAlertMetricEnumApi.Count)
                     }
                 }}
                 options={[
-                    { value: AlertConfigFrequencyEnumApi.EveryMatch, label: 'Notify me on every match' },
-                    { value: AlertConfigFrequencyEnumApi.OnBreach, label: 'Notify me on a threshold' },
+                    { value: AlertFrequencyEnumApi.EveryMatch, label: 'Notify me on every match' },
+                    { value: AlertFrequencyEnumApi.OnBreach, label: 'Notify me on a threshold' },
                 ]}
                 data-attr="vision-action-alert-frequency"
             />
@@ -475,13 +472,13 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                                     setActionFormValue('alert_metric', value)
                                     // Count thresholds are always "at least" (the direction control is
                                     // hidden for them), so switching back to count clears any "at most".
-                                    if (value === VisionAlertMetricEnumApi.Count) {
+                                    if (value === VisionActionAlertMetricEnumApi.Count) {
                                         setActionFormValue('alert_direction', VisionAlertDirectionEnumApi.Above)
                                     }
                                 }}
                                 options={[
-                                    { value: VisionAlertMetricEnumApi.Count, label: 'number of matches' },
-                                    { value: VisionAlertMetricEnumApi.AvgScore, label: 'average score' },
+                                    { value: VisionActionAlertMetricEnumApi.Count, label: 'number of matches' },
+                                    { value: VisionActionAlertMetricEnumApi.AvgScore, label: 'average score' },
                                 ]}
                                 data-attr="vision-action-alert-metric"
                             />
@@ -532,14 +529,12 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
             {actionFormErrors?.min_score ? (
                 <span className="text-xs text-danger">{String(actionFormErrors.min_score)}</span>
             ) : null}
-            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_SEND_REASONING] ? (
-                <LemonCheckbox
-                    checked={actionForm.alert_include_reasoning}
-                    onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
-                    label="Include the observation's reasoning in the message"
-                    data-attr="vision-action-alert-include-reasoning"
-                />
-            ) : null}
+            <LemonCheckbox
+                checked={actionForm.alert_include_reasoning}
+                onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
+                label="Include the observation's reasoning in the message"
+                data-attr="vision-action-alert-include-reasoning"
+            />
             <span className="text-xs text-muted">
                 {everyMatch
                     ? 'Checked every few minutes; each notification covers the new matches since the last check.'
@@ -552,7 +547,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 function DeliverySection(): JSX.Element {
     const { actionForm } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
-    const noun = actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+    const noun = actionForm.mode === ActionModeEnumApi.Alert ? 'alert' : 'digest'
 
     return (
         <div className="flex flex-col gap-2">
@@ -677,7 +672,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
         )
     }
 
-    const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
+    const isAlert = actionForm.mode === ActionModeEnumApi.Alert
     const noun = isAlert ? 'alert' : 'digest'
     const title = isNew
         ? scannerName
