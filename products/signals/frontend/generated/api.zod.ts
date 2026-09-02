@@ -168,20 +168,25 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
  * Transition a report to a new state. The model validates allowed transitions.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
- * fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
- * and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
- * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+ * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
+ * snooze_for) are read, and only snooze_for is ever forwarded to transition_to. Any
+ * other key is ignored, so internal transition_to kwargs (reset_weight, error, ...)
+ * can't be injected.
  *
  * Body: {
  *     "state": "suppressed" | "potential" | "resolved",
  *     # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
  *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
+ *     # Optional, only allowed with dismissal_reason == "wrong_repo":
+ *     "corrected_repository": "owner/repo the report should have targeted",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
  * }
  */
 export const signalsReportsStateCreateBodyDismissalNoteMax = 4000
+
+export const signalsReportsStateCreateBodyCorrectedRepositoryMax = 140
 
 export const signalsReportsStateCreateBodySnoozeForMax = 100000
 
@@ -197,6 +202,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
             'already_fixed',
             'report_unclear',
             'analysis_wrong',
+            'wrong_repo',
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
@@ -204,17 +210,25 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_\*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed'. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
         .max(signalsReportsStateCreateBodyDismissalNoteMax)
         .optional()
         .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
+    corrected_repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsStateCreateBodyCorrectedRepositoryMax)
+        .optional()
+        .describe(
+            "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner\/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it."
+        ),
     snooze_for: zod
         .number()
         .min(1)
@@ -272,6 +286,8 @@ export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const signalsReportsBulkStateCreateBodyDismissalNoteMax = 4000
 
+export const signalsReportsBulkStateCreateBodyCorrectedRepositoryMax = 140
+
 export const signalsReportsBulkStateCreateBodySnoozeForMax = 100000
 
 export const signalsReportsBulkStateCreateBodyIdsMax = 100
@@ -288,6 +304,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
             'already_fixed',
             'report_unclear',
             'analysis_wrong',
+            'wrong_repo',
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
@@ -295,17 +312,25 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_\*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed'. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
         .max(signalsReportsBulkStateCreateBodyDismissalNoteMax)
         .optional()
         .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
+    corrected_repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsBulkStateCreateBodyCorrectedRepositoryMax)
+        .optional()
+        .describe(
+            "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner\/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it."
+        ),
     snooze_for: zod
         .number()
         .min(1)
@@ -318,7 +343,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.uuid())
         .max(signalsReportsBulkStateCreateBodyIdsMax)
         .describe(
-            'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.'
+            'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.'
         ),
 })
 
@@ -1122,7 +1147,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                "Optional repo for autostart (opening a draft PR): `owner\/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner\/repo` when you know it."
+                "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner\/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo."
             ),
         priority: zod
             .union([

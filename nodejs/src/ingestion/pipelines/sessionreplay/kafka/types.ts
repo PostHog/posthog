@@ -8,6 +8,10 @@ const dateTimeSchema = z.custom<DateTime>((val) => val instanceof DateTime)
 export const RawEventMessageSchema = z.object({
     distinct_id: z.string(),
     data: z.string(),
+    // Capture stamps both at the same instant; their difference is the sender's clock offset.
+    // Optional: capture omits sent_at when the client sends none.
+    sent_at: z.string().optional(),
+    now: z.string().optional(),
 })
 
 export type RawEventMessage = z.infer<typeof RawEventMessageSchema>

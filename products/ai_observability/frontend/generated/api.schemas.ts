@@ -767,9 +767,10 @@ export const EvaluationStatusEnumApi = {
  * * `model_not_found` - Model not found
  * * `hog_error` - Hog evaluation code failed
  */
-export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+export type EvaluationStatusReasonEnumApi =
+    (typeof EvaluationStatusReasonEnumApi)[keyof typeof EvaluationStatusReasonEnumApi]
 
-export const StatusReasonEnumApi = {
+export const EvaluationStatusReasonEnumApi = {
     ProviderKeyRequired: 'provider_key_required',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
@@ -962,7 +963,7 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | null
+    readonly status_reason: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
@@ -1099,7 +1100,7 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | null
+    readonly status_reason?: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
@@ -1263,12 +1264,15 @@ export const AnalysisLevelEnumApi = {
     Evaluation: 'evaluation',
 } as const
 
+export type ClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
     analysis_level: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at: string
     readonly updated_at: string
@@ -1283,12 +1287,15 @@ export interface PaginatedClusteringJobListApi {
     results: ClusteringJobApi[]
 }
 
+export type PatchedClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
     analysis_level?: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at?: string
     readonly updated_at?: string
@@ -1833,9 +1840,10 @@ export interface EvaluationReportRunContentApi {
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
  */
-export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
+export type EvaluationReportRunDeliveryStatusEnumApi =
+    (typeof EvaluationReportRunDeliveryStatusEnumApi)[keyof typeof EvaluationReportRunDeliveryStatusEnumApi]
 
-export const DeliveryStatusEnumApi = {
+export const EvaluationReportRunDeliveryStatusEnumApi = {
     Pending: 'pending',
     Generated: 'generated',
     Delivered: 'delivered',
@@ -1863,7 +1871,7 @@ export interface EvaluationReportRunApi {
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
-    readonly delivery_status: DeliveryStatusEnumApi
+    readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
     /** When this report run was created. */
@@ -2096,9 +2104,9 @@ export interface PatchedReviewQueueUpdateApi {
  * * `numeric` - numeric
  * * `boolean` - boolean
  */
-export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
 
-export const ExperimentMetricKindEnumApi = {
+export const ScoreDefinitionKindEnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -2184,7 +2192,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: ExperimentMetricKindEnumApi
+    readonly kind: ScoreDefinitionKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -2228,7 +2236,7 @@ export interface ScoreDefinitionCreateApi {
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean */
-    kind: ExperimentMetricKindEnumApi
+    kind: ScoreDefinitionKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -3121,6 +3129,13 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number30: 30,
     Number60: 60,
 } as const
+
+export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean
+}
 
 export type DatasetItemsListParams = {
     /**

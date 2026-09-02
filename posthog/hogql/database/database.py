@@ -1398,6 +1398,46 @@ class Database(BaseModel):
             )
 
     @staticmethod
+    def create_for_posthog_tables(
+        team: Team, *, modifiers: HogQLQueryModifiers | None = None, timings: HogQLTimings | None = None
+    ) -> Database:
+        """PostHog's built-in tables only, wired for the team's modifiers, with no Postgres I/O.
+
+        For internal queries that touch only built-in tables. It has no warehouse tables, views, or
+        joins, no group-type tables, and no per-user access control, so it must never serve
+        user-written HogQL. Every access-controlled or entitlement-gated system table is removed up
+        front, so a query that names one fails with TableAccessDeniedError instead of reading rows
+        unchecked. create_for runs a dozen Postgres queries and feature-flag checks that such a
+        query never uses; on teams with many warehouse tables that costs more than the query."""
+        if timings is None:
+            timings = HogQLTimings()
+        with timings.measure("modifiers"):
+            modifiers = create_default_modifiers_for_team(team, modifiers)
+        sources = HogQLDatabaseSources(
+            team=team,
+            user=None,
+            connection_id=None,
+            modifiers=modifiers,
+            is_managed_viewset_enabled=False,
+            is_hogql_warehouse_access_control_enabled=False,
+            is_data_quality_enabled=False,
+            is_billing_usage_records_enabled=False,
+            bypass_warehouse_access_control=False,
+            direct_connection_metadata=None,
+            user_access_control=None,
+            denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
+            group_types=[],
+            saved_queries=[],
+            endpoint_saved_queries=[],
+            revenue_views=[],
+            warehouse_tables=[],
+            data_warehouse_joins=[],
+            data_warehouse_expressions=[],
+            event_modifier_saved_queries={},
+        )
+        return Database._build_from_sources(sources, timings=timings)
+
+    @staticmethod
     def _fetch_sources(
         team_id: int | None = None,
         *,
@@ -1721,7 +1761,8 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_quality_enabled=data_quality_enabled,
-            is_billing_usage_records_enabled=team.pk in settings.BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS,
+            is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
+            or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)

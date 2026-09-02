@@ -2,25 +2,19 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    AlertsCreateBody,
-    AlertsDestroyParams,
-    AlertsListQueryParams,
-    AlertsPartialUpdateBody,
-    AlertsPartialUpdateParams,
-    AlertsRetrieveParams,
-    AlertsRetrieveQueryParams,
-    AlertsSimulateCreateBody,
-} from '@/generated/alerts/api'
+import * as orvalSchemas from '@/generated/alerts/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const AlertCreateSchema = AlertsCreateBody
+const AlertCreateSchema = () => {
+    const AlertsCreateBody = orvalSchemas.AlertsCreateBody()
+    return AlertsCreateBody
+}
 
-const alertCreate = (): ToolBase<typeof AlertCreateSchema, WithPostHogUrl<Schemas.Alert>> => ({
+const alertCreate = (): ToolBase<ReturnType<typeof AlertCreateSchema>, WithPostHogUrl<Schemas.Alert>> => ({
     name: 'alert-create',
-    schema: AlertCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof AlertCreateSchema>) => {
+    schema: AlertCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.insight !== undefined) {
@@ -77,12 +71,15 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, WithPostHogUrl<Schema
     },
 })
 
-const AlertDeleteSchema = AlertsDestroyParams.omit({ project_id: true })
+const AlertDeleteSchema = () => {
+    const AlertsDestroyParams = orvalSchemas.AlertsDestroyParams()
+    return AlertsDestroyParams.omit({ project_id: true })
+}
 
-const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
+const alertDelete = (): ToolBase<ReturnType<typeof AlertDeleteSchema>, unknown> => ({
     name: 'alert-delete',
-    schema: AlertDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof AlertDeleteSchema>) => {
+    schema: AlertDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -92,12 +89,16 @@ const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
     },
 })
 
-const AlertGetSchema = AlertsRetrieveParams.omit({ project_id: true }).extend(AlertsRetrieveQueryParams.shape)
+const AlertGetSchema = () => {
+    const AlertsRetrieveParams = orvalSchemas.AlertsRetrieveParams()
+    const AlertsRetrieveQueryParams = orvalSchemas.AlertsRetrieveQueryParams()
+    return AlertsRetrieveParams.omit({ project_id: true }).extend(AlertsRetrieveQueryParams.shape)
+}
 
-const alertGet = (): ToolBase<typeof AlertGetSchema, WithPostHogUrl<Schemas.Alert>> => ({
+const alertGet = (): ToolBase<ReturnType<typeof AlertGetSchema>, WithPostHogUrl<Schemas.Alert>> => ({
     name: 'alert-get',
-    schema: AlertGetSchema,
-    handler: async (context: Context, params: z.infer<typeof AlertGetSchema>) => {
+    schema: AlertGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Alert>({
             method: 'GET',
@@ -113,12 +114,15 @@ const alertGet = (): ToolBase<typeof AlertGetSchema, WithPostHogUrl<Schemas.Aler
     },
 })
 
-const AlertSimulateSchema = AlertsSimulateCreateBody
+const AlertSimulateSchema = () => {
+    const AlertsSimulateCreateBody = orvalSchemas.AlertsSimulateCreateBody()
+    return AlertsSimulateCreateBody
+}
 
-const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimulateResponse> => ({
+const alertSimulate = (): ToolBase<ReturnType<typeof AlertSimulateSchema>, Schemas.AlertSimulateResponse> => ({
     name: 'alert-simulate',
-    schema: AlertSimulateSchema,
-    handler: async (context: Context, params: z.infer<typeof AlertSimulateSchema>) => {
+    schema: AlertSimulateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertSimulateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.insight !== undefined) {
@@ -145,12 +149,16 @@ const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimu
     },
 })
 
-const AlertUpdateSchema = AlertsPartialUpdateParams.omit({ project_id: true }).extend(AlertsPartialUpdateBody.shape)
+const AlertUpdateSchema = () => {
+    const AlertsPartialUpdateBody = orvalSchemas.AlertsPartialUpdateBody()
+    const AlertsPartialUpdateParams = orvalSchemas.AlertsPartialUpdateParams()
+    return AlertsPartialUpdateParams.omit({ project_id: true }).extend(AlertsPartialUpdateBody.shape)
+}
 
-const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, WithPostHogUrl<Schemas.Alert>> => ({
+const alertUpdate = (): ToolBase<ReturnType<typeof AlertUpdateSchema>, WithPostHogUrl<Schemas.Alert>> => ({
     name: 'alert-update',
-    schema: AlertUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof AlertUpdateSchema>) => {
+    schema: AlertUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.insight !== undefined) {
@@ -207,12 +215,15 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, WithPostHogUrl<Schema
     },
 })
 
-const AlertsListSchema = AlertsListQueryParams
+const AlertsListSchema = () => {
+    const AlertsListQueryParams = orvalSchemas.AlertsListQueryParams()
+    return AlertsListQueryParams
+}
 
-const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.PaginatedAlertList>> => ({
+const alertsList = (): ToolBase<ReturnType<typeof AlertsListSchema>, WithPostHogUrl<Schemas.PaginatedAlertList>> => ({
     name: 'alerts-list',
-    schema: AlertsListSchema,
-    handler: async (context: Context, params: z.infer<typeof AlertsListSchema>) => {
+    schema: AlertsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AlertsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAlertList>({
             method: 'GET',
