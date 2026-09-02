@@ -21564,6 +21564,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly quality_check: string | null;
+      /**
+         * Name the check carries now, so a run can be told from the others in its suite. Null when the check is unnamed, has been hard deleted, or is out of your reach today -- describe the run by check_type and column_name instead.
+         * @nullable
+         */
+      readonly check_name: string | null;
       readonly suite_run: string;
       readonly subject_type: SubjectTypeEnum;
       readonly subject_uuid: string;
@@ -48928,9 +48933,24 @@ export namespace Schemas {
       error: string;
     }
 
+    export interface _SeriesBandsDateRange {
+      /**
+         * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * End of the window. Same format as date_from. Omit or null for "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
     export interface LogsSeriesBandsRequest {
       /** Service whose per-series volume to chart (the log record's service_name). */
       serviceName: string;
+      /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+      dateRange?: _SeriesBandsDateRange;
       /** Display grain in minutes for buckets and bands. Only hourly is supported today.
        *
        * * `60` - 60 */
