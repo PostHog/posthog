@@ -1985,6 +1985,20 @@ class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
         return getattr(request.client, "client_type", None) == AbstractApplication.CLIENT_CONFIDENTIAL
 
 
+def _token_user_is_active(token: OAuthAccessToken | OAuthRefreshToken) -> bool:
+    """Whether the token's resource owner can still act.
+
+    Deactivating a user drops their login sessions but leaves their OAuth tokens intact, so a
+    token minted before the deactivation stays usable until it expires. Callers that authorize
+    on this response rather than merely describe a token - the Streamlit proxy is one - would
+    otherwise keep letting a deactivated user in for the rest of the token's life.
+
+    A token with no user is a client-credentials grant, which has no resource owner to check.
+    """
+    user = token.user
+    return user is None or user.is_active
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 @method_decorator(login_not_required, name="dispatch")
 class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
@@ -2124,6 +2138,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
                 return JsonResponse({"active": False}, status=200)
+            if not _token_user_is_active(access_token):
+                return JsonResponse({"active": False}, status=200)
             data = {
                 "active": True,
                 "token_type": "access_token",
@@ -2146,6 +2162,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         if refresh_token:
             if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
+            if not _token_user_is_active(refresh_token):
                 return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available

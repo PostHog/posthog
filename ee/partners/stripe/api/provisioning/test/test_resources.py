@@ -6,10 +6,14 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
+
+from products.access_control.backend.models.access_control import AccessControl
 
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
@@ -47,6 +51,43 @@ class TestResources(StripeProvisioningTestBase):
         assert first.json()["id"] == second.json()["id"]
         # A project_id provisions a dedicated team, distinct from the consent team.
         assert first.json()["id"] != str(self.team.id)
+
+    def test_deactivated_user_bearer_token_rejected(self):
+        token = self._get_bearer_token()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._post_signed_with_bearer(RESOURCES_URL, data={}, token=token)
+        assert res.status_code == 401
+
+    @parameterized.expand(
+        [
+            ("access_control_revoked",),
+            ("org_membership_removed",),
+        ]
+    )
+    def test_get_resource_rejected_after_team_access_lost(self, revocation: str):
+        token = self._get_bearer_token()
+
+        if revocation == "access_control_revoked":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                team=self.team,
+                access_level="none",
+                resource="project",
+                resource_id=str(self.team.id),
+            )
+        else:
+            self.organization_membership.delete()
+
+        res = self._get_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}", token=token)
+        assert res.status_code == 403
 
     def test_unknown_service_rejected(self):
         token = self._get_bearer_token()

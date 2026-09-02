@@ -34,6 +34,7 @@ from ee.api.agentic_provisioning.ratelimits import (
 )
 from ee.api.agentic_provisioning.region_proxy import RegionProxyMixin
 from ee.api.agentic_provisioning.serializers import first_error_message
+from ee.api.agentic_provisioning.tokens import user_can_access_team
 
 
 class ProvisioningAPIView(RegionProxyMixin, APIView):
@@ -197,7 +198,17 @@ class BearerResourceAPIView(ProvisioningAPIView):
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [ProvisioningBearerAuthentication]
 
-    def parse_resource_team_id(self, resource_id: str, access_token: OAuthAccessToken) -> int:
+    def _resolve_scoped_team(self, resource_id: str, access_token: OAuthAccessToken) -> tuple[int, Team | None]:
+        """Resolve the resource id to its team, enforcing the token's scope and live access.
+
+        ``scoped_teams`` is a snapshot taken when the token was minted, so it outlives the
+        access it records. Re-run the check the scope was built from (see
+        ``compute_partner_scoped_teams``), so an org removal or an access-control change
+        applies to the next request instead of waiting for the token to be refreshed.
+
+        Returns the team id even when the team is gone, so the caller decides whether a
+        missing team is a 404 or a no-op.
+        """
         try:
             team_id = int(resource_id)
         except (ValueError, TypeError):
@@ -207,14 +218,21 @@ class BearerResourceAPIView(ProvisioningAPIView):
             raise ProvisioningError(
                 "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
             )
-        return team_id
 
-    def get_team(self, team_id: int, resource_id: str) -> Team:
-        try:
-            return Team.objects.get(id=team_id)
-        except Team.DoesNotExist:
-            raise ProvisioningError("not_found", "Resource not found", resource_id=resource_id, status=404)
+        team = Team.objects.select_related("organization").filter(id=team_id).first()
+        # A team that no longer exists has no access left to re-check.
+        if team is not None and (access_token.user is None or not user_can_access_team(access_token.user, team)):
+            raise ProvisioningError(
+                "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403
+            )
+        return team_id, team
+
+    def parse_resource_team_id(self, resource_id: str, access_token: OAuthAccessToken) -> int:
+        return self._resolve_scoped_team(resource_id, access_token)[0]
 
     def get_scoped_team(self, resource_id: str, access_token: OAuthAccessToken) -> Team:
         """Resolve the resource id to its team, enforcing the token's team scope."""
-        return self.get_team(self.parse_resource_team_id(resource_id, access_token), resource_id)
+        _, team = self._resolve_scoped_team(resource_id, access_token)
+        if team is None:
+            raise ProvisioningError("not_found", "Resource not found", resource_id=resource_id, status=404)
+        return team

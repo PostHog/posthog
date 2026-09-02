@@ -205,7 +205,7 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
     Raises :class:`ProvisioningError` (rendered in the view's envelope) on failure.
     """
 
-    def authenticate(self, request: Request) -> tuple[User | None, OAuthAccessToken]:
+    def authenticate(self, request: Request) -> tuple[User, OAuthAccessToken]:
         try:
             access_token = resolve_bearer_access_token(request)
         except BearerTokenError as exc:
@@ -223,7 +223,15 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
         if not app.provisioning.can_provision_resources:
             raise ProvisioningError("forbidden", "Resource provisioning not enabled for this partner", status=403)
 
-        return access_token.user, access_token
+        # Deactivating a user drops their login sessions but leaves OAuth tokens intact, so the
+        # token has to fail closed here the way `posthog.auth._validate_token` does for the main
+        # API. A token with no user cannot identify a caller at all, and the views downstream
+        # read `request.user` as a User, so it fails closed too.
+        user = access_token.user
+        if user is None or not user.is_active:
+            raise ProvisioningError("unauthorized", "Authentication failed", status=401)
+
+        return user, access_token
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"

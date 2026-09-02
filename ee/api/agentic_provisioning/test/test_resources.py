@@ -78,6 +78,26 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert res.status_code == 403
 
+    @parameterized.expand(
+        [
+            ("access_control_revoked",),
+            ("org_membership_removed",),
+        ]
+    )
+    def test_get_resource_rejected_after_team_access_lost(self, revocation: str):
+        token = self._get_bearer_token()
+
+        if revocation == "access_control_revoked":
+            self._restrict_team_access(self.team)
+        else:
+            self.organization_membership.delete()
+
+        res = self._get_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}",
+            token=token,
+        )
+        assert res.status_code == 403
+
     def test_get_resource_invalid_id_returns_400(self):
         token = self._get_bearer_token()
         res = self._get_with_bearer(
