@@ -172,6 +172,7 @@ export interface stamphogSceneLogicMeta {
         ) => readonly StamphogDiscoveredInstallationApi[]
         syncedRepos: (syncResult: StamphogSyncInstallationResponseApi | null) => readonly StamphogRepoConfigApi[]
         skippedRepos: (syncResult: StamphogSyncInstallationResponseApi | null) => readonly string[]
+        stamphogAccessLevel: (repoConfigs: StamphogRepoConfigApi[]) => AccessControlLevel | undefined
         filteredRepoConfigs: (repoConfigs: StamphogRepoConfigApi[], repoSearch: string) => StamphogRepoConfigApi[]
     }
 }
