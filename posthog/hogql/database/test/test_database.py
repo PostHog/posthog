@@ -57,7 +57,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -69,6 +70,7 @@ from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.schema_enums import SessionTableVersion
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -4181,3 +4183,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestCreateForPosthogTables(BaseTest):
+    def test_builds_without_postgres_and_applies_modifiers(self):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            # One cached instance-setting read is fine; the full build issues a dozen queries.
+            self.assertNumQueries(FuzzyInt(0, 1)),
+        ):
+            database = Database.create_for_posthog_tables(self.team, modifiers=modifiers)
+
+        assert isinstance(database.get_table("raw_sessions"), RawSessionsTableV2)
+        assert "events" in database.get_posthog_table_names()
+        assert database.get_warehouse_table_names() == []
+
+    def test_removes_gated_system_tables(self):
+        database = Database.create_for_posthog_tables(self.team)
+
+        system_table_names = database.get_system_table_names()
+        assert "system.feature_flags" not in system_table_names
+        assert "system.activity_logs" not in system_table_names
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.activity_logs")

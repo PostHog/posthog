@@ -91,7 +91,7 @@ import type { IntegrationConfigApi } from 'products/integrations/frontend/genera
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
-import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -843,9 +843,13 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /** Plan-derived events data retention window in months (synced from billing). */
+    /**
+     * Plan-derived events data retention window in months (synced from billing). Read-only: it follows the plan's
+     * data retention entitlement, so support cannot change it outside the enterprise plan.
+     * See https://github.com/PostHog/posthog/issues/17031
+     */
     event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only. */
     events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
@@ -7778,7 +7782,7 @@ export interface Conversation {
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
-    task?: { id: string; latest_run: string | null; runtime?: RuntimeEnumApi } | null
+    task?: { id: string; latest_run: string | null; runtime?: TaskRuntimeEnumApi } | null
 }
 
 export interface ConversationDetail extends Conversation {

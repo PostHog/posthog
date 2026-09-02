@@ -19,6 +19,9 @@ import {
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
   resolveCloudInitialPermissionMode,
 } from "@posthog/shared";
 import type {
@@ -94,6 +97,7 @@ import {
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
+  shapeInboxReportPreview,
   shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -1134,9 +1138,13 @@ type AnyArtefact =
   | TaskRunArtefact
   | NoteArtefact;
 
-const DISMISSAL_REASONS = new Set<DismissalReasonOptionValue>(
-  DISMISSAL_REASON_OPTIONS.map((o) => o.value),
-);
+// Reasons valid on a dismissal artefact. Resolve reasons are included because the
+// backend stores resolve feedback on the same artefact type (a resolve writes a
+// `dismissal` artefact), so `fixed_outside_posthog` / `pr_merged` must normalize too.
+const DISMISSAL_REASONS = new Set<ReportStateReason>([
+  ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
+  ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
 
@@ -1292,8 +1300,8 @@ function normalizeDismissalArtefact(
 
   const rawReason = optionalString(contentValue.reason);
   const reason =
-    rawReason && DISMISSAL_REASONS.has(rawReason as DismissalReasonOptionValue)
-      ? (rawReason as DismissalReasonOptionValue)
+    rawReason && DISMISSAL_REASONS.has(rawReason as ReportStateReason)
+      ? (rawReason as ReportStateReason)
       : null;
 
   if (reason == null) {
@@ -5001,14 +5009,25 @@ export class PostHogAPIClient {
     }
   }
 
+  /**
+   * The list is newest-first and truncates to the server page size, which drops the oldest
+   * rows — including the scout `task_run` written when the report was created. Pass `limit`
+   * from callers that read the whole log. Callers that need only the newest row of a
+   * latest-wins type should omit it: artefacts carry diffs and code excerpts, and list rows
+   * fetch this once per card.
+   */
   async getSignalReportArtefacts(
     reportId: string,
+    options?: { limit?: number },
   ): Promise<SignalReportArtefactsResponse> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`,
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/`;
+    if (options?.limit !== undefined) {
+      url.searchParams.set("limit", String(options.limit));
+    }
 
     try {
       const response = await this.api.fetcher.fetch({
@@ -5096,6 +5115,9 @@ export class PostHogAPIClient {
           snooze_for?: number;
           reset_weight?: boolean;
           error?: string;
+          /** Feedback recorded when a reason drove the snooze (e.g. "Already fixed"); omitted for a plain snooze. */
+          dismissal_reason?: DismissalReasonOptionValue;
+          dismissal_note?: string;
         }
       | {
           state: "suppressed";
@@ -5104,6 +5126,11 @@ export class PostHogAPIClient {
           dismissal_note?: string;
           reset_weight?: boolean;
           error?: string;
+        }
+      | {
+          state: "resolved";
+          dismissal_reason: ResolveReasonOptionValue;
+          dismissal_note?: string;
         },
   ): Promise<SignalReport> {
     const teamId = await this.getTeamId();
@@ -5112,14 +5139,35 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/state/`;
 
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      if (input.state === "suppressed" && requestErrorStatus(error) === 409) {
+        const currentReport = await this.getSignalReport(reportId).catch(
+          () => null,
+        );
+        const requestedReason = input.dismissal_reason ?? null;
+        const requestedNote = input.dismissal_note?.trim() ?? "";
+        const feedbackMatches =
+          currentReport?.dismissal_reason === requestedReason &&
+          (currentReport?.dismissal_note?.trim() ?? "") === requestedNote;
+        if (
+          currentReport?.status === "suppressed" &&
+          ((!requestedReason && !requestedNote) || feedbackMatches)
+        ) {
+          return currentReport;
+        }
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -5181,6 +5229,34 @@ export class PostHogAPIClient {
     );
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/artefacts/${artefactId}/`;
 
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ content }),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to update suggested reviewers");
+    }
+
+    const parsed = normalizeSignalReportArtefact(await response.json());
+    if (!parsed || parsed.type !== "suggested_reviewers") {
+      throw new Error("Unexpected response updating suggested reviewers");
+    }
+    return parsed as SuggestedReviewersArtefact;
+  }
+
+  async setSignalReportReviewers(
+    reportId: string,
+    content: SuggestedReviewerWriteEntry[],
+  ): Promise<SuggestedReviewersArtefact> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
     const response = await this.api.fetcher.fetch({
       method: "put",
       url,
@@ -6936,6 +7012,10 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id } },
         );
         return shapeTicketPreview(ticket);
+      }
+      case "report": {
+        const report = await this.getSignalReport(id);
+        return report ? shapeInboxReportPreview(report) : null;
       }
       case "person": {
         if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {

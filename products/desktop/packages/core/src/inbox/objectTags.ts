@@ -73,6 +73,11 @@ const OBJECT_KINDS: Record<string, ObjectKindMeta> = {
     source: "Conversations",
     webPath: (id) => `/support/tickets/${id}`,
   },
+  report: {
+    kindLabel: "Inbox report",
+    source: "Inbox",
+    webPath: (id) => `/inbox/${id}`,
+  },
   trace: {
     kindLabel: "LLM trace",
     source: "AI observability",
