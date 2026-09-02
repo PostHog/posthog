@@ -49,8 +49,8 @@ use crate::workers::merge_path::MergeWorkerDeps;
 use crate::workers::reconcile::{ReconcileQueue, SupersedeOutcome};
 use crate::workers::seed_batch::{
     produce_cascade_output, produce_composed_output, produce_leaf_output, recompose_batch, settle,
-    Admitted, ApplyStage, SeedApplyDeps, SeedHold, SeedKind, SeedOffset, SeedReKeys, SeedRun,
-    StageClock, TouchedPersons,
+    Admitted, ApplyStage, BatchRecompose, SeedApplyDeps, SeedHold, SeedKind, SeedOffset,
+    SeedReKeys, SeedRun, StageClock, TouchedPersons,
 };
 use crate::workers::stage2_path::commit_stage2_writes;
 use crate::workers::worker::{first_cascades, transition_metric_label};
@@ -560,10 +560,13 @@ async fn apply_tiles(
         queue.schedule(key, deadline);
     }
 
-    let mut recomposed = recompose_batch(deps, &snapshot, touched, now_ms, clock).await?;
+    let BatchRecompose {
+        changes: composed,
+        writes: stage2_writes,
+        counts: stage2_counts,
+    } = recompose_batch(deps, &snapshot, touched, now_ms, clock).await?;
     stages.mark(ApplyStage::Recompute);
 
-    let composed = std::mem::take(&mut recomposed.changes);
     cascades.extend(first_cascades(deps.merge, &composed, source_offset));
     produce_composed_output(deps, composed).await?;
     stages.mark(ApplyStage::ProduceComposed);
@@ -571,11 +574,11 @@ async fn apply_tiles(
     produce_cascade_output(deps, cascades).await?;
     stages.mark(ApplyStage::ProduceCascades);
 
-    commit_stage2_writes(deps.handle, &recomposed.writes)
+    commit_stage2_writes(deps.handle, &stage2_writes)
         .await
         .map_err(SeedHold::store(ApplyStage::Stage2Commit))?;
     stages.mark(ApplyStage::Stage2Commit);
-    recomposed.record_metrics();
+    stage2_counts.record();
     Ok(())
 }
 

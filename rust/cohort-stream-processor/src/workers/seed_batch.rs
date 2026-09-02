@@ -44,7 +44,7 @@ use crate::workers::reconcile::ReconcileQueue;
 use crate::workers::seed_path::{
     admit_reconcile, apply_tile_batch, hold, mark_processed, tag_seed,
 };
-use crate::workers::stage2_path::{recompute_stage2, Stage2Recompute};
+use crate::workers::stage2_path::{recompute_stage2, Stage2Counts, Stage2Recompute};
 use crate::workers::worker::{produce_cascades, produce_membership};
 
 /// One message's offset on `cohort_stream_seed_events`. Distinct from every other topic's offsets,
@@ -645,16 +645,8 @@ impl TouchedPersons {
 pub(crate) struct BatchRecompose {
     pub changes: Vec<CohortMembershipChange>,
     pub writes: Vec<(Stage2Key, Stage2State)>,
-    recomputes: Vec<Stage2Recompute>,
-}
-
-impl BatchRecompose {
-    /// Call only once the writes committed, so a failed commit's redelivery cannot double-count.
-    pub(crate) fn record_metrics(&self) {
-        for recompute in &self.recomputes {
-            recompute.record_metrics();
-        }
-    }
+    /// Record only once the writes committed, so a failed commit's redelivery cannot double-count.
+    pub counts: Stage2Counts,
 }
 
 /// Recompose stage 2 for everything the batch touched, once per `(team, run)`.
@@ -680,7 +672,11 @@ pub(crate) async fn recompose_batch(
         let Some(filters) = snapshot.team(team_id) else {
             continue;
         };
-        let mut recompute = recompute_stage2(
+        let Stage2Recompute {
+            mut changes,
+            writes,
+            counts,
+        } = recompute_stage2(
             deps.partition_id,
             deps.handle,
             filters,
@@ -692,14 +688,10 @@ pub(crate) async fn recompose_batch(
         .await
         .map_err(SeedHold::store(ApplyStage::Recompute))?;
 
-        // The changes are cloned rather than moved: `record_metrics` counts them after the commit.
-        let mut changes = recompute.changes.clone();
         tag_seed(&mut changes, run);
         recomposed.changes.extend(changes);
-        recomposed
-            .writes
-            .extend(std::mem::take(&mut recompute.writes));
-        recomposed.recomputes.push(recompute);
+        recomposed.writes.extend(writes);
+        recomposed.counts += counts;
     }
     Ok(recomposed)
 }

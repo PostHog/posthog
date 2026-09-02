@@ -26,6 +26,7 @@ use crate::stage2::CohortEligibility;
 use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
 };
+use crate::workers::worker::count_by_status;
 
 /// `affected_leaves` is the touched `(leaf, person)` set; `lane` is the read lane every recompute
 /// read runs on (`Maintenance` on the seed path, so backfill never contends with live reads).
@@ -59,16 +60,56 @@ pub async fn compose_stage2(
 pub(crate) struct Stage2Recompute {
     pub changes: Vec<CohortMembershipChange>,
     pub writes: Vec<(Stage2Key, Stage2State)>,
-    evaluated: u64,
+    /// Taken as the changes were minted, so they can move into their produce while the counts
+    /// wait for the commit.
+    pub counts: Stage2Counts,
 }
 
 impl Stage2Recompute {
     /// Call only once the writes committed, so a failed commit's redelivery cannot double-count.
     pub(crate) fn record_metrics(&self) {
-        counter!(STAGE2_COHORTS_EVALUATED).increment(self.evaluated);
-        for change in &self.changes {
-            counter!(STAGE2_TRANSITIONS, "kind" => change.status.as_str()).increment(1);
+        self.counts.record();
+    }
+}
+
+/// What a recompute counted: cohorts evaluated and flips by direction. A compact stand-in for the
+/// changes themselves, so a caller can give those up and still count them later.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Stage2Counts {
+    evaluated: u64,
+    entered: u64,
+    left: u64,
+}
+
+impl Stage2Counts {
+    fn of(evaluated: u64, changes: &[CohortMembershipChange]) -> Self {
+        let (entered, left) = count_by_status(changes);
+        Self {
+            evaluated,
+            entered,
+            left,
         }
+    }
+
+    /// Call only once the writes committed, so a failed commit's redelivery cannot double-count.
+    pub(crate) fn record(self) {
+        counter!(STAGE2_COHORTS_EVALUATED).increment(self.evaluated);
+        for (status, count) in [
+            (MembershipStatus::Entered, self.entered),
+            (MembershipStatus::Left, self.left),
+        ] {
+            if count > 0 {
+                counter!(STAGE2_TRANSITIONS, "kind" => status.as_str()).increment(count);
+            }
+        }
+    }
+}
+
+impl std::ops::AddAssign for Stage2Counts {
+    fn add_assign(&mut self, other: Self) {
+        self.evaluated += other.evaluated;
+        self.entered += other.entered;
+        self.left += other.left;
     }
 }
 
@@ -126,10 +167,11 @@ pub(crate) async fn recompute_stage2(
         }
     }
 
+    let counts = Stage2Counts::of(evaluated, &changes);
     Ok(Stage2Recompute {
         changes,
         writes,
-        evaluated,
+        counts,
     })
 }
 
