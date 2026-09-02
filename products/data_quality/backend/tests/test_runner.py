@@ -282,6 +282,23 @@ class TestCheckRunner(BaseTest):
         check.refresh_from_db()
         assert check.failing_since is None
 
+    def test_a_skipped_run_ends_the_failing_streak(self) -> None:
+        # A skip means the subject is gone, so the check is no longer failing. Leaving failing_since
+        # set would make the next failure measure its age from the pre-skip failure rather than from
+        # when it started failing again.
+        check = self._check()
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+            run_check(check, self.suite_run, self.team)
+        check.refresh_from_db()
+        assert check.failing_since is not None
+
+        self.view.soft_delete()
+        outcome = run_check(check, self.suite_run, self.team)
+
+        assert outcome.status == CheckRunStatus.SKIPPED
+        check.refresh_from_db()
+        assert check.failing_since is None
+
     def test_an_errored_run_starts_the_failing_streak_too(self) -> None:
         check = self._check(check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "not a query at all"})
 

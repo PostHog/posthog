@@ -352,11 +352,15 @@ def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
     updated = ["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"]
     if outcome.status is CheckRunStatus.PASSED:
         check.last_succeeded_at = ran_at
-        check.failing_since = None
-        # Written only by the run that earned it. A failing run holds whatever this row said when its
-        # batch loaded it, so listing the column unconditionally would let it overwrite a success a
+        updated.append("last_succeeded_at")
+    if outcome.status not in FAILING_STATUSES:
+        # Any run that did not fail ends the streak: a pass clears it, and a skipped run (its subject
+        # deleted or unresolved) is not a failure to measure from. Cleared unconditionally, unlike the
+        # guarded claim below, because only a failing run holds whatever this row said when its batch
+        # loaded it -- so only it must defer to the conditional update rather than overwrite a state a
         # concurrent run committed in between.
-        updated += ["last_succeeded_at", "failing_since"]
+        check.failing_since = None
+        updated.append("failing_since")
     check.save(update_fields=updated)
     if outcome.status in FAILING_STATUSES:
         _claim_failing_streak(check, ran_at)
