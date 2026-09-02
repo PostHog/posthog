@@ -324,6 +324,21 @@ class TestMovingAverageSmoothing:
         assert cliff_index in result.triggered_indices
         assert cliff_index + 2 not in result.triggered_indices
 
+    def test_spike_does_not_echo_when_it_leaves_the_smoothing_window(self) -> None:
+        # A rectangular smoothing window followed by a first difference is a lagged
+        # difference, so a spike used to trigger twice: once at the spike, and once
+        # smooth_n points later, when it left the window and became a large negative
+        # velocity. That second trigger points at an ordinary value.
+        data = np.array([55, 48, 62] * 12, dtype=float)
+        spike_index = len(data) - 8
+        data[spike_index] = 279.0
+
+        detector = ZScoreDetector({"threshold": 0.95, "window": 10, "preprocessing": {"smooth_n": 3, "diffs_n": 1}})
+        result = detector.detect_batch(data)
+
+        assert spike_index in result.triggered_indices
+        assert not [i for i in result.triggered_indices if i > spike_index]
+
 
 class TestPyODDetectors:
     @parameterized.expand(PYOD_DETECTORS_FOR_ANOMALY_TEST)

@@ -12,7 +12,7 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
         config: Preprocessing configuration with optional keys:
             - diffs_n: int - Number of differencing passes (0 = raw, 1 = first-order)
             - lags_n: int - Number of lag features (0-10) for multivariate models
-            - smooth_n: int - Moving average window size (0 or None = no smoothing)
+            - smooth_n: int - Smoothing strength (0 or None = no smoothing)
 
     Returns:
         Preprocessed data as numpy array
@@ -22,13 +22,24 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
 
     result = data.copy().astype(float)
 
-    # 1. Apply moving average smoothing first (before diffs to smooth noise)
-    smoothing_window = config.get("smooth_n", 0) or 0
-    if smoothing_window > 0:
-        result = moving_average(result, smoothing_window)
+    # 1. Smooth first, so the difference below measures a trend and not noise.
+    smoothing_n = config.get("smooth_n", 0) or 0
+    differencing = bool(config.get("diffs_n", 0))
+    if smoothing_n > 0:
+        if differencing:
+            # A rectangular window and a first difference collapse into a lagged
+            # difference: smoothed[i] - smoothed[i - 1] equals
+            # (data[i] - data[i - smooth_n]) / smooth_n. Each step change thus enters the
+            # differenced series twice - once when it happens, and again smooth_n points
+            # later, when it leaves the window. The second entry flags a point that is
+            # itself unremarkable. An exponential kernel decays instead of ending, so a
+            # change contributes once and then fades.
+            result = exponential_smoothing(result, alpha=2.0 / (smoothing_n + 1))
+        else:
+            result = moving_average(result, smoothing_n)
 
     # 2. Apply first difference (velocity)
-    if config.get("diffs_n", 0):
+    if differencing:
         result = first_difference(result)
 
     # 3. Create lag features for multivariate detectors
