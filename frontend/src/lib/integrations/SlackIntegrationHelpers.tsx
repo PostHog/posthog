@@ -379,7 +379,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 onChange={(val) => {
                     const key = val[0] ?? null
                     // Selecting an option blurs the input first, so this runs after onBlur has
-                    // already flagged the search as dropped. Both land in the same React batch.
+                    // already flagged the search as dropped. Both reset and blur run synchronously
+                    // on one call stack: LemonInputSelect._onActionItem sets popoverFocusRef.current
+                    // = false, calls inputRef.current?.blur() (which runs onBlur synchronously), then
+                    // calls _addItem -> onChange.
                     hasUnselectedSearchRef.current = false
                     setBlurredWithoutSelection(false)
                     if (key) {
