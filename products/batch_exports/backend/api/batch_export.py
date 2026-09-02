@@ -736,10 +736,9 @@ class RedshiftDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["Redshift"])
     integration_id = serializers.IntegerField(
-        required=False,
         help_text=(
-            "ID of an aws-redshift-kind Integration providing connection credentials. Preferred over "
-            "inline credentials. Use the integrations-list MCP tool to find one."
+            "ID of an aws-redshift-kind Integration providing connection credentials. Use the "
+            "integrations-list MCP tool to find one."
         ),
     )
     config = RedshiftDestinationConfigSerializer()
@@ -767,9 +766,9 @@ class BatchExportDestinationRequestField(serializers.JSONField):
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
     S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
-    every one of those except Snowflake and Redshift, where inline credentials remain supported for
-    the time being. Existing Postgres, Snowflake and Redshift exports created before integrations
-    keep their inline credentials. Runtime validation remains
+    every one of those except Snowflake, where inline credentials remain supported for the time
+    being. Existing Postgres, Snowflake and Redshift exports created before integrations keep their
+    inline credentials. Runtime validation remains
     `BatchExportDestinationSerializer.validate_destination`.
     """
 
@@ -929,9 +928,11 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         # Some credential/connection fields are optional on the dataclass (integration-backed exports
         # resolve them at run time), so they must be required here only when no Integration is linked.
         # For the S3 family this is only possible when updating an export that predates integrations:
-        # creating one without an Integration is rejected in `validate_destination`.
+        # creating one without an Integration is rejected in `validate_destination`. Redshift is
+        # absent for the same reason, and because this check runs first: leaving it in would report a
+        # missing 'user' instead of the missing integration that is the actual problem.
         # TODO: remove this code once inline credentials are gone for S3 and integrations are enforced
-        # for Snowflake and Redshift
+        # for Snowflake
         conditionally_required: set[str] = set()
         if attrs.get("integration") is None:
             if export_type in S3_FAMILY_TYPES:
@@ -940,8 +941,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                     conditionally_required.add("endpoint_url")
             elif export_type == BatchExportDestination.Destination.SNOWFLAKE:
                 conditionally_required = {"account", "user"}
-            elif export_type == BatchExportDestination.Destination.REDSHIFT:
-                conditionally_required = {"user", "password", "host"}
 
         for destination_field in destination_fields:
             is_required = (
@@ -1606,12 +1605,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             integration = destination_attrs.get("integration")
 
             # Sticky integration: an export that uses one cannot drop back to inline credentials.
-            # TODO: remove this guard once integrations are mandatory for Redshift and inline credentials are gone.
+            # TODO: remove this guard once inline credentials are gone.
             if instance is not None and instance.destination.integration is not None and integration is None:
                 raise serializers.ValidationError(
                     "Cannot remove the integration from a Redshift batch export that uses one. "
                     "Re-send its `integration` to keep it (or a different one to swap)."
                 )
+
+            # New Redshift exports must use an Integration for credentials. Exports created before
+            # integrations existed keep their inline credentials, so only require it on create
+            # (`instance is None`); existing inline-credential exports stay valid when edited.
+            if integration is None and instance is None:
+                raise serializers.ValidationError("Integration is required for Redshift batch exports")
 
             if integration is not None:
                 # (Team ownership is already enforced by the team-scoped `integration` field.)

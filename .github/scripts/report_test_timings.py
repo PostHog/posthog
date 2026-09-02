@@ -65,7 +65,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
-from posthog_owners import OwnersResolver
+from posthog_owners import OwnersResolver, first_team_owner
 
 logger = logging.getLogger("report_test_timings")
 
@@ -297,10 +297,14 @@ def normalize_jest_file(file: str, jest_root: str = "frontend") -> str:
     mangles the path or drops the file as un-normalizable, so the root follows the
     artifact's suite.
     """
+    return _normalize_repo_file(file, jest_root)
+
+
+def _normalize_repo_file(file: str, root: str) -> str:
     if not file:
         return ""
-    normalized = posixpath.normpath(posixpath.join(jest_root, file.replace("\\", "/")))
-    if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
+    normalized = posixpath.normpath(posixpath.join(root, file.replace("\\", "/")))
+    if normalized == ".." or normalized.startswith(("../", "/")):
         return ""
     return normalized
 
@@ -311,6 +315,17 @@ def jest_root_for_suite(suite: str) -> str:
     if suite == "replay-shared":
         return "common/replay-shared"
     return "frontend"
+
+
+def normalize_pytest_file(file: str) -> str:
+    """Keep a pytest JUnit ``file`` attribute only when it stays inside the repo.
+
+    pytest reports the decorator's own source file for tests wrapped in ``mock.patch``,
+    ``freeze_time``, or ``parameterized``, which arrives as a path into site-packages
+    (``../../../opt/.../unittest/mock.py``). Such a path can never resolve an owner, so it is
+    discarded here and the caller falls back to inferring the file from the JUnit classname.
+    """
+    return _normalize_repo_file(file, ".")
 
 
 def infer_pytest_file(classname: str) -> str:
@@ -340,8 +355,9 @@ def test_identity(
         file_source: Literal["junit", "inferred", "missing"] = "junit" if normalized_file else "missing"
         return normalized_file, selector or name, selector, file_source
 
-    normalized_file = file or infer_pytest_file(classname)
-    file_source = "junit" if file else "inferred" if normalized_file else "missing"
+    junit_file = normalize_pytest_file(file)
+    normalized_file = junit_file or infer_pytest_file(classname)
+    file_source = "junit" if junit_file else "inferred" if normalized_file else "missing"
     return (
         normalized_file,
         to_pytest_nodeid(classname, name),
@@ -791,7 +807,9 @@ def owner_team_lookup() -> Callable[[str], str]:
     losing the emit.
     """
     try:
-        resolver = OwnersResolver()
+        # The explicit root skips the resolver's own `git rev-parse`, whose failure would
+        # silently unown every span in the run.
+        resolver = OwnersResolver(REPO_ROOT)
     except Exception:
         logger.exception("owners resolver unavailable; emitting spans without team attribution")
         return lambda _file: ""
@@ -805,7 +823,7 @@ def owner_team_lookup() -> Callable[[str], str]:
         except Exception:
             logger.exception("owners resolution failed for %s; emitting span without team attribution", file)
             return ""
-        return owners[0] if owners else ""
+        return first_team_owner(owners)
 
     return lookup
 

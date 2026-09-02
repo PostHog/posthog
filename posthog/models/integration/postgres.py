@@ -109,6 +109,14 @@ class PostgreSQLServerIntegration:
         if ssl_mode not in ("require", "verify-ca", "verify-full"):
             raise common.IntegrationError("SSL mode must be one of: require, verify-ca, verify-full")
 
+        # Optional, and display only. It stays out of `integration_id` so that two connections to
+        # the same server under different names stay one integration.
+        name = config.get("name", None)
+        if name is not None:
+            if not isinstance(name, str):
+                raise common.IntegrationError("Name must be a string")
+            name = name.strip() or None
+
         ssl_root_cert = config.get("ssl_root_cert", None)
         if ssl_mode in ("verify-ca", "verify-full"):
             if not ssl_root_cert:
@@ -118,10 +126,23 @@ class PostgreSQLServerIntegration:
             if not isinstance(ssl_root_cert, str):
                 raise common.IntegrationError("SSL root certificate must be a string")
 
+        integration_id = f"{team_id}-{host}-{port}-{user}"
+
+        if name is None:
+            # `update_or_create` replaces the whole config, so a reconnect that omits the name
+            # would otherwise drop the one the user already chose.
+            name = (
+                model.Integration.objects.filter(
+                    team_id=team_id, kind=cls.integration_kind, integration_id=integration_id
+                )
+                .values_list("config__name", flat=True)
+                .first()
+            )
+
         integration, _ = model.Integration.objects.update_or_create(
             team_id=team_id,
             kind=cls.integration_kind,
-            integration_id=f"{team_id}-{host}-{port}-{user}",
+            integration_id=integration_id,
             defaults={
                 "config": {
                     "host": host,
@@ -129,6 +150,7 @@ class PostgreSQLServerIntegration:
                     "user": user,
                     "ssl_mode": ssl_mode,
                     "ssl_root_cert": ssl_root_cert,
+                    **({"name": name} if name else {}),
                 },
                 "sensitive_config": {
                     "password": password,
