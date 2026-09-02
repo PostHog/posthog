@@ -1,4 +1,4 @@
-import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,6 +64,12 @@ def _write_multi_fragment_table(tmp_path: Path, fragments: int = 3, rows_per_fra
         table = pa.table({"id": ids, "last_seen": ["2026-03-01"] * rows_per_fragment})
         deltalake.write_deltalake(uri, table, mode="overwrite" if fragment == 0 else "append")
     return uri
+
+
+def _set_delta_commit_log_mtimes(uri: str, times_by_version: dict[int, datetime]) -> None:
+    for version, committed_at in times_by_version.items():
+        log = Path(uri) / "_delta_log" / f"{version:020d}.json"
+        os.utime(log, (committed_at.timestamp(), committed_at.timestamp()))
 
 
 def _patched_resolve(uri: str, snapshot_timestamp=None, row_filter=None):
@@ -177,19 +183,15 @@ def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
 
 def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_path: Path) -> None:
     uri = _write_parent_table(tmp_path)
-    v0_table = deltalake.DeltaTable(uri)
-    v0 = v0_table.version()
-    v0_timestamp = datetime.fromtimestamp(v0_table.history()[0]["timestamp"] / 1000, tz=UTC)
+    v0 = deltalake.DeltaTable(uri).version()
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
-    partial_refresh_log = Path(uri) / "_delta_log" / "00000000000000000001.json"
-    entries = partial_refresh_log.read_text().splitlines()
-    partial_refresh_commit = json.loads(entries[0])
-    partial_refresh_commit["commitInfo"]["timestamp"] = int(v0_timestamp.timestamp() * 1000) + 1
-    partial_refresh_log.write_text("\n".join([json.dumps(partial_refresh_commit), *entries[1:]]) + "\n")
 
-    pinned = _patched_resolve(uri, snapshot_timestamp=v0_timestamp)
+    snapshot_committed_at = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+    _set_delta_commit_log_mtimes(uri, {v0: snapshot_committed_at, v0 + 1: snapshot_committed_at + timedelta(minutes=2)})
+
+    pinned = _patched_resolve(uri, snapshot_timestamp=snapshot_committed_at + timedelta(minutes=1))
 
     assert pinned.version == v0
 
