@@ -764,6 +764,23 @@ class TestEmailMultiConfig(BaseTest):
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
+    def test_support_channel_rejects_shared_provider_domain(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@gmail.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "gmail.com" in response.json()["error"]
+        mock_mailgun.assert_not_called()
+        assert not EmailChannel.objects.filter(team=self.team).exists()
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
     def test_same_domain_skips_mailgun_add(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
