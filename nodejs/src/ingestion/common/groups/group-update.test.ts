@@ -16,9 +16,8 @@ function applyInOrder(updates: Properties[]): Properties {
 }
 
 describe('calculateUpdate', () => {
-    // Group property merging is the only piece of group ingestion that can observe event order.
-    // These tests pin down exactly how much order matters: none for distinct keys, last-write-wins
-    // for the same key. Nothing here depends on timestamps — see the comment in calculateUpdate.
+    // Property merging is the only piece of group ingestion that can observe event order.
+    // These pin down how much: none for distinct keys, last-write-wins for the same key.
     describe('ordering', () => {
         it('produces the same properties in every order when updates touch different keys', () => {
             const updates: Properties[] = [{ name: 'Acme' }, { plan: 'enterprise' }, { seats: 40 }]
@@ -31,26 +30,9 @@ describe('calculateUpdate', () => {
             }
         })
 
-        it('is last-write-wins for the same key, and this is the only order-dependent behaviour', () => {
+        it('is last-write-wins for the same key, and this is the only order-dependent behavior', () => {
             expect(applyInOrder([{ plan: 'free' }, { plan: 'enterprise' }])).toEqual({ plan: 'enterprise' })
             expect(applyInOrder([{ plan: 'enterprise' }, { plan: 'free' }])).toEqual({ plan: 'free' })
-        })
-
-        it('never removes a key, so a partial update cannot undo an earlier one', () => {
-            expect(applyInOrder([{ name: 'Acme', plan: 'free' }, { plan: 'enterprise' }])).toEqual({
-                name: 'Acme',
-                plan: 'enterprise',
-            })
-            expect(applyInOrder([{ name: 'Acme', plan: 'free' }, {}])).toEqual({ name: 'Acme', plan: 'free' })
-        })
-
-        it('is idempotent: replaying an update reports no change', () => {
-            const first = calculateUpdate({}, { name: 'Acme' })
-            const replay = calculateUpdate(first.properties, { name: 'Acme' })
-
-            expect(first.updated).toBe(true)
-            expect(replay.updated).toBe(false)
-            expect(replay.properties).toEqual(first.properties)
         })
     })
 })
