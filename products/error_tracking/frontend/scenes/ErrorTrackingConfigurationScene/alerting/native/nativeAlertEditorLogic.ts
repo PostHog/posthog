@@ -34,6 +34,8 @@ export type AlertDraft = {
     name: string
     enabled: boolean
     triggers: TriggersEnumApi[]
+    /** The stored filter shape minus `properties`, kept so fields the editor does not show survive a save. */
+    otherFilters: Omit<ErrorTrackingAlertFiltersApi, 'properties' | 'bytecode'>
     properties: AnyPropertyFilter[]
     throttleSeconds: number
     destinations: DraftDestination[]
@@ -62,6 +64,7 @@ function emptyDraft(): AlertDraft {
         name: '',
         enabled: true,
         triggers: ['issue_created'],
+        otherFilters: {},
         properties: [],
         throttleSeconds: 0,
         destinations: [{ integrationId: null, channel: null }],
@@ -87,6 +90,7 @@ export function draftFromAlert(alert: ErrorTrackingAlertApi): AlertDraft {
         name: alert.name,
         enabled: alert.enabled,
         triggers: [...alert.triggers],
+        otherFilters: (({ properties: _properties, bytecode: _bytecode, ...rest }) => rest)(alert.filters),
         properties: ((alert.filters.properties ?? []) as AnyPropertyFilter[]).map((property) => ({ ...property })),
         throttleSeconds: alert.throttle_seconds,
         destinations: alert.destinations.map((destination) => ({
@@ -115,7 +119,7 @@ export function payloadFromDraft(draft: AlertDraft): ErrorTrackingAlertPutReques
         enabled: draft.enabled,
         triggers: draft.triggers,
         // The generated type carries the read-only `bytecode`; the server compiles it on save.
-        filters: { properties: draft.properties } as unknown as ErrorTrackingAlertFiltersApi,
+        filters: { ...draft.otherFilters, properties: draft.properties } as unknown as ErrorTrackingAlertFiltersApi,
         throttle_seconds: draft.throttleSeconds,
         destinations,
     }

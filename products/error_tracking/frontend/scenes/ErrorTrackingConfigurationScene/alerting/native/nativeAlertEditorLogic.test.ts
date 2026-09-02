@@ -30,7 +30,11 @@ const existingAlert = {
     name: 'Production errors',
     enabled: false,
     triggers: ['issue_reopened', 'issue_created'],
-    filters: { properties: [{ key: 'environment', value: 'production', type: 'event', operator: 'exact' }] },
+    filters: {
+        events: [{ id: '$error_tracking_issue_created', type: 'events' }],
+        properties: [{ key: 'environment', value: 'production', type: 'event', operator: 'exact' }],
+        bytecode: ['_H', 1],
+    },
     throttle_seconds: 3600,
     destinations: [
         {
@@ -68,7 +72,8 @@ describe('nativeAlertEditorLogic', () => {
             name: 'Production errors',
             enabled: false,
             triggers: ['issue_reopened', 'issue_created'],
-            filters: { properties: existingAlert.filters.properties },
+            // Event filters the editor does not show survive the round trip; bytecode is server-owned.
+            filters: { events: existingAlert.filters.events, properties: existingAlert.filters.properties },
             throttle_seconds: 3600,
             destinations: [
                 { channel_type: 'slack', integration_id: 7, config: { channel: 'C0123', channel_name: '#alerts' } },
