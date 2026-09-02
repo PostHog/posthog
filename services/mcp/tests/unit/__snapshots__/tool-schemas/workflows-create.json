@@ -538,7 +538,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set on create, immutable after. Filter the list with `?origin_product=`.\n\n* `loops` - Loops"
+            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n* `loops` - Loops"
         },
         "status": {
             "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",

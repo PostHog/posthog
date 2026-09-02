@@ -87,7 +87,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set on create, immutable after. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
             ),
         trigger_masking: zod
             .union([
@@ -477,12 +477,6 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().optional().describe('Optional description.'),
-        origin_product: zod
-            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
-            .optional()
-            .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set on create, immutable after. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
-            ),
         trigger_masking: zod
             .union([
                 zod.object({

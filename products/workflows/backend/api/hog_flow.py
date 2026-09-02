@@ -2447,8 +2447,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         choices=HogFlow.OriginProduct.choices,
         required=False,
         allow_null=True,
-        help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set on create, "
-        "immutable after. Filter the list with `?origin_product=`.",
+        help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
+        "creating a workflow. Filter the list with `?origin_product=`.",
     )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
@@ -2691,9 +2691,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         instance = cast(Optional[HogFlow], self.instance)
         is_draft = self.context.get("is_draft")
 
-        if instance is not None and "origin_product" in data and data["origin_product"] != instance.origin_product:
-            raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
-
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
         # recovery is keyed by action id, so a forged duplicate id could otherwise pull another action's
@@ -2859,6 +2856,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def update(self, instance, validated_data):
         self._strip_secret_inputs(validated_data)
         return super().update(instance, validated_data)
+
+
+class HogFlowUpdateSerializer(HogFlowSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=HogFlow.OriginProduct.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Product surface that owns this workflow. This value cannot change after creation.",
+    )
+
+    def validate(self, data: dict) -> dict:
+        instance = cast(Optional[HogFlow], self.instance)
+        submitted_origin_product = self.initial_data.get("origin_product", serializers.empty)
+        if (
+            instance is not None
+            and submitted_origin_product is not serializers.empty
+            and submitted_origin_product != instance.origin_product
+        ):
+            raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
+        return super().validate(data)
 
 
 GRAPH_OPERATION_TYPES = [
@@ -3473,6 +3490,8 @@ class HogFlowViewSet(
             if self.request is not None and self._is_mcp_request(self.request):
                 return HogFlowSummarySerializer
             return HogFlowMinimalSerializer
+        if self.action in ("update", "partial_update"):
+            return HogFlowUpdateSerializer
         return HogFlowSerializer
 
     def get_serializer_context(self) -> dict:
