@@ -254,6 +254,35 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         return SimpleBreakdownStrategy(self)
 
+    def _owning_lazy_precompute_family(self) -> Literal["paths", "frustration", "simple"]:
+        """Which precompute family is the only one that could serve this query shape.
+
+        Mirrors the family-level branches of `_get_strategy` above, deliberately not its join
+        variants: those pick how a family runs the query, not which family owns it. The two
+        taxonomies diverge in one place. INITIAL_PAGE with bounce rate is a simple breakdown with an
+        entry-pathname override on the live path, but the paths family is what precomputes it.
+
+        The families are disjoint, so asking only the owner loses no precompute hit: PAGE,
+        INITIAL_PAGE and FRUSTRATION_METRICS are all absent from the simple family's
+        SUPPORTED_BREAKDOWNS.
+        """
+        breakdown = self._effective_breakdown()
+
+        if breakdown == WebStatsBreakdown.FRUSTRATION_METRICS:
+            return "frustration"
+
+        if (
+            breakdown == WebStatsBreakdown.PAGE
+            and not self.query.conversionGoal
+            and (self.query.includeAvgTimeOnPage or self.query.includeBounceRate)
+        ):
+            return "paths"
+
+        if breakdown == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
+            return "paths"
+
+        return "simple"
+
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         column = None
         direction: Literal["ASC", "DESC"] = "DESC"
@@ -735,20 +764,23 @@ WHERE and(
         return field, direction
 
     def _calculate(self):
-        # Try each lazy precompute path in turn. Each `can_use_*` check short-
-        # circuits on the wrong `breakdownBy`, so the order only matters for
-        # rejection reason attribution in logs/metrics.
-        lazy_response = self._maybe_calculate_via_lazy_precompute()
-        if lazy_response is not None:
-            return lazy_response
+        # Ask only the family that owns this shape. Trying all three in turn made the other two
+        # refuse a query they could never have served, and each refusal recorded its own rejection
+        # reason, so the last gate to run decided what the read reported.
+        family = self._owning_lazy_precompute_family()
 
-        lazy_response = self._maybe_calculate_via_frustration_lazy_precompute()
-        if lazy_response is not None:
-            return lazy_response
-
-        lazy_result = self.get_lazy_precomputed_result()
-        if lazy_result is not None:
-            return self._build_response_from_lazy(lazy_result)
+        if family == "paths":
+            lazy_response = self._maybe_calculate_via_lazy_precompute()
+            if lazy_response is not None:
+                return lazy_response
+        elif family == "frustration":
+            lazy_response = self._maybe_calculate_via_frustration_lazy_precompute()
+            if lazy_response is not None:
+                return lazy_response
+        else:
+            lazy_result = self.get_lazy_precomputed_result()
+            if lazy_result is not None:
+                return self._build_response_from_lazy(lazy_result)
 
         # Preflight only when the live query will actually run as the id-set
         # shape — pre-aggregated serving must not pay a discarded events scan.
@@ -809,6 +841,12 @@ WHERE and(
                 columns = [*list(columns), "context.columns.cross_sell"]
                 results_mapped = [[*row, ""] for row in (results_mapped or [])]
 
+        strategy = (
+            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+            if self.used_preaggregated_tables
+            else WebAnalyticsPreComputeStrategy.LIVE
+        )
+
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
@@ -816,12 +854,8 @@ WHERE and(
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
-            preComputeStrategy=(
-                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-                if self.used_preaggregated_tables
-                else WebAnalyticsPreComputeStrategy.LIVE
-            ),
-            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
+            preComputeStrategy=strategy,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
             **self.paginator.response_params(),
         )
 
