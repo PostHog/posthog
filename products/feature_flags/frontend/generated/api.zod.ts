@@ -614,7 +614,9 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         last_called_at: zod.iso
             .datetime({ offset: true })
             .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
+            .describe(
+                'Last time a $feature_flag_called event arrived for this flag. The event comes from the calling SDK, so it is missing when the SDK does not send it or it does not reach PostHog. A null value does not mean the flag was never evaluated.'
+            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -1055,7 +1057,9 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         last_called_at: zod.iso
             .datetime({ offset: true })
             .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
+            .describe(
+                'Last time a $feature_flag_called event arrived for this flag. The event comes from the calling SDK, so it is missing when the SDK does not send it or it does not reach PostHog. A null value does not mean the flag was never evaluated.'
+            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')

@@ -128,10 +128,11 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                 <Tooltip
                     title={
                         <>
-                            <div className="text-sm">This flag is likely safe to remove</div>
+                            <div className="text-sm">This flag might be safe to remove</div>
                             <div className="text-xs">
-                                Not called in 30+ days or fully rolled out. Make sure to remove any references in your
-                                code before deleting it.
+                                No flag call events for 30+ days, or the flag is fully rolled out. Your SDK sends
+                                those events, so a flag with none can still serve users. Check the Usage tab and your
+                                code first.
                             </div>
                         </>
                     }

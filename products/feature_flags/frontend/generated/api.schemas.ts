@@ -558,7 +558,7 @@ export interface FeatureFlagApi {
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     /**
-     * Last time this feature flag was called (from $feature_flag_called events)
+     * Last time a $feature_flag_called event arrived for this flag. The event comes from the calling SDK, so it is missing when the SDK does not send it or it does not reach PostHog. A null value does not mean the flag was never evaluated.
      * @nullable
      */
     last_called_at?: string | null
@@ -1175,7 +1175,7 @@ export interface FeatureFlagRolloutSummaryApi {
 }
 
 export interface FeatureFlagStatusResponseApi {
-    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+    /** Flag staleness status: active, stale, archived, deleted, or unknown. The usage part of the verdict comes from $feature_flag_called events, which only exist when an SDK sends them, so a flag with no such events can still serve traffic. 'active' does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
@@ -1310,7 +1310,7 @@ export interface FeatureFlagVersionResponseApi {
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     /**
-     * Last time this feature flag was called (from $feature_flag_called events)
+     * Last time a $feature_flag_called event arrived for this flag. The event comes from the calling SDK, so it is missing when the SDK does not send it or it does not reach PostHog. A null value does not mean the flag was never evaluated.
      * @nullable
      */
     last_called_at?: string | null
