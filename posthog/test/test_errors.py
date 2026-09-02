@@ -7,6 +7,7 @@ from posthog.errors import (
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -98,6 +99,9 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, ExposedCHQueryError)
         assert str(wrapped) == RAGGED_ROWS_MESSAGE
+        # The wrapped class keeps outer code 636, which is not user_safe, so classification must key
+        # off the class to reach USER_ERROR. Otherwise the query runner captures it to error tracking.
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
 
     def test_nested_parquet_magic_bytes_wraps_as_file_changed_error(self) -> None:
         err = ServerException(

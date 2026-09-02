@@ -232,6 +232,13 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # Code 636 stays not user_safe because its raw message can carry data values, so the code lookup
+    # below would classify this as ERROR. The ragged-rows cause is re-wrapped as a user-safe class
+    # with a fixed message, so classify it by class to keep it USER_ERROR, which keeps it out of
+    # error tracking.
+    if isinstance(e, CHQueryErrorRaggedFileRows):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
