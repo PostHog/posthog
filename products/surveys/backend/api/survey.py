@@ -2138,6 +2138,7 @@ class SurveyFilterSet(FilterSet):
 
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     list=extend_schema(
         parameters=[
@@ -2158,10 +2159,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     filterset_class = SurveyFilterSet
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
-        if self.request.method == "POST" or self.request.method == "PATCH":
+        if self.request.method in {"POST", "PUT", "PATCH"}:
             return SurveySerializerCreateUpdateOnly
-        else:
-            return SurveySerializer
+        return SurveySerializer
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.exclude(product_tour__isnull=False)
@@ -3449,7 +3449,7 @@ def get_survey_api_translations(
             continue
 
         safe_translation = {
-            field: value
+            field: sanitize_html_for_sdk(value)
             for field, value in translation.items()
             if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
         }
@@ -3470,6 +3470,47 @@ SDK_RENDERED_APPEARANCE_TEXT_FIELDS = (
     "introScreenDescription",
     "introScreenButtonText",
 )
+SDK_RENDERED_QUESTION_TEXT_FIELDS = (
+    "question",
+    "description",
+    "buttonText",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+)
+
+
+def sanitize_html_for_sdk(value: Any) -> Any:
+    if isinstance(value, str) and value and nh3.is_html(value):
+        return nh3_clean_with_allow_list(value)
+    return value
+
+
+def is_safe_link_for_sdk(value: Any) -> bool:
+    if value is None or value == "":
+        return True
+    if not isinstance(value, str):
+        return False
+    parsed_url = urlparse(value)
+    if parsed_url.scheme == "https":
+        return bool(parsed_url.netloc)
+    if parsed_url.scheme == "mailto":
+        return re.match(EMAIL_REGEX, value) is not None
+    return False
+
+
+def sanitize_question_content_for_sdk(question: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(question)
+    for field in SDK_RENDERED_QUESTION_TEXT_FIELDS:
+        if field in sanitized:
+            sanitized[field] = sanitize_html_for_sdk(sanitized[field])
+
+    choices = sanitized.get("choices")
+    if isinstance(choices, list):
+        sanitized["choices"] = [sanitize_html_for_sdk(choice) for choice in choices]
+
+    if "link" in sanitized and not is_safe_link_for_sdk(sanitized["link"]):
+        sanitized.pop("link")
+    return sanitized
 
 
 def sanitize_appearance_for_sdk(appearance: Any) -> Any:
@@ -3479,8 +3520,8 @@ def sanitize_appearance_for_sdk(appearance: Any) -> Any:
     sanitized = appearance
     for field in SDK_RENDERED_APPEARANCE_TEXT_FIELDS:
         text = appearance.get(field)
-        if isinstance(text, str) and text and nh3.is_html(text):
-            cleaned = nh3_clean_with_allow_list(text)
+        if isinstance(text, str):
+            cleaned = sanitize_html_for_sdk(text)
             if cleaned != text:
                 if sanitized is appearance:
                     sanitized = dict(appearance)
@@ -3554,13 +3595,16 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             if not isinstance(question, dict):
                 cleaned.append(question)
                 continue
-            next_question = dict(question)
+            next_question = sanitize_question_content_for_sdk(question)
             next_question.pop("isNpsQuestion", None)
             inline_translations = question.get("translations")
             if isinstance(inline_translations, dict):
                 filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
                 if filtered:
-                    next_question["translations"] = filtered
+                    next_question["translations"] = {
+                        language: sanitize_question_content_for_sdk(translation)
+                        for language, translation in filtered.items()
+                    }
                 else:
                     next_question.pop("translations", None)
             cleaned.append(next_question)
@@ -3568,6 +3612,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
+        data["name"] = sanitize_html_for_sdk(data.get("name"))
         data["appearance"] = sanitize_appearance_for_sdk(data.get("appearance"))
         if data.get("translations") is None:
             data.pop("translations", None)

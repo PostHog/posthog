@@ -533,15 +533,30 @@ class TestSurvey(APIBaseTest):
         assert "english" not in q_translations
         assert "translations" not in payload["questions"][1]
 
-    def test_sdk_payload_sanitizes_legacy_appearance_html(self) -> None:
-        # Created via the ORM, mirroring appearance JSON stored before write-path validation
-        # covered these fields, so nothing has ever sanitized it.
+    def test_sdk_payload_sanitizes_legacy_survey_html(self) -> None:
+        # Created via the ORM, mirroring survey JSON stored before write-path validation
+        # covered every SDK-rendered field.
         survey = Survey.objects.create(
             team=self.team,
-            name="Legacy appearance",
+            name="<b>Legacy survey</b><script>nameXss()</script>",
             type="popover",
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
-            questions=[{"id": "q1", "type": "open", "question": "How are you?"}],
+            questions=[
+                {
+                    "id": "q1",
+                    "type": "link",
+                    "question": "How are you?",
+                    "description": "<b>Tell us more</b><script>questionXss()</script>",
+                    "descriptionContentType": "html",
+                    "link": "javascript:questionXss()",
+                    "translations": {
+                        "es": {
+                            "description": "<em>Cuéntanos más</em><script>translationXss()</script>",
+                            "link": "javascript:translationXss()",
+                        }
+                    },
+                }
+            ],
             appearance={
                 "displayIntroScreen": True,
                 "introScreenHeader": "<i>Welcome</i><script>xss()</script>",
@@ -551,10 +566,16 @@ class TestSurvey(APIBaseTest):
                 "thankYouMessageDescription": "<em>Thanks</em><script>bad()</script>",
                 "backgroundColor": "black",
             },
+            translations={
+                "es": {
+                    "introScreenDescription": "<strong>Dos preguntas</strong><script>introXss()</script>",
+                }
+            },
         )
 
         response = get_surveys_response(self.team)
         payload = next(item for item in response["surveys"] if str(item["id"]) == str(survey.id))
+        assert payload["name"] == "<b>Legacy survey</b>"
         appearance = payload["appearance"]
         assert appearance["introScreenHeader"] == "<i>Welcome</i>"
         assert "<script>" not in appearance["introScreenDescription"]
@@ -562,6 +583,11 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in appearance["introScreenButtonText"]
         assert "<script>" not in appearance["thankYouMessageDescription"]
         assert appearance["backgroundColor"] == "black"
+        assert payload["questions"][0]["description"] == "<b>Tell us more</b>"
+        assert payload["questions"][0]["translations"]["es"]["description"] == "<em>Cuéntanos más</em>"
+        assert "link" not in payload["questions"][0]
+        assert "link" not in payload["questions"][0]["translations"]["es"]
+        assert payload["translations"]["es"]["introScreenDescription"] == "<strong>Dos preguntas</strong>"
         # The stored row itself is untouched; only the SDK payload is cleaned.
         survey.refresh_from_db()
         assert survey.appearance is not None
@@ -997,6 +1023,36 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in question["lowerBoundLabel"]
         assert "<u>Good</u>" in question["upperBoundLabel"]
         assert "<script>" not in question["upperBoundLabel"]
+
+    def test_put_sanitizes_question_html(self) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "How are you?"}],
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "name": "Updated survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "How are you?",
+                        "description": "<b>Updated</b><script>alert(0)</script>",
+                        "descriptionContentType": "html",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        survey.refresh_from_db()
+        assert survey.questions is not None
+        assert survey.questions[0]["description"] == "<b>Updated</b>"
 
     def test_translated_link_validation(self):
         # Test invalid URL scheme in translated link
