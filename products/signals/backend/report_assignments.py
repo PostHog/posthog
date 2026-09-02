@@ -16,12 +16,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import (
-    InvalidStatusTransition,
-    SignalActorKind,
-    SignalReport,
-    SignalReportAssignment,
-)
+from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalReportAssignment
 
 logger = structlog.get_logger(__name__)
 
@@ -100,13 +95,13 @@ def assignment_snapshot(assignment: SignalReportAssignment | None) -> Assignment
 def actor_owns_assignment(assignment: SignalReportAssignment, actor: ArtefactAttribution) -> bool:
     if assignment.actor_kind != actor.kind:
         return False
-    if actor.kind == SignalActorKind.USER:
+    if actor.kind == "user":
         return assignment.actor_user_id == actor.user_id
-    if actor.kind == SignalActorKind.TASK:
+    if actor.kind == "task":
         return str(assignment.actor_task_id) == actor.task_id
-    if actor.kind == SignalActorKind.AGENT:
+    if actor.kind == "agent":
         return assignment.actor_user_id == actor.user_id and assignment.actor_agent == actor.agent_name
-    return actor.kind == SignalActorKind.SYSTEM
+    return actor.kind == "system"
 
 
 def _set_actor(assignment: SignalReportAssignment, actor: ArtefactAttribution) -> None:
@@ -258,17 +253,27 @@ def claim_report(
 
         assignment.save()
         _apply_pr_report_state(locked_report, assignment.pr_state)
-        changes = [
-            Change(
-                type="SignalReport",
-                action="changed",
-                field=field,
-                before=before[field],
-                after=after[field],
+        changes: list[Change] = []
+        if before["assignee"] != after["assignee"]:
+            changes.append(
+                Change(
+                    type="SignalReport",
+                    action="changed",
+                    field="assignee",
+                    before=before["assignee"],
+                    after=after["assignee"],
+                )
             )
-            for field in ("assignee", "implementation_pr")
-            if before[field] != after[field]
-        ]
+        if before["implementation_pr"] != after["implementation_pr"]:
+            changes.append(
+                Change(
+                    type="SignalReport",
+                    action="changed",
+                    field="implementation_pr",
+                    before=before["implementation_pr"],
+                    after=after["implementation_pr"],
+                )
+            )
         log_activity(
             organization_id=None,
             team_id=locked_report.team_id,

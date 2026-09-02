@@ -1182,11 +1182,11 @@ class SignalReportViewSet(
         if raw.strip().lower() != "me":
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me."})
         actor = self._request_attribution()
-        if actor.kind == SignalActorKind.USER:
+        if actor.kind == "user":
             return queryset.filter(assignment__actor_kind=actor.kind, assignment__actor_user_id=actor.user_id)
-        if actor.kind == SignalActorKind.TASK:
+        if actor.kind == "task":
             return queryset.filter(assignment__actor_kind=actor.kind, assignment__actor_task_id=actor.task_id)
-        if actor.kind == SignalActorKind.AGENT:
+        if actor.kind == "agent":
             return queryset.filter(
                 assignment__actor_kind=actor.kind,
                 assignment__actor_user_id=actor.user_id,

@@ -40,17 +40,14 @@ from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
+    SignalReportAssignment,
     SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
-    TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
-    TASK_RUN_TYPE_REPO_SELECTION,
-    TASK_RUN_TYPE_RESEARCH,
-    TASK_RUN_TYPE_SCOUT,
     append_task_run_artefact,
     record_implementation_task,
     record_report_task,
@@ -60,7 +57,7 @@ from products.tasks.backend.facade.api import Channel
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 if TYPE_CHECKING:
-    from products.tasks.backend.models import Task, TaskRun
+    from products.tasks.backend.models import Task
 
 
 def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
@@ -673,17 +670,54 @@ class TestSignalReportListAPI(APIBaseTest):
 
     # --- implementation_pr_url ---
 
-    def _create_implementation_task_with_run(
+    def _create_assignment(
         self,
         report: SignalReport,
         *,
         pr_url: str | None = None,
-        output: dict | None = None,
-        relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
-        state: dict | None = None,
-    ) -> "tuple[Task, TaskRun]":
+        pr_state: str = SignalReportAssignment.PrState.UNKNOWN,
+        pr_merged: bool = False,
+    ) -> SignalReportAssignment:
+        parts = pr_url.rstrip("/").split("/") if pr_url else []
+        return SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            pr_url=pr_url,
+            repository="/".join(parts[-4:-2]) if parts else None,
+            pr_number=int(parts[-1]) if parts else None,
+            pr_state=pr_state if pr_url else None,
+            pr_merged=pr_merged,
+        )
+
+    def test_implementation_pr_fields_come_from_assignment(self):
+        report = self._create_report()
+        self._create_assignment(report, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+        assert row["implementation_pr_state"] == SignalReportAssignment.PrState.UNKNOWN
+        assert row["implementation_pr_merged"] is False
+        assert row["work_state"] == "in_review"
+
+    def test_retrieve_implementation_pr_fields_come_from_assignment(self):
+        report = self._create_report()
+        self._create_assignment(
+            report,
+            pr_url="https://github.com/org/repo/pull/42",
+            pr_state=SignalReportAssignment.PrState.OPEN,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+        assert response.json()["implementation_pr_state"] == SignalReportAssignment.PrState.OPEN
+
+    def test_task_run_pr_is_not_used_as_the_report_pr(self):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
         task = Task.objects.create(
             team=self.team,
             title="Implementation task",
@@ -694,194 +728,21 @@ class TestSignalReportListAPI(APIBaseTest):
             team_id=self.team.id,
             report_id=str(report.id),
             task_id=str(task.id),
-            relationship=relationship,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         )
-        run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
-        run = TaskRun.objects.create(
-            team=self.team,
-            task=task,
-            status=TaskRun.Status.COMPLETED,
-            output=run_output,
-            state=state or {},
-        )
-        return task, run
-
-    def test_implementation_pr_url_present_when_task_has_pr(self):
-        report = self._create_report()
-        self._create_implementation_task_with_run(report, pr_url="https://github.com/org/repo/pull/42")
-
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_200_OK
-        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
-
-    def test_retrieve_implementation_pr_url_present_when_task_has_pr(self):
-        report = self._create_report()
-        self._create_implementation_task_with_run(report, pr_url="https://github.com/org/repo/pull/42")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
-        assert response.json()["implementation_pr_url"] == response.json()["implementation_pr_url"].strip('"')
-
-    def test_implementation_pr_url_resolves_from_artefact_only_association(self):
-        # A task associated purely via a task_run artefact (no SignalReportTask gate row, e.g. a
-        # custom-agent run) still resolves its PR — the unified association covers both sources.
-        Task = apps.get_model("tasks", "Task")
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        report = self._create_report()
-        task = Task.objects.create(
-            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
-        )
-        append_task_run_artefact(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            product="signals",
-            type="implementation",
-            task_id=str(task.id),
-        )
-        assert not SignalReportTask.objects.filter(report=report).exists()
         TaskRun.objects.create(
             team=self.team,
             task=task,
             status=TaskRun.Status.COMPLETED,
-            output={"pr_url": "https://github.com/o/r/pull/7"},
-        )
-
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_200_OK
-        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["implementation_pr_url"] == "https://github.com/o/r/pull/7"
-
-    @parameterized.expand(
-        [
-            # A "Discuss" task runs the same agent against the same repo, so the PR it opens is the
-            # report's PR. Without it the report offers "Create PR" for work that already shipped.
-            ("discussion_only", False, "https://github.com/o/r/pull/5"),
-            # Implementation still wins when both have one, even though the discussion task is older
-            # and would come first on association order alone.
-            ("implementation_wins_over_discussion", True, "https://github.com/o/r/pull/6"),
-        ]
-    )
-    def test_implementation_pr_url_resolves_discussion_task_pr(self, _name, with_implementation, expected_url):
-        report = self._create_report()
-        self._create_implementation_task_with_run(
-            report, pr_url="https://github.com/o/r/pull/5", relationship=TASK_RUN_TYPE_DISCUSSION
-        )
-        if with_implementation:
-            self._create_implementation_task_with_run(report, pr_url="https://github.com/o/r/pull/6")
-
-        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
-
-        assert row["implementation_pr_url"] == expected_url
-
-    @parameterized.expand(
-        [
-            ("research", TASK_RUN_TYPE_RESEARCH, "research"),
-            ("repo_selection", TASK_RUN_TYPE_REPO_SELECTION, "repo_selection"),
-            ("scout", TASK_RUN_TYPE_SCOUT, "scout:some-skill"),
-        ]
-    )
-    def test_implementation_pr_url_ignores_pr_recorded_on_non_code_run(self, _name, relationship, ai_stage):
-        # A research run checks GitHub for in-flight work and the agent-server can record a PR it
-        # merely read as the run's own. That must never surface as the report's PR, on the list, the
-        # detail view, or the "has PR" filter the Pull requests tab counts.
-        report = self._create_report()
-        self._create_implementation_task_with_run(
-            report,
-            pr_url="https://github.com/o/r/pull/99",
-            relationship=relationship,
-            state={"ai_stage": ai_stage},
-        )
-
-        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
-        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
-        with_pr = self.client.get(self._list_url(has_implementation_pr="true")).json()
-
-        assert row["implementation_pr_url"] is None
-        assert detail["implementation_pr_url"] is None
-        assert with_pr["count"] == 0
-
-    def test_implementation_pr_url_prefers_real_pr_over_one_read_by_research(self):
-        report = self._create_report()
-        self._create_implementation_task_with_run(
-            report,
-            pr_url="https://github.com/o/r/pull/99",
-            relationship=TASK_RUN_TYPE_RESEARCH,
-            state={"ai_stage": "research"},
-        )
-        self._create_implementation_task_with_run(
-            report, pr_url="https://github.com/o/r/pull/100", state={"ai_stage": "implementation"}
-        )
-
-        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
-        with_pr = self.client.get(self._list_url(has_implementation_pr="true")).json()
-
-        assert row["implementation_pr_url"] == "https://github.com/o/r/pull/100"
-        assert with_pr["count"] == 1
-
-    @parameterized.expand(
-        [
-            # The badge reads this flag, so it must track the webhook's merge record rather than the
-            # report status — a resolved report may have been resolved directly, PR still open.
-            ("merged_pr", SignalReport.Status.READY, {"pr_url": "https://github.com/o/r/pull/7", "pr_merged": True}),
-            ("resolved_without_merge", SignalReport.Status.RESOLVED, {"pr_url": "https://github.com/o/r/pull/7"}),
-            ("no_pr_run", SignalReport.Status.RESOLVED, None),
-        ]
-    )
-    def test_implementation_pr_merged_reflects_merge_flag_not_status(self, _name, report_status, output):
-        report = self._create_report(status=report_status)
-        if output is not None:
-            self._create_implementation_task_with_run(report, output=output)
-        expected = bool(output and output.get("pr_merged"))
-
-        list_row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
-        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
-
-        assert list_row["implementation_pr_merged"] is expected
-        assert detail["implementation_pr_merged"] is expected
-
-    def test_implementation_pr_merged_describes_the_surfaced_pr_not_a_sibling_task(self):
-        # A retried report has several implementation tasks but surfaces one PR. The merge flag must
-        # come from that same task — otherwise a sibling task's merged PR vouches for the PR whose
-        # URL is on screen, and the badge shows "merged" over an open PR.
-        report = self._create_report()
-        self._create_implementation_task_with_run(report, output={"pr_url": "https://github.com/o/r/pull/1"})
-        self._create_implementation_task_with_run(
-            report, output={"pr_url": "https://github.com/o/r/pull/2", "pr_merged": True}
+            output={"pr_url": "https://github.com/org/repo/pull/7"},
         )
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
-        assert row["implementation_pr_merged"] is (row["implementation_pr_url"] == "https://github.com/o/r/pull/2")
-
-    def test_implementation_pr_url_null_when_no_implementation_task(self):
-        report = self._create_report()
-
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_200_OK
-        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] is None
+        assert row["work_state"] == "unclaimed"
 
-    def test_implementation_pr_url_null_when_output_has_no_pr_url(self):
-        report = self._create_report()
-        self._create_implementation_task_with_run(report, output={"commit_sha": "abc123"})
-
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_200_OK
-        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["implementation_pr_url"] is None
-
-    def test_implementation_pr_url_null_when_pr_url_is_empty_string(self):
-        report = self._create_report()
-        self._create_implementation_task_with_run(report, pr_url="")
-
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_200_OK
-        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["implementation_pr_url"] is None
-
-    def test_implementation_pr_url_uses_latest_task_run(self):
+    def test_assignment_pr_wins_over_task_run_output(self):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -891,53 +752,80 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        record_implementation_task(
+        record_report_task(
             team_id=self.team.id,
             report_id=str(report.id),
             task_id=str(task.id),
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         )
-        old_run = TaskRun.objects.create(
-            team=self.team,
-            task=task,
-            status=TaskRun.Status.COMPLETED,
-            output={"pr_url": "https://github.com/org/repo/pull/1"},
-        )
-        # Force older created_at
-        TaskRun.objects.filter(pk=old_run.pk).update(created_at=timezone.now() - timedelta(hours=1))
         TaskRun.objects.create(
             team=self.team,
             task=task,
             status=TaskRun.Status.COMPLETED,
-            output={"pr_url": "https://github.com/org/repo/pull/99"},
+            output={"pr_url": "https://github.com/org/repo/pull/7"},
         )
+        self._create_assignment(report, pr_url="https://github.com/org/repo/pull/42")
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+
+        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+
+    @parameterized.expand(
+        [
+            ("merged_pr", SignalReport.Status.READY, True),
+            ("resolved_without_merge", SignalReport.Status.RESOLVED, False),
+        ]
+    )
+    def test_implementation_pr_merged_reflects_assignment_flag(self, _name, report_status, merged):
+        report = self._create_report(status=report_status)
+        self._create_assignment(
+            report,
+            pr_url="https://github.com/org/repo/pull/7",
+            pr_state=(SignalReportAssignment.PrState.MERGED if merged else SignalReportAssignment.PrState.OPEN),
+            pr_merged=merged,
+        )
+
+        list_row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+
+        assert list_row["implementation_pr_merged"] is merged
+        assert detail["implementation_pr_merged"] is merged
+
+    def test_implementation_pr_url_null_without_assignment(self):
+        report = self._create_report()
 
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/99"
+        assert row["implementation_pr_url"] is None
+        assert row["implementation_pr_state"] is None
+
+    def test_implementation_pr_url_null_when_assignment_url_is_empty(self):
+        report = self._create_report()
+        self._create_assignment(report, pr_url="")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] == ""
+        assert row["implementation_pr_state"] is None
 
     def test_fetches_implementation_pr_urls_for_current_report_page(self):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
-        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
-        self._create_implementation_task_with_run(report_without_pr, output={"commit_sha": "abc123"})
+        self._create_assignment(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        self._create_assignment(report_without_pr)
 
         result = fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
 
-        assert result == {
-            str(report_with_pr.id): "https://github.com/org/repo/pull/42",
-        }
+        assert result == {str(report_with_pr.id): "https://github.com/org/repo/pull/42"}
 
     def test_fetch_implementation_pr_urls_issues_constant_queries(self):
-        # N+1 guard: association is batched across the page, so resolving PR urls for many reports
-        # costs the same number of queries as for one. A per-report `associated_task_runs` loop
-        # scaled at two queries per report (one artefact read + one gate-row read), the exact
-        # regression this asserts against.
         def seed(count: int) -> list[str]:
             ids = []
             for i in range(count):
                 report = self._create_report(title=f"PR report {i}")
-                self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+                self._create_assignment(report, pr_url=f"https://github.com/org/repo/pull/{i}")
                 ids.append(str(report.id))
             return ids
 
@@ -951,10 +839,8 @@ class TestSignalReportListAPI(APIBaseTest):
             result = fetch_implementation_pr_state_for_reports(page)
 
         assert len(result) == 6
-        # Constant in the page size, and a small fixed cost (artefacts + gate rows + PR url lookup +
-        # merge-flag lookup).
         assert len(for_many.captured_queries) == baseline
-        assert baseline <= 4
+        assert baseline == 1
 
     # --- has_implementation_pr filter ---
 
@@ -967,7 +853,7 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_filter_has_implementation_pr(self, _name, query_value, expected):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
-        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        self._create_assignment(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
         expected_id = str(report_with_pr.id if expected == "with_pr" else report_without_pr.id)
 
         response = self.client.get(self._list_url(has_implementation_pr=query_value))
@@ -979,7 +865,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
     def test_filter_has_implementation_pr_ignores_empty_pr_url(self):
         report_empty_pr = self._create_report(title="Report with empty PR url")
-        self._create_implementation_task_with_run(report_empty_pr, pr_url="")
+        self._create_assignment(report_empty_pr, pr_url="")
 
         with_pr = self.client.get(self._list_url(has_implementation_pr="true"))
         assert with_pr.json()["count"] == 0
@@ -1010,7 +896,7 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_filter_has_implementation_pr_absent_returns_all(self):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
-        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        self._create_assignment(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
@@ -1020,7 +906,7 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_filter_has_implementation_pr_count_via_limit_one(self):
         for i in range(3):
             report = self._create_report(title=f"PR report {i}")
-            self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+            self._create_assignment(report, pr_url=f"https://github.com/org/repo/pull/{i}")
         self._create_report(title="No PR report")
 
         response = self.client.get(self._list_url(has_implementation_pr="true", limit=1))
@@ -1032,26 +918,20 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_filter_has_implementation_pr_count_only_skips_report_enrichment(self):
         for i in range(3):
             report = self._create_report(title=f"PR report {i}")
-            self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+            self._create_assignment(report, pr_url=f"https://github.com/org/repo/pull/{i}")
         self._create_report(title="No PR report")
 
-        with (
-            patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products,
-            patch(
-                "products.signals.backend.views.fetch_implementation_pr_state_for_reports"
-            ) as fetch_implementation_prs,
-        ):
+        with patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products:
             response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"count": 3, "next": None, "previous": None, "results": []}
         fetch_source_products.assert_not_called()
-        fetch_implementation_prs.assert_not_called()
 
     def test_filter_has_implementation_pr_empty_value_is_noop(self):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
-        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        self._create_assignment(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         response = self.client.get(self._list_url(has_implementation_pr=""))
         assert response.status_code == status.HTTP_200_OK
@@ -1245,19 +1125,11 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
 
-    @parameterized.expand(
-        [
-            ("source_products", "fetch_source_products_for_reports"),
-            ("implementation_pr_urls", "fetch_implementation_pr_state_for_reports"),
-        ]
-    )
-    def test_list_resilient_to_supplementary_fetch_failure(self, _name, fetch_fn):
-        # A transient failure in either decorative metadata fetch must degrade to empty badges
-        # rather than 500 the whole inbox load — the list still renders from Postgres data.
+    def test_list_resilient_to_source_product_fetch_failure(self):
         report = self._create_report()
 
         with patch(
-            f"products.signals.backend.views.{fetch_fn}",
+            "products.signals.backend.views.fetch_source_products_for_reports",
             side_effect=Exception("clickhouse timeout"),
         ):
             response = self.client.get(self._list_url())
@@ -2513,6 +2385,8 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
         assert len(task_runs) == 1
         artefact = task_runs[0]
         assert artefact["id"] == str(report_task.id)
+        assert artefact["actor_kind"] == "system"
+        assert artefact["actor_agent"] is None
         assert str(artefact["task_id"]) == str(task.id)
         assert artefact["content"]["task_id"] == str(task.id)
         assert artefact["content"]["product"] == expected_product
@@ -2708,6 +2582,8 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         content = json.loads(artefacts[0].content)
         assert content == {"old_title": "Original title", "new_title": "New title"}
         # Attributed to the requesting user, not a task, when no task header is present.
+        assert artefacts[0].actor_kind == "user"
+        assert artefacts[0].actor_agent is None
         assert artefacts[0].created_by_id == self.user.id
         assert artefacts[0].task_id is None
 
@@ -2755,8 +2631,28 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)
         assert len(artefacts) == 1
+        assert artefacts[0].actor_kind == "task"
+        assert artefacts[0].actor_agent is None
         assert str(artefacts[0].task_id) == str(task.id)
         assert artefacts[0].created_by_id is None
+
+    def test_edit_attributed_to_external_agent_from_mcp_registration(self):
+        report = self._create_report()
+
+        response = self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "Externally edited title"},
+            format="json",
+            headers={"X-PostHog-Client": "mcp", "X-Posthog-Mcp-Client-Name": "codex"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        artefacts = self._artefacts(report, SignalReportArtefact.ArtefactType.TITLE_CHANGE)
+        assert len(artefacts) == 1
+        assert artefacts[0].actor_kind == "agent"
+        assert artefacts[0].actor_agent == "codex"
+        assert artefacts[0].created_by_id == self.user.id
+        assert artefacts[0].task_id is None
 
     @parameterized.expand([("title_change",), ("summary_change",)])
     def test_change_artefacts_are_read_only_via_artefact_api(self, artefact_type):
@@ -2773,14 +2669,26 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
 
 
 class TestSignalReportPrEndpoints(APIBaseTest):
-    def _create_report(self, report_status: str = SignalReport.Status.READY) -> SignalReport:
-        return SignalReport.objects.create(
+    def _create_report(
+        self, report_status: str = SignalReport.Status.READY, *, with_pr: bool = True
+    ) -> SignalReport:
+        report = SignalReport.objects.create(
             team=self.team,
             status=report_status,
             title="Test report",
             summary="Test summary",
             signal_count=1,
         )
+        if with_pr:
+            SignalReportAssignment.all_teams.create(
+                team=self.team,
+                report=report,
+                pr_url="https://github.com/PostHog/posthog/pull/7",
+                repository="PostHog/posthog",
+                pr_number=7,
+                pr_state=SignalReportAssignment.PrState.OPEN,
+            )
+        return report
 
     def _checks_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_checks/"
@@ -2815,13 +2723,11 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             },
         }
         user_github.return_value.delete_pull_request_review_comment.return_value = {"success": True}
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = getattr(self.client, method)(
-                self._review_comment_url(str(report.id), "99") + suffix, data=payload, format="json"
-            )
+
+        response = getattr(self.client, method)(
+            self._review_comment_url(str(report.id), "99") + suffix, data=payload, format="json"
+        )
+
         assert response.status_code == expected_status
 
     @parameterized.expand(
@@ -2834,33 +2740,22 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         ]
     )
     def test_sandbox_oauth_token_cannot_write_review_comments_as_the_user(self, _name, method, suffix, payload):
-        # These writes reach GitHub under the requesting human's personal connection. A sandbox/agent
-        # token is minted as the task actor and carries task:write, so without the guard a prompt-injected
-        # run could comment, edit, delete, or react as the person who started it.
         report = self._create_report()
         UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
         user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
         self.addCleanup(patch.stopall)
         authenticate_as_sandbox_token(self)
 
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/{suffix}",
-                data=payload,
-                format="json",
-            )
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/{suffix}",
+            data=payload,
+            format="json",
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         user_github.assert_not_called()
 
     def test_personal_api_key_cannot_write_review_comments_as_the_user(self):
-        # A personal API key is issued to automate against the API, not to act as its owner on
-        # GitHub. Only a browser session is admitted, so holding task:write must not be enough to
-        # reach the user's linked GitHub account. One endpoint is enough: every write resolves the
-        # caller through the same guard.
         report = self._create_report()
         UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
         user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
@@ -2869,51 +2764,33 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
 
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/",
-                data={"body": "hi", "in_reply_to": "1"},
-                format="json",
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/",
+            data={"body": "hi", "in_reply_to": "1"},
+            format="json",
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         user_github.assert_not_called()
 
     def test_pr_checks_404_when_report_has_no_implementation_pr(self):
-        report = self._create_report()
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={},
-        ):
-            response = self.client.get(self._checks_url(str(report.id)))
+        report = self._create_report(with_pr=False)
+
+        response = self.client.get(self._checks_url(str(report.id)))
+
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_pr_checks_404_when_no_integration_can_access_repo(self):
         report = self._create_report()
-        with (
-            patch(
-                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-            ),
-            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None),
-        ):
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
             response = self.client.get(self._checks_url(str(report.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_pr_checks_503_when_egress_budget_sheds_request(self):
         report = self._create_report()
-        with (
-            patch(
-                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-            ),
-            patch(
-                "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
-                side_effect=GitHubEgressBudgetExhausted("shed"),
-            ),
+        with patch(
+            "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
+            side_effect=GitHubEgressBudgetExhausted("shed"),
         ):
             response = self.client.get(self._checks_url(str(report.id)))
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -2923,11 +2800,9 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         github.return_value.get_pull_request_checks.side_effect = GitHubEgressBudgetExhausted("shed")
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = self.client.get(self._checks_url(str(report.id)))
+
+        response = self.client.get(self._checks_url(str(report.id)))
+
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_pr_checks_success_returns_checks(self):
@@ -2936,17 +2811,14 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         self.addCleanup(patch.stopall)
         checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]
         github.return_value.get_pull_request_checks.return_value = {"success": True, "checks": checks}
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = self.client.get(self._checks_url(str(report.id)))
-            cached_response = self.client.get(self._checks_url(str(report.id)))
+
+        response = self.client.get(self._checks_url(str(report.id)))
+        cached_response = self.client.get(self._checks_url(str(report.id)))
+
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"checks": checks}
         assert cached_response.status_code == status.HTTP_200_OK
         assert cached_response.json() == {"checks": checks}
-        # The PR number is parsed off the stored URL and passed through to the integration.
         assert github.return_value.get_pull_request_checks.call_args.args == ("PostHog/posthog", 7)
         github.return_value.get_pull_request_checks.assert_called_once()
         github.assert_called_once_with(
@@ -2982,11 +2854,9 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         github.return_value.get_pull_request_checks.return_value = {"success": False, "error": "boom"}
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = self.client.get(self._checks_url(str(report.id)))
+
+        response = self.client.get(self._checks_url(str(report.id)))
+
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
 
     def test_pr_comments_success_returns_comments(self):
@@ -3006,10 +2876,8 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             }
         ]
         github.return_value.get_pull_request_comments.return_value = {"success": True, "comments": comments}
-        with patch(
-            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
-            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
-        ):
-            response = self.client.get(self._comments_url(str(report.id)))
+
+        response = self.client.get(self._comments_url(str(report.id)))
+
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}

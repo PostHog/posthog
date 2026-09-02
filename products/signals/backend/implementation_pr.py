@@ -79,7 +79,11 @@ def close_implementation_pr_for_report(
     must succeed regardless.
     """
     try:
-        pr_url = fetch_implementation_pr_urls_for_reports([str(report_id)]).get(str(report_id))
+        pr_url = (
+            SignalReportAssignment.all_teams.filter(report_id=report_id, report__team_id=team_id)
+            .values_list("pr_url", flat=True)
+            .first()
+        )
         if not pr_url:
             return False
 

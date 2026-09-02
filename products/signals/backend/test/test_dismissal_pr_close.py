@@ -3,8 +3,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.team.team import Team
+
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportAssignment
 from products.signals.backend.tasks import close_dismissed_report_pr
 
 _PR_URL = "https://github.com/PostHog/posthog/pull/123"
@@ -116,6 +118,23 @@ class TestCloseDismissedReportPrTask(BaseTest):
 
 
 class TestCloseImplementationPrForReport(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+        )
+        self.assignment = SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=self.report,
+            pr_url=_PR_URL,
+            repository="posthog/posthog",
+            pr_number=123,
+            pr_state=SignalReportAssignment.PrState.OPEN,
+        )
+
     @parameterized.expand(
         [
             ("suppressed", "suppressed"),
@@ -128,84 +147,99 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
         github.comment_on_pull_request.return_value = {"success": True}
         github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
-        with (
-            patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
-            ),
-            patch(
-                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
-                return_value=github,
-            ) as mock_resolve,
-        ):
-            assert close_implementation_pr_for_report(self.team.id, "report-1", reason=reason) is True
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ) as mock_resolve:
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id), reason=reason) is True
+
         mock_resolve.assert_called_once_with(self.team.id, "PostHog/posthog")
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert reason in comment_body
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_state == SignalReportAssignment.PrState.CLOSED
+        assert self.assignment.pr_merged is False
 
     def test_returns_false_and_skips_github_without_linked_pr(self):
-        with (
-            patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={},
-            ),
-            patch(
-                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"
-            ) as mock_resolve,
-        ):
-            assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+        self.assignment.pr_url = None
+        self.assignment.repository = None
+        self.assignment.pr_number = None
+        self.assignment.pr_state = None
+        self.assignment.save(update_fields=["pr_url", "repository", "pr_number", "pr_state", "updated_at"])
+
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"
+        ) as mock_resolve:
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is False
+
         mock_resolve.assert_not_called()
 
     def test_returns_false_when_no_integration_resolves(self):
-        with (
-            patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
-            ),
-            patch(
-                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
-                return_value=None,
-            ),
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=None,
         ):
-            assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is False
+
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
+
+    def test_does_not_close_a_report_pr_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"
+        ) as mock_resolve:
+            assert close_implementation_pr_for_report(other_team.id, str(self.report.id)) is False
+
+        mock_resolve.assert_not_called()
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
 
     @parameterized.expand(
         [
-            ("already_closed", {"success": True, "state": "closed", "merged": False}),
-            ("already_merged", {"success": True, "state": "closed", "merged": True}),
+            (
+                "already_closed",
+                {"success": True, "state": "closed", "merged": False},
+                SignalReportAssignment.PrState.CLOSED,
+                False,
+            ),
+            (
+                "already_merged",
+                {"success": True, "state": "closed", "merged": True},
+                SignalReportAssignment.PrState.MERGED,
+                True,
+            ),
         ]
     )
-    def test_skips_comment_and_close_when_pr_not_open(self, _name: str, pr_status: dict):
+    def test_skips_comment_and_close_when_pr_not_open(
+        self, _name: str, pr_status: dict, expected_state: str, expected_merged: bool
+    ):
         github = MagicMock()
         github.get_pull_request.return_value = pr_status
-        with (
-            patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
-            ),
-            patch(
-                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
-                return_value=github,
-            ),
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
         ):
-            assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is False
+
         github.comment_on_pull_request.assert_not_called()
         github.close_pull_request.assert_not_called()
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_state == expected_state
+        assert self.assignment.pr_merged is expected_merged
 
     def test_skips_comment_and_close_when_status_unavailable(self):
         github = MagicMock()
         github.get_pull_request.return_value = {"success": False, "error": "boom", "status_code": 404}
-        with (
-            patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
-            ),
-            patch(
-                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
-                return_value=github,
-            ),
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
         ):
-            assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is False
+
         github.comment_on_pull_request.assert_not_called()
         github.close_pull_request.assert_not_called()
+        self.assignment.refresh_from_db()
+        assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
