@@ -104,7 +104,7 @@ def clean_property(property: dict):
             del cleaned_property["negation"]
 
     # set a default operator for properties that support it, but don't have an operator set
-    if is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is None:
+    if is_property_with_default_operator(cleaned_property) and cleaned_property.get("operator") is None:
         cleaned_property["operator"] = "exact"
 
     # remove the operator for properties that don't support it, but have it set
@@ -121,8 +121,15 @@ def clean_property(property: dict):
     return cleaned_property
 
 
-def is_property_with_operator(property: dict):
+def is_property_with_operator(property: dict) -> bool:
     return property.get("type") not in ("hogql",)
+
+
+# A behavioral filter keeps its operator, but never gains a default one: the operator is the
+# count comparison for performed_event_multiple, so an absent one means "no count comparison"
+# rather than "exactly".
+def is_property_with_default_operator(property: dict) -> bool:
+    return is_property_with_operator(property) and property.get("type") != "behavioral"
 
 
 # old style dict properties e.g. {"utm_medium__icontains": "email"}

@@ -133,7 +133,7 @@ const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
     }
 
     // set a default operator for properties that support it, but don't have an operator set
-    if (isPropertyWithOperator(property) && property['operator'] === undefined) {
+    if (isPropertyWithDefaultOperator(property) && property['operator'] === undefined) {
         property['operator'] = 'exact'
     }
 
@@ -167,6 +167,13 @@ const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
 
 const isPropertyWithOperator = (property: Record<string, any>): boolean => {
     return !['hogql'].includes(property['type'])
+}
+
+// A behavioral filter keeps its operator, but never gains a default one: the operator is the
+// count comparison for performed_event_multiple, so an absent one means "no count comparison"
+// rather than "exactly".
+const isPropertyWithDefaultOperator = (property: Record<string, any>): boolean => {
+    return isPropertyWithOperator(property) && property['type'] !== 'behavioral'
 }
 
 // old style dict properties e.g. {"utm_medium__icontains": "email"}

@@ -72,6 +72,16 @@ export function withBehavioralCount(
         : { ...filter, value: BehavioralEventType.PerformMultipleEvents, operator, operator_value: operatorValue }
 }
 
+export function behavioralCountOperator(filter: BehavioralPropertyFilter): PropertyOperator {
+    // The plain performed_event criterion has no count, so it reads as "at least once" whatever
+    // operator it carries
+    if (filter.value !== BehavioralEventType.PerformMultipleEvents) {
+        return PropertyOperator.GreaterThanOrEqual
+    }
+    // A count without an operator runs as "exactly", so show it that way
+    return filter.operator ?? PropertyOperator.Exact
+}
+
 export function withBehavioralNegation(filter: BehavioralPropertyFilter, negation: boolean): BehavioralPropertyFilter {
     // "Did not perform" means not at all, so a count no longer applies
     return negation
@@ -118,7 +128,7 @@ export function BehavioralPropertyFilterRow({
         )
     }
 
-    const countOperator = filter.operator ?? PropertyOperator.GreaterThanOrEqual
+    const countOperator = behavioralCountOperator(filter)
     const countValue = filter.operator_value ?? 1
 
     const setCount = (operator: PropertyOperator, operatorValue: number): void => {
