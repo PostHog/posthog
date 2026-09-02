@@ -908,6 +908,59 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.BLOCKED
         assert migration_risk.max_score == 5
 
+    def test_drop_table_resolves_the_most_recent_owner_of_a_reused_db_table(self):
+        """Unsafe pattern: a second model took over the db_table when the first was deleted from
+        state, and no migration ever removed that second model. Resolving the table to the first,
+        long-deleted model would pair the drop with an obsolete DeleteModel and pass it."""
+        legacy_create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="Legacy",
+            options={"db_table": "shared_table"},
+        )
+        create_migration = MagicMock()
+        create_migration.app_label = "myapp"
+        create_migration.name = "0001_create_legacy"
+        create_migration.operations = [legacy_create_op]
+        create_migration.dependencies = []
+
+        successor_create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="Successor",
+            options={"db_table": "shared_table"},
+        )
+        handover_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[create_mock_operation(migrations.DeleteModel, name="Legacy"), successor_create_op],
+            database_operations=[],
+        )
+        handover_migration = MagicMock()
+        handover_migration.app_label = "myapp"
+        handover_migration.name = "0002_successor_takes_over_table"
+        handover_migration.operations = [handover_op]
+        handover_migration.dependencies = [("myapp", "0001_create_legacy")]
+
+        drop_migration = MagicMock()
+        drop_migration.app_label = "myapp"
+        drop_migration.name = "0003_drop_shared_table"
+        drop_migration.dependencies = [("myapp", "0002_successor_takes_over_table")]
+        drop_migration.operations = [create_mock_operation(migrations.RunSQL, sql="DROP TABLE IF EXISTS shared_table;")]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("myapp", "0001_create_legacy"): create_migration,
+            ("myapp", "0002_successor_takes_over_table"): handover_migration,
+            ("myapp", "0003_drop_shared_table"): drop_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            drop_migration,
+            "myapp/migrations/0003_drop_shared_table.py",
+            mock_loader,
+        )
+
+        assert migration_risk.level == RiskLevel.BLOCKED
+        assert migration_risk.max_score == 5
+
     def test_drop_table_with_gap_between_state_removal_and_drop(self):
         """
         Valid pattern: State removal several migrations before drop.

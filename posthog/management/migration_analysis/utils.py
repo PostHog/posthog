@@ -227,9 +227,10 @@ def _table_owned_by_live_model(table_name: str) -> bool:
     prior DeleteModel. That mapping goes stale when a table is moved to another app (or reused under
     the same name) while keeping its db_table, because the origin app still has both the CreateModel
     and a DeleteModel in its history. Scanning every app's live models catches the table that is
-    still owned, so a drop of it is not mistaken for a retired-table cleanup.
+    still owned, so a drop of it is not mistaken for a retired-table cleanup. Auto-created
+    many-to-many through tables count as owned: no model class declares them, but an M2M field does.
     """
-    return any(model._meta.db_table == table_name for model in apps.get_models())
+    return any(model._meta.db_table == table_name for model in apps.get_models(include_auto_created=True))
 
 
 def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional[str]:
@@ -253,21 +254,25 @@ def _model_name_from_history(app_label: Optional[str], table_name: str, loader: 
     """Resolve the model that created a table from the app's migration history.
 
     The registry lookup only sees live models, so a model that was deleted, or one that moved to
-    a new db_table, leaves its old table unresolvable there. The CreateModel that first declared
-    the table still records the mapping.
+    a new db_table, leaves its old table unresolvable there. The CreateModel that declared the
+    table still records the mapping.
+
+    `disk_migrations` has no order, so walk it by migration name and keep the last match. A table
+    name that two models used over time then resolves to the more recent one, deterministically.
     """
     if not app_label or not loader or not hasattr(loader, "disk_migrations"):
         return None
 
-    for key, historical_migration in loader.disk_migrations.items():
+    latest_owner: Optional[str] = None
+    for key, historical_migration in sorted(loader.disk_migrations.items(), key=lambda item: item[0]):
         if key[0] != app_label:
             continue
         for op in _create_model_operations(getattr(historical_migration, "operations", [])):
             name = getattr(op, "name", "")
             created_table = (getattr(op, "options", None) or {}).get("db_table") or f"{app_label}_{name.lower()}"
             if created_table == table_name:
-                return name
-    return None
+                latest_owner = name
+    return latest_owner
 
 
 def _create_model_operations(operations: Any) -> list[Any]:
