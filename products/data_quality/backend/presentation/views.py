@@ -277,6 +277,12 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
             config=data.get("config") or {},
             **optional,
         )
+        # A create can land on a check that already exists, whose last run read a subject this
+        # caller is denied. Blank that run the way an edit does, or the fingerprint match becomes
+        # the one way to read history that list hides, retrieve 403s and runs/ empties.
+        if not created and self._can_be_object_denied() and check.id in self._hidden_check_ids([check]):
+            for field in _LAST_RUN_FIELDS:
+                setattr(check, field, None)
         return Response(
             self.get_serializer(check).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
