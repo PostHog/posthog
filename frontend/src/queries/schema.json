@@ -39877,10 +39877,18 @@
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
         },
+        "PredicateFixAction": {
+            "enum": ["edit_query", "edit_property_type", "materialize"],
+            "type": "string"
+        },
         "PredicateIndexUsage": {
             "additionalProperties": false,
             "description": "How one property filter in the query reads its data, decided before the query runs.",
             "properties": {
+                "ai_fix_prompt": {
+                    "description": "Instruction for an AI rewrite of the query, set when a query edit would help.",
+                    "type": "string"
+                },
                 "column_name": {
                     "type": "string"
                 },
@@ -39888,7 +39896,11 @@
                     "$ref": "#/definitions/integer"
                 },
                 "fix": {
+                    "description": "Prose advice for a reader.",
                     "type": "string"
+                },
+                "fix_action": {
+                    "$ref": "#/definitions/PredicateFixAction"
                 },
                 "message": {
                     "type": "string"
@@ -39903,6 +39915,10 @@
                 },
                 "property_name": {
                     "type": "string"
+                },
+                "quickfix": {
+                    "$ref": "#/definitions/PredicateQuickfix",
+                    "description": "A deterministic query edit that unblocks the index."
                 },
                 "scope": {
                     "$ref": "#/definitions/PredicateScope"
@@ -39945,6 +39961,25 @@
         "PredicateIndexVerdict": {
             "enum": ["indexed", "blocked", "unindexed_column", "unindexed_json", "operator_not_indexable"],
             "type": "string"
+        },
+        "PredicateQuickfix": {
+            "additionalProperties": false,
+            "properties": {
+                "end": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Character offset in the query where the replaced range ends."
+                },
+                "start": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Character offset in the query where the replaced range starts."
+                },
+                "text": {
+                    "description": "Replacement text, substituted for the range verbatim.",
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end", "text"],
+            "type": "object"
         },
         "PredicateScope": {
             "enum": ["event", "person", "group", "unknown"],
