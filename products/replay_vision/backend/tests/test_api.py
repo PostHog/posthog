@@ -1048,6 +1048,15 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         ]
         self.assertEqual(created[0].kwargs["properties"]["creation_method"], method)
 
+    def test_update_rejects_creation_method(self) -> None:
+        # An edit has no creation event to tag, and the field is not a scanner column, so accepting it
+        # on PATCH would fail in the column diff instead of at validation.
+        scanner = self._create_scanner()
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"creation_method": "ai"}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "creation_method")
+
     @parameterized.expand(
         [
             ("disable", True, False, "replay_vision_scanner_disabled"),

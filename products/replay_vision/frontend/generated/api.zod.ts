@@ -595,7 +595,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                'Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.\n\n\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
+                'Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only, accepted only on create, and not stored — it only tags the creation event. Defaults to api.\n\n\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
             ),
         experiment_targeting: zod
             .union([
@@ -737,7 +737,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                'Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.\n\n\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
+                'Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only, accepted only on create, and not stored — it only tags the creation event. Defaults to api.\n\n\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
             ),
         experiment_targeting: zod
             .union([

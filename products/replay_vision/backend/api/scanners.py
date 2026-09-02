@@ -396,7 +396,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         write_only=True,
         help_text=(
             "Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. "
-            "Write-only and not stored — it only tags the creation event. Defaults to api."
+            "Write-only, accepted only on create, and not stored — it only tags the creation event. Defaults to api."
         ),
     )
 
@@ -622,6 +622,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             return None
         if not self._can_view_targeted_experiment(value):
             raise serializers.ValidationError("Experiment not found in this project.")
+        return value
+
+    def validate_creation_method(self, value: str) -> str:
+        # Create-only. The same serializer serves PATCH, where the funnel tag has no event to tag and
+        # would reach `update`'s column diff as a field the scanner does not have.
+        if self.instance is not None:
+            raise serializers.ValidationError("Creation method can only be set when a scanner is created.")
         return value
 
     def validate_sampling_rate(self, value: float) -> float:

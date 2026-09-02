@@ -753,9 +753,10 @@ export const ScannerModelEnumApi = {
  * * `mcp` - MCP
  * * `api` - Direct API
  */
-export type CreationMethodEnumApi = (typeof CreationMethodEnumApi)[keyof typeof CreationMethodEnumApi]
+export type ScannerCreationMethodEnumApi =
+    (typeof ScannerCreationMethodEnumApi)[keyof typeof ScannerCreationMethodEnumApi]
 
-export const CreationMethodEnumApi = {
+export const ScannerCreationMethodEnumApi = {
     Ai: 'ai',
     Template: 'template',
     Scratch: 'scratch',
@@ -874,14 +875,14 @@ export interface ReplayScannerApi {
     enabled?: boolean
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
-    /** Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.
+    /** Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only, accepted only on create, and not stored — it only tags the creation event. Defaults to api.
      *
      * * `ai` - AI goal flow
      * * `template` - Template
      * * `scratch` - From scratch
      * * `mcp` - MCP
      * * `api` - Direct API */
-    creation_method?: CreationMethodEnumApi
+    creation_method?: ScannerCreationMethodEnumApi
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
     /** Increments on every config-changing save. Observations snapshot this value. */
@@ -995,14 +996,14 @@ export interface PatchedReplayScannerApi {
     enabled?: boolean
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
-    /** Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.
+    /** Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only, accepted only on create, and not stored — it only tags the creation event. Defaults to api.
      *
      * * `ai` - AI goal flow
      * * `template` - Template
      * * `scratch` - From scratch
      * * `mcp` - MCP
      * * `api` - Direct API */
-    creation_method?: CreationMethodEnumApi
+    creation_method?: ScannerCreationMethodEnumApi
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
     /** Increments on every config-changing save. Observations snapshot this value. */
