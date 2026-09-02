@@ -1,7 +1,7 @@
 import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import type { CloudRegion } from "@posthog/shared";
+import { type CloudRegion, formatGatewayModelName } from "@posthog/shared";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
@@ -81,7 +81,13 @@ function toModelConfig(
   region: CloudRegion,
 ): ProviderModelConfig {
   const family = detectFamily(model);
-  const name = model.display_name ?? model.id;
+  const displayName = model.display_name?.trim();
+  const name =
+    displayName && displayName !== model.id
+      ? displayName
+      : model.owned_by
+        ? formatGatewayModelName({ id: model.id, owned_by: model.owned_by })
+        : model.id;
   const contextWindow = model.context_window ?? 200000;
   const input: ("text" | "image")[] = model.supports_vision
     ? ["text", "image"]

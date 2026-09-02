@@ -167,7 +167,9 @@ export function isBlockedModelId(modelId: string): boolean {
   return BLOCKED_GATEWAY_MODELS.has(modelId.toLowerCase());
 }
 
-export function isAnthropicModel(model: GatewayModel): boolean {
+type GatewayModelIdentity = Pick<GatewayModel, "id" | "owned_by">;
+
+export function isAnthropicModel(model: GatewayModelIdentity): boolean {
   if (model.owned_by) {
     return model.owned_by === "anthropic";
   }
@@ -178,7 +180,7 @@ export function isAnthropicModelId(modelId: string): boolean {
   return modelId.startsWith("claude-") || modelId.startsWith("anthropic/");
 }
 
-export function isOpenAIModel(model: GatewayModel): boolean {
+export function isOpenAIModel(model: GatewayModelIdentity): boolean {
   if (model.owned_by) {
     return model.owned_by === "openai";
   }
@@ -201,7 +203,7 @@ export function isGlm53FlashModelId(modelId: string): boolean {
   return modelId.toLowerCase() === "zai-org/glm-5.3-flash";
 }
 
-export function isCloudflareModel(model: GatewayModel): boolean {
+export function isCloudflareModel(model: GatewayModelIdentity): boolean {
   return isCloudflareModelId(model.id) || model.owned_by === "cloudflare";
 }
 
@@ -209,7 +211,7 @@ export function isModalModelId(modelId: string): boolean {
   return modelId === "moonshotai/kimi-k3";
 }
 
-export function isModalModel(model: GatewayModel): boolean {
+export function isModalModel(model: GatewayModelIdentity): boolean {
   return isModalModelId(model.id) || model.owned_by === "modal";
 }
 
@@ -217,7 +219,7 @@ export function isDeepseekModelId(modelId: string): boolean {
   return modelId.toLowerCase().includes("deepseek");
 }
 
-export function isBasetenModel(model: GatewayModel): boolean {
+export function isBasetenModel(model: GatewayModelIdentity): boolean {
   return isDeepseekModelId(model.id) || model.owned_by === "baseten";
 }
 
@@ -294,7 +296,7 @@ const MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   "deepseek-ai/deepseek-v4-flash-0731": "DeepSeek V4 Flash",
 };
 
-export function formatGatewayModelName(model: GatewayModel): string {
+export function formatGatewayModelName(model: GatewayModelIdentity): string {
   const displayName = MODEL_DISPLAY_NAMES[model.id];
   if (displayName) {
     return displayName;

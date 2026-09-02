@@ -101,6 +101,8 @@ class TestApplyCostAliases:
             ("@cf/zai-org/glm-5.2", 1000, 100, 0.0014, 0.00044),
             ("zai-org/GLM-5.2-FP8", 1000, 100, 0.0014, 0.00044),
             ("zai-org/GLM-5.2", 1000, 100, 0.0014, 0.00044),
+            ("zai-org/GLM-5.3", 1000, 100, 0.0014, 0.00044),
+            ("deepseek-ai/DeepSeek-V4-Flash-0731", 1000, 100, 0.00013, 0.000026),
             ("moonshotai/kimi-k3", 1000, 100, 0.003, 0.0015),
         ],
     )

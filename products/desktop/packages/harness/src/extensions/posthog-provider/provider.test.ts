@@ -290,11 +290,13 @@ describe("model classification", () => {
         {
           id: "deepseek-ai/deepseek-v4-flash-0731",
           owned_by: "baseten",
+          display_name: "deepseek-ai/deepseek-v4-flash-0731",
           context_window: 1_048_000,
         },
       ],
       "us",
     );
+    expect(deepseek?.name).toBe("DeepSeek V4 Flash");
     expect(deepseek?.api).toBe("openai-completions");
     expect(deepseek?.reasoning).toBe(false);
     expect(deepseek?.baseUrl).toBe(
