@@ -286,7 +286,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
     def _calculate(self) -> LogsQueryResponse:
         # The group-by templates only reference posthog-native tables (logs, log_attributes)
-        # and the grouping key is a bound constant, so hand the executor a plain posthog-only
+        # and the grouping key is a bound constant, so hand the executor a posthog-tables-only
         # Database up front. Without it, the `{filters}` placeholder LogsFilterBuilder.where()
         # always emits makes the executor run the full per-query database build — warehouse
         # tables, saved queries, endpoints: several Postgres round trips this query never uses.
@@ -294,7 +294,7 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
             team_id=self.team.pk,
             team=self.team,
             enable_select_queries=True,
-            database=Database(timezone=self.team.timezone, week_start_day=self.team.week_start_day),
+            database=Database.create_for_posthog_tables(self.team, modifiers=self.modifiers),
         )
         response = execute_hogql_query(
             query_type="LogsQuery",
