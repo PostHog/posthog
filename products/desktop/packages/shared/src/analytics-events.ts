@@ -664,7 +664,7 @@ export interface SetupTaskDismissedProperties {
 }
 
 // Inbox events
-export type InboxReportOpenMethod =
+type InboxReportOpenMethod =
   | "click"
   | "click_cmd"
   | "click_shift"
@@ -888,7 +888,7 @@ export type ScoutSurface =
   | "empty_state"
   | "scout_findings";
 
-export type ScoutActionType =
+type ScoutActionType =
   | "expand_run"
   | "collapse_run"
   | "expand_emission"
@@ -975,7 +975,7 @@ export interface SignalSourceConnectedProperties {
 }
 
 // Agents page events (the `/agents` configuration surface)
-export type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
+type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
 
 export interface AgentsViewedProperties {
   /** Whether code access (GitHub) is connected — gates responder configuration. */
@@ -1018,7 +1018,7 @@ export type ChannelsSurface =
   | "activity"
   | "canvases_pane";
 
-export type ChannelActionType =
+type ChannelActionType =
   | "enter_space"
   | "leave_space"
   | "toggle_channels"
@@ -1051,7 +1051,7 @@ export type ChannelActionType =
   | "open_mention"
   | "activity_tab_change";
 
-export type TaskFeedActionType = "create" | "update" | "delete" | "open";
+type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
 export interface TaskFeedActionProperties {
   action_type: TaskFeedActionType;
@@ -1082,7 +1082,7 @@ export interface ChannelActionProperties {
   success?: boolean;
 }
 
-export type DashboardActionType =
+type DashboardActionType =
   | "open"
   | "create"
   | "delete"
@@ -1184,7 +1184,7 @@ export interface ChannelsSpaceViewedProperties {
 
 // Subscription / billing events
 
-export type UpgradePromptShownSurface =
+type UpgradePromptShownSurface =
   | "usage_limit_modal"
   | "titlebar_card"
   | "billing_announcement"
@@ -1199,7 +1199,7 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-export type UpgradePromptCause = "model_gate" | "org_limit";
+type UpgradePromptCause = "model_gate" | "org_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
@@ -1224,7 +1224,7 @@ export type ClaudeSessionImportSource = "inline_card" | "picker_dialog";
  * the suggestions, so an import is only ever started from a "new" or "updated"
  * one; the wider union mirrors the domain status field.
  */
-export type ClaudeSessionImportStatus = "new" | "imported" | "updated";
+type ClaudeSessionImportStatus = "new" | "imported" | "updated";
 
 export interface ClaudeSessionsShownProperties {
   /** Resumable Claude Code CLI sessions surfaced for the repo. */
@@ -1845,7 +1845,7 @@ export type EventPropertyMap = {
  *
  * Keep this in sync with the inbox entries in `EventPropertyMap` above.
  */
-export const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
+const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_VIEWED,
   ANALYTICS_EVENTS.INBOX_REPORT_OPENED,
   ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,

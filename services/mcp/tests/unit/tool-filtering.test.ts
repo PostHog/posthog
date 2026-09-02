@@ -452,6 +452,8 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'signal_scout_internal:write',
         'signal_scout_report:read',
         'signal_scout_report:write',
+        'signal_scratchpad_internal:read',
+        'signal_scratchpad_internal:write',
     ])
 
     // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
@@ -486,6 +488,15 @@ describe('server-minted scope matching', () => {
     it('requires literal internal scopes instead of accepting a wildcard', () => {
         expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
         expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
+    })
+
+    // The scratchpad write scope was split out of `signal_scout_internal`, which is on the
+    // server-mint-only list. Moving the tools without moving the object would let a
+    // user-consented `*` token through this filter and back onto durable agent memory, which
+    // later runs read verbatim into their prompts.
+    it('never lets a wildcard reach the scratchpad write scope', () => {
+        expect(hasScope(['*'], 'signal_scratchpad_internal:write')).toBe(false)
+        expect(hasScope(['signal_scratchpad_internal:write'], 'signal_scratchpad_internal:write')).toBe(true)
     })
 })
 

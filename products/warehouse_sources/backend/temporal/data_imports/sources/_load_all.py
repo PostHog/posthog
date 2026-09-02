@@ -999,6 +999,7 @@ from .roark.source import RoarkSource
 from .rocket_chat.source import RocketChatSource
 from .rocket_matter.source import RocketMatterSource
 from .rocketlane.source import RocketlaneSource
+from .rokt_ads.source import RoktAdsSource
 from .rollbar.source import RollbarSource
 from .rootly.source import RootlySource
 from .rss.source import RssSource

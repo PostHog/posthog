@@ -13,6 +13,7 @@ describe('usage key resolvers', () => {
         ['$experiment_exposure', null],
         ['survey sent', null],
         ['$exception', null],
+        ['$llm_prompt_fetched', null],
         ['$conversations_message_sent', null],
     ])('resolveAnalyticsUsageKey bills %s under %s', (event, expected) => {
         expect(resolveAnalyticsUsageKey(event)).toBe(expected)

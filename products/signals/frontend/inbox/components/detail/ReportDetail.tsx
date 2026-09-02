@@ -36,6 +36,7 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
+import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PrChecksSection } from './PrChecksSection'
@@ -44,7 +45,7 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
-import { useReportDetailActions } from './ReportDetailActions'
+import { canCreateImplementationPr, useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -242,14 +243,14 @@ export function InboxDetailFrame({
     // Create PR is the report's main call to action, so it takes the primary slot (styled like
     // "Open in GitHub" on PR-bearing reports). The rest render inline as buttons on wide layouts
     // and as a standard `LemonMenu` on narrow ones.
-    const allReportActions = useReportDetailActions(report)
-    const createPrAction = allReportActions.find((action) => action.key === 'create-pr')
+    const reportActions = useReportDetailActions(report)
+    const showCreatePr = canCreateImplementationPr(report)
+    const createPrButton = showCreatePr ? <CreatePrButton report={report} /> : null
     // `ReportSummaryBody` renders Create PR under the Solution section, so the header only carries it
     // when the summary has no Solution section — otherwise an actionable report shows it twice.
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
-    const reportActions = allReportActions.filter((action) => action.key !== 'create-pr')
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
@@ -312,7 +313,7 @@ export function InboxDetailFrame({
                     <ReportSummaryBody
                         summary={report.summary}
                         chartPlacements={chartPlacements}
-                        createPrAction={createPrAction}
+                        createPrButton={createPrButton}
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
@@ -486,19 +487,7 @@ export function InboxDetailFrame({
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
-                    {createPrAction && !summaryHasSolution && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={createPrAction.icon}
-                            loading={createPrAction.loading}
-                            tooltip={createPrAction.disabledReason ? undefined : createPrAction.tooltip}
-                            disabledReason={createPrAction.disabledReason}
-                            onClick={createPrAction.onClick}
-                        >
-                            {createPrAction.label}
-                        </LemonButton>
-                    )}
+                    {!summaryHasSolution && createPrButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}

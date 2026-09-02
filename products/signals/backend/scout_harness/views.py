@@ -63,6 +63,7 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
 )
+from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
@@ -240,6 +241,14 @@ def _caller_carries_scout_internal_scope(request: Request) -> bool:
     else:
         return False
     return "signal_scout_internal:write" in scopes
+
+
+def _sandbox_bound_task_id(request: Request) -> uuid.UUID | None:
+    """The task an OAuth sandbox token is bound to, or None for every other caller."""
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return None
+    return authenticator.access_token.sandbox_task_id
 
 
 def _may_read_reports(request: Request, canonical_team: Team) -> bool:
@@ -1184,9 +1193,13 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     Reads (`list`) use the public `signal_scout:read` scope by inheriting the
     viewset's `scope_object`. Writes (`create`, `forget`) elevate to the
-    internal-only `signal_scout_internal:write` scope — `forget` carries it
+    internal-only `signal_scratchpad_internal:write` scope — `forget` carries it
     on its `@action`, and `create` (a built-in DRF method) gets it via the
     `dangerously_get_required_scopes` hook below.
+
+    The write scope is the scratchpad's own, not the wider `signal_scout_internal:write`,
+    so the report pipeline's research and implementation runs can keep durable memory
+    without also being handed `emit-signal` and `record-output`.
     """
 
     serializer_class = ScratchpadEntrySerializer
@@ -1203,7 +1216,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # `signal_scout:write` (user-grantable) and let any team member with a PAK
         # write durable memories. Map it to the internal scope explicitly.
         if getattr(view, "action", None) == "create":
-            return ["signal_scout_internal:write"]
+            return ["signal_scratchpad_internal:write"]
         return None
 
     @validated_request(
@@ -1283,6 +1296,12 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 key=data["key"],
                 content=data["content"],
                 run_id=str(run_id) if run_id is not None else None,
+                # Derived from the token's bound task, never from the body: a report-pipeline
+                # stage has no run to point `run_id` at, and a writer that could name itself
+                # could name a scout's skill instead.
+                identity=pipeline_writer_identity(
+                    task_id=_sandbox_bound_task_id(request), team_id=_canonical_team_id(self)
+                ),
                 expires_at=data.get("expires_at"),
             )
         except InvalidScratchpadError as exc:
@@ -1302,7 +1321,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         methods=["post"],
         url_path="forget",
-        required_scopes=["signal_scout_internal:write"],
+        required_scopes=["signal_scratchpad_internal:write"],
         pagination_class=None,
     )
     def forget(self, request: Request, **kwargs) -> Response:
@@ -1406,8 +1425,9 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List scout notes",
         description=(
             "Return the steering notes left for this project's scouts, newest first. Pass "
-            "`skill_name` to get the notes addressed to one scout plus the general (blank-target) "
-            "fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to "
+            "`skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. "
+            "`pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape "
+            "a scout run reads at cold start. Omit `skill_name` to "
             "browse every note. Expired notes are excluded unless `include_expired=true`. "
             "`date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past "
@@ -1449,7 +1469,8 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Leave a note for the scouts",
         description=(
             "Leave a steering note the scout fleet reads on its next runs. Address it to one scout "
-            "via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. "
+            "via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved "
+            "audience (`pipeline:report-research`), or omit it for a general note every scout sees. "
             "Each call creates a new note (no upsert); delete retires one. Attributed to the "
             "authenticated user."
         ),

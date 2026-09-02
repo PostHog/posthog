@@ -73,7 +73,7 @@ export interface RailDestination {
  * is view state — but the destinations that own the whole screen have no column
  * to put it in, so leaving one is part of the pick.
  */
-export function showSpaces(): void {
+function showSpaces(): void {
   const channelId = useCurrentChannelStore.getState().currentChannelId;
   if (!channelId) {
     showChannelList();
@@ -136,7 +136,7 @@ export function pickRailDestination(
   else destination.onPick();
 }
 
-export const RAIL_DESTINATIONS: readonly RailDestination[] = [
+const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "home",
     label: "Home",

@@ -34,7 +34,9 @@ import {
   type AgentAdapter,
   useSettingsStore,
 } from "../../settings/settingsStore";
+import { cloudTargetIds } from "../../task-detail/cloudTargets";
 import { WorkspaceModeSelect } from "../../task-detail/components/WorkspaceModeSelect";
+import { useCloudTargetSelection } from "../../task-detail/hooks/useCloudTarget";
 import { usePreviewConfig } from "../../task-detail/hooks/usePreviewConfig";
 import { useResolvedWorkspaceMode } from "../../task-detail/hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../../task-detail/hooks/useTaskCreation";
@@ -152,12 +154,8 @@ export const ChannelHomeComposer = forwardRef<
     isLoadingIntegrations,
     allowWorktree: false,
   });
-  const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
-    null,
-  );
-  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
-    string | null
-  >(null);
+  const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
+  const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
   const repositoryDraft = useTaskRepositoryDraftStore(
     (s) => s.drafts[channelId],
@@ -255,14 +253,8 @@ export const ChannelHomeComposer = forwardRef<
         ? (taskGithubIntegration ?? undefined)
         : undefined,
     workspaceMode,
-    sandboxEnvironmentId:
-      workspaceMode === "cloud" && selectedCloudEnvId
-        ? selectedCloudEnvId
-        : undefined,
-    customImageId:
-      workspaceMode === "cloud" && selectedCustomImageId
-        ? selectedCustomImageId
-        : undefined,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
+    customImageId: cloudIds.customImageId,
     editorIsEmpty,
     adapter,
     runtime,
@@ -396,10 +388,8 @@ export const ChannelHomeComposer = forwardRef<
           onChange={setWorkspaceMode}
           adapter={runtime === "pi" ? undefined : adapter}
           overrideModes={["local", "cloud"]}
-          selectedCloudEnvironmentId={selectedCloudEnvId}
-          onCloudEnvironmentChange={setSelectedCloudEnvId}
-          selectedCustomImageId={selectedCustomImageId}
-          onCustomImageChange={setSelectedCustomImageId}
+          cloudTarget={cloudTarget}
+          onCloudTargetChange={setCloudTarget}
           size="1"
           disabled={isBusy}
         />

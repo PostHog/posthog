@@ -67,6 +67,7 @@ export function railPaneForMatches(
 }
 
 /** Read the destination outside React (event handlers, imperative picks). */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
 }

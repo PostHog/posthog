@@ -4682,7 +4682,7 @@ export interface WarmTaskRequestApi {
      */
     repositories?: string[]
     /**
-     * Primary key of the team's GitHub integration to clone with when a repository is selected.
+     * Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it.
      * @nullable
      */
     github_integration?: number | null

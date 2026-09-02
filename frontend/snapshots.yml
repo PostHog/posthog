@@ -5708,6 +5708,22 @@ snapshots:
         hash: v1.k794b7964.9ea11684de93cf0bf2fabc01d05a7b4fed8d0e540084b01ec27ab8a29d0f3823.vJCRxMCRSHVE9xVry1hOYTeYimJdH1PyeD0guOSQu4k
     scenes-app-ai-observability-conversation-display--basic--light:
         hash: v1.k794b7964.3cb142d720e0576d3b92310d75f791cf42452f5f32d38674f79d434790589239.7q-Lw22M7R633hrsN-ZnuIgkAWP9l4i9iRbu5jpnOG8
+    scenes-app-ai-observability-conversation-display--empty-output-blocked-by-provider--dark:
+        hash: v1.k794b7964.05125a80c55c9ad20c8edcc84bf05e1f58ff673ca1a2abbef34ced9ec3552b9d.mah6RylH_kokmN1fnEjxZQD4Ps3QUaffSekfCz5N6i4
+    scenes-app-ai-observability-conversation-display--empty-output-blocked-by-provider--light:
+        hash: v1.k794b7964.1f86f5ba9536b50c817ca0a3c0d55548c14b8f4a8ff13b504c3f7b150e012ada.4ZWD_3VA2AijSiEbq-_jE96K3tcgkw3HHuu_Ux3IFfQ
+    scenes-app-ai-observability-conversation-display--empty-output-hit-token-limit--dark:
+        hash: v1.k794b7964.b2548b108edc6f8c958940e1fc0209b999b98438e0a6b6c095f3ac42a4cdd9f1.-411C02o_BaVwQeYWxv1oPT5d_J-6pawteYt4V80BAA
+    scenes-app-ai-observability-conversation-display--empty-output-hit-token-limit--light:
+        hash: v1.k794b7964.f8d093d6d02c6f147e06a6fbff6cbac04aa9cc29e7b1780a67c59b26681869c8.j7EwfprpifYVQrbjfTqvFjMSCeqtwfxhgfeLQQ_2lFk
+    scenes-app-ai-observability-conversation-display--empty-output-with-billed-tokens--dark:
+        hash: v1.k794b7964.42eeaa8552683109e50304840c0fe8907c4c0825b622ecd1d9745bc4f895d955.HGZ_kprIGe14sglkYwj1wNpS3hLSkGbZKw3tuUJTz5s
+    scenes-app-ai-observability-conversation-display--empty-output-with-billed-tokens--light:
+        hash: v1.k794b7964.b9e3adecf8f05139d76126faf07998b0a915fec481915e6a8bad3a97992dae68.4UFV8PthL3Y5pbeU3axDaPZIep6ixfatWlrzqW4JKm0
+    scenes-app-ai-observability-conversation-display--empty-output-with-reasoning-tokens--dark:
+        hash: v1.k794b7964.9f1da3403eb752b5499e096ed36633d7c8fff2e69b7ba3696354e664bde897ff.N7wmsys9CZDuETYl1x-hqLouyIimaxUWLRWc9DZYgjY
+    scenes-app-ai-observability-conversation-display--empty-output-with-reasoning-tokens--light:
+        hash: v1.k794b7964.34eabfa265ecc45640d754647a5ad836ef95a3d32c1885391c94af7865d2fe18.N2i_3GzO4MpTXxY30ebKa5IiVNEIBVSbDgGepsfm4RI
     scenes-app-ai-observability-conversation-display--error--dark:
         hash: v1.k794b7964.477b40a99b407806f5a85839a94004a899be31370ea6861518dd11cf5c883c45.EQEZzP2enfzFprXAhyqSbD8Um6pvTD1cGa3yq6qn4VU
     scenes-app-ai-observability-conversation-display--error--light:
@@ -6868,6 +6884,10 @@ snapshots:
         hash: v1.k794b7964.4ab1f8cb97f347a2aae442ca814c70c538c54e4a9efb1c3cdd6681a56cad5e90.wVmcanELl0wz7-rhcnN8K5MGXmKMMxXELkYcCEpCxKs
     scenes-app-inbox-cards--skeleton--light:
         hash: v1.k794b7964.24c19ab5df1e4ccb843b1ad726752e3a98aeadaa08595e66cb4b41aff1a9e9a1.Y3z44tkU4jsAYUyXxfl72fTuZ0MKA6_S6TTNCKt5jSg
+    scenes-app-inbox-createprbutton--default--dark:
+        hash: v1.k794b7964.48c126cb2fbf7e2ff90a961fec1dbe587726b4fe10346c933e7948f0c5722fc6.o3rRliF1DHQt7OSgtsMeThXxAYCAkiUcKqRxRRaqvMg
+    scenes-app-inbox-createprbutton--default--light:
+        hash: v1.k794b7964.afd9c8a70584e887de98dc27361817c64057c32da340ceb85f4584212bfb2dad.J1FNKAVCovRg8LIuY9uoXEFCuQ6MlUp1kFs6aJ33X5Y
     scenes-app-inbox-detail--pull-request--dark:
         hash: v1.k794b7964.e3d35a1f32d39211cf8bd41914c83ec6e4ed9e0251e8b883a8fa62c048dc4165.na0HIQko2FwF9KTcKxD66kvttld6IbR_S0bejyK_1hs
     scenes-app-inbox-detail--pull-request--light:
@@ -6993,17 +7013,17 @@ snapshots:
     scenes-app-inbox-scene--triage--light:
         hash: v1.k794b7964.1fcdda8455a45b636d29f42c681696c649b26a1339ba5b5890d166ec5bd98aaf.CejUDitmTV84DoeFjFwwFhrEP62iSRHVYAgYCu77zAM
     scenes-app-inbox-scoutconfigform--disabled--dark:
-        hash: v1.k794b7964.c7ec994ac1d65f711be7805c9cae7e3db5c8846f859c77f565faa24618b3b5a2.oDVuzPoCmul8km-CQhaZ7ZwFSLfob_HQTpzZSXkGtgs
+        hash: v1.k794b7964.9b49aceb501b24b937fb242b5290a20812ba9d1a68f5819b4049220ce40b0074.67rDdrvt6-iadaCjuYvtCjoGbRHVFn6Td5fRII6fgjc
     scenes-app-inbox-scoutconfigform--disabled--light:
-        hash: v1.k794b7964.86ae13cc6c174ff7be406e2a458b0e130e0da95a13908a13b1e4d2f354bdfeda.Wd-vAysy8wGyYzR4n0JuLx1mDjR_iMlOBOg6naT4m8E
+        hash: v1.k794b7964.3551bd94142e1584eb64c788cdd1c37b1b664154852509cdbf003a82e483683c.0Na_Er5Fq7y-H-LZh2k4K6-jvu_j1U69Oimf8CjyepI
     scenes-app-inbox-scoutconfigform--dry-run--dark:
-        hash: v1.k794b7964.c0899205490439c88e086e5a9dacea08bb3434456ed926ab4479f5221b408fa9.eZWbRAQHY0eyNbx503YAvE7QAcBQntKlka4Nzo7MG_k
+        hash: v1.k794b7964.4508a21310bf182d8a86c99bcfe865b3176d67cbf678706044e36232c8588ebf.ITu2E780yQl1gLnVmIKa8czMB0LxwOhrLRJ1WU9niz4
     scenes-app-inbox-scoutconfigform--dry-run--light:
-        hash: v1.k794b7964.4a01a0a88d4fc031b44960d52c93a1dfa2ad6a10d68661850444ce496d744298.cjLEjfbtQYJAT5zbHLBkOADZ3RkaRPGukRCG781nVoQ
+        hash: v1.k794b7964.6f93b5f23db7bac689f3cbc4452d77a282723053b04da8932da70c12bad6fe5c.FCI_TejZOxrkMSIyRgm5F4i_INztRai9mVSPUkPF16U
     scenes-app-inbox-scoutconfigform--live--dark:
-        hash: v1.k794b7964.462c4cbfe7592968d9c82b2fd69ef07735ba8ced891c34a9d9d1d0e3bc4bf776.MG5RQ1DeROS8UiVEL_hsGNf2stSlsTAwQp0MZcwn5Mk
+        hash: v1.k794b7964.61e1588992d3b7bdf882a50140a9765c4597ab77f068d1074198d9df153bbe6c.TxMowkDYiR56NSE3eC1x0T0EIW5cel3iAPsJahfx4Yc
     scenes-app-inbox-scoutconfigform--live--light:
-        hash: v1.k794b7964.c246f46b27e1d29ba3b29d3272ccc6e71b03cfc34f167d1de8985ebc3795e2b7.2Us1Q6Li99J0AJ5xjFUCTqtLC-WDO0yOUb_CbLsaPJM
+        hash: v1.k794b7964.b93b42f9787af58980089a1c7817e3deaa8ae88436dba2f7bb820b09e2a7c318.uU7wU2nS8uaHOXEH9Lq6Cr5YYbC1Ef-KCP6akecrCGY
     scenes-app-inbox-scoutmcpserverspicker--create-dialog-variant--dark:
         hash: v1.k794b7964.afe2203f4dd53373a3203fcfa611b5b65555341bdc2fc7fd73c15c2d83914600.O4kSRnOgICuQDkyD2HJCwBXdzE-KwsfzWT98nm43_5A
     scenes-app-inbox-scoutmcpserverspicker--create-dialog-variant--light:
@@ -7369,9 +7389,9 @@ snapshots:
     scenes-app-mcp-analytics--intent-clustering--light:
         hash: v1.k794b7964.0496d3f05595d775c03763449254e74d495aeafee448579dae3a3a7e6cc57410.VRPMdh1JoIxzB79GzZM8yPe4SA9YW_02HQJNJxEHtL0
     scenes-app-mcp-analytics--sessions--dark:
-        hash: v1.k794b7964.e44b6747efcbc630753707078c16ebb36a05f9701fa89c014d8eebec1eabc4fb.i5C5Ib24E2xi_tzTLXniz3WM8UKaAFOj4aqVnMmtIiI
+        hash: v1.k794b7964.3864a51ed4b403ac8a9751359ab61a33acd096fc6a6f5c7ee3c505030d7edeab.pAAJhar-K5LVT9KVYZty1go-I28ts3keaKKIshB2HGY
     scenes-app-mcp-analytics--sessions--light:
-        hash: v1.k794b7964.8a6b42b3e994bb9f035951d84f071f2d7c20756f9745281f61e3383133bd5bb5.GxtTX98b-FQFH6zFqQLhs-oEq7qO_vVqKjJS-CBN77U
+        hash: v1.k794b7964.228a33899ce440a7ee0e06cbeadad2a997bd288b0825791ddcd9e72aa48f498c.SPQoE-bnTMZIll2Qj8RlLQR22XmMpG_NDGjRX77iDQ0
     scenes-app-mcp-analytics--tool-quality--dark:
         hash: v1.k794b7964.b13ac4ec3c9259eee05705bb21b0ef6e3b3a4bfb24669d7cfe27fe3b2a3977aa.HiW8YXDsI7Hq5BZ79JdEPpf9tSk-abFlPTJrdMWz5Ow
     scenes-app-mcp-analytics--tool-quality--light:

@@ -6,6 +6,7 @@ const isOnSettingsRoute = vi.fn(() => false);
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToSettings: (...args: unknown[]) => navigateToSettings(...args),
   isOnSettingsRoute: () => isOnSettingsRoute(),
+  isSettingsRouteId: (routeId: string) => routeId.includes("/settings/"),
   canGoBackInHistory: vi.fn(),
   goBackInHistory: vi.fn(),
   navigateToNewTask: vi.fn(),

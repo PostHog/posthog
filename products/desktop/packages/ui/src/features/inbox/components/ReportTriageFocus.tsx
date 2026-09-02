@@ -26,7 +26,7 @@ import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /** A keyboard hint chip; quill has no kbd primitive, so plain HTML carries it. */
-export function KeyCap({ children }: { children: string }) {
+function KeyCap({ children }: { children: string }) {
   return (
     <kbd className="rounded border border-(--gray-6) bg-(--gray-2) px-1 font-mono text-[11.5px] text-gray-11">
       {children}

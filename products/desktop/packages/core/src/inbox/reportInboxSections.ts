@@ -22,7 +22,7 @@ export interface InboxReportSections {
  * reports stay here (a row-level hint conveys that) rather than defining a
  * section boundary counts can't reproduce.
  */
-export function reportNeedsDecision(report: SignalReport): boolean {
+function reportNeedsDecision(report: SignalReport): boolean {
   return report.status === "ready";
 }
 

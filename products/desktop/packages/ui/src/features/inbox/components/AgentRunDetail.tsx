@@ -58,7 +58,7 @@ import { DropdownMenu, Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-export function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
+function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
   const terminal = isTerminalStatus(status);
   const color = terminal
     ? status === "failed" || status === "cancelled"

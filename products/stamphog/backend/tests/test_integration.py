@@ -30,7 +30,7 @@ from products.stamphog.backend.logic.channel_resolution import (
     build_routing_context,
     resolve_destination,
 )
-from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
+from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
@@ -833,7 +833,7 @@ def test_reviewer_markdown_images_are_neutralized_before_posting(team, stamphog_
     assert body.count("[image removed]") == 2
     assert "![" not in body  # reference-style images are demoted to plain links (never auto-fetched)
     assert "[x][leak]" in body
-    assert body.startswith("Looks fine.") and body.endswith("end.")
+    assert "Looks fine. [image removed]" in body and body.endswith("end.")
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1258,17 +1258,17 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
         status=ReviewRunStatus.REVIEWING,
         output={"reviewer_raw": _refused_engine_output(), "inbox_review": {"trigger": "inbox"}},
     )
-    # A concurrent delivery flips the run to SUPERSEDED during the sticky-comment post (before the
+    # A concurrent delivery flips the run to SUPERSEDED during the non-approval review post (before the
     # terminal save), so the conditional .exclude(status=SUPERSEDED).update(...) matches nothing and the
     # run returns skipped_superseded. This reaches the terminal-save early return, NOT the top guard —
     # the run is REVIEWING at load.
-    original_post_sticky = activities._post_sticky
+    original_post_review = activities._post_non_approval_review
 
-    def _supersede_then_post(client, repo, pr, body) -> None:
+    def _supersede_then_post(client, repo, posting_run, pr, team_id, body) -> None:
         ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
-        original_post_sticky(client, repo, pr, body)
+        original_post_review(client, repo, posting_run, pr, team_id, body)
 
-    with patch.object(activities, "_post_sticky", side_effect=_supersede_then_post):
+    with patch.object(activities, "_post_non_approval_review", side_effect=_supersede_then_post):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     assert result == {"verdict": "skipped_superseded"}
@@ -1649,6 +1649,47 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
         assert pull_request.summary_line == run.change_summary
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_each_non_approval_posts_its_own_review(team, stamphog_chain: StamphogChain) -> None:
+    # Every verdict has to land in the Reviews section, the same list the approvals land in. A refusal
+    # written into an edited issue comment notified nobody and sat in a different list from the
+    # approval that later replaced it, so a stale refusal outlived the approval it contradicted. Each
+    # run posts its own review, pinned to the head it judged, saying the outcome in words — the
+    # engine's own body never does, and renders every gate row as a tick even on a refusal.
+    repo_config = _repo_config(team.id)
+    repo_config.review_mode = ReviewMode.LABEL
+    repo_config.save()
+    head_sha = "sha-refused"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+
+    for _ in range(2):
+        run = ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha=head_sha,
+            status=ReviewRunStatus.REVIEWING,
+            output={"reviewer_raw": _refused_engine_output()},
+        )
+        # Twice per run: a Temporal retry after the post must not repeat the review.
+        _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+        _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    writes = stamphog_chain.recorder.github_writes
+    assert [w for w in writes if w["kind"] in ("issue_comment", "issue_comment_edit")] == []
+    reviews = [w for w in writes if w["kind"] == "comment_review"]
+    assert len(reviews) == 2
+    for review in reviews:
+        # COMMENT, never REQUEST_CHANGES: declining to auto-approve must not block a human merging.
+        assert review["body"]["event"] == "COMMENT"
+        assert review["body"]["commit_id"] == head_sha
+        assert review["body"]["body"].startswith("**Not approved")
+        # LABEL mode strips the trigger label, so the review has to say how to ask again.
+        assert "Re-add the `stamphog` label" in review["body"]["body"]
+
+
 @pytest.mark.parametrize(
     "comment_user_type,expect_patch",
     [("User", False), ("Bot", True)],
@@ -1656,14 +1697,12 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_sticky_comment_only_edits_the_apps_own_comment(
-    team, stamphog_chain: StamphogChain, comment_user_type: str, expect_patch: bool
+    stamphog_chain: StamphogChain, comment_user_type: str, expect_patch: bool
 ) -> None:
     # The sticky marker is visible in the comment source, so a user could plant it to make the bot PATCH
     # (hijack) their comment. Only a Bot-authored comment carrying the marker may be edited; a user's is
     # ignored and a fresh comment is posted. (App slug is unset in tests, so any Bot author qualifies.)
-    repo_config = _repo_config(team.id)
-    head_sha = "sha-refused"
-    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    # Verdicts no longer upsert, so the remaining caller is the bot-author label cleanup.
     stamphog_chain.recorder.issue_comments[(REPO, 101)] = [
         {
             "id": 4242,
@@ -1671,18 +1710,8 @@ def test_sticky_comment_only_edits_the_apps_own_comment(
             "user": {"login": "someone", "type": comment_user_type},
         }
     ]
-    pull_request = PullRequest.objects.for_team(team.id).create(
-        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
-    )
-    run = ReviewRun.objects.for_team(team.id).create(
-        team_id=team.id,
-        pull_request=pull_request,
-        head_sha=head_sha,
-        status=ReviewRunStatus.REVIEWING,
-        output={"reviewer_raw": _refused_engine_output()},
-    )
 
-    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+    StamphogGitHubClient(INSTALLATION_ID).upsert_sticky_comment(REPO, 101, "status")
 
     writes = stamphog_chain.recorder.github_writes
     patched = [w for w in writes if w["kind"] == "issue_comment_edit"]

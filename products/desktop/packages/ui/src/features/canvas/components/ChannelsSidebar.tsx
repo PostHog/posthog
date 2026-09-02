@@ -51,7 +51,7 @@ import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebar
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
 import { useParams } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useRef } from "react";
+import { memo, useDeferredValue, useEffect, useRef } from "react";
 
 /**
  * The sidebar slider: the channel list and the channel you're in, laid out side
@@ -132,7 +132,7 @@ function ChannelPanes({
     </div>
   );
 }
-export function ChannelsSidebar() {
+function ChannelsSidebarImpl() {
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
@@ -204,7 +204,10 @@ export function ChannelsSidebar() {
   // slide to there's only the list.
   const { pane: railPane, showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivitySelection()?.id;
-  const { feedId } = useParams({ strict: false });
+  const feedId = useParams({
+    strict: false,
+    select: (params) => params.feedId,
+  });
   const pane = useChannelPaneStore((s) => s.pane);
   const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
     usePendingTabViewState();
@@ -315,3 +318,6 @@ export function ChannelsSidebar() {
     </ResizableSidebar>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const ChannelsSidebar = memo(ChannelsSidebarImpl);

@@ -46,80 +46,6 @@ export function reportAgeHours(createdAt: string | null | undefined): number {
   return Math.max(0, Math.round((ageMs / 3_600_000) * 10) / 10);
 }
 
-/** Live tracker snapshot for the currently-open report. */
-export interface OpenReportSnapshot {
-  reportId: string;
-  rank: number;
-  reportPriority: string | null;
-  reportActionability: string | null;
-}
-
-export type ResolvedActionProperties = Pick<
-  InboxReportActionProperties,
-  "rank" | "list_size" | "priority" | "actionability"
->;
-
-export interface ResolveActionPropertiesInput {
-  reportId: string;
-  rankOverride?: number;
-  listSizeOverride?: number;
-  priorityOverride?: string | null;
-  actionabilityOverride?: string | null;
-  openSnapshot: OpenReportSnapshot | null;
-  visibleReports: SignalReport[];
-}
-
-/**
- * Resolve rank / list_size / priority / actionability for an INBOX_REPORT_ACTION event.
- *
- * Precedence: explicit override -> live open-info snapshot (current report only) ->
- * a one-shot lookup in the visible list. Callers firing after an async mutation should
- * pass pre-mutation overrides; by then the visible list has been re-queried without the
- * affected report.
- */
-export function resolveActionProperties(
-  input: ResolveActionPropertiesInput,
-): ResolvedActionProperties {
-  const {
-    reportId,
-    rankOverride,
-    listSizeOverride,
-    priorityOverride,
-    actionabilityOverride,
-    openSnapshot,
-    visibleReports,
-  } = input;
-
-  const currentInfo =
-    openSnapshot && openSnapshot.reportId === reportId ? openSnapshot : null;
-  const matchedReport = currentInfo
-    ? null
-    : (visibleReports.find((r) => r.id === reportId) ?? null);
-
-  const rank =
-    rankOverride !== undefined
-      ? rankOverride
-      : currentInfo
-        ? currentInfo.rank
-        : visibleReports.findIndex((r) => r.id === reportId);
-  const listSize =
-    listSizeOverride !== undefined ? listSizeOverride : visibleReports.length;
-  const priority =
-    priorityOverride !== undefined
-      ? priorityOverride
-      : currentInfo
-        ? currentInfo.reportPriority
-        : (matchedReport?.priority ?? null);
-  const actionability =
-    actionabilityOverride !== undefined
-      ? actionabilityOverride
-      : currentInfo
-        ? currentInfo.reportActionability
-        : (matchedReport?.actionability ?? null);
-
-  return { rank, list_size: listSize, priority, actionability };
-}
-
 /** Bulk-capable report actions fired from the selection toolbar / dismiss flows. */
 export type InboxBulkActionType = Extract<
   InboxReportActionProperties["action_type"],
@@ -176,8 +102,7 @@ interface InboxViewedFilterStateBase {
   priorityFilter: string[];
 }
 
-export interface DesktopInboxViewedFilterState
-  extends InboxViewedFilterStateBase {
+interface DesktopInboxViewedFilterState extends InboxViewedFilterStateBase {
   surface: "desktop";
   searchQuery: string;
   /**
@@ -188,17 +113,12 @@ export interface DesktopInboxViewedFilterState
   isDefaultScope: boolean;
 }
 
-export interface MobileInboxViewedFilterState
-  extends InboxViewedFilterStateBase {
+interface MobileInboxViewedFilterState extends InboxViewedFilterStateBase {
   surface: "mobile";
   statusFilter: readonly string[];
   defaultStatusFilter: readonly string[];
   suggestedReviewerFilter: string[];
 }
-
-export type InboxViewedFilterState =
-  | DesktopInboxViewedFilterState
-  | MobileInboxViewedFilterState;
 
 interface BuildInboxViewedInputBase {
   /**

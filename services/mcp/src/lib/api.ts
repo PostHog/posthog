@@ -4,6 +4,7 @@ const SERVER_MINT_ONLY_SCOPE_OBJECTS = new Set([
     'mcp_builtin_agent',
     'signal_scout_internal',
     'signal_scout_report',
+    'signal_scratchpad_internal',
 ])
 
 export const hasScope = (scopes: string[], requiredScope: string): boolean => {
