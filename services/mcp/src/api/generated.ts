@@ -17232,10 +17232,10 @@ export namespace Schemas {
      * * `context_created` - context_created
      * * `context_md_building` - context_md_building
      */
-    export type EventEnum = typeof EventEnum[keyof typeof EventEnum];
+    export type ChannelFeedMessageWriteEventEnum = typeof ChannelFeedMessageWriteEventEnum[keyof typeof ChannelFeedMessageWriteEventEnum];
 
 
-    export const EventEnum = {
+    export const ChannelFeedMessageWriteEventEnum = {
       ContextCreated: 'context_created',
       ContextMdBuilding: 'context_md_building',
     } as const;
@@ -17248,7 +17248,7 @@ export namespace Schemas {
        *
        * * `context_created` - context_created
        * * `context_md_building` - context_md_building */
-      event: EventEnum;
+      event: ChannelFeedMessageWriteEventEnum;
       /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
       payload?: unknown;
       /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
@@ -29180,6 +29180,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `brief` - brief
+     * * `check` - check
+     * * `moved` - moved
+     * * `stale` - stale
+     * * `report` - report
+     * * `verdict` - verdict
+     * * `scout` - scout
+     * * `stopped` - stopped
+     * * `paused` - paused
+     * * `resumed` - resumed
+     */
+    export type DocWatchEventEnum = typeof DocWatchEventEnum[keyof typeof DocWatchEventEnum];
+
+
+    export const DocWatchEventEnum = {
+      Brief: 'brief',
+      Check: 'check',
+      Moved: 'moved',
+      Stale: 'stale',
+      Report: 'report',
+      Verdict: 'verdict',
+      Scout: 'scout',
+      Stopped: 'stopped',
+      Paused: 'paused',
+      Resumed: 'resumed',
+    } as const;
+
+    /**
      * One message in a thread.
      */
     export interface DiscussionPost {
@@ -29199,6 +29227,19 @@ export namespace Schemas {
       author_kind: AuthorKindEnum;
       /** Whether this post reached the agent's run. */
       sent_to_agent: boolean;
+      /** On a post a watch wrote: what it stands for, so a timeline reads it without parsing words.
+       *
+       * * `brief` - brief
+       * * `check` - check
+       * * `moved` - moved
+       * * `stale` - stale
+       * * `report` - report
+       * * `verdict` - verdict
+       * * `scout` - scout
+       * * `stopped` - stopped
+       * * `paused` - paused
+       * * `resumed` - resumed */
+      event?: DocWatchEventEnum | null;
     }
 
     /**
@@ -29442,6 +29483,19 @@ export namespace Schemas {
       author_kind: AuthorKindEnum;
       /** Whether this post reached the agent's run. */
       sent_to_agent: boolean;
+      /** On a post a watch wrote: what it stands for, so a timeline reads it without parsing words.
+       *
+       * * `brief` - brief
+       * * `check` - check
+       * * `moved` - moved
+       * * `stale` - stale
+       * * `report` - report
+       * * `verdict` - verdict
+       * * `scout` - scout
+       * * `stopped` - stopped
+       * * `paused` - paused
+       * * `resumed` - resumed */
+      event?: DocWatchEventEnum | null;
       /** Key that ties this thread to a mark or an inline request in the doc body. */
       anchor_key: string;
       /** The phrase or question the thread was started from. */
@@ -29502,6 +29556,19 @@ export namespace Schemas {
       author_kind: AuthorKindEnum;
       /** Whether this post reached the agent's run. */
       sent_to_agent: boolean;
+      /** On a post a watch wrote: what it stands for, so a timeline reads it without parsing words.
+       *
+       * * `brief` - brief
+       * * `check` - check
+       * * `moved` - moved
+       * * `stale` - stale
+       * * `report` - report
+       * * `verdict` - verdict
+       * * `scout` - scout
+       * * `stopped` - stopped
+       * * `paused` - paused
+       * * `resumed` - resumed */
+      event?: DocWatchEventEnum | null;
       /** Key that ties this thread to a mark or an inline request in the doc body. */
       anchor_key: string;
       /** The phrase or question the thread was started from. */
@@ -54108,6 +54175,7 @@ export namespace Schemas {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `docs` - Docs
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
@@ -54134,6 +54202,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
+      Docs: 'docs',
       Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
@@ -67944,6 +68013,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `docs` - Docs
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
@@ -84564,6 +84634,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `docs` - Docs
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
@@ -85964,6 +86035,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `docs` - Docs
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
@@ -100136,6 +100208,7 @@ export namespace Schemas {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `docs` - Docs
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
@@ -100271,6 +100344,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
+      Docs: 'docs',
       Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',

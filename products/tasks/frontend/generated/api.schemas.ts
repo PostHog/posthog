@@ -1170,9 +1170,10 @@ export interface PaginatedChannelFeedMessageDTOListApi {
  * * `context_created` - context_created
  * * `context_md_building` - context_md_building
  */
-export type EventEnumApi = (typeof EventEnumApi)[keyof typeof EventEnumApi]
+export type ChannelFeedMessageWriteEventEnumApi =
+    (typeof ChannelFeedMessageWriteEventEnumApi)[keyof typeof ChannelFeedMessageWriteEventEnumApi]
 
-export const EventEnumApi = {
+export const ChannelFeedMessageWriteEventEnumApi = {
     ContextCreated: 'context_created',
     ContextMdBuilding: 'context_md_building',
 } as const
@@ -1185,7 +1186,7 @@ export interface ChannelFeedMessageWriteApi {
      *
      * * `context_created` - context_created
      * * `context_md_building` - context_md_building */
-    event: EventEnumApi
+    event: ChannelFeedMessageWriteEventEnumApi
     /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
     payload?: unknown
     /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
@@ -1761,6 +1762,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
  * * `posthog_ai` - PostHog AI
+ * * `docs` - Docs
  * * `experiments` - Experiments
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
@@ -1786,6 +1788,7 @@ export const OriginProductEnumApi = {
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
+    Docs: 'docs',
     Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
@@ -1850,6 +1853,7 @@ export interface TaskCreateApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `docs` - Docs
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
@@ -2006,6 +2010,7 @@ export interface TaskWriteApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `docs` - Docs
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
@@ -2145,6 +2150,7 @@ export interface PatchedTaskWriteApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `docs` - Docs
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
@@ -4961,6 +4967,7 @@ export type TasksListParams = {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `docs` - Docs
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
@@ -5094,6 +5101,7 @@ export const TasksListExcludeOriginProduct = {
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
+    Docs: 'docs',
     Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',

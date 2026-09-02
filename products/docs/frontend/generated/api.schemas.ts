@@ -276,6 +276,33 @@ export const AuthorKindEnumApi = {
 } as const
 
 /**
+ * * `brief` - brief
+ * * `check` - check
+ * * `moved` - moved
+ * * `stale` - stale
+ * * `report` - report
+ * * `verdict` - verdict
+ * * `scout` - scout
+ * * `stopped` - stopped
+ * * `paused` - paused
+ * * `resumed` - resumed
+ */
+export type DocWatchEventEnumApi = (typeof DocWatchEventEnumApi)[keyof typeof DocWatchEventEnumApi]
+
+export const DocWatchEventEnumApi = {
+    Brief: 'brief',
+    Check: 'check',
+    Moved: 'moved',
+    Stale: 'stale',
+    Report: 'report',
+    Verdict: 'verdict',
+    Scout: 'scout',
+    Stopped: 'stopped',
+    Paused: 'paused',
+    Resumed: 'resumed',
+} as const
+
+/**
  * * `text` - text
  * * `data` - data
  * * `watch` - watch
@@ -550,6 +577,19 @@ export interface DiscussionPostApi {
     author_kind: AuthorKindEnumApi
     /** Whether this post reached the agent's run. */
     sent_to_agent: boolean
+    /** On a post a watch wrote: what it stands for, so a timeline reads it without parsing words.
+     *
+     * * `brief` - brief
+     * * `check` - check
+     * * `moved` - moved
+     * * `stale` - stale
+     * * `report` - report
+     * * `verdict` - verdict
+     * * `scout` - scout
+     * * `stopped` - stopped
+     * * `paused` - paused
+     * * `resumed` - resumed */
+    event?: DocWatchEventEnumApi | null
 }
 
 /**
@@ -572,6 +612,19 @@ export interface DiscussionThreadApi {
     author_kind: AuthorKindEnumApi
     /** Whether this post reached the agent's run. */
     sent_to_agent: boolean
+    /** On a post a watch wrote: what it stands for, so a timeline reads it without parsing words.
+     *
+     * * `brief` - brief
+     * * `check` - check
+     * * `moved` - moved
+     * * `stale` - stale
+     * * `report` - report
+     * * `verdict` - verdict
+     * * `scout` - scout
+     * * `stopped` - stopped
+     * * `paused` - paused
+     * * `resumed` - resumed */
+    event?: DocWatchEventEnumApi | null
     /** Key that ties this thread to a mark or an inline request in the doc body. */
     anchor_key: string
     /** The phrase or question the thread was started from. */
@@ -676,6 +729,19 @@ export interface DiscussionReplyResultApi {
     author_kind: AuthorKindEnumApi
     /** Whether this post reached the agent's run. */
     sent_to_agent: boolean
+    /** On a post a watch wrote: what it stands for, so a timeline reads it without parsing words.
+     *
+     * * `brief` - brief
+     * * `check` - check
+     * * `moved` - moved
+     * * `stale` - stale
+     * * `report` - report
+     * * `verdict` - verdict
+     * * `scout` - scout
+     * * `stopped` - stopped
+     * * `paused` - paused
+     * * `resumed` - resumed */
+    event?: DocWatchEventEnumApi | null
     /** Key that ties this thread to a mark or an inline request in the doc body. */
     anchor_key: string
     /** The phrase or question the thread was started from. */
