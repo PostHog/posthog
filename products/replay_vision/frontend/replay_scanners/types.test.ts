@@ -4,6 +4,7 @@ import {
     failureRetryGuidance,
     getModelOptions,
     modelLabel,
+    modelName,
     modelNamingVariant,
     observationRetryOffer,
 } from './types'
@@ -111,6 +112,12 @@ describe('scanner type helpers', () => {
         it('falls back to the raw id for retired models frozen in old observation snapshots', () => {
             expect(modelLabel('gemini-1.5-retired', 'test')).toBe('gemini-1.5-retired')
             expect(modelLabel('gemini-1.5-retired', null)).toBe('gemini-1.5-retired')
+        })
+
+        // A model leaving the lineup must not turn every past observation's label into a raw slug.
+        it.each(['gemini-3.7-flash', 'gemini-3.6-flash'])('still names retired model %s', (model) => {
+            expect(modelLabel(model, null)).toContain('Flash')
+            expect(modelName(model, 'test')).toContain('Flash')
         })
     })
 })
