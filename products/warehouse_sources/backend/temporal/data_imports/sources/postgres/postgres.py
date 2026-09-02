@@ -1771,6 +1771,22 @@ class NetworkAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+class CompositeAsStringLoader(Loader):
+    """Load PostgreSQL composite, record, and multirange values as their string representation.
+
+    psycopg's default loaders turn a composite or `record` column into a Python `tuple` and a
+    multirange into a `psycopg.types.multirange.Multirange`. We do not support those types, and a
+    column of same-length tuples makes the NumPy object-array fallback build a 2D array that pyarrow
+    rejects. Loading the raw text form keeps the column as a `str`, the same way `RangeAsStringLoader`
+    handles ranges.
+    """
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode("utf-8")
+
+
 class SafeDateLoader(Loader):
     """Load PostgreSQL dates, handling edge cases beyond Python's date range.
 
@@ -3594,6 +3610,13 @@ def postgres_source(
                 connection.adapters.register_loader("tsrange", RangeAsStringLoader)
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
+                connection.adapters.register_loader("int4multirange", CompositeAsStringLoader)
+                connection.adapters.register_loader("int8multirange", CompositeAsStringLoader)
+                connection.adapters.register_loader("nummultirange", CompositeAsStringLoader)
+                connection.adapters.register_loader("tsmultirange", CompositeAsStringLoader)
+                connection.adapters.register_loader("tstzmultirange", CompositeAsStringLoader)
+                connection.adapters.register_loader("datemultirange", CompositeAsStringLoader)
+                connection.adapters.register_loader("record", CompositeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
                 connection.adapters.register_loader("timestamp", SafeTimestampLoader)
                 connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
