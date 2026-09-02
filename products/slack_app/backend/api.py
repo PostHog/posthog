@@ -85,6 +85,7 @@ from products.slack_app.backend.services.slack_app_home import (
 from products.slack_app.backend.services.slack_fork_context import clear_pending_fork, get_pending_fork
 from products.slack_app.backend.services.slack_messages import (
     FORK_THREAD_ACTION_ID,
+    SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     post_slack_thread_reply,
 )
@@ -150,10 +151,6 @@ ROUTE_NO_INTEGRATION = "no_integration"
 # "the app didn't respond" is unattributable: the mention-received funnel only
 # covers mentions that got far enough to resolve an integration.
 SLACK_MENTION_DROPPED_EVENT = "posthog code slack mention dropped"
-
-# Ceiling on a feedback post made from inside the webhook request path, matching
-# _count_session_thread_messages. Slack's retry window is what we're protecting.
-SLACK_FEEDBACK_TIMEOUT_SECONDS = 3
 
 PICKER_TOKEN_SALT = "posthog_code_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
@@ -352,7 +349,7 @@ def _post_slack_user_ephemeral(
     # builds a fresh WebClient on every access, so the client has to be held in a local
     # for the timeout to apply to the instance that makes the request.
     client = slack.client
-    client.timeout = SLACK_FEEDBACK_TIMEOUT_SECONDS
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
     try:
         client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
@@ -2061,12 +2058,20 @@ def _route_reaction_added(
     after the fetch. The US-precedence rule for dual-owned workspaces does not apply,
     because the embedded integration id is definitive.
     """
-    if turn_feedback.reaction_sentiment(event.get("reaction")) is None:
+    # Everything up to the workspace lookup is free, and most reactions fail it: only a
+    # thumb on a message is a rating candidate.
+    if (
+        turn_feedback.reaction_sentiment(event.get("reaction")) is None
+        or (event.get("item") or {}).get("type") != "message"
+    ):
         return ROUTE_HANDLED_LOCALLY
 
-    workspace_integration = Integration.objects.filter(
-        kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-    ).first()
+    # Same candidate loading as the mention pipeline, so broken-token installs are
+    # filtered out: with none left the event defers to the other region, whose healthy
+    # install can still serve a rating this region cannot.
+    workspace_integration = load_integrations(
+        slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND]
+    ).resolved_or_first()
     if workspace_integration is None:
         return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
@@ -2697,7 +2702,7 @@ def _count_session_thread_messages(integration: Integration, channel: str | None
         return None
     try:
         client = SlackIntegration(integration).client
-        client.timeout = 3
+        client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
         response = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
         return len(response.get("messages", []))
     except Exception:

@@ -32,7 +32,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.analytics import slack_event_props
-from products.slack_app.backend.services.slack_messages import TURN_FEEDBACK_ACTION_ID
+from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 
 logger = structlog.get_logger(__name__)
@@ -71,18 +71,20 @@ _REACTION_SENTIMENTS: dict[str, str] = {
 # The outcomes ``handle_reaction_added`` reports to the event router. ``not_local`` means
 # the reacted reply belongs to an integration the other region owns, so the router should
 # forward the event there.
-REACTION_HANDLED = "handled"
-REACTION_NOT_LOCAL = "not_local"
+ReactionOutcome = Literal["handled", "not_local"]
+REACTION_HANDLED: ReactionOutcome = "handled"
+REACTION_NOT_LOCAL: ReactionOutcome = "not_local"
 
 
 @frozen
 class _FeedbackTarget:
     """The run a rating is about, resolved against the workspace that owns it.
 
-    Built only by ``_resolve_target``, which is what makes every field here trusted: the
-    integration is matched on the Slack team the click came from, and the run is looked up
-    scoped to that integration's project, so a forged ``run_id`` resolves to nothing rather
-    than attributing feedback to another team's run.
+    Built only by ``_resolve_target`` on an integration ``_local_integration`` matched,
+    which is what makes every field here trusted: the integration is matched on the Slack
+    team the rating came from, and the run is looked up scoped to that integration's
+    project, so a forged ``run_id`` resolves to nothing rather than attributing feedback
+    to another team's run.
     """
 
     integration: Integration
@@ -133,45 +135,51 @@ def extract_modal_hint(payload: dict) -> int | None:
     return integration_id if isinstance(integration_id, int) else None
 
 
-def _resolve_target(
-    value: dict[str, Any],
-    *,
-    slack_team_id: str | None,
-    slack_user_id: str,
-    turn_id: str | None,
-) -> _FeedbackTarget | None:
-    """Match the rating's workspace and run, or answer ``None``.
+def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integration | None:
+    """The integration a rating names, if this region owns it for that Slack team.
 
-    Two lookups, both scoped: the integration must belong to the Slack team the rating came
-    from, and the run must belong to that integration's project. Anyone who can read the
-    reply may rate it, so this is not an authorization check; it is what keeps a rating
-    from landing on a run the rater's workspace has nothing to do with.
+    Scoped to the Slack team the rating came from, so a forged id resolves to nothing
+    rather than crossing workspaces. ``None`` also covers an id whose row lives in the
+    other region's database, which the reaction path forwards on.
     """
-    # Deferred so the tasks product stays off this module's import path, matching
-    # `slack_messages.load_run_footer`.
-    from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415
-
-    integration_id = value.get("integration_id")
-    run_id = value.get("run_id")
-    if not slack_team_id or not isinstance(integration_id, int) or not isinstance(run_id, str):
+    if not slack_team_id or not isinstance(integration_id, int):
         return None
-    try:
-        UUID(run_id)
-    except (ValueError, AttributeError, TypeError):
-        return None
-
-    integration = (
+    return (
         Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         )
         # The event properties and the capture's groups both read through to the team and
-        # its organization, and Slack gives the click three seconds.
+        # its organization, and Slack gives the interaction three seconds.
         .select_related("team__organization")
         .first()
     )
-    if integration is None:
+
+
+def _resolve_target(
+    value: dict[str, Any],
+    *,
+    integration: Integration,
+    slack_user_id: str,
+    turn_id: str | None,
+) -> _FeedbackTarget | None:
+    """Match the rating's run within ``integration``'s project, or answer ``None``.
+
+    Anyone who can read the reply may rate it, so this is not an authorization check; the
+    project scope is what keeps a rating from landing on a run the rater's workspace has
+    nothing to do with.
+    """
+    # Deferred so the tasks product stays off this module's import path, matching
+    # `slack_messages.load_run_footer`.
+    from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415
+
+    run_id = value.get("run_id")
+    if not isinstance(run_id, str):
+        return None
+    try:
+        UUID(run_id)
+    except (ValueError, AttributeError, TypeError):
         return None
 
     run = get_task_run(run_id, team_id=integration.team_id)
@@ -324,11 +332,16 @@ def handle_turn_feedback_click(payload: dict) -> HttpResponse:
         logger.info("slack_app_turn_feedback_unknown_sentiment", sentiment=sentiment)
         return HttpResponse(status=200)
 
-    target = _resolve_target(
-        value,
-        slack_team_id=payload.get("team", {}).get("id"),
-        slack_user_id=payload.get("user", {}).get("id", ""),
-        turn_id=_turn_id(payload),
+    integration = _local_integration(value.get("integration_id"), payload.get("team", {}).get("id"))
+    target = (
+        _resolve_target(
+            value,
+            integration=integration,
+            slack_user_id=payload.get("user", {}).get("id", ""),
+            turn_id=_turn_id(payload),
+        )
+        if integration
+        else None
     )
     if target is None:
         return HttpResponse(status=200)
@@ -363,11 +376,16 @@ def handle_turn_feedback_modal_submit(payload: dict) -> HttpResponse:
         return JsonResponse({"response_action": "errors", "errors": {_MODAL_TEXT_BLOCK_ID: "Tell us what went wrong."}})
 
     turn_id = metadata.get("turn_id")
-    target = _resolve_target(
-        metadata,
-        slack_team_id=payload.get("team", {}).get("id"),
-        slack_user_id=payload.get("user", {}).get("id", ""),
-        turn_id=turn_id if isinstance(turn_id, str) else None,
+    integration = _local_integration(metadata.get("integration_id"), payload.get("team", {}).get("id"))
+    target = (
+        _resolve_target(
+            metadata,
+            integration=integration,
+            slack_user_id=payload.get("user", {}).get("id", ""),
+            turn_id=turn_id if isinstance(turn_id, str) else None,
+        )
+        if integration
+        else None
     )
     if target is None:
         return HttpResponse(status=200)
@@ -395,12 +413,11 @@ def _fetch_reacted_message(workspace_integration: Integration, channel: str, mes
     """The reacted message, read back from Slack so its blocks can say which run it is.
 
     ``conversations.replies`` accepts the ts of any message in a thread, and agent replies
-    always live in threads. A bounded timeout because this runs inside the webhook request
-    path, where Slack's retry window is the budget.
+    always live in threads.
     """
     try:
         client = SlackIntegration(workspace_integration).client
-        client.timeout = 3
+        client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
         response = client.conversations_replies(
             channel=channel, ts=message_ts, latest=message_ts, inclusive=True, limit=1
         )
@@ -433,7 +450,7 @@ def _feedback_value_from_message(message: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: Integration) -> str:
+def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: Integration) -> ReactionOutcome:
     """Record a thumbs reaction on an agent reply as a rating.
 
     ``workspace_integration`` is any of this region's integrations for the Slack team; its
@@ -455,31 +472,26 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
     ):
         return REACTION_HANDLED
 
-    # Most thumbs in a channel land on human messages. The author check keeps those from
-    # each costing a Slack fetch; an unknown bot id (cold cache) falls through to the
-    # fetch, which settles it anyway.
+    # Most thumbs in a channel land on human messages; the author check keeps those from
+    # each costing a Slack fetch. `get_cached_bot_user_id` settles a cold cache itself, so
+    # `None` means the token is broken or Slack is failing. A rating is best-effort
+    # analytics, so skip it then rather than pay a doomed fetch per reaction.
     bot_user_id = get_cached_bot_user_id(SlackIntegration(workspace_integration), workspace_integration)
-    if bot_user_id is not None and event.get("item_user") != bot_user_id:
+    if bot_user_id is None or event.get("item_user") != bot_user_id:
         return REACTION_HANDLED
 
     message = _fetch_reacted_message(workspace_integration, channel, message_ts)
     value = _feedback_value_from_message(message) if message else {}
-    integration_id = value.get("integration_id")
-    if not isinstance(integration_id, int):
+    if not isinstance(value.get("integration_id"), int):
         return REACTION_HANDLED
 
-    # Same scoped lookup `_resolve_target` makes, run separately because its miss means
-    # something different here: the run's integration may live in the other region.
-    if not Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind=SLACK_INTEGRATION_KIND,
-        integration_id=slack_team_id,
-    ).exists():
+    integration = _local_integration(value.get("integration_id"), slack_team_id)
+    if integration is None:
         return REACTION_NOT_LOCAL
 
     target = _resolve_target(
         value,
-        slack_team_id=slack_team_id,
+        integration=integration,
         slack_user_id=str(event.get("user") or ""),
         turn_id=message_ts,
     )
