@@ -27,7 +27,7 @@ import {
   type ScoutRunsWindow,
   scoutRunsWindowLabel,
 } from "@posthog/core/scouts/scoutRunsWindow";
-import type { ScoutChatType } from "@posthog/shared";
+import type { ScoutChatType, ScoutFleetSyncOutcome } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
@@ -58,7 +58,7 @@ export function ScoutsFleetSection() {
   const { data: configs, isLoading, isError, refetch } = useScoutConfigs();
   // Opening this section is what materializes the fleet, so a project the
   // coordinator never reached still gets its scouts.
-  const { isSyncing } = useScoutFleetSync();
+  const { isSyncing, syncOutcome } = useScoutFleetSync();
   const [expanded, setExpanded] = useState(false);
 
   const lastRunAt = useMemo(() => {
@@ -105,7 +105,7 @@ export function ScoutsFleetSection() {
   }
 
   if (!configs || configs.length === 0) {
-    return <ScoutsEmptyState />;
+    return <ScoutsEmptyState syncOutcome={syncOutcome} />;
   }
 
   const enabledCount = configs.filter((config) => config.enabled).length;
@@ -150,15 +150,22 @@ export function ScoutsFleetSection() {
           }`}
         />
       </button>
-      {expanded ? <ScoutsFleetList configs={configs} /> : null}
+      {expanded ? (
+        <ScoutsFleetList configs={configs} syncOutcome={syncOutcome} />
+      ) : null}
     </Flex>
   );
 }
 
-function useTrackFleetViewed(configs: ScoutConfig[]) {
+function useTrackFleetViewed(
+  configs: ScoutConfig[],
+  syncOutcome: ScoutFleetSyncOutcome | null,
+) {
   const tracked = useRef(false);
   useEffect(() => {
-    if (tracked.current) return;
+    // Wait for the sync to settle, so a fleet the sync is about to change is
+    // never reported against an outcome the request has not reached yet.
+    if (tracked.current || syncOutcome === null) return;
     tracked.current = true;
     track(ANALYTICS_EVENTS.SCOUT_FLEET_VIEWED, {
       scout_count: configs.length,
@@ -168,16 +175,23 @@ function useTrackFleetViewed(configs: ScoutConfig[]) {
         (config) => getScoutOrigin(config) === "custom",
       ).length,
       is_empty: configs.length === 0,
+      sync_outcome: syncOutcome,
     });
-  }, [configs]);
+  }, [configs, syncOutcome]);
 }
 
-function ScoutsFleetList({ configs }: { configs: ScoutConfig[] }) {
+function ScoutsFleetList({
+  configs,
+  syncOutcome,
+}: {
+  configs: ScoutConfig[];
+  syncOutcome: ScoutFleetSyncOutcome | null;
+}) {
   const { data: runsWindow } = useScoutRuns();
   const { updateConfig } = useScoutConfigMutations();
   const { data: creators } = useScoutSkillCreators();
   const { data: currentUser } = useMeQuery();
-  useTrackFleetViewed(configs);
+  useTrackFleetViewed(configs, syncOutcome);
 
   return (
     <ScoutsFleetListView
@@ -448,8 +462,12 @@ function ScoutChatCta({
   );
 }
 
-function ScoutsEmptyState() {
-  useTrackFleetViewed(EMPTY_CONFIGS);
+function ScoutsEmptyState({
+  syncOutcome,
+}: {
+  syncOutcome: ScoutFleetSyncOutcome | null;
+}) {
+  useTrackFleetViewed(EMPTY_CONFIGS, syncOutcome);
   return (
     <Flex direction="column" gap="3">
       <Flex

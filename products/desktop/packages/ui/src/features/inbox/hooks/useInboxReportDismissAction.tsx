@@ -6,7 +6,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
+import {
+  type DismissalReasonOptionValue,
+  isDismissalReasonSnooze,
+} from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import {
   DismissReportDialog,
@@ -15,40 +19,48 @@ import {
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { type ReactElement, useCallback, useMemo, useState } from "react";
 
-const EMPTY_REPORTS: SignalReport[] = [];
-
-/** Archive flow used by every inbox detail screen – one report, one button + dialog. */
-export function useInboxReportDismissAction(report: SignalReport): {
+/** Dismiss flow used by every inbox detail screen – one report, one button + dialog. */
+export function useInboxReportDismissAction(
+  report: SignalReport,
+  surface: InboxReportActionSurface = "detail_pane",
+  triageId?: string,
+): {
   actionButton: ReactElement;
   dialog: ReactElement | null;
-  /** Open the archive dialog directly — for menu items and keyboard paths. */
-  openDialog: () => void;
+  openDialog: (initialReason?: DismissalReasonOptionValue) => void;
+  dismissWithReason: (
+    reason: DismissalReasonOptionValue,
+    note?: string,
+  ) => Promise<void>;
 } {
   const [open, setOpen] = useState(false);
-  // Stable identity for the closed case so `useInboxBulkActions`'s memo doesn't
-  // bust on every parent render. When the dialog is closed we also pass
-  // `null` selection so the bulk hook short-circuits to its `emptyBulkIds`.
-  const reportsForActions = useMemo(
-    () => (open ? [report] : EMPTY_REPORTS),
-    [open, report],
-  );
+  const [initialReason, setInitialReason] =
+    useState<DismissalReasonOptionValue>();
+  const reportsForActions = useMemo(() => [report], [report]);
   const bulkActions = useInboxBulkActions(
     reportsForActions,
-    open ? report.id : null,
-    "detail_pane",
+    report.id,
+    surface,
+    triageId,
   );
 
   const isPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
 
-  const handleConfirm = useCallback(
-    async (result: DismissReportDialogResult) => {
-      const isSnooze = isDismissalReasonSnooze(result.reason);
+  const dismissWithReason = useCallback(
+    async (reason: DismissalReasonOptionValue, note = "") => {
+      const result = { reason, note } satisfies DismissReportDialogResult;
+      const isSnooze = isDismissalReasonSnooze(reason);
       const ok = isSnooze
-        ? await bulkActions.snoozeSelected()
+        ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
       if (ok) setOpen(false);
     },
     [bulkActions],
+  );
+  const handleConfirm = useCallback(
+    (result: DismissReportDialogResult) =>
+      dismissWithReason(result.reason, result.note),
+    [dismissWithReason],
   );
 
   const actionButton = (
@@ -60,7 +72,7 @@ export function useInboxReportDismissAction(report: SignalReport): {
             variant="outline"
             size="icon-xs"
             className="h-7 w-7"
-            aria-label="Archive this report"
+            aria-label="Dismiss this report for everyone in the project"
             disabled={isPending}
             onClick={() => setOpen(true)}
           />
@@ -68,7 +80,7 @@ export function useInboxReportDismissAction(report: SignalReport): {
       >
         {isPending ? <Spinner /> : <ArchiveIcon size={12} />}
       </TooltipTrigger>
-      <TooltipContent>Archive</TooltipContent>
+      <TooltipContent>Dismiss for everyone in this project</TooltipContent>
     </Tooltip>
   );
 
@@ -81,10 +93,14 @@ export function useInboxReportDismissAction(report: SignalReport): {
       report={report}
       isSubmitting={isPending}
       snoozeDisabledReason={bulkActions.snoozeDisabledReason}
+      initialReason={initialReason}
       onConfirm={handleConfirm}
     />
   ) : null;
 
-  const openDialog = useCallback(() => setOpen(true), []);
-  return { actionButton, dialog, openDialog };
+  const openDialog = useCallback((reason?: DismissalReasonOptionValue) => {
+    setInitialReason(reason);
+    setOpen(true);
+  }, []);
+  return { actionButton, dialog, openDialog, dismissWithReason };
 }

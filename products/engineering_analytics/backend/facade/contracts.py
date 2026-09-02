@@ -17,7 +17,7 @@ with runtime validation on construction, so a mapper that hands back the wrong
 shape fails at the facade boundary instead of producing malformed JSON later.
 
 Provider-specific shapes (GitHub column names, nesting) never reach here — the
-read layer maps them into these types. Reviewers, deploys, and file paths are
+read layer maps them into these types. Reviewers and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
@@ -628,14 +628,17 @@ class FlakyTestList:
 # expires a quarantine, so this deadline is the product's own accountability bar.
 TRUNK_QUARANTINE_TTL_DAYS = 15
 
+# The first-class team every unattributed test aggregates under, on every surface here.
+UNOWNED_TEAM = "unowned"
+
 
 @dataclass(frozen=True)
 class TrunkQuarantinedTest:
     """One test Trunk currently quarantines, aged against ``TRUNK_QUARANTINE_TTL_DAYS``.
 
-    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership rides the
-    per-test CI spans (the emitter stamps ``test.owner_team``); a quarantined test with no
-    in-retention span aggregates under ``'unowned'``.
+    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership is the
+    repository's own, resolved from ``owners.yaml`` / ``product.yaml`` for the test's file: a test
+    the repository does not place, or whose path no team claims, aggregates under ``'unowned'``.
     """
 
     # Runner label derived from Trunk's uploader-specific 'parent' field: 'pytest', 'jest',
@@ -644,6 +647,7 @@ class TrunkQuarantinedTest:
     runner: str
     # Runner-native test id reconstructed from Trunk's (file, classname, name) key.
     nodeid: str
+    # Repo-relative path of the test's file, empty when neither the repository nor Trunk places it.
     file: str
     owner_team: str
     # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
@@ -674,6 +678,9 @@ class TrunkQuarantineDebt:
     no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error."""
 
     available: bool
+    # False when the repository's ownership files could not be read, which leaves every test
+    # 'unowned'. A board that says so beats one that reads as "nobody owns this debt".
+    owners_resolved: bool
     ttl_days: int
     # The 'owner/name' repository the debt was read for; test file paths are relative to it.
     repository: str
@@ -694,7 +701,7 @@ class TeamCIHealthItem:
     every figure is an absolute count, never a rate.
     """
 
-    # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
+    # Owning team slug from the repo's owners.yaml map, or 'unowned' for unstamped spans.
     owner_team: str
     # Owned tests one commit was seen both failing and passing: the same proof, and the same word,
     # the test-health queue's `confirmed_flake` uses.
@@ -711,8 +718,18 @@ class TeamCIHealthItem:
     # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
-    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window.
-    last_seen_at: datetime
+    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests,
+    # either window. None for a team present only through the census (no CI signal recorded).
+    last_seen_at: datetime | None
+    # Test files the team owns per the daily owners.yaml census; None until a census event
+    # exists for the repository.
+    test_file_count: int | None = None
+    # The latest census value at or before the window start, for the trend.
+    test_file_count_prior: int | None = None
+    # Merged PRs authored by the team's members in the window, bots excluded; None when the
+    # team_members snapshot isn't synced.
+    merged_pr_count: int | None = None
+    merged_pr_count_prior: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1110,6 +1127,46 @@ class ReadyToMergeBucket:
     p50_seconds: float | None
 
 
+class DeliveryStage(StrEnum):
+    """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
+
+    - ``OPEN_TO_GATE``: ``created_at`` to the PR's first merge-queue gate run starting; review,
+      rework, idle time, and the wait for a queue slot stay fused here.
+    - ``GATE_TO_MERGE``: that gate run starting to ``merged_at``.
+
+    The post-merge leg is ``DoraOverview.median_merge_to_deploy_seconds``.
+    """
+
+    OPEN_TO_GATE = "open_to_gate"
+    GATE_TO_MERGE = "gate_to_merge"
+
+
+@dataclass(frozen=True)
+class DeliveryStageTiming:
+    """One leg's timings over the PRs where both of its bounds were observed. ``pr_count`` is
+    that leg's own denominator: a PR that skipped the queue has no gate legs."""
+
+    stage: DeliveryStage
+    median_seconds: float | None
+    p90_seconds: float | None
+    pr_count: int
+
+
+@dataclass(frozen=True)
+class DeliveryPipeline:
+    """Where a change's wall-clock time goes between opening a PR and its merge.
+
+    Bots and drafts excluded, per the locked cycle-time recipe; the merge-queue fields on
+    ``RepoOverview`` count all authors instead. The leg medians do not sum to a cycle-time
+    median: a median of sums is not a sum of medians.
+    """
+
+    merged_pr_count: int
+    # A leg with no observed pair still ships, with a zero count and None timings, so a
+    # consumer renders the whole pipeline rather than a hole.
+    stages: list[DeliveryStageTiming]
+
+
 @dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
@@ -1216,6 +1273,8 @@ class RepoOverview:
     ready_to_merge_series: list[ReadyToMergeBucket]
     # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     ready_to_merge_series_granularity: str
+    # Bots and drafts excluded, unlike the headline counts above.
+    delivery_pipeline: DeliveryPipeline
 
 
 @dataclass(frozen=True)

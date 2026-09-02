@@ -267,6 +267,14 @@ function isMetadataQuery(query: string): boolean {
     return stripSqlCommentsAndLiterals(query).toLowerCase().includes(METADATA_QUERY_MARKER)
 }
 
+// Its result is a live presigned S3 POST — a policy, signature and credential fields
+// that grant write access to one object-storage key until they expire. Key-based
+// redaction can't reach them: they're byte-identical output fields (`upload_url`,
+// `form_fields`), not fields whose *name* looks like a secret, and the policy
+// document also embeds the credential in a form redaction wouldn't recognize either
+// way. `$mcp_tool_call` still records that the call happened.
+const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     // A proxied third-party tool's args and result are the vendor's content — an issue
     // body, a support ticket, a CRM record — passing through our gateway on its way
@@ -275,6 +283,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     // evaluations that target PostHog's own tools. `$mcp_tool_call` still records that
     // the call happened, with its server, duration and outcome.
     if (isGatewayToolName(toolName)) {
+        return false
+    }
+    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,

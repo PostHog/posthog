@@ -190,8 +190,9 @@ class SignalUserAutonomyConfig(UUIDModel):
         related_name="+",
     )
     slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
-    # When null, all priorities (including reports with no priority) notify.
-    # When set, only reports with a priority at or above this value (P0 highest) notify.
+    # When set, only reports at or above this priority (P0 highest) notify.
+    # When null, every prioritized report notifies. A report with no priority then
+    # notifies only on the reviewer-added path (see slack_inbox_notifications).
     slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -852,6 +853,9 @@ class SignalReportArtefact(UUIDModel):
             # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
             # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
             models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
+            # The corrections feed reads team-wide — a team's recent wrong-repo dismissals across
+            # all reports (`repo_corrections`) — which no report-anchored index can serve.
+            models.Index(fields=["team", "type", "-created_at"], name="signals_sig_team_type_ct_idx"),
             models.Index(fields=["channel"], name="signals_sig_channel_idx"),
         ]
 
@@ -1459,8 +1463,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     model = models.CharField(max_length=200, null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
-    # config columns. A Slack destination is active only when both its integration and channel
-    # are present; the UI may persist the integration first while the user chooses a channel.
+    # config columns. A Slack destination is active only when its integration and a target — a channel,
+    # or a member to DM — are present; the UI may persist the integration first while the user chooses.
     output_destinations = models.JSONField(default=dict, db_default={})
     # Free-form labels for grouping the fleet ("revenue", "on-call", "experimental"). Normalized
     # to lowercase and deduped at the API boundary, so a tag means the same thing whoever typed
@@ -2173,3 +2177,66 @@ class SignalRepositoryAreaActivity(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "area"], name="signal_repo_area_activity_uniq"),
         ]
+
+
+class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
+    """The pre-computed "Suggested for this project" scout batch, one row per team.
+
+    The push-side complement to the "Suggest a scout" chat button: a headless task scans the
+    project ahead of time (`scout_harness/suggestions.py`, dispatched by the
+    `SuggestScoutsCoordinatorWorkflow`) and writes 3-5 suggestions here, so the scouts tab can
+    offer them with zero wait. The row doubles as the planner's per-team state: `last_requested_at`
+    is what "overdue" is measured from, `consecutive_failures` feeds the per-team breaker, and a
+    team with no row has never been generated for.
+
+    Items live in one JSON column rather than a child table because the only reads are "the
+    whole batch for this team" and per-item writes are two flags (`dismissed_at`,
+    `created_config_id`). Cross-team analysis rides the product events the surface emits, not
+    SQL over the JSON. Exploding into rows is a mechanical upgrade if per-item history across
+    refreshes is ever wanted.
+    """
+
+    class Status(models.TextChoices):
+        # A batch exists and describes the fleet as it is now. Age is `generated_at`; the
+        # scheduled refresh, not the status, is what bounds it.
+        FRESH = "fresh", "Fresh"
+        # A batch exists but the fleet changed since it was generated.
+        STALE = "stale", "Stale"
+        # The last generation attempt did not produce a batch; the prior items (if any) remain.
+        FAILED = "failed", "Failed"
+        # The last generation completed and found nothing worth suggesting.
+        EMPTY = "empty", "Empty"
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # db_constraint=False: creating an FK constraint locks the hot posthog_team table and has
+    # blocked deploys (same as SignalScoutNote); app-level enforcement only.
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="+",
+    )
+    # The suggestion records (`ScoutSuggestionItem` shape plus per-item `dismissed_at`,
+    # `dismissed_by_id`, `created_config_id`). Empty until the first successful generation.
+    items = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.EMPTY, db_default=Status.EMPTY)
+    # Batch provenance. `fleet_snapshot` is the enabled skill names at generation time so a later
+    # reader can tell a suggestion went stale because the fleet changed, not because time passed.
+    generated_at = models.DateTimeField(null=True, blank=True)
+    task_run_id = models.UUIDField(null=True, blank=True)
+    model = models.CharField(max_length=200, blank=True, default="", db_default="")
+    fleet_snapshot = models.JSONField(default=list, blank=True)
+    # Planner state. `last_requested_at` advances when a child workflow is dispatched (not when it
+    # finishes) so a stuck or failed child does not get re-dispatched every tick.
+    last_requested_at = models.DateTimeField(null=True, blank=True)
+    last_completed_at = models.DateTimeField(null=True, blank=True)
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal scout suggestion set"
+        verbose_name_plural = "Signal scout suggestion sets"
+        default_manager_name = "all_teams"

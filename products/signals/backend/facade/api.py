@@ -23,6 +23,19 @@ from posthog.temporal.common.client import async_connect
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import (
+    # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
+    # into the scout harness. Every decision behind them stays Signals-side.
+    ScoutRunRejectionKind as ScoutRunRejectionKind,
+)
+from products.signals.backend.scout_harness.workflow_runs import (
+    WorkflowScoutRunRejected as WorkflowScoutRunRejected,
+    WorkflowScoutRunStarted as WorkflowScoutRunStarted,
+    # Facade entrypoint for a workflow's "Run scout" step: the workflows endpoint proves which
+    # workflow is firing, and everything after that (enrolment, budget, quota, the paused-scout
+    # rule, the workflow cooldown, single-flight, dispatch) happens here.
+    start_workflow_scout_run as start_workflow_scout_run,
+)
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).

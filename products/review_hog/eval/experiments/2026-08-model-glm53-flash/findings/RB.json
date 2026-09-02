@@ -1,0 +1,122 @@
+[
+    {
+        "id": "RB1",
+        "title": "Evidence bundle records that self_driving was set but not why (no task linkage in to_dict)",
+        "file": "tools/pr-approval-agent/review_pr.py",
+        "lines": "937-938",
+        "priority": "consider",
+        "claim": "to_dict() serializes only the self_driving boolean; the linked task id, originating Inbox report, and verifying server are absent from the evidence record. CommitProvenance.task_ids is author-controlled self-attestation serialized separately. An auditor reading the bundle sees 'self_driving: true' and cannot distinguish a legitimately-linked Inbox PR from a mis-stamped one.",
+        "validator_kept": false,
+        "validator_reason": "The linkage is persisted server-side in the same ReviewRun.output record: both trigger paths write trigger/signal_report_id/task_run_id/acting_user_id into output['inbox_review'], and the engine bundle merges in as reviewer_raw, so an auditor sees them side by side. The flag derives only from that provenance; the Action path can never emit true. What remains is comment wording — style."
+    },
+    {
+        "id": "RB2",
+        "title": "Two reviewers-resolution passes per push: public resolver wraps an identical private helper",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "144-207",
+        "priority": "consider",
+        "claim": "resolve_stamphog_acting_reviewer and _resolve_assigned_reviewer implement the same assignment resolution, so a single push pays the SignalReportArtefact query and login-to-user mapping twice, and the layering is not needed for the stated dependency-cycle reason.",
+        "validator_kept": false,
+        "validator_reason": "The functions differ: the public one adds a toggle gate returning None when stamphog_review_inbox_prs is off; the receiver needs the un-gated form. No repeated work — the public resolver calls the private helper once, so one push pays one query. The claimed third call site is a different shared helper. The proposed alias would delete the toggle check, regressing behavior a parameterized test guards against."
+    },
+    {
+        "id": "RB3",
+        "title": "Model TextChoices and serializer ChoiceField share the name urgency_threshold for different concerns",
+        "file": "products/review_hog/backend/models.py",
+        "lines": "283-301",
+        "priority": "consider",
+        "claim": "The model's UrgencyThreshold TextChoices and the serializer's urgency_threshold ChoiceField both read as 'the urgency threshold' but are different things; a future edit to either can silently diverge, and grep returns both. Nothing is broken today.",
+        "validator_kept": false,
+        "validator_reason": "Divergence is impossible by construction — the serializer references ReviewUserSettings.UrgencyThreshold.choices, and a test pins the values. The names differ, and the serializer field must keep its name as a ModelSerializer mapping. The field is not part of this PR. Naming preference is pure style; the suggested rename would break the public API payload key, generated types, frontend reads, and tests."
+    },
+    {
+        "id": "RB4",
+        "title": "Deferred imports sit outside the try blocks of the fire-and-forget dispatch helpers, so an import failure escapes the on_commit callback",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "220-224",
+        "priority": "should_fix",
+        "claim": "In _start_stamphog_review and _start_review the deferred imports run before the try: blocks. Django invokes non-robust on_commit callbacks bare, so an import failure propagates into the commit sequence, breaking the invariant that failures must never surface into the saver, and can silently drop the other leg's dispatch. The deferred modules drag heavy code onto the import path, making import failure a real trigger.",
+        "validator_kept": false,
+        "validator_reason": "On the main path saves run in autocommit, so on_commit runs inline inside the receiver's own try/except that catches ImportError. The one deferred path (webhook backstop) wraps its atomic block in its own try/except. The module is imported at boot via the URL conf, so the deferred import is a sys.modules lookup — failure means the app cannot start. Already handled and practically unreachable."
+    },
+    {
+        "id": "RB5",
+        "title": "A failed stamphog connectivity check is reported and rendered the same as 'not connected'",
+        "file": "products/review_hog/backend/api/settings.py",
+        "lines": "71-81",
+        "priority": "consider",
+        "claim": "When has_reviewable_repo_config raises, get_stamphog_connected logs a full ERROR traceback per tab load and returns False, indistinguishable from a genuine 'not connected' state; the frontend then tells a user with a connected repository that Stamphog is not set up and disables the toggle. Log noise makes an expected degradation look like a fault, and the copy asserts a fact the backend could not verify.",
+        "validator_kept": false,
+        "validator_reason": "An already-opted-in user keeps an interactive switch during an outage; the misleading copy reaches only an opted-out user opting in while the product DB is down. The flag drives nothing but this one switch, so no wrong review decision can result. The fail-soft is deliberate and documented; the state is transient and self-healing. logger.exception is what an operator needs. The copy issue is real but too small to clear the bar."
+    },
+    {
+        "id": "RB6",
+        "title": "README file attribution for the re-review toggle re-check points at the registering module, not the checking code",
+        "file": "products/stamphog/README.md",
+        "lines": "14-15",
+        "priority": "consider",
+        "claim": "The added sentence says the webhook path re-checks the toggle 'through facade/inbox_hooks.py', but that module only registers the resolver; the re-check executes in tasks/tasks.py inside _inbox_rereview_carve_out. A future reader following the reference lands on the registry, not the gate.",
+        "validator_kept": false,
+        "validator_reason": "The re-check does run through facade/inbox_hooks.py — tasks.py imports and calls get_inbox_acting_reviewer_resolver from it, so 'through' is literally correct. The module's docstring names the caller and explains the mechanism, and the sentence routes to AGENTS.md for detail. Wording preference on documentation — style to drop; the reword would add a stale-prone file:line reference."
+    },
+    {
+        "id": "RB7",
+        "title": "Carve-out section's 'two linkage-verified trigger paths' lacks exact anchors",
+        "file": "products/stamphog/AGENTS.md",
+        "lines": "96-99",
+        "priority": "consider",
+        "claim": "The bullet says the hosted server sets the inbox flag exclusively from provenance stamped by 'the two linkage-verified trigger paths' without naming the webhook and receiver legs (the two output={\"inbox_review\"} writes at tasks.py:1064 and :1229). Without anchors an auditor cannot confirm 'only two' by reading the code.",
+        "validator_kept": false,
+        "validator_reason": "The two stamp sites are real and match the claim, but the very next bullet already names both legs, and the sentence gives ReviewRun.output[\"inbox_review\"] as a grep key that locates all writes. The suggested hard line numbers break the file's symbol-reference convention and go stale. Comment-wording taste — noise to drop."
+    },
+    {
+        "id": "RB8",
+        "title": "self_driving flag is trusted from the context JSON without shape validation",
+        "file": "tools/pr-approval-agent/review_local.py",
+        "lines": "321",
+        "priority": "should_fix",
+        "claim": "run() coerces context.get(\"self_driving_review\") with bool() without validating it is actually a boolean. The flag relaxes two security gates, so if the server ever stamps a non-boolean (task-id string, object, 'true'/'false' string), any non-empty string silently arms the carve-out. Nothing in the sandbox re-checks the server's 'positively linked' claim — the trust boundary is a comment, not code.",
+        "validator_kept": false,
+        "validator_reason": "The key has one producer, typed bool and coerced with bool(...) before json.dumps, so only JSON true/false/absent can reach the reader; bool(raw) and raw is True are equivalent for all reachable values. No untrusted actor can write the key; PR-head code never runs in the sandbox. The provenance-echo half is unreachable on the refusal path. Speculative what-if against inputs the call sites rule out."
+    },
+    {
+        "id": "RB9",
+        "title": "Carve-out rationale comment is duplicated verbatim across three files and will drift",
+        "file": "tools/pr-approval-agent/review_pr.py",
+        "lines": "202-209,587-590",
+        "priority": "consider",
+        "claim": "The same 8-line explanation of the self-driving carve-out appears near-verbatim in review_pr.py, review_local.py, and reviewer.py's _format_self_driving docstring. A future edit updating one copy leaves the others describing a contract the code no longer honors; review_local already differs slightly, which is drift happening in real time.",
+        "validator_kept": false,
+        "validator_reason": "The blocks are not duplicates — each explains a different local decision, and the reviewer.py docstring does not restate the gate list. The shared facts reduce to two short phrases. A single authoritative statement already exists in products/stamphog/CLAUDE.md. Comment-wording change only, hypothetical future risk — criteria drop pure comment-wording items."
+    },
+    {
+        "id": "RB10",
+        "title": "Expected 'missing task' condition is logged as an ERROR-level exception on every unrelated TaskRun save",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "81-141",
+        "priority": "should_fix",
+        "claim": "handle_task_run_saved fires on every TaskRun save; for a run whose task relation is unset, instance.task raises Task.DoesNotExist, caught by the broad except Exception and logged via logger.exception as review_hog_inbox_trigger_failed. An expected recoverable condition emits ERROR tracebacks with the same signature as genuine failures, so alerting keyed on it fires routinely.",
+        "validator_kept": false,
+        "validator_reason": "The premise state cannot exist: task is a non-nullable FK with DB-enforced reference and CASCADE delete, so a saved TaskRun always has a Task and instance.task cannot raise DoesNotExist. Four guards also sit above line 97, so it does not run on every save. The suggested guard is a branch no input can reach — defensive-coding paranoia."
+    },
+    {
+        "id": "RB11",
+        "title": "Dead local alias stamphog_pr_url = pr_url obscures the closure capture",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "126-139",
+        "priority": "consider",
+        "claim": "Line 130 assigns stamphog_pr_url = pr_url solely so the on_commit closure references a differently-named variable. The alias adds no behavior — pr_url is already bound and guarded not-None — and suggests a distinction that does not exist, forcing readers to work out the two are the same value.",
+        "validator_kept": false,
+        "validator_reason": "Confirmed the alias is behaviorally inert and no type checker requires it (reproduced the shape under the repo's mypy flags — no issues, narrowing survives into the lambda). A two-line readability preference with no behavioral difference is pure style, not a review concern."
+    },
+    {
+        "id": "RB12",
+        "title": "Pipeline constructed with a hardcoded PR number of 0 in the offline entrypoint",
+        "file": "tools/pr-approval-agent/review_local.py",
+        "lines": "321-321",
+        "priority": "consider",
+        "claim": "Pipeline(0, ...) passes 0 as the PR number. Nothing reads self.pr_number on this path — telemetry uses self.pr.number — but the constructor argument is dead weight and reads as if the offline run is reviewing PR #0. Cosmetic.",
+        "validator_kept": false,
+        "validator_reason": "self.pr_number is read only in _fetch(), which the offline entrypoint never calls; no output carries the 0 (telemetry, contract, and crash fallback all resolve to the real number). The construction predates this PR. No defect, self-labeled cosmetic — pure style bucket the criteria drop."
+    }
+]

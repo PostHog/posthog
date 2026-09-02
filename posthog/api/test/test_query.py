@@ -21,17 +21,14 @@ from rest_framework import status
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
-    CachedRetentionQueryResponse,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
-    MeanRetentionCalculation,
     PersonPropertyFilter,
     PropertyOperator,
-    RetentionQuery,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -1168,41 +1165,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = CachedHogQLQueryResponse.model_validate(api_response)
         assert response.results[0][0] == variable_override_value
 
-    @patch("posthog.api.query.process_query_model")
-    def test_upgrades_query(self, mock_process_query):
-        mock_process_query.return_value = CachedRetentionQueryResponse(
-            cache_key="cache_123",
-            is_cached=False,
-            last_refresh="2023-10-16T12:00:00Z",
-            next_allowed_client_refresh="2023-10-16T14:00:00Z",
-            results=[],
-            timezone="UTC",
-        )
-
-        self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {
-                "query": {
-                    "kind": "RetentionQuery",
-                    "retentionFilter": {
-                        "period": "Day",
-                        "totalIntervals": 8,
-                        "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                        "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                        "retentionType": "retention_first_time",
-                        "showMean": True,
-                    },
-                },
-                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
-            },
-        ).json()
-
-        mock_process_query.assert_called_once()
-        updated_query = mock_process_query.call_args.args[1]
-        assert isinstance(updated_query, RetentionQuery)
-        assert updated_query.version == 2
-        assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
-
 
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
@@ -1372,61 +1334,8 @@ class TestQueryDraftSql(APIBaseTest):
         hit_openai_mock.assert_called_once()
 
 
-class TestQueryUpgrade(APIBaseTest):
-    def test_upgrades_valid_query(self):
-        query = {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7, "showMean": True}}
-
-        response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "query": {
-                    "kind": "RetentionQuery",
-                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
-                    "version": 2,
-                }
-            },
-        )
-
-
 class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
-
-    @patch("posthog.api.query.process_query_model")
-    def test_trends_query_includes_formatted_results(self, mock_process_query_model):
-        mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100, 200, 150],
-                    "labels": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                    "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                    "count": 450,
-                    "label": "$pageview",
-                    "action": {
-                        "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                        "id": "$pageview",
-                        "type": "events",
-                    },
-                }
-            ],
-            "is_cached": False,
-        }
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn("results", data)
-        self.assertIn("formatted_results", data)
-        self.assertIn("$pageview", data["formatted_results"])
-        self.assertIn("100", data["formatted_results"])
-        self.assertIn("|", data["formatted_results"])
 
     @patch("posthog.api.query.process_query_model")
     def test_hogql_query_includes_formatted_results(self, mock_process_query_model):
@@ -1451,22 +1360,14 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.query.process_query_model")
     def test_no_formatted_results_without_header(self, mock_process_query_model):
         mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100],
-                    "labels": ["2024-01-01"],
-                    "days": ["2024-01-01"],
-                    "count": 100,
-                    "label": "$pageview",
-                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
-                }
-            ],
+            "results": [["sign up", 10]],
+            "columns": ["event", "count"],
             "is_cached": False,
         }
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1501,22 +1402,14 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
             setattr(mock_settings, attr, getattr(__import__("posthog").settings, attr))
 
         mock_process_query_model.return_value = {
-            "results": [
-                {
-                    "data": [100],
-                    "labels": ["2024-01-01"],
-                    "days": ["2024-01-01"],
-                    "count": 100,
-                    "label": "$pageview",
-                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
-                }
-            ],
+            "results": [["sign up", 10]],
+            "columns": ["event", "count"],
             "is_cached": False,
         }
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
-            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
@@ -1546,10 +1439,11 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         mock_process_query_model.return_value = {"results": [], "is_cached": False}
 
         url = f"/api/environments/{self.team.id}/query/"
+        # `_mark_explicit_date_boundaries` reads `dateRange` off any query, so the kind is incidental.
+        # It only has to be one core owns, or this test drags a product's runners back into core's inputs.
         payload = {
             "query": {
-                "kind": "LifecycleQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "kind": "TracesQuery",
                 "dateRange": {"date_from": "2026-07-02T00:00:00Z", "date_to": date_to},
             }
         }

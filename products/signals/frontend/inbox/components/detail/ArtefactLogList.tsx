@@ -2,7 +2,7 @@ import { type ComponentType, useState } from 'react'
 
 import {
     IconActivity,
-    IconArchive,
+    IconHide,
     IconCode,
     IconComment,
     IconCommit,
@@ -122,7 +122,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     signal_finding: IconSearch,
     suggested_reviewers: IconPeople,
     repo_selection: IconGitRepository,
-    dismissal: IconArchive,
+    dismissal: IconHide,
     video_segment: IconVideoCamera,
     title_change: IconPencil,
     summary_change: IconPencil,

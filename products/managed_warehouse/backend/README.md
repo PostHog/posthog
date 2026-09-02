@@ -125,8 +125,8 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 ### Data Modeling
 
 - **Schema**: `posthog_data_modeling_team_<team_id>`
-- **Table**: `<model_label>` (derived from saved query name)
-- **Example**: `ducklake.posthog_data_modeling_team_123.my_saved_query`
+- **Table**: the sanitized model label, with the normalized saved query name as a fallback
+- **Example**: `ducklake.posthog_data_modeling_team_123.model_12345678123456781234567812345678`
 
 ### Data Imports and Data Import Registration
 

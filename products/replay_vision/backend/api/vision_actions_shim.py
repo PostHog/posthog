@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertEvent,
     VisionAlertKind,
 )
+from products.replay_vision.backend.scout_digest_body import compose_digest_scout_body
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.facade.api import ScoutSummary
@@ -134,32 +135,6 @@ def rrule_to_cron(rrule: str) -> str:
             raise ValueError(f"Unsupported BYDAY token(s) {unknown} in rrule: {rrule}")
         return f"{minute} {hour} * * {','.join(str(_DAY_TO_CRON[token]) for token in tokens)}"
     raise ValueError(f"Unsupported rrule: {rrule}")
-
-
-def compose_scout_body(
-    name: str, scanner_name: str, selection: dict[str, Any], synthesis_config: dict[str, Any]
-) -> str:
-    lines = [
-        f'You are producing the recurring digest previously configured as "{name}" for the scanner "{scanner_name}".',
-        "",
-        "Summarize the scanner's new observations since the previous report.",
-    ]
-    filters: list[str] = []
-    if selection.get("verdict"):
-        verdicts = selection["verdict"] if isinstance(selection["verdict"], list) else [selection["verdict"]]
-        filters.append(f"verdict in {verdicts}")
-    if selection.get("tags"):
-        filters.append(f"tags any of {selection['tags']}")
-    if selection.get("min_score") is not None:
-        filters.append(f"score >= {selection['min_score']}")
-    if selection.get("max_score") is not None:
-        filters.append(f"score <= {selection['max_score']}")
-    if filters:
-        lines += ["", "Only include observations matching: " + "; ".join(filters) + "."]
-    guide = synthesis_config.get("prompt_guide")
-    if guide:
-        lines += ["", "Follow this guidance from the digest's author:", "", str(guide)]
-    return "\n".join(lines)
 
 
 def cron_to_rrule(cron: str | None) -> str:
@@ -565,6 +540,7 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
     except ValueError as error:
         raise ValidationError({"trigger_config": str(error)})
 
+    prompt_guide = (data.get("synthesis_config") or {}).get("prompt_guide")
     slug = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")[:34] or "digest"
     scout_name = f"signals-scout-{slug}"
     destinations = _scout_destinations_from_legacy(data)
@@ -572,8 +548,13 @@ def _create_scout(team: Team, user: User, data: dict[str, Any]) -> dict[str, Any
         team=team.parent_team or team,
         user=user,
         name=scout_name,
-        description=(data.get("synthesis_config") or {}).get("prompt_guide") or f'Replay Vision digest "{name}".',
-        body=compose_scout_body(name, str(scanner_id), data.get("selection") or {}, data.get("synthesis_config") or {}),
+        description=prompt_guide or f'Replay Vision digest "{name}".',
+        body=compose_digest_scout_body(
+            str(scanner_id),
+            selection=data.get("selection"),
+            prompt_guide=prompt_guide,
+            max_observations=data.get("max_observations"),
+        ),
         files=[],
         config_options={
             "enabled": data.get("enabled", True),

@@ -396,10 +396,10 @@ export interface LogsAlertFiltersApi {
  * * `above` - Above
  * * `below` - Below
  */
-export type LogsAlertThresholdOperatorEnumApi =
-    (typeof LogsAlertThresholdOperatorEnumApi)[keyof typeof LogsAlertThresholdOperatorEnumApi]
+export type LogsAlertConfigurationThresholdOperatorEnumApi =
+    (typeof LogsAlertConfigurationThresholdOperatorEnumApi)[keyof typeof LogsAlertConfigurationThresholdOperatorEnumApi]
 
-export const LogsAlertThresholdOperatorEnumApi = {
+export const LogsAlertConfigurationThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -546,7 +546,7 @@ export interface LogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -675,7 +675,7 @@ export interface LogsAlertConfigurationDetailApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -777,7 +777,7 @@ export interface PatchedLogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -944,7 +944,7 @@ export interface LogsAlertSimulateRequestApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator: LogsAlertThresholdOperatorEnumApi
+    threshold_operator: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**
@@ -1288,6 +1288,13 @@ export interface LogsSeriesBandSeriesApi {
     total_count: number
     /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
     baseline_weeks: number
+    /** Earliest bucket with data inside the fetched lookback. */
+    history_start: string
+    /**
+     * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
+     * @nullable
+     */
+    band_ready_at: string | null
     /** One entry per display bucket across the whole window, oldest first, zero-filled. */
     buckets: LogsSeriesBandBucketApi[]
 }
@@ -2142,9 +2149,10 @@ export interface LogsRetentionRuleNameSuggestionApi {
  * * `path_drop` - Path exclusion
  * * `rate_limit` - Rate limit
  */
-export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
+export type LogsExclusionRuleRuleTypeEnumApi =
+    (typeof LogsExclusionRuleRuleTypeEnumApi)[keyof typeof LogsExclusionRuleRuleTypeEnumApi]
 
-export const RuleTypeEnumApi = {
+export const LogsExclusionRuleRuleTypeEnumApi = {
     SeveritySampling: 'severity_sampling',
     PathDrop: 'path_drop',
     RateLimit: 'rate_limit',
@@ -2173,7 +2181,7 @@ export interface LogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type: RuleTypeEnumApi
+    rule_type: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -2230,7 +2238,7 @@ export interface PatchedLogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type?: RuleTypeEnumApi
+    rule_type?: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -2436,6 +2444,7 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
  */
@@ -2447,6 +2456,7 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
 } as const
@@ -2454,13 +2464,14 @@ export const LogsViewColumnTypeEnumApi = {
 export interface LogsViewColumnApi {
     /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
     id: string
-    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+    /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
      *
      * * `timestamp` - timestamp
      * * `level` - level
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
     type: LogsViewColumnTypeEnumApi

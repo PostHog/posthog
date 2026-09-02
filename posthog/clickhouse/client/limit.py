@@ -102,6 +102,8 @@ class RateLimit:
     redis_client = redis.get_client()
     retry: Optional[float] = None
     retry_timeout: float = 10.0  # seconds
+    apply_clickhouse_kill_switch: bool = True
+    allow_team_bypass: bool = True
     get_time: Callable[[], float] = lambda: time.time()
     sleep: Callable[[float], None] = lambda d: sleep(d)
 
@@ -146,7 +148,7 @@ class RateLimit:
         elif limit_value := kwargs.get("limit", None):
             max_concurrency = int(limit_value)
 
-        if not TEST:
+        if self.apply_clickhouse_kill_switch and not TEST:
             from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 
             kill_switch_level = get_kill_switch_level()
@@ -168,7 +170,7 @@ class RateLimit:
         ):
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 
-            bypass = team_is_allowed_to_bypass_throttle(team_id)
+            bypass = self.allow_team_bypass and team_is_allowed_to_bypass_throttle(team_id)
 
             # team in beta cannot skip limits
             if bypass or (not in_beta and self.bypass_all):

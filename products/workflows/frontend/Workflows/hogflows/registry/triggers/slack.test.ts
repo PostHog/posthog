@@ -99,11 +99,18 @@ describe('slack message trigger', () => {
             { name: 'channel filter present', properties: [{ key: 'channel', value: ['C0ALERTS'] }], valid: true },
             { name: 'other filters alone', properties: [{ key: 'text', value: ['fire'] }], valid: false },
         ])('validate returns valid=$valid for $name', ({ properties, valid }) => {
-            const result = getTriggerType().validate!({ type: 'slack-message', filters: { properties } } as any)
+            const result = getTriggerType().validate!({
+                type: 'internal-event',
+                filters: {
+                    source: 'internal-events',
+                    events: [{ id: '$slack_message_received', type: 'events' }],
+                    properties,
+                },
+            } as any)
             expect(result?.valid).toBe(valid)
         })
 
-        it('validate returns null for a non slack-message config', () => {
+        it('validate returns null for a non-Slack internal-event config', () => {
             expect(getTriggerType().validate!({ type: 'event', filters: {} } as any)).toBeNull()
         })
 
@@ -111,10 +118,26 @@ describe('slack message trigger', () => {
             expect(getTriggerType().featureFlag).toBe('slack-workflow-triggers')
         })
 
+        it('does not claim an internal-event config for a different event', () => {
+            // The tile is one of several that can own an `internal-event` config, so it identifies
+            // itself by its own value. Naming it after the config type made it match every internal
+            // event, and a non-Slack trigger rendered with the Slack icon and Slack config panel.
+            expect(getTriggerType().value).not.toBe('internal-event')
+            expect(
+                getTriggerType().matchConfig!({
+                    type: 'internal-event',
+                    filters: {
+                        source: 'internal-events',
+                        events: [{ id: '$activity_log_entry_created', type: 'events' }],
+                    },
+                } as any)
+            ).toBe(false)
+        })
+
         it('buildConfig produces a config recognized by matchConfig', () => {
             const triggerType = getTriggerType()
             const config = triggerType.buildConfig()
-            expect(config.type).toBe('slack-message')
+            expect(config.type).toBe('internal-event')
             expect(triggerType.matchConfig!(config)).toBe(true)
         })
 

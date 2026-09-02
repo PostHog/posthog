@@ -2,23 +2,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    DataCatalogCertificationsCertifyCreateParams,
-    DataCatalogCertificationsCreateBody,
-    DataCatalogCertificationsDeprecateCreateParams,
-    DataCatalogMetricsApproveCreateParams,
-    DataCatalogMetricsCreateBody,
-    DataCatalogMetricsPartialUpdateBody,
-    DataCatalogMetricsPartialUpdateParams,
-    DataCatalogMetricsRefreshFromInsightCreateParams,
-    DataCatalogMetricsRunCreateBody,
-    DataCatalogMetricsRunCreateParams,
-    DataCatalogMetricsRunCreateQueryParams,
-    DataCatalogRelationshipProposalsAcceptCreateParams,
-    DataCatalogRelationshipProposalsCreateBody,
-    DataCatalogRelationshipProposalsRejectCreateBody,
-    DataCatalogRelationshipProposalsRejectCreateParams,
-} from '@/generated/data_catalog/api'
+import * as orvalSchemas from '@/generated/data_catalog/api'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -27,13 +11,14 @@ import {
 } from '@/tools/confirmed-action-runtime'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({
-    project_id: true,
-}).extend({
-    id: DataCatalogCertificationsCertifyCreateParams.shape['id'].describe(
-        'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
-    ),
-})
+const DataCatalogCertificationCertifySchema = () => {
+    const DataCatalogCertificationsCertifyCreateParams = orvalSchemas.DataCatalogCertificationsCertifyCreateParams()
+    return DataCatalogCertificationsCertifyCreateParams.omit({ project_id: true }).extend({
+        id: DataCatalogCertificationsCertifyCreateParams.shape['id'].describe(
+            'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+        ),
+    })
+}
 
 const DataCatalogCertificationCertifySchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -43,12 +28,12 @@ const DataCatalogCertificationCertifySchemaExecute = z.strictObject({
 })
 
 const dataCatalogCertificationCertifyPrepare = (): ToolBase<
-    typeof DataCatalogCertificationCertifySchema,
+    ReturnType<typeof DataCatalogCertificationCertifySchema>,
     PrepareConfirmedActionResult
 > => ({
     name: 'data-catalog-certification-certify-prepare',
-    schema: DataCatalogCertificationCertifySchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationCertifySchema>) => {
+    schema: DataCatalogCertificationCertifySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogCertificationCertifySchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -76,14 +61,17 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
     ) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogCertificationCertifySchema>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'data-catalog-certification-certify',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogCertificationCertifySchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-certification-certify',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
         if (!__guard.ok) {
             return __guard.result as never
         }
@@ -97,13 +85,14 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
     },
 })
 
-const DataCatalogCertificationDeprecateSchema = DataCatalogCertificationsDeprecateCreateParams.omit({
-    project_id: true,
-}).extend({
-    id: DataCatalogCertificationsDeprecateCreateParams.shape['id'].describe(
-        'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
-    ),
-})
+const DataCatalogCertificationDeprecateSchema = () => {
+    const DataCatalogCertificationsDeprecateCreateParams = orvalSchemas.DataCatalogCertificationsDeprecateCreateParams()
+    return DataCatalogCertificationsDeprecateCreateParams.omit({ project_id: true }).extend({
+        id: DataCatalogCertificationsDeprecateCreateParams.shape['id'].describe(
+            'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+        ),
+    })
+}
 
 const DataCatalogCertificationDeprecateSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -113,12 +102,12 @@ const DataCatalogCertificationDeprecateSchemaExecute = z.strictObject({
 })
 
 const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
-    typeof DataCatalogCertificationDeprecateSchema,
+    ReturnType<typeof DataCatalogCertificationDeprecateSchema>,
     PrepareConfirmedActionResult
 > => ({
     name: 'data-catalog-certification-deprecate-prepare',
-    schema: DataCatalogCertificationDeprecateSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationDeprecateSchema>) => {
+    schema: DataCatalogCertificationDeprecateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogCertificationDeprecateSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -146,7 +135,9 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
     ) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogCertificationDeprecateSchema>>(context, {
+        const __guard = await executeConfirmedAction<
+            z.infer<ReturnType<typeof DataCatalogCertificationDeprecateSchema>>
+        >(context, {
             incomingArgs: confirmationParams,
             purpose: 'data-catalog-certification-deprecate',
             codec: __runtime.codec,
@@ -167,15 +158,18 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
     },
 })
 
-const DataCatalogCertificationProposeSchema = DataCatalogCertificationsCreateBody
+const DataCatalogCertificationProposeSchema = () => {
+    const DataCatalogCertificationsCreateBody = orvalSchemas.DataCatalogCertificationsCreateBody()
+    return DataCatalogCertificationsCreateBody
+}
 
 const dataCatalogCertificationPropose = (): ToolBase<
-    typeof DataCatalogCertificationProposeSchema,
+    ReturnType<typeof DataCatalogCertificationProposeSchema>,
     Schemas.DataCatalogCertification
 > => ({
     name: 'data-catalog-certification-propose',
-    schema: DataCatalogCertificationProposeSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogCertificationProposeSchema>) => {
+    schema: DataCatalogCertificationProposeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogCertificationProposeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.table_id !== undefined) {
@@ -205,7 +199,10 @@ const dataCatalogCertificationPropose = (): ToolBase<
     },
 })
 
-const DataCatalogMetricApproveSchema = DataCatalogMetricsApproveCreateParams.omit({ project_id: true })
+const DataCatalogMetricApproveSchema = () => {
+    const DataCatalogMetricsApproveCreateParams = orvalSchemas.DataCatalogMetricsApproveCreateParams()
+    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true })
+}
 
 const DataCatalogMetricApproveSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -215,12 +212,12 @@ const DataCatalogMetricApproveSchemaExecute = z.strictObject({
 })
 
 const dataCatalogMetricApprovePrepare = (): ToolBase<
-    typeof DataCatalogMetricApproveSchema,
+    ReturnType<typeof DataCatalogMetricApproveSchema>,
     PrepareConfirmedActionResult
 > => ({
     name: 'data-catalog-metric-approve-prepare',
-    schema: DataCatalogMetricApproveSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricApproveSchema>) => {
+    schema: DataCatalogMetricApproveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricApproveSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -245,14 +242,17 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
     handler: async (context: Context, confirmationParams: z.infer<typeof DataCatalogMetricApproveSchemaExecute>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogMetricApproveSchema>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'data-catalog-metric-approve',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogMetricApproveSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-metric-approve',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
         if (!__guard.ok) {
             return __guard.result as never
         }
@@ -266,12 +266,18 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
     },
 })
 
-const DataCatalogMetricCreateSchema = DataCatalogMetricsCreateBody
+const DataCatalogMetricCreateSchema = () => {
+    const DataCatalogMetricsCreateBody = orvalSchemas.DataCatalogMetricsCreateBody()
+    return DataCatalogMetricsCreateBody
+}
 
-const dataCatalogMetricCreate = (): ToolBase<typeof DataCatalogMetricCreateSchema, Schemas.DataCatalogMetric> => ({
+const dataCatalogMetricCreate = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricCreateSchema>,
+    Schemas.DataCatalogMetric
+> => ({
     name: 'data-catalog-metric-create',
-    schema: DataCatalogMetricCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricCreateSchema>) => {
+    schema: DataCatalogMetricCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -311,14 +317,22 @@ const dataCatalogMetricCreate = (): ToolBase<typeof DataCatalogMetricCreateSchem
     },
 })
 
-const DataCatalogMetricRunSchema = DataCatalogMetricsRunCreateParams.omit({ project_id: true })
-    .extend(DataCatalogMetricsRunCreateQueryParams.shape)
-    .extend(DataCatalogMetricsRunCreateBody.shape)
+const DataCatalogMetricRunSchema = () => {
+    const DataCatalogMetricsRunCreateBody = orvalSchemas.DataCatalogMetricsRunCreateBody()
+    const DataCatalogMetricsRunCreateParams = orvalSchemas.DataCatalogMetricsRunCreateParams()
+    const DataCatalogMetricsRunCreateQueryParams = orvalSchemas.DataCatalogMetricsRunCreateQueryParams()
+    return DataCatalogMetricsRunCreateParams.omit({ project_id: true })
+        .extend(DataCatalogMetricsRunCreateQueryParams.shape)
+        .extend(DataCatalogMetricsRunCreateBody.shape)
+}
 
-const dataCatalogMetricRun = (): ToolBase<typeof DataCatalogMetricRunSchema, Schemas.DataCatalogMetricRun> => ({
+const dataCatalogMetricRun = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricRunSchema>,
+    Schemas.DataCatalogMetricRun
+> => ({
     name: 'data-catalog-metric-run',
-    schema: DataCatalogMetricRunSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricRunSchema>) => {
+    schema: DataCatalogMetricRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricRunSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.date_from !== undefined) {
@@ -345,14 +359,21 @@ const dataCatalogMetricRun = (): ToolBase<typeof DataCatalogMetricRunSchema, Sch
     },
 })
 
-const DataCatalogMetricUpdateSchema = DataCatalogMetricsPartialUpdateParams.omit({ project_id: true })
-    .extend(DataCatalogMetricsPartialUpdateBody.omit({ name: true }).shape)
-    .extend({ new_name: DataCatalogMetricsPartialUpdateBody.shape['name'] })
+const DataCatalogMetricUpdateSchema = () => {
+    const DataCatalogMetricsPartialUpdateBody = orvalSchemas.DataCatalogMetricsPartialUpdateBody()
+    const DataCatalogMetricsPartialUpdateParams = orvalSchemas.DataCatalogMetricsPartialUpdateParams()
+    return DataCatalogMetricsPartialUpdateParams.omit({ project_id: true })
+        .extend(DataCatalogMetricsPartialUpdateBody.omit({ name: true }).shape)
+        .extend({ new_name: DataCatalogMetricsPartialUpdateBody.shape['name'] })
+}
 
-const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchema, Schemas.DataCatalogMetric> => ({
+const dataCatalogMetricUpdate = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricUpdateSchema>,
+    Schemas.DataCatalogMetric
+> => ({
     name: 'data-catalog-metric-update',
-    schema: DataCatalogMetricUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricUpdateSchema>) => {
+    schema: DataCatalogMetricUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.new_name !== undefined) {
@@ -392,17 +413,22 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
     },
 })
 
-const DataCatalogMetricsRefreshFromInsightCreateSchema = DataCatalogMetricsRefreshFromInsightCreateParams.omit({
-    project_id: true,
-})
+const DataCatalogMetricsRefreshFromInsightCreateSchema = () => {
+    const DataCatalogMetricsRefreshFromInsightCreateParams =
+        orvalSchemas.DataCatalogMetricsRefreshFromInsightCreateParams()
+    return DataCatalogMetricsRefreshFromInsightCreateParams.omit({ project_id: true })
+}
 
 const dataCatalogMetricsRefreshFromInsightCreate = (): ToolBase<
-    typeof DataCatalogMetricsRefreshFromInsightCreateSchema,
+    ReturnType<typeof DataCatalogMetricsRefreshFromInsightCreateSchema>,
     Schemas.DataCatalogMetric
 > => ({
     name: 'data-catalog-metrics-refresh-from-insight-create',
-    schema: DataCatalogMetricsRefreshFromInsightCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogMetricsRefreshFromInsightCreateSchema>) => {
+    schema: DataCatalogMetricsRefreshFromInsightCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof DataCatalogMetricsRefreshFromInsightCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
@@ -412,9 +438,11 @@ const dataCatalogMetricsRefreshFromInsightCreate = (): ToolBase<
     },
 })
 
-const DataCatalogRelationshipAcceptSchema = DataCatalogRelationshipProposalsAcceptCreateParams.omit({
-    project_id: true,
-})
+const DataCatalogRelationshipAcceptSchema = () => {
+    const DataCatalogRelationshipProposalsAcceptCreateParams =
+        orvalSchemas.DataCatalogRelationshipProposalsAcceptCreateParams()
+    return DataCatalogRelationshipProposalsAcceptCreateParams.omit({ project_id: true })
+}
 
 const DataCatalogRelationshipAcceptSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -424,12 +452,12 @@ const DataCatalogRelationshipAcceptSchemaExecute = z.strictObject({
 })
 
 const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
-    typeof DataCatalogRelationshipAcceptSchema,
+    ReturnType<typeof DataCatalogRelationshipAcceptSchema>,
     PrepareConfirmedActionResult
 > => ({
     name: 'data-catalog-relationship-accept-prepare',
-    schema: DataCatalogRelationshipAcceptSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipAcceptSchema>) => {
+    schema: DataCatalogRelationshipAcceptSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogRelationshipAcceptSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -457,14 +485,17 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
     ) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogRelationshipAcceptSchema>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'data-catalog-relationship-accept',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogRelationshipAcceptSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-relationship-accept',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
         if (!__guard.ok) {
             return __guard.result as never
         }
@@ -478,15 +509,18 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
     },
 })
 
-const DataCatalogRelationshipProposeSchema = DataCatalogRelationshipProposalsCreateBody
+const DataCatalogRelationshipProposeSchema = () => {
+    const DataCatalogRelationshipProposalsCreateBody = orvalSchemas.DataCatalogRelationshipProposalsCreateBody()
+    return DataCatalogRelationshipProposalsCreateBody
+}
 
 const dataCatalogRelationshipPropose = (): ToolBase<
-    typeof DataCatalogRelationshipProposeSchema,
+    ReturnType<typeof DataCatalogRelationshipProposeSchema>,
     Schemas.DataCatalogRelationshipProposal
 > => ({
     name: 'data-catalog-relationship-propose',
-    schema: DataCatalogRelationshipProposeSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipProposeSchema>) => {
+    schema: DataCatalogRelationshipProposeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogRelationshipProposeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source_table_name !== undefined) {
@@ -525,9 +559,15 @@ const dataCatalogRelationshipPropose = (): ToolBase<
     },
 })
 
-const DataCatalogRelationshipRejectSchema = DataCatalogRelationshipProposalsRejectCreateParams.omit({
-    project_id: true,
-}).extend(DataCatalogRelationshipProposalsRejectCreateBody.shape)
+const DataCatalogRelationshipRejectSchema = () => {
+    const DataCatalogRelationshipProposalsRejectCreateBody =
+        orvalSchemas.DataCatalogRelationshipProposalsRejectCreateBody()
+    const DataCatalogRelationshipProposalsRejectCreateParams =
+        orvalSchemas.DataCatalogRelationshipProposalsRejectCreateParams()
+    return DataCatalogRelationshipProposalsRejectCreateParams.omit({ project_id: true }).extend(
+        DataCatalogRelationshipProposalsRejectCreateBody.shape
+    )
+}
 
 const DataCatalogRelationshipRejectSchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -537,12 +577,12 @@ const DataCatalogRelationshipRejectSchemaExecute = z.strictObject({
 })
 
 const dataCatalogRelationshipRejectPrepare = (): ToolBase<
-    typeof DataCatalogRelationshipRejectSchema,
+    ReturnType<typeof DataCatalogRelationshipRejectSchema>,
     PrepareConfirmedActionResult
 > => ({
     name: 'data-catalog-relationship-reject-prepare',
-    schema: DataCatalogRelationshipRejectSchema,
-    handler: async (context: Context, params: z.infer<typeof DataCatalogRelationshipRejectSchema>) => {
+    schema: DataCatalogRelationshipRejectSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogRelationshipRejectSchema>>) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
         return await prepareConfirmedAction(context, {
@@ -570,14 +610,17 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
     ) => {
         const __runtime = getConfirmedActionRuntime()
         const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<typeof DataCatalogRelationshipRejectSchema>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'data-catalog-relationship-reject',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogRelationshipRejectSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-relationship-reject',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
         if (!__guard.ok) {
             return __guard.result as never
         }

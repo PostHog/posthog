@@ -1304,6 +1304,13 @@ export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 4320
 
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
 
+export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax = 255
+
+export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
+export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
+
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
@@ -1366,7 +1373,26 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                                         )
                                         .nullish()
                                         .describe(
-                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
+                                        ),
+                                    users: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax
+                                                )
+                                                .regex(
+                                                    visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp
+                                                )
+                                        )
+                                        .min(1)
+                                        .max(
+                                            visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax
+                                        )
+                                        .nullish()
+                                        .describe(
+                                            'Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.'
                                         ),
                                     thread_reports: zod
                                         .boolean()

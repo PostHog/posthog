@@ -316,6 +316,34 @@ describe('traceExportUtils', () => {
             expect(result.events[0].metrics).toBeUndefined()
         })
 
+        it('should keep a genuine zero cost at both the trace and event level', () => {
+            const zeroCostTrace: LLMTrace = { ...mockTrace, totalCost: 0 }
+            const zeroCostEvent: LLMTraceEvent = {
+                id: 'event-zero',
+                event: '$ai_generation',
+                properties: {
+                    $ai_model: 'claude-3',
+                    $ai_latency: 120,
+                    $ai_total_cost_usd: 0,
+                },
+                createdAt: '2024-01-01T12:00:06Z',
+            }
+            const tree: EnrichedTraceTreeNode[] = [
+                {
+                    event: zeroCostEvent,
+                    displayTotalCost: 0,
+                    displayLatency: 120,
+                    displayUsage: null,
+                    attachedFeedback: [],
+                },
+            ]
+            const result = buildMinimalTraceJSON(zeroCostTrace, tree)
+
+            // Falsy zero used to drop these keys entirely.
+            expect(result.total_cost).toBe(0)
+            expect(result.events[0].metrics).toEqual({ latency: 120, cost: 0 })
+        })
+
         it('should handle generation with output_choices instead of output', () => {
             const choicesEvent: LLMTraceEvent = {
                 id: 'event-6',

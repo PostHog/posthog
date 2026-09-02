@@ -49,9 +49,10 @@ function record(overrides: Record<string, unknown> = {}): Buffer {
 
 describe('frontier record', () => {
     it('round trips the durable job state', () => {
-        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([candidate()]), 'example.com')
+        const durableCandidate = candidate({ lastBlockReason: 'configuration_unreachable' })
+        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([durableCandidate]), 'example.com')
 
-        expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [] })
+        expect(parsed).toEqual({ ok: true, candidates: [durableCandidate], urlCount: 1, rejected: [] })
     })
 
     it('does not persist source partition attribution', () => {
@@ -157,6 +158,7 @@ describe('frontier record', () => {
         ['fetchCount', 1.5],
         ['republishCount', Number.MAX_SAFE_INTEGER + 1],
         ['lastRepublishReason', 'unknown'],
+        ['lastBlockReason', 'unknown'],
     ])('drops an invalid %s', (field, value) => {
         const parsed = parseCollectedUrlsRecord(record({ [field]: value }), 'example.com')
 

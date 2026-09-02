@@ -7,6 +7,7 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
+import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -33,15 +34,15 @@ export type HostInfoProperties = { platform: string; arch: string };
 
 let isInitialized = false;
 
-export type CodexSubscriptionState = {
-  access: "posthog-gateway" | "own-subscription";
+export type AdapterSubscriptionState = {
+  access: ModelAccess;
   connected: boolean;
 };
 
 // Cached so it can be re-applied after posthog.reset() clears super properties.
 let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
-let registeredCodexSubscription: CodexSubscriptionState | null = null;
+const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
 function registerPersistentSuperProperties(): void {
@@ -53,9 +54,7 @@ function registerPersistentSuperProperties(): void {
     ...(registeredHostInfo !== null
       ? hostInfoProperties(registeredHostInfo)
       : {}),
-    ...(registeredCodexSubscription !== null
-      ? codexSubscriptionProperties(registeredCodexSubscription)
-      : {}),
+    ...subscriptionSuperProperties(),
   });
 }
 
@@ -66,26 +65,35 @@ function hostInfoProperties({ platform, arch }: HostInfoProperties): {
   return { os_platform: platform, os_arch: arch };
 }
 
-function codexSubscriptionProperties({
-  access,
-  connected,
-}: CodexSubscriptionState): {
-  codex_model_access: string;
-  codex_subscription_connected: boolean;
-} {
+function subscriptionProperties(
+  adapter: Adapter,
+  { access, connected }: AdapterSubscriptionState,
+): Record<string, string | boolean> {
+  const effectiveAccess = connected ? access : "posthog-gateway";
   return {
-    codex_model_access: access,
-    codex_subscription_connected: connected,
+    [`${adapter}_model_access`]: effectiveAccess,
+    [`${adapter}_subscription_connected`]: connected,
   };
 }
 
-export function registerCodexSubscription(state: CodexSubscriptionState): void {
-  registeredCodexSubscription = state;
+function subscriptionSuperProperties(): Record<string, string | boolean> {
+  const properties: Record<string, string | boolean> = {};
+  for (const [adapter, state] of registeredSubscriptions) {
+    Object.assign(properties, subscriptionProperties(adapter, state));
+  }
+  return properties;
+}
+
+export function registerAdapterSubscription(
+  adapter: Adapter,
+  state: AdapterSubscriptionState,
+): void {
+  registeredSubscriptions.set(adapter, state);
   if (!isInitialized) {
     return;
   }
 
-  posthog.register(codexSubscriptionProperties(state));
+  posthog.register(subscriptionProperties(adapter, state));
 }
 
 type PendingFlagListener = {

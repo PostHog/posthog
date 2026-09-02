@@ -55,6 +55,46 @@ def test_connect_trino_uses_tracked_session_and_closes_resources() -> None:
     session.close.assert_called_once_with()
 
 
+@pytest.mark.parametrize(
+    ("host", "port", "use_ssl", "verify_ssl", "expected_trust_env"),
+    [
+        ("trino.dw.us.postwh.com", 443, True, True, False),
+        ("TRINO.DW.DEV.POSTWH.COM.", 443, True, True, False),
+        ("trino.example.com", 443, True, True, True),
+        ("other.dw.us.postwh.com", 443, True, True, True),
+        ("trino.dw.us.postwh.com", 8443, True, True, True),
+        ("trino.dw.us.postwh.com", 443, False, True, True),
+        ("trino.dw.us.postwh.com", 443, True, False, True),
+    ],
+)
+def test_connect_trino_bypasses_proxy_only_for_managed_tls_endpoints(
+    host: str, port: int, use_ssl: bool, verify_ssl: bool, expected_trust_env: bool
+) -> None:
+    connection = MagicMock()
+    session = MagicMock(trust_env=True)
+    auth_type = TrinoAuthTypeConfig(user="posthog", selection="none")
+
+    with (
+        patch("trino.dbapi.connect", return_value=connection),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.make_tracked_session",
+            return_value=session,
+        ),
+        connect_trino(
+            _config(
+                host=host,
+                port=port,
+                use_ssl=use_ssl,
+                verify_ssl=verify_ssl,
+                auth_type=auth_type,
+            )
+        ),
+    ):
+        pass
+
+    assert session.trust_env is expected_trust_env
+
+
 def test_connect_trino_rejects_credentials_over_http() -> None:
     with pytest.raises(ValueError, match="require HTTPS"):
         with connect_trino(_config(use_ssl=False)):

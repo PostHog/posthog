@@ -4,9 +4,9 @@ import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
-import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
+import { legacyTabListLogicProps, reportListLogic } from '../logics/reportListLogic'
 import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
-import { DismissalReasonValue } from '../utils/dismissalReasons'
+import { DismissalFeedback } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
 import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
@@ -14,7 +14,7 @@ import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 export interface InboxReportCardProps {
     report: SignalReport
     sectionKey: InboxReportSectionKey
-    onArchive: (reason: DismissalReasonValue, note: string) => void
+    onDismiss: (dismissal: DismissalFeedback) => void
     /** Restore a suppressed report back to the inbox. Only wired on the Archived tab. */
     onRestore?: () => void
     /** Rendered as an attached row inside a shared bordered container (vs. a freestanding card). */
@@ -29,12 +29,6 @@ interface InboxReportListProps {
         | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
 
-/** The keyed list instance behind a legacy tab: the redesign's section with the same server filter. */
-function sectionLogicProps(tabKey: InboxFlatListTabKey): ReportListLogicProps {
-    const sectionKey = INBOX_LEGACY_TAB_SECTION[tabKey]
-    return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
-}
-
 /**
  * Shared body for the flat report-list tabs shown with the redesign flag off (Pull requests /
  * Reports / Not actionable / Archive). Each is the same primitive – only the server filter and
@@ -44,7 +38,7 @@ function sectionLogicProps(tabKey: InboxFlatListTabKey): ReportListLogicProps {
  */
 export function InboxReportList(props: InboxReportListProps): JSX.Element {
     return (
-        <BindLogic logic={reportListLogic} props={sectionLogicProps(props.tabKey)}>
+        <BindLogic logic={reportListLogic} props={legacyTabListLogicProps(props.tabKey)}>
             <InboxReportListInner {...props} />
         </BindLogic>
     )
@@ -53,7 +47,7 @@ export function InboxReportList(props: InboxReportListProps): JSX.Element {
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
     const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
         useValues(reportListLogic)
-    const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
+    const { ensureLoaded, loadMore, dismissReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
@@ -65,10 +59,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
     // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
     const { count: pullsTabCount, countLoading: pullsTabCountLoading } = useValues(
-        reportListLogic(sectionLogicProps('pulls'))
+        reportListLogic(legacyTabListLogicProps('pulls'))
     )
     const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
-        reportListLogic(sectionLogicProps('reports'))
+        reportListLogic(legacyTabListLogicProps('reports'))
     )
     // A badge count is settled once its request is no longer in flight: loaded, refreshed, or failed
     // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
@@ -217,8 +211,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                                 key={report.id}
                                 report={report}
                                 sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
-                                onArchive={(reason, note) => archiveReport(report.id, reason, note)}
-                                onRestore={() => restoreReport(report.id)}
+                                onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
+                                onRestore={() => restoreReport(report.id, 'list_row')}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}

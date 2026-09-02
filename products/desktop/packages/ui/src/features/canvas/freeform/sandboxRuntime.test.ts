@@ -1,3 +1,7 @@
+import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   buildSandboxDocument,
@@ -12,6 +16,47 @@ function clickTarget(html: string, selector: string): Element {
   const element = container.querySelector(selector);
   if (!element) throw new Error(`selector ${selector} not found`);
   return element;
+}
+
+// Runs the document's import-map setup script against stub Blob/URL/document
+// globals and returns the map it installs. jsdom has no createObjectURL, and
+// asserting the map it produces beats matching the script's source text.
+function installedImportMap(html: string): Record<string, string> {
+  const setup = [
+    ...new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelectorAll("script"),
+  ].find((script) => script.textContent?.includes("canvasImportMap"));
+  if (!setup?.textContent) throw new Error("import-map setup script not found");
+
+  const blobs: string[] = [];
+  const installed: { type?: string; textContent?: string } = {};
+  const documentStub = {
+    createElement: () => installed,
+    head: { appendChild: () => undefined },
+  };
+  const urlStub = {
+    createObjectURL: (blob: { parts: string[] }) =>
+      `blob:${blobs.push(blob.parts.join("")) - 1}`,
+  };
+  class BlobStub {
+    constructor(public parts: string[]) {}
+  }
+
+  new Function("document", "URL", "Blob", setup.textContent)(
+    documentStub,
+    urlStub,
+    BlobStub,
+  );
+
+  expect(installed.type).toBe("importmap");
+  const imports = JSON.parse(installed.textContent ?? "{}").imports;
+  // Resolve blob handles back to their source so callers can assert content.
+  for (const [name, url] of Object.entries(imports)) {
+    const index = /^blob:(\d+)$/.exec(String(url))?.[1];
+    if (index) imports[name] = blobs[Number(index)];
+  }
+  return imports;
 }
 
 describe("decodeJsxUnicodeEscapes", () => {
@@ -64,6 +109,18 @@ describe("buildSandboxDocument", () => {
       "const decodeUnicodeEscapes = function decodeJsxUnicodeEscapes(",
     );
     expect(html).toContain("jsxUnicodeEscapesPlugin");
+  });
+
+  // The SDK has no CDN pin, so it resolves only if the document mints it as a
+  // blob module and registers it. Assembling the map at runtime also has to
+  // keep the CDN pins it replaced, because losing those breaks every canvas
+  // rather than only the ones importing the SDK.
+  it("registers the canvas SDK alongside the CDN pins in the import map", () => {
+    const imports = installedImportMap(buildSandboxDocument());
+
+    expect(imports[CANVAS_SDK_SPECIFIER]).toBe(CANVAS_SDK_MODULE_SOURCE);
+    expect(imports.react).toContain("esm.sh");
+    expect(imports["react/jsx-runtime"]).toContain("esm.sh");
   });
 
   it("inlines the external-anchor resolver into the bootstrap", () => {

@@ -15,9 +15,20 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 # Slack errors that won't self-heal without user action — skip Temporal retries
-# and auto-disable the subscription so it stops re-firing every cycle.
+# and auto-disable the subscription so it stops re-firing every cycle. Includes scope
+# revocation (`missing_scope`, `not_allowed_token_type`), e.g. when `files:write` is revoked
+# between save and delivery: auto-disable and notify the creator rather than silently degrade.
 SLACK_USER_CONFIG_ERRORS = frozenset(
-    {"not_in_channel", "account_inactive", "is_archived", "channel_not_found", "invalid_auth", "token_revoked"}
+    {
+        "not_in_channel",
+        "account_inactive",
+        "is_archived",
+        "channel_not_found",
+        "invalid_auth",
+        "token_revoked",
+        "missing_scope",
+        "not_allowed_token_type",
+    }
 )
 
 
@@ -69,7 +80,7 @@ def get_subscription_failure_metric(
     )
 
 
-SUPPORTED_TARGET_TYPES = frozenset(["email", "slack"])
+SUPPORTED_TARGET_TYPES = frozenset(Subscription.SubscriptionTarget.values)
 
 
 def _capture_delivery_failed_event(

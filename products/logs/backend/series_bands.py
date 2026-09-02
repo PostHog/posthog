@@ -59,6 +59,8 @@ class BandSeries:
     severity: str
     total_count: int
     baseline_weeks: int
+    history_start: dt.datetime
+    band_ready_at: dt.datetime | None
     buckets: list[BandBucket]
 
 
@@ -212,6 +214,22 @@ def _baseline_weeks_available(later: dt.datetime, earliest_slot: dt.datetime) ->
     return min(BASELINE_WEEKS, max(0, weeks))
 
 
+def _band_gate(
+    window_start: dt.datetime, window_end: dt.datetime, earliest_slot: dt.datetime
+) -> tuple[int, dt.datetime | None]:
+    """Baseline depth at the window start, and when a shallow series gains its band.
+
+    The gate reads history before window_start, so a live window must travel a
+    whole window length past the history threshold before a band is drawn. One
+    rule returns both, so the countdown cannot drift off the gate it counts to.
+    """
+    baseline_weeks = _baseline_weeks_available(window_start, earliest_slot)
+    if baseline_weeks >= MIN_BASELINE_WEEKS_FOR_BAND:
+        return baseline_weeks, None
+    threshold = earliest_slot + dt.timedelta(weeks=MIN_BASELINE_WEEKS_FOR_BAND)
+    return baseline_weeks, threshold + (window_end - window_start)
+
+
 def _build_series(
     key: _SeriesKey,
     slot_rows: list[_SlotRow],
@@ -221,8 +239,8 @@ def _build_series(
 ) -> BandSeries:
     by_time = {row.target_time: row for row in slot_rows}
     earliest_slot = min(row.earliest_slot for row in slot_rows)
-    baseline_weeks = _baseline_weeks_available(window_start, earliest_slot)
-    banded = baseline_weeks >= MIN_BASELINE_WEEKS_FOR_BAND
+    baseline_weeks, band_ready_at = _band_gate(window_start, window_end, earliest_slot)
+    banded = band_ready_at is None
     floor = BAND_FLOOR_PER_HOUR * interval_minutes / 60
 
     buckets: list[BandBucket] = []
@@ -255,6 +273,8 @@ def _build_series(
         severity=key.severity,
         total_count=total_count,
         baseline_weeks=baseline_weeks,
+        history_start=earliest_slot,
+        band_ready_at=band_ready_at,
         buckets=buckets,
     )
 
