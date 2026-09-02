@@ -61,6 +61,16 @@ class SourceRegistry:
     def get_source(cls, source_type: ExternalDataSourceType) -> "AnySource":
         """Get a source instance by type"""
 
+        # Callers may hand us the raw string value (e.g. an `oauth_accounts` query param). The
+        # str-mixin enum compares equal to its value, so the `in cls._sources` checks below still
+        # work, but the lazy single-module load reads `source_type.name`, which a plain str lacks.
+        # Coerce to a real enum member first so both the lazy and full-load paths resolve, and so
+        # an unknown value surfaces as ValueError rather than AttributeError.
+        try:
+            source_type = ExternalDataSourceType(source_type)
+        except ValueError:
+            raise ValueError(f"Unknown source type: {source_type}")
+
         cls._load_one(source_type)
         if source_type not in cls._sources:
             cls._ensure_loaded()

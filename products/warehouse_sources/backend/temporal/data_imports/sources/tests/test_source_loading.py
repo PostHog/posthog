@@ -90,6 +90,26 @@ def test_get_source_falls_back_to_the_full_load_when_the_single_import_registers
     assert SourceRegistry._loaded is True
 
 
+def test_get_source_resolves_a_raw_string_value_through_the_lazy_path(empty_registry):
+    # Reproduces the cold-worker `oauth_accounts` call: a raw query-param string reaches
+    # `get_source`, whose lazy load reads `source_type.name`. `_load_source` is stubbed so the
+    # real `source_module_path` runs without importing a vendor module.
+    with (
+        patch(f"{_SOURCES}._load_source", side_effect=_register_fake_pypi_source),
+        patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")),
+    ):
+        source = SourceRegistry.get_source(cast(ExternalDataSourceType, ExternalDataSourceType.PYPI.value))
+
+    assert isinstance(source, _FakePypiSource)
+
+
+def test_get_source_raises_valueerror_for_an_unknown_string_value(empty_registry):
+    # The endpoint turns ValueError into a 400. An unknown string must not read `.name` off a str.
+    with patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")):
+        with pytest.raises(ValueError):
+            SourceRegistry.get_source(cast(ExternalDataSourceType, "NotARealSource"))
+
+
 def test_source_module_path_resolves_every_source_type_without_importing_it():
     module_paths = set(_source_module_paths())
 
