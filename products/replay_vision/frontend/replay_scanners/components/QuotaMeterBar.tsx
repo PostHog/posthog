@@ -192,11 +192,14 @@ export function QuotaMeter({
     label,
     size,
     className,
+    limitLabel,
 }: {
     model: QuotaMeterModel
     label: string
     size?: 'small' | 'medium'
     className?: string
+    /** Caption under the limit marker; defaults to the bar's plain "Spend limit". */
+    limitLabel?: string
 }): JSX.Element {
     const { projection, segments, periodEndPct } = model
     const [freeWidth, billedWidth, ...segmentWidths] = quotaMeterWidths(
@@ -214,6 +217,7 @@ export function QuotaMeter({
                 projected={segments}
                 valueNow={periodEndPct}
                 label={label}
+                limitLabel={limitLabel}
             />
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                 <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
