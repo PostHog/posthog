@@ -815,6 +815,7 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
             tasks_facade.TaskOriginProduct.EXPERIMENTS,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
             # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
@@ -4131,6 +4132,22 @@ class SlackThreadContextThreadSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The Slack user who triggered the task. Null when no mapping exists yet.",
     )
+    queue_workflow_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Temporal workflow id of the per-conversation mention queue "
+            "(`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's "
+            "messages before any run exists. Null when the workspace id cannot be resolved."
+        ),
+    )
+    queue_workflow_url = serializers.CharField(
+        allow_null=True,
+        help_text="Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.",
+    )
+    mapping_admin_url = serializers.CharField(
+        allow_null=True,
+        help_text="Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.",
+    )
 
 
 class SlackThreadContextTaskSerializer(serializers.Serializer):
@@ -4146,6 +4163,7 @@ class SlackThreadContextTaskSerializer(serializers.Serializer):
     origin_product = serializers.CharField(help_text="`Task.OriginProduct` (`slack` for slack-originated tasks).")
     created_at = serializers.DateTimeField(help_text="When the task was created (server-side timestamp).")
     url = serializers.CharField(help_text="Absolute URL to the task detail page in the PostHog app.")
+    admin_url = serializers.CharField(help_text="Absolute URL to the Task row in Django admin.")
 
 
 class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
@@ -4237,6 +4255,9 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
     repo_research = SlackThreadContextRepoResearchSerializer(
         allow_null=True,
         help_text="The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous.",
+    )
+    admin_url = serializers.CharField(
+        help_text="Absolute URL to the TaskRun row in Django admin (includes a log download action).",
     )
 
 

@@ -728,6 +728,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Customerly` - Customerly
  * * `Datascope` - Datascope
  * * `Dbt` - Dbt
+ * * `Demodesk` - Demodesk
  * * `Deputy` - Deputy
  * * `DevinAI` - DevinAI
  * * `Docuseal` - Docuseal
@@ -2057,6 +2058,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Customerly: 'Customerly',
     Datascope: 'Datascope',
     Dbt: 'Dbt',
+    Demodesk: 'Demodesk',
     Deputy: 'Deputy',
     DevinAI: 'DevinAI',
     Docuseal: 'Docuseal',
@@ -3533,6 +3535,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -5085,6 +5088,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -6443,6 +6447,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -7776,6 +7781,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -9194,6 +9200,7 @@ export interface SourcePreviewRequestApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -10562,6 +10569,7 @@ export interface SourceSetupApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal
@@ -11937,6 +11945,7 @@ export interface SourceCredentialCreateApi {
      * * `Customerly` - Customerly
      * * `Datascope` - Datascope
      * * `Dbt` - Dbt
+     * * `Demodesk` - Demodesk
      * * `Deputy` - Deputy
      * * `DevinAI` - DevinAI
      * * `Docuseal` - Docuseal

@@ -247,7 +247,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
-            "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the input, output, and output_choices columns of the posthog.ai_events table in HogQL. That content is only available within its retention window.",
             "primary_property": "$ai_model",
         },
         "$ai_evaluation": {
@@ -2341,6 +2341,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI cost model source (LLM)",
             "description": "Where the cost data for this model was sourced from.",
             "examples": ["openrouter", "manual", "custom", "passthrough"],
+        },
+        "$ai_cost_passthrough": {
+            "label": "AI cost passthrough (LLM)",
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [True],
         },
         "$ai_cost_model_provider": {
             "label": "AI cost model provider (LLM)",

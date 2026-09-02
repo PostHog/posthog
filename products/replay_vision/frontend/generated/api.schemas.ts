@@ -2209,6 +2209,10 @@ export interface ScannerScoutCreateApi {
     config?: SignalScoutConfigOptionsApi
 }
 
+/**
+ * * `canonical` - canonical
+ * * `custom` - custom
+ */
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
 
 export const ScoutOriginEnumApi = {

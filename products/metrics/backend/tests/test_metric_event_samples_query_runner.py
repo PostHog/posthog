@@ -105,6 +105,75 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([s.trace_id for s in traced], [TRACE_A_HEX])
 
+    def test_filters_by_span_id(self):
+        # The span-scope toggle in the tracing drawer narrows server-side, so a span's
+        # emissions stay exact even when the trace has more emissions than the limit.
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric_event(
+            team_id=self.team.id, metric_name="m", points=[(anchor, 1.0)], trace_id=TRACE_A_B64, span_id=SPAN_A_B64
+        )
+        seed_metric_event(team_id=self.team.id, metric_name="n", points=[(anchor, 2.0)], trace_id=TRACE_A_B64)
+        frm, to = anchor - dt.timedelta(hours=1), anchor + dt.timedelta(hours=1)
+
+        spanned = list_metric_event_samples(
+            team=self.team, date_from=frm, date_to=to, trace_id=TRACE_A_HEX, span_id=SPAN_A_HEX
+        )
+        self.assertEqual([(s.metric_name, s.span_id) for s in spanned], [("m", SPAN_A_HEX)])
+
+    def test_span_id_requires_trace_id(self):
+        now = timezone.now()
+        with self.assertRaises(ValueError):
+            MetricEventSamplesQueryRunner(
+                team=self.team,
+                metric_name="m",
+                span_id=SPAN_A_HEX,
+                date_from=now - dt.timedelta(hours=1),
+                date_to=now,
+            )
+
+    @parameterized.expand(
+        [
+            ("filters", [MetricFilter(key="env", op=FilterOp.EQ, value="prod", scope=AttributeScope.ATTRIBUTE)], None),
+            ("metric_type", [], MetricType.GAUGE),
+        ]
+    )
+    def test_trace_only_query_rejects_series_constraints(self, _label, filters, metric_type):
+        # Series constraints scope one metric's series; without a name there is no series
+        # set to scope, so honoring them would silently drop every orphan emission.
+        now = timezone.now()
+        with self.assertRaises(ValueError):
+            MetricEventSamplesQueryRunner(
+                team=self.team,
+                trace_id=TRACE_A_HEX,
+                date_from=now - dt.timedelta(hours=1),
+                date_to=now,
+                filters=filters,
+                metric_type=metric_type,
+            )
+
+    def test_trace_only_query_spans_metric_names(self):
+        # The trace->metrics pivot (the tracing drawer's Metrics tab) lists every
+        # emission on a trace without naming a metric — a regression back to a
+        # required metric_name would blank that tab entirely.
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric_event(
+            team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], trace_id=TRACE_A_B64
+        )
+        seed_metric_event(team_id=self.team.id, metric_name="db.queries", points=[(anchor, 2.0)], trace_id=TRACE_A_B64)
+        seed_metric_event(
+            team_id=self.team.id, metric_name="http.duration", points=[(anchor, 3.0)], trace_id=TRACE_B_B64
+        )
+
+        samples = list_metric_event_samples(
+            team=self.team,
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor + dt.timedelta(hours=1),
+            trace_id=TRACE_A_HEX,
+        )
+
+        self.assertEqual(sorted(s.metric_name for s in samples), ["db.queries", "http.duration"])
+        self.assertEqual({s.trace_id for s in samples}, {TRACE_A_HEX})
+
     def test_maps_fields_and_orders_newest_first(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric_event(
@@ -224,6 +293,28 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["metric_name"], "checkout.failed")
         self.assertEqual(results[0]["trace_id"], TRACE_A_HEX)
         self.assertEqual(results[0]["attributes"], {"region": "us"})
+
+    def test_samples_api_trace_only_query(self):
+        # Wiring guard for the trace->metrics pivot: metricName omitted, traceId given.
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric_event(
+            team_id=self.team.id, metric_name="checkout.failed", points=[(anchor, 1.0)], trace_id=TRACE_A_B64
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/samples",
+            data={
+                "query": {
+                    "traceId": TRACE_A_HEX,
+                    "dateFrom": (anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": (anchor + dt.timedelta(hours=1)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([r["metric_name"] for r in response.json()["results"]], ["checkout.failed"])
 
 
 class TestMetricEventSampleFilters(ClickhouseTestMixin, APIBaseTest):

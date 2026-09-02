@@ -593,6 +593,8 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            # growth's identity-matching tier and the signals scout suggestion confidence.
+            "ConfidenceTierEnum": ["low", "medium", "high"],
             #
             # The definition site is a deliberately Django-free module (facade contracts,
             # signals taxonomy), so it cannot define a models.Choices class.
@@ -823,7 +825,9 @@ PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 # Cloudflare for SaaS proxy settings
 CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ACCOUNT_ID = get_from_env("CLOUDFLARE_ACCOUNT_ID", "")
 CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_PROXY_KV_NAMESPACE_ID = get_from_env("CLOUDFLARE_PROXY_KV_NAMESPACE_ID", "")
 CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
 CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
 
@@ -1207,6 +1211,21 @@ WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20"
 # is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
 WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+
+# Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
+# when normal SSRF validation rejects their private/internal address. This is an
+# internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must
+# match one of these complete URLs byte-for-byte. Internal endpoints also bypass
+# the process HTTP proxy so cluster-local traffic is not sent to Smokescreen.
+# Parsed defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES above: a malformed value
+# must not take every process down at settings import; the URL policy degrades to
+# an empty allowlist (everything internal stays blocked).
+try:
+    MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM: dict[str, list[str]] = json.loads(
+        get_from_env("MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM", "{}")
+    )
+except ValueError:
+    MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

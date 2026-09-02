@@ -250,6 +250,15 @@ class LogsSeriesBandSeriesSerializer(serializers.Serializer):
             f"Below {MIN_BASELINE_WEEKS_FOR_BAND} the series is still learning and its buckets carry no band."
         )
     )
+    history_start = serializers.DateTimeField(
+        help_text="Earliest bucket with data inside the fetched lookback.",
+    )
+    band_ready_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When this series gains its band, so a learning series can count down to it. Null once the band is drawn."
+        ),
+    )
     buckets = LogsSeriesBandBucketSerializer(
         many=True,
         help_text="One entry per display bucket across the whole window, oldest first, zero-filled.",

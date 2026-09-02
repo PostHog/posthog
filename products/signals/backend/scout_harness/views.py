@@ -22,11 +22,9 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any, cast
 
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -54,7 +52,6 @@ from posthog.permissions import AccessControlPermission, APIScopePermission, get
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -64,13 +61,19 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
-from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.run_gates import (
+    ScoutRunRejection,
+    ScoutRunRejectionKind,
+    check_fleet_gates,
+    check_run_in_flight,
+    check_spend_gates,
+)
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
     EditReportResponseSerializer,
@@ -118,19 +121,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     load_skill_for_run,
 )
-from products.signals.backend.scout_harness.team_limits import (
-    DAILY_BUDGET_WINDOW,
-    _canonicalize_team_config_keys,
-    _default_team_config,
-    _parse_enrollment,
-    _read_flag_payload,
-    _resolve_enrolled,
-    _resolve_max_runs_per_day,
-    _runs_today_by_team,
-    _team_configs,
-    resolve_team_metadata,
-    withheld_skills_for_team,
-)
+from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.notes import (
     DEFAULT_NOTES_LIST_LIMIT,
@@ -281,63 +272,25 @@ class Conflict(exceptions.APIException):
     default_code = "conflict"
 
 
-def _scout_run_in_flight(team_id: int, skill_name: str) -> bool:
-    """Whether a *live* run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
-
-    Mirrors the runner's authoritative single-flight (`scout_harness/runner._has_running_run`)
-    so the manual-trigger endpoint can fail fast with a 409 instead of dispatching a workflow
-    that the runner would only skip. Status flows from the linked `TaskRun`; covers a run
-    started by either the coordinator or a prior manual trigger.
-
-    A run older than `STALE_RUN_CUTOFF_S` is an orphan left by a crashed worker (Temporal kills
-    the activity at the hard ceiling, so it cannot still be executing) — it is deliberately NOT
-    counted as in-flight here. Otherwise this fail-fast 409 would short-circuit before the
-    workflow's runner reaches its `_self_heal_stale_runs` reap, wedging the lane until a
-    scheduled tick happens to reap it — which never comes for a disabled scout, whose only run
-    path is this endpoint. Treating the orphan as free lets the dispatched run reap it and proceed.
-    """
-    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
-    return (
-        SignalScoutRun.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            skill_name=skill_name,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__gte=live_cutoff,
-        )
-        .exists()
-    )
+def _raise_rejection(rejection: ScoutRunRejection) -> None:
+    """Surface a shared pre-dispatch gate rejection as this endpoint's DRF exception."""
+    if rejection.kind is ScoutRunRejectionKind.FORBIDDEN:
+        raise exceptions.PermissionDenied(detail=rejection.detail)
+    if rejection.kind is ScoutRunRejectionKind.CONFLICT:
+        raise Conflict(detail=rejection.detail)
+    raise exceptions.Throttled(detail=rejection.detail)
 
 
 def _reject_if_manual_run_suppressed(team_id: int) -> None:
     """Apply the fleet-level gates the scheduled coordinator enforces, so a manual trigger can't
-    run a scout the scheduled path would deliberately suppress.
-
-    Reads the `signals-scout` flag payload once (the same snapshot the coordinator plans off):
-
-    - **Enrollment kill switch.** A project in `skip_team_ids`, or one not enrolled at all, never
-      runs scheduled scouts — so its manual trigger is forbidden too (403). Without this, any
-      caller with `signal_scout:write` could run a scout on a project an operator has explicitly
-      drained or held back via the flag.
-    - **Daily run budget.** `max_runs_per_day` (per-team override → fleet default → code constant)
-      bounds dispatches per rolling 24h. Manual runs land the same `SignalScoutRun` rows the
-      coordinator counts, so they share the tally: once the budget is spent the trigger is
-      throttled (429) until the window rolls, instead of letting repeated manual runs blow past
-      the per-team daily cap the scheduled path enforces.
-
-    `team_id` is the canonical (parent) project id, matching how the coordinator plans; team
-    config keys are canonicalized the same way so a child-env override still lines up.
+    run a scout the scheduled path would deliberately suppress: the enrollment kill switch (403)
+    and the per-team daily run budget (429). The checks themselves live in `run_gates` because the
+    workflow-triggered path has to apply exactly the same ones; this only maps the outcome onto
+    DRF. `team_id` is the canonical (parent) project id, matching how the coordinator plans.
     """
-    payload = _read_flag_payload()
-    if not _resolve_enrolled(team_id, _parse_enrollment(payload)):
-        raise exceptions.PermissionDenied(detail="Signals scouts are not enabled for this project.")
-
-    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
-    per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))
-    if per_day is not None:
-        runs_today = _runs_today_by_team({team_id}, timezone.now() - DAILY_BUDGET_WINDOW).get(team_id, 0)
-        if runs_today >= per_day:
-            raise exceptions.Throttled(detail="This project has reached its daily scout run budget. Try again later.")
+    rejection = check_fleet_gates(team_id)
+    if rejection is not None:
+        _raise_rejection(rejection)
 
 
 def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
@@ -861,7 +814,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def emit_signal(self, request: Request, **kwargs) -> Response:
         run_id = _parse_run_id_or_404(kwargs)
-        from products.tasks.backend.facade import api as tasks_facade
 
         run = (
             SignalScoutRun.objects.select_related("scout_config", "task_run")
@@ -933,7 +885,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         check is the matching fail-closed gate on the write itself: reject unless the run's skill lists
         `required_tool` in its `allowed_tools`, so the two enforcement layers can't drift."""
         run_id = _parse_run_id_or_404(kwargs)
-        from products.tasks.backend.facade import api as tasks_facade
 
         run = (
             SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
@@ -1144,7 +1095,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def record_output(self, request: Request, **kwargs) -> Response:
         run_id = _parse_run_id_or_404(kwargs)
-        from products.tasks.backend.facade import api as tasks_facade
 
         run = (
             SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
@@ -2316,14 +2266,11 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # re-checked authoritatively downstream (quota and daily report limit in the run activity,
         # single-flight in the runner and at the Temporal server), but rejecting here avoids
         # dispatching a workflow that would only be skipped, and turns the common cases into clean
-        # 429/409 responses.
+        # 429/409 responses. Shared with the workflow-triggered path (see `run_gates`).
         team = Team.objects.get(pk=team_id)
-        if is_team_signals_quota_limited(team.api_token):
-            raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
-        if daily_report_limit_gate(team).limited:
-            raise exceptions.Throttled(detail="This project reached its daily report limit. Try again tomorrow.")
-        if _scout_run_in_flight(team_id, skill_name):
-            raise Conflict()
+        for rejection in (check_spend_gates(team), check_run_in_flight(team_id, skill_name)):
+            if rejection is not None:
+                _raise_rejection(rejection)
 
         # Deferred: keeps the heavy Signals Temporal workflow/activity graph (dragged in by the
         # `products.signals.backend.temporal` package aggregator) off the route-load path — this viewset
