@@ -37,6 +37,7 @@ def build_langchain_chat_client(
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
     service_tier: Literal["flex"] | None = None,
+    max_retries: int = 2,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for the labeling/report agents. Cloud/DEBUG only.
 
@@ -60,7 +61,7 @@ def build_langchain_chat_client(
             api_key=gateway.api_key,
             base_url=gateway.url,
             timeout=timeout,
-            max_retries=2,
+            max_retries=max_retries,
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=trace_id,
@@ -77,7 +78,9 @@ def build_langchain_chat_client(
     direct_key = os.environ.get("OPENAI_API_KEY")
     if not direct_key:
         raise Exception("OPENAI_API_KEY is not configured")
-    return ChatOpenAI(model=model, api_key=direct_key, timeout=timeout, max_retries=2, service_tier=service_tier)
+    return ChatOpenAI(
+        model=model, api_key=direct_key, timeout=timeout, max_retries=max_retries, service_tier=service_tier
+    )
 
 
 def build_langchain_callbacks(

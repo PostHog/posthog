@@ -209,7 +209,7 @@ class TestApplyFallbacks:
 
 class TestRunEvalLabelingAgent:
     @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.build_langchain_callbacks")
-    @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.get_labeling_llm")
+    @patch("posthog.temporal.ai_observability.clustering_agent.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.create_react_agent")
     def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_labeling_llm, mock_build_callbacks):
         mock_get_labeling_llm.return_value = MagicMock()
@@ -257,7 +257,7 @@ class TestRunEvalLabelingAgent:
         )
         assert mock_agent.invoke.call_args.args[1]["callbacks"] == callbacks
 
-    @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.get_labeling_llm")
+    @patch("posthog.temporal.ai_observability.clustering_agent.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.create_react_agent")
     def test_handles_agent_error_gracefully(self, mock_create_agent, mock_get_labeling_llm):
         mock_get_labeling_llm.return_value = MagicMock()

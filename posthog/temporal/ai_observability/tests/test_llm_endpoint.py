@@ -185,11 +185,13 @@ class TestBuildOpenAIChatClient:
         "model,expected_tier",
         [
             ("gpt-5.4", "flex"),
+            # OpenAI excludes pro tiers from flex, so the family prefix must not grant it.
+            ("gpt-5.4-pro", None),
             # gpt-4.1 models reject the service_tier field, so a fallback to them must not send it.
             ("gpt-4.1-mini", None),
         ],
     )
-    def test_labeling_llm_requests_flex_only_for_gpt5_models(self, model, expected_tier):
+    def test_labeling_llm_requests_flex_only_for_allowlisted_models(self, model, expected_tier):
         from posthog.temporal.ai_observability.clustering_agent import get_labeling_llm
 
         with (
@@ -204,3 +206,143 @@ class TestBuildOpenAIChatClient:
                 distinct_id="d",
             )
             assert client.service_tier == expected_tier
+
+    def test_flex_labeling_client_bounds_a_parked_call_to_one_short_timeout(self):
+        # A flex call can park on spare capacity. With SDK retries on and the caller timeout,
+        # one call could outlive the whole 600s labeling activity before the standard rerun.
+        from posthog.temporal.ai_observability.clustering_agent import LABELING_FLEX_CALL_TIMEOUT, get_labeling_llm
+
+        with override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY):
+            flex_client = get_labeling_llm(
+                "gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d"
+            )
+            standard_client = get_labeling_llm(
+                "gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d", flex=False
+            )
+
+        assert flex_client.request_timeout == LABELING_FLEX_CALL_TIMEOUT
+        assert flex_client.max_retries == 0
+        assert standard_client.service_tier is None
+        assert standard_client.request_timeout == 600.0
+        assert standard_client.max_retries == 2
+
+
+def _http_error_parts(status_code: int):
+    import httpx
+
+    request = httpx.Request("POST", "https://gateway.example/v1/chat/completions")
+    return httpx.Response(status_code, request=request), request
+
+
+def _rate_limit_error():
+    from openai import RateLimitError
+
+    response, _ = _http_error_parts(429)
+    return RateLimitError("flex capacity unavailable", response=response, body=None)
+
+
+def _connection_error():
+    from openai import APIConnectionError
+
+    _, request = _http_error_parts(429)
+    return APIConnectionError(request=request)
+
+
+def _gateway_ceiling_error():
+    from openai import InternalServerError
+
+    response, _ = _http_error_parts(504)
+    return InternalServerError("gateway buffered-response ceiling", response=response, body=None)
+
+
+def _flex_408_error():
+    from openai import APIStatusError
+
+    response, _ = _http_error_parts(408)
+    return APIStatusError("flex server-side timeout", response=response, body=None)
+
+
+def _bad_request_error():
+    from openai import BadRequestError
+
+    response, _ = _http_error_parts(400)
+    return BadRequestError("bad request", response=response, body=None)
+
+
+class TestInvokeLabelingAgent:
+    def _invoke(self, make_agent):
+        from posthog.temporal.ai_observability.clustering_agent import invoke_labeling_agent
+
+        with override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY):
+            return invoke_labeling_agent(
+                make_agent,
+                {"messages": []},
+                {"recursion_limit": 5},
+                model="gpt-5.4",
+                timeout=600.0,
+                trace_id="t",
+                session_id="s",
+                properties={},
+                distinct_id="d",
+            )
+
+    @pytest.mark.parametrize(
+        "flex_error",
+        [_rate_limit_error(), _connection_error(), _gateway_ceiling_error(), _flex_408_error()],
+        ids=["rate_limit", "connection", "gateway_504", "flex_408"],
+    )
+    def test_flex_failure_reruns_the_agent_on_the_standard_tier(self, flex_error):
+        tiers_used = []
+
+        def make_agent(llm):
+            tiers_used.append(llm.service_tier)
+
+            class Agent:
+                def invoke(self, state, config):
+                    if llm.service_tier == "flex":
+                        raise flex_error
+                    return {"messages": [], "current_labels": {1: "label"}}
+
+            return Agent()
+
+        result = self._invoke(make_agent)
+
+        assert tiers_used == ["flex", None]
+        assert result["current_labels"] == {1: "label"}
+
+    def test_configuration_errors_do_not_rerun_on_the_standard_tier(self):
+        # A 400 fails identically on both tiers; a rerun would double the cost of a broken setup
+        # and hide it from the error path.
+        from openai import BadRequestError
+
+        tiers_used = []
+
+        def make_agent(llm):
+            tiers_used.append(llm.service_tier)
+
+            class Agent:
+                def invoke(self, state, config):
+                    raise _bad_request_error()
+
+            return Agent()
+
+        with pytest.raises(BadRequestError):
+            self._invoke(make_agent)
+
+        assert tiers_used == ["flex"]
+
+    def test_flex_success_runs_once(self):
+        tiers_used = []
+
+        def make_agent(llm):
+            tiers_used.append(llm.service_tier)
+
+            class Agent:
+                def invoke(self, state, config):
+                    return {"messages": [], "current_labels": {}}
+
+            return Agent()
+
+        self._invoke(make_agent)
+
+        assert tiers_used == ["flex"]
