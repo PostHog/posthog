@@ -10,6 +10,8 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test import override_settings
+
 from posthog.models.person.point_in_time_properties import DEFAULT_PROPERTY_ROW_LIMIT, build_person_properties_at_time
 
 
@@ -300,3 +302,24 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
 
         self.assertEqual(properties, {"before": "yes"})
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_scan_ignores_events_retention_floor(self):
+        # Ingestion applies every $set regardless of the plan's retention, so the rebuilt profile must too.
+        self.team.event_retention_months = 12
+        self.team.save()
+        distinct_id = "user-clickhouse-retention"
+        upper_bound = datetime.now(UTC)
+
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"plan": "legacy"}},
+            timestamp=upper_bound - timedelta(days=30 * 18),
+        )
+        flush_persons_and_events()
+
+        properties = build_person_properties_at_time(self.team, upper_bound, [distinct_id])
+
+        self.assertEqual(properties, {"plan": "legacy"})

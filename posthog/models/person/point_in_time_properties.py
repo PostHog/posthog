@@ -219,7 +219,12 @@ def build_person_properties_at_time(
         # row_limit is the only LIMIT this scan wants. The default context caps a top-level LIMIT at
         # MAX_SELECT_RETURNED_ROWS, which would silently truncate the default row_limit, and every
         # limit context with a larger cap also overrides max_execution_time.
-        context=HogQLContext(team_id=team.pk, limit_top_select=False),
+        #
+        # The scan must not stop at the plan's events retention floor. Ingestion applies every $set to the
+        # person profile regardless of retention, so a floored scan rebuilds a profile that never existed and
+        # drops every property set before the window. The scan reconstructs person state. It does not expose
+        # events past the floor.
+        context=HogQLContext(team_id=team.pk, limit_top_select=False, apply_events_retention_floor=False),
     )
 
     return _reconstruct_properties(response.results, include_set_once)
