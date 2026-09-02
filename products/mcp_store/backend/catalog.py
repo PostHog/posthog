@@ -319,7 +319,6 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
             "users:read",
             "search:read.users",
         ),
-        disabled=True,
     ),
     CatalogEntry(
         name="Sourcegraph",
