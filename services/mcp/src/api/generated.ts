@@ -31155,6 +31155,49 @@ export namespace Schemas {
       destinations: ErrorTrackingAlertDestinationRequest[];
     }
 
+    /**
+     * * `root` - root
+     * * `reply` - reply
+     * * `root_edit` - root_edit
+     */
+    export type ErrorTrackingAlertPreviewMessageKindEnum = typeof ErrorTrackingAlertPreviewMessageKindEnum[keyof typeof ErrorTrackingAlertPreviewMessageKindEnum];
+
+
+    export const ErrorTrackingAlertPreviewMessageKindEnum = {
+      Root: 'root',
+      Reply: 'reply',
+      RootEdit: 'root_edit',
+    } as const;
+
+    export type ErrorTrackingAlertPreviewMessageBlocksItem = { [key: string]: unknown };
+
+    export interface ErrorTrackingAlertPreviewMessage {
+      /** root opens the thread, reply posts into it, root_edit is the root after a status change.
+       *
+       * * `root` - root
+       * * `reply` - reply
+       * * `root_edit` - root_edit */
+      kind: ErrorTrackingAlertPreviewMessageKindEnum;
+      /** Lifecycle event the message is for. */
+      event: string;
+      /** Plain-text rendering of the message. */
+      text: string;
+      /**
+         * Slack Block Kit blocks for root messages.
+         * @nullable
+         */
+      blocks: ErrorTrackingAlertPreviewMessageBlocksItem[] | null;
+    }
+
+    export interface ErrorTrackingAlertPreview {
+      /**
+         * The recent issue the preview was rendered from, if the project has one.
+         * @nullable
+         */
+      issue_id: string | null;
+      messages: ErrorTrackingAlertPreviewMessage[];
+    }
+
     export interface ErrorTrackingAlertPutRequest {
       /**
          * Human-readable name of the alert.
@@ -94476,6 +94519,29 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type ErrorTrackingAlertsPreviewRetrieveParams = {
+    /**
+     * Trigger whose opener message roots the previewed thread.
+     *
+     * * `issue_created` - issue_created
+     * * `issue_reopened` - issue_reopened
+     * * `issue_spiking` - issue_spiking
+     * * `issue_assigned` - issue_assigned
+     * @minLength 1
+     */
+    trigger?: ErrorTrackingAlertsPreviewRetrieveTrigger;
+    };
+
+    export type ErrorTrackingAlertsPreviewRetrieveTrigger = typeof ErrorTrackingAlertsPreviewRetrieveTrigger[keyof typeof ErrorTrackingAlertsPreviewRetrieveTrigger];
+
+
+    export const ErrorTrackingAlertsPreviewRetrieveTrigger = {
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueSpiking: 'issue_spiking',
+      IssueAssigned: 'issue_assigned',
+    } as const;
 
     export type ErrorTrackingAssignmentRulesListParams = {
     /**

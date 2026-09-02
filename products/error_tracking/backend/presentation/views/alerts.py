@@ -1,7 +1,8 @@
 from typing import Any
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -174,6 +175,33 @@ class ErrorTrackingAlertPutRequestSerializer(ErrorTrackingAlertCreateRequestSeri
     )
 
 
+class ErrorTrackingAlertPreviewMessageSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=["root", "reply", "root_edit"],
+        help_text="root opens the thread, reply posts into it, root_edit is the root after a status change.",
+    )
+    event = serializers.CharField(help_text="Lifecycle event the message is for.")
+    text = serializers.CharField(help_text="Plain-text rendering of the message.")
+    blocks = serializers.ListField(
+        child=serializers.DictField(), allow_null=True, help_text="Slack Block Kit blocks for root messages."
+    )
+
+
+class ErrorTrackingAlertPreviewSerializer(serializers.Serializer):
+    issue_id = serializers.UUIDField(
+        allow_null=True, help_text="The recent issue the preview was rendered from, if the project has one."
+    )
+    messages = ErrorTrackingAlertPreviewMessageSerializer(many=True)
+
+
+class ErrorTrackingAlertPreviewParamsSerializer(serializers.Serializer):
+    trigger = serializers.ChoiceField(
+        choices=list(alerts_facade.ALERT_TRIGGERS),
+        default="issue_created",
+        help_text="Trigger whose opener message roots the previewed thread.",
+    )
+
+
 class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     serializer_class = ErrorTrackingAlertSerializer
@@ -251,3 +279,19 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if not alerts_facade.delete_alert(self.team.id, pk):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[ErrorTrackingAlertPreviewParamsSerializer],
+        responses={200: OpenApiResponse(response=ErrorTrackingAlertPreviewSerializer)},
+    )
+    @action(methods=["GET"], detail=False)
+    def preview(self, request: Request, *args, **kwargs) -> Response:
+        """The Slack thread an alert would open, rendered from the project's most recent issue."""
+        params = ErrorTrackingAlertPreviewParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        actor_email = request.user.email if isinstance(request.user, User) else None
+        try:
+            preview = alerts_facade.preview_alert_messages(self.team.id, params.validated_data["trigger"], actor_email)
+        except alerts_facade.AlertValidationError as err:
+            raise ValidationError(str(err)) from err
+        return Response(ErrorTrackingAlertPreviewSerializer(preview).data)
