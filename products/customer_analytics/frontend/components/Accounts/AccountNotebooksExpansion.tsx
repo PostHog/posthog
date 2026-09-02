@@ -28,13 +28,18 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { customerTasksLogic } from '../CustomerTasks/customerTasksLogic'
+import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
@@ -185,12 +190,15 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountConversationsLogic({ accountId }))
     useMountedLogic(accountEmailThreadsLogic({ accountId }))
     useMountedLogic(accountMeetingsLogic({ accountId }))
+    useMountedLogic(customerTasksLogic({ context: 'account', accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const activeTab = activeTabFor(accountId)
+    const canCreateTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Editor)
+    const canViewAllTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Viewer)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
@@ -312,6 +320,17 @@ export function AccountNotebooksExpansion({
                                             }
                                         />
                                     </div>
+                                ),
+                            },
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS] && {
+                                key: 'tasks' as const,
+                                label: 'Tasks',
+                                content: (
+                                    <CustomerTasksTabContent
+                                        accountId={accountId}
+                                        canCreate={canCreateTasks}
+                                        canViewAll={canViewAllTasks}
+                                    />
                                 ),
                             },
                             {

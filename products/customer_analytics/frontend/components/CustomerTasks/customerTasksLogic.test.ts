@@ -4,6 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     accountsList,
+    customerTasksCreate,
     customerTasksList,
     customerTasksPartialUpdate,
 } from 'products/customer_analytics/frontend/generated/api'
@@ -20,6 +21,7 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     customerTasksRestoreCreate: jest.fn(),
 }))
 
+const mockCreate = customerTasksCreate as jest.MockedFunction<typeof customerTasksCreate>
 const mockList = customerTasksList as jest.MockedFunction<typeof customerTasksList>
 const mockAccounts = accountsList as jest.MockedFunction<typeof accountsList>
 const mockUpdate = customerTasksPartialUpdate as jest.MockedFunction<typeof customerTasksPartialUpdate>
@@ -48,6 +50,7 @@ describe('customerTasksLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        mockCreate.mockResolvedValue(task())
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockAccounts.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockUpdate.mockResolvedValue(task())
@@ -73,6 +76,25 @@ describe('customerTasksLogic', () => {
                 offset: 0,
             })
         )
+    })
+
+    test('creates a task for the current account without exposing a different account', async () => {
+        logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openCreateModal()
+        logic.actions.setDraftName('Follow up')
+        logic.actions.submitModal()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockCreate).toHaveBeenCalledWith(expect.any(String), {
+            account_id: 'account-1',
+            name: 'Follow up',
+            description: null,
+            assigned_to_id: null,
+            due_at: null,
+        })
     })
 
     test('does not submit a no-op or a mutation for a task the user cannot edit', async () => {

@@ -5,6 +5,7 @@ import { AccountsEvents } from './constants'
 
 export type AccountExpansionTab =
     | 'notes'
+    | 'tasks'
     | 'users'
     | 'relationships'
     | 'feature_requests'
@@ -17,6 +18,7 @@ export type AccountExpansionTab =
 
 export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'notes',
+    'tasks',
     'users',
     'relationships',
     'feature_requests',

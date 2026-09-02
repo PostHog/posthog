@@ -743,6 +743,14 @@ describe('accountsLogic', () => {
             expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
         })
 
+        it('accepts the tasks tab from an account deep link', async () => {
+            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'tasks'))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const expansion = accountsExpansionLogic.findMounted()
+            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe('tasks')
+        })
+
         it('falls back to the default tab for an unknown tab', async () => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'bogus'))
             await expectLogic(logic).toFinishAllListeners()
