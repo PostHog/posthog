@@ -13,13 +13,34 @@ import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+
+const INSIGHT_AI_CONTEXT_DISMISS_GROUP = 'insight-scene'
+
+const INSIGHT_AI_INSTRUCTION: AttachedContextItem = {
+    type: 'instructions',
+    value:
+        'The insight context item identifies the saved insight open in the UI. When the user refers to ' +
+        '"this insight", modify that insight instead of creating a replacement. Matching tool changes are ' +
+        'reflected in the open page. The current query item, when present, is unsaved user state.',
+    hidden: true,
+    dismissGroup: INSIGHT_AI_CONTEXT_DISMISS_GROUP,
+}
 
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic)
 
     useAttachedContext(
         insight?.short_id && insight?.query
-            ? [{ type: 'insight', key: insight.short_id, label: insight.name || insight.derived_name || undefined }]
+            ? [
+                  {
+                      type: 'insight',
+                      key: insight.short_id,
+                      label: insight.name || insight.derived_name || undefined,
+                      dismissGroup: INSIGHT_AI_CONTEXT_DISMISS_GROUP,
+                  },
+                  INSIGHT_AI_INSTRUCTION,
+              ]
             : null
     )
 

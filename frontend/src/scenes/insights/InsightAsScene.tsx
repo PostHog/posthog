@@ -16,6 +16,7 @@ import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
+import { InsightAiSync } from './InsightAiSync'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
@@ -90,6 +91,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                     <InsightSceneHeader insightLogicProps={insightProps} />
                 )}
 
+                <InsightAiSync insightLogicProps={insightProps} />
                 <InsightRetentionBanner insightProps={insightProps} />
 
                 <SqlInsightFilters query={query} setQuery={setQuery}>
