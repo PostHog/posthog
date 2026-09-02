@@ -103,6 +103,19 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         )
         assert self.team.name == DummyMatrix.PRODUCT_NAME
 
+    def test_run_on_team_marks_persons_that_identified(self):
+        manager = MatrixManager(self.matrix)
+
+        manager.run_on_team(self.team, self.user)
+
+        assert (
+            sync_execute(
+                "SELECT countIf(is_identified = 1) FROM person WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )[0][0]
+            >= 3
+        )
+
     def test_run_on_team_using_pre_save(self):
         manager = MatrixManager(self.matrix, use_pre_save=True)
 

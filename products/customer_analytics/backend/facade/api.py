@@ -103,7 +103,12 @@ from products.customer_analytics.backend.logic import (
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
-from products.customer_analytics.backend.logic.account_filters import InvalidAccountFilter, apply_account_filters
+from products.customer_analytics.backend.logic.account_filters import (
+    InvalidAccountFilter,
+    account_search_q,
+    apply_account_filters,
+    parse_email_search,
+)
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
@@ -205,6 +210,32 @@ def _to_account_ref(row: dict) -> contracts.AccountRef:
     return contracts.AccountRef(id=str(row["id"]), name=row["name"], external_id=row["external_id"])
 
 
+def _list_account_search_member_external_ids(
+    team_id: int, query: str, user_access_control: "UserAccessControl"
+) -> tuple[str, ...]:
+    email = parse_email_search(query)
+    user = user_access_control.user
+    if email is None or not user.is_staff:
+        return ()
+
+    team = user_access_control.team
+    if team is None or team.id != team_id:
+        team = Team.objects.get(id=team_id)
+
+    from products.customer_analytics.backend.logic.account_member_search import (  # noqa: PLC0415  # Keeps HogQL off non-email account search imports.
+        list_account_external_ids_by_member_email,
+    )
+
+    return list_account_external_ids_by_member_email(team=team, user=user, email=email)
+
+
+def _get_account_search_q(team_id: int, query: str, user_access_control: "UserAccessControl") -> Q:
+    return account_search_q(
+        query,
+        member_external_ids=_list_account_search_member_external_ids(team_id, query, user_access_control),
+    )
+
+
 def _account_tags(account: Account) -> list[str]:
     return sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
 
@@ -266,14 +297,15 @@ def search_accounts(
     *,
     include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
-    """Accounts matching `query` by name or external id, access-filtered for the caller.
+    """Accounts matching `query` by name, external id, known email, or email domain,
+    access-filtered for the caller.
 
     Returns `(rows, total_count)` where `total_count` is the pre-limit match count.
     """
     queryset = _accounts_queryset(team_id, user_access_control)
     if not include_ignored:
         queryset = queryset.filter(ignored_at__isnull=True)
-    queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
+    queryset = queryset.filter(_get_account_search_q(team_id, query, user_access_control))
     total_count = queryset.count()
     rows = list(queryset.order_by("name")[:limit].values("id", "name", "external_id"))
     return [_to_account_ref(row) for row in rows], total_count
@@ -2811,15 +2843,27 @@ def _apply_account_table_filters(
     queryset: QuerySet[Account],
     *,
     team_id: int,
+    user_access_control: "UserAccessControl",
     filters: tuple[contracts.AccountTableFilter, ...],
     custom_property_display_types: dict[UUID, DisplayType],
 ) -> QuerySet[Account]:
+    member_external_ids_by_query: dict[str, tuple[str, ...]] = {}
+    for filter_ in filters:
+        if isinstance(filter_, contracts.AccountTableSearchFilter):
+            query = filter_.query.strip()
+            if parse_email_search(query) is not None:
+                member_external_ids_by_query[query] = _list_account_search_member_external_ids(
+                    team_id, query, user_access_control
+                )
+                break
+
     try:
         return apply_account_filters(
             queryset,
             team_id=team_id,
             filters=filters,
             custom_property_display_types=custom_property_display_types,
+            member_external_ids_by_query=member_external_ids_by_query,
         )
     except InvalidAccountFilter as error:
         raise InvalidAccountTableColumn(str(error)) from error
@@ -2962,6 +3006,7 @@ def query_accounts_metrics(
     accounts = _apply_account_table_filters(
         accounts,
         team_id=team_id,
+        user_access_control=user_access_control,
         filters=filters,
         custom_property_display_types=custom_property_display_types,
     )
@@ -3050,6 +3095,7 @@ def query_accounts_table(
     queryset = _apply_account_table_filters(
         queryset,
         team_id=team_id,
+        user_access_control=user_access_control,
         filters=filters,
         custom_property_display_types=custom_property_display_types,
     )
@@ -3191,7 +3237,7 @@ def list_accounts_for_view(
         queryset = queryset.filter(ignored_at__isnull=True)
 
     if search:
-        queryset = queryset.filter(Q(name__icontains=search) | Q(external_id__icontains=search))
+        queryset = queryset.filter(_get_account_search_q(team_id, search, user_access_control))
 
     if tags:
         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
