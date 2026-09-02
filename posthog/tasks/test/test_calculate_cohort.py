@@ -98,6 +98,6 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 created_by=self.user,
             )
 
-            calculate_cohorts()
+            calculate_cohorts(5)
 
     return TestCalculateCohort

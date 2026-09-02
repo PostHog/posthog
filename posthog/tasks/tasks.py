@@ -2,16 +2,16 @@ import time
 from typing import Optional
 from uuid import UUID
 
+import requests
 from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
-import requests
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
+from posthog.clickhouse.client.limit import CeleryConcurrencyLimitExceeded, limit_concurrency
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -581,10 +581,10 @@ def monitoring_check_clickhouse_schema_drift() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
-def calculate_cohort() -> None:
+def calculate_cohort(parallel_count: int) -> None:
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts()
+    calculate_cohorts(parallel_count)
 
 
 class Polling:
