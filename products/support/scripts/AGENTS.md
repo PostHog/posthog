@@ -16,12 +16,12 @@ Don't re-export through `lib/__init__.py` - a `from .` re-export there trips the
 ```python
 from lib.errors import PostHogScriptError            # the one error type; raise for any expected, operator-facing failure
 from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
-from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
+from lib.posthog_api import build_session, request_with_retries, resolve_host
 ```
 
 - `lib.errors` - `PostHogScriptError`.
 - `lib.console` - `log` (stderr output), `printable` (escape untrusted text), `confirm` (typed-keyword prompt, EOF-safe), `format_status_counts` (status histogram), `set_log_file`/`close_log_file` (stream every `log()` line to a file too, in addition to stderr - see Output below).
-- `lib.posthog_api` - `resolve_host`, `request_with_retries` (every HTTP call), `setup_session_auth` (browser-session/impersonation auth), `log_session_expiry` (logs the impersonated session's remaining idle-timeout time; no-op for personal-API-key auth), plus `MAX_RETRIES`.
+- `lib.posthog_api` - `resolve_host`, `request_with_retries` (every HTTP call), `build_session` (auth per the standard `--personal-api-key`/`--session-id` flags), `setup_session_auth` (the browser-session half of `build_session`, for a script that needs bespoke auth flow), `log_session_expiry` (logs the impersonated session's remaining idle-timeout time; no-op for personal-API-key auth), plus `MAX_RETRIES`.
 
 Never re-implement retries, host resolution, auth, output, or the error type inside a script.
 If a second script needs a new shared helper, add it to `lib/` (`errors` / `console` / `posthog_api`) instead of copying it.
@@ -32,9 +32,6 @@ Route every request through `request_with_retries(session, method, url, ...)`.
 It already retries 429 (with defensive Retry-After parsing) and 5xx with backoff.
 Do not call `session.request` or `requests.get` directly.
 
-Build one `requests.Session`.
-For a personal API key set `session.headers["Authorization"] = f"Bearer {key}"`; for a browser session call `setup_session_auth(session, host, session_id)`.
-
 Paginate defensively: honor the `next` URL for list APIs, and use keyset pagination (not `OFFSET`) for query-API scans, the way `find_affected_persons_hogql` does.
 
 ## Auth
@@ -44,8 +41,8 @@ Support both credentials, like the reference scripts:
 - `--personal-api-key` / `POSTHOG_PERSONAL_API_KEY` (sent as a Bearer token).
 - `--session-id` / `POSTHOG_SESSION_ID`, the browser `sessionid` cookie, for impersonated staff sessions.
 
-`setup_session_auth` handles the CSRF token, the HTTPS-only host-scoped cookie, and the mandatory acting-user confirmation.
-Just call it; don't set the cookie yourself.
+Build the session with `build_session(args)` - it branches on `args.personal_api_key` vs. `args.session_id` and, for the browser-session path, calls `setup_session_auth` (CSRF token, HTTPS-only host-scoped cookie, mandatory acting-user confirmation).
+Just call it; don't set the cookie or the `Authorization` header yourself.
 
 ## Output
 

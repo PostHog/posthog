@@ -9,6 +9,7 @@ timer is resetting as expected.
 """
 
 import time
+import argparse
 import itertools
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -145,6 +146,16 @@ def setup_session_auth(session: requests.Session, host: str, session_id: str) ->
         raise PostHogScriptError("Could not determine the session's authenticated user")
     confirm_acting_user(email)
     log(f"Authenticated via session as {email}")
+
+
+def build_session(args: argparse.Namespace) -> requests.Session:
+    """Build a Session authenticated per the standard --personal-api-key/--session-id flags."""
+    session = requests.Session()
+    if args.personal_api_key:
+        session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
+    else:
+        setup_session_auth(session, args.host, args.session_id)
+    return session
 
 
 def get_session_expiry(session: requests.Session, host: str) -> Optional[datetime]:

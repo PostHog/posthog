@@ -53,7 +53,7 @@ from urllib.parse import urlencode
 import requests
 from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
 from lib.errors import PostHogScriptError
-from lib.posthog_api import log_session_expiry, request_with_retries, resolve_host, setup_session_auth
+from lib.posthog_api import build_session, log_session_expiry, request_with_retries, resolve_host
 
 
 def iter_property_definitions(
@@ -249,15 +249,10 @@ def main() -> int:
         close_log_file()
 
 
-def run(args: argparse.Namespace) -> int:
-    names = sorted(set(args.names))
-
-    session = requests.Session()
-    if args.personal_api_key:
-        session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
-    else:
-        setup_session_auth(session, args.host, args.session_id)
-
+def discover_matches(
+    session: requests.Session, args: argparse.Namespace, names: list[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Scan for matching definitions, log a summary, and write the --output findings report."""
     match_desc = f"regex /{args.regex}/" if args.regex else f"{len(names)} name(s)"
     log(f"Scanning {args.prop_type} property definitions in project {args.project_id} matching {match_desc}")
     definitions = list(
@@ -299,10 +294,10 @@ def run(args: argparse.Namespace) -> int:
             )
         log(f"Wrote report to {findings_path}")
 
-    if not matched:
-        log("Nothing to prune.")
-        return 0
+    return matched, not_found
 
+
+def log_preview(matched: list[dict[str, Any]]) -> None:
     preview = matched[:10]
     log("")
     log("Sample of definitions that would be pruned:")
@@ -320,22 +315,24 @@ def run(args: argparse.Namespace) -> int:
         "Data Management > Properties, not event-property mappings or the ClickHouse mirror."
     )
 
-    if args.dry_run:
-        log("")
-        log("DRY RUN: no changes made.")
-        return 0
 
-    if not args.yes:
-        prompt = (
-            f"\nAbout to permanently delete {len(matched)} {args.prop_type} property definitions "
-            f"from project {args.project_id}. Type 'prune' to continue: "
-        )
-        if not confirm(
-            prompt, "prune", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
-        ):
-            log("Aborted.")
-            return 1
+def confirm_prune(args: argparse.Namespace, matched: list[dict[str, Any]]) -> bool:
+    """Prompt to confirm the prune (unless --yes); return whether to proceed."""
+    if args.yes:
+        return True
+    prompt = (
+        f"\nAbout to permanently delete {len(matched)} {args.prop_type} property definitions "
+        f"from project {args.project_id}. Type 'prune' to continue: "
+    )
+    if confirm(
+        prompt, "prune", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
+    ):
+        return True
+    log("Aborted.")
+    return False
 
+
+def execute_prune(session: requests.Session, args: argparse.Namespace, matched: list[dict[str, Any]]) -> int:
     status_counts, failures = prune_definitions(session, args.host, args.project_id, matched, args.batch_size)
     deleted = sum(n for code, n in status_counts.items() if code.isdigit() and 200 <= int(code) < 300)
     log("")
@@ -350,6 +347,28 @@ def run(args: argparse.Namespace) -> int:
         log(f"  {len(failures)} failure(s) - see the FAILED lines above for details")
         return 1
     return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    names = sorted(set(args.names))
+    session = build_session(args)
+    matched, _not_found = discover_matches(session, args, names)
+
+    if not matched:
+        log("Nothing to prune.")
+        return 0
+
+    log_preview(matched)
+
+    if args.dry_run:
+        log("")
+        log("DRY RUN: no changes made.")
+        return 0
+
+    if not confirm_prune(args, matched):
+        return 1
+
+    return execute_prune(session, args, matched)
 
 
 if __name__ == "__main__":

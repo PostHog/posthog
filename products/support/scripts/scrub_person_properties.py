@@ -55,12 +55,12 @@ import requests
 from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
 from lib.errors import PostHogScriptError
 from lib.posthog_api import (
+    build_session,
     hogql_string_literal,
     log_session_expiry,
     request_with_retries,
     resolve_host,
     run_hogql_query,
-    setup_session_auth,
 )
 
 # api mode deletes the properties for one person per request (all matched properties in one $unset list);
@@ -345,15 +345,10 @@ def main() -> int:
         close_log_file()
 
 
-def run(args: argparse.Namespace) -> int:
-    properties = sorted(set(args.properties))
-
-    session = requests.Session()
-    if args.personal_api_key:
-        session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
-    else:
-        setup_session_auth(session, args.host, args.session_id)
-
+def discover_affected(
+    session: requests.Session, args: argparse.Namespace, properties: list[str]
+) -> list[dict[str, Any]]:
+    """Scan for affected persons, log a summary, and write the --output findings report."""
     log(f"Finding persons in project {args.project_id} with any of: {', '.join(properties)}")
     affected_by_uuid = find_affected_persons(session, args.host, args.project_id, properties, args.page_size)
     affected = sorted(affected_by_uuid.values(), key=lambda p: p["uuid"])
@@ -370,12 +365,10 @@ def run(args: argparse.Namespace) -> int:
             json.dump({"properties": properties, "affected_persons": affected}, f, indent=2)
         log(f"Wrote report to {findings_path}")
 
-    if not affected:
-        log("Nothing to scrub.")
-        return 0
+    return affected
 
-    pair_count = sum(len(p["matched_properties"]) for p in affected)
 
+def log_preview(affected: list[dict[str, Any]]) -> None:
     preview = affected[:10]
     log("")
     log("Sample of affected persons:")
@@ -385,47 +378,75 @@ def run(args: argparse.Namespace) -> int:
     if len(affected) > len(preview):
         log(f"  ... and {len(affected) - len(preview)} more (use --output to save the full list)")
 
-    if args.dry_run:
-        log("")
-        log("DRY RUN: no changes made.")
-        return 0
 
-    if not args.yes:
-        prompt = (
-            f"\nAbout to permanently scrub {pair_count} property values "
-            f"from {len(affected)} persons via {args.mode} mode. Type 'scrub' to continue: "
-        )
-        if not confirm(
-            prompt, "scrub", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
-        ):
-            log("Aborted.")
-            return 1
+def confirm_scrub(args: argparse.Namespace, affected: list[dict[str, Any]], pair_count: int) -> bool:
+    """Prompt to confirm the scrub (unless --yes); return whether to proceed."""
+    if args.yes:
+        return True
+    prompt = (
+        f"\nAbout to permanently scrub {pair_count} property values "
+        f"from {len(affected)} persons via {args.mode} mode. Type 'scrub' to continue: "
+    )
+    if confirm(
+        prompt, "scrub", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
+    ):
+        return True
+    log("Aborted.")
+    return False
 
+
+def execute_scrub(
+    session: requests.Session, args: argparse.Namespace, affected: list[dict[str, Any]], pair_count: int
+) -> int:
     if args.mode == "events":
         sent, request_count = scrub_via_events(args.host, args.project_api_key, affected, args.batch_size)
         log("")
         log(f"Done: sent {sent} scrub events in {request_count} batch requests.")
         log("Ingestion is asynchronous - properties disappear once the events are processed.")
-    else:
-        status_counts, failures, values_deleted = scrub_via_api(session, args.host, args.project_id, affected)
-        log("")
+        return 0
+
+    status_counts, failures, values_deleted = scrub_via_api(session, args.host, args.project_id, affected)
+    log("")
+    log(
+        f"Done: {values_deleted}/{pair_count} property values deleted "
+        f"({len(affected)} requests). Status breakdown: {format_status_counts(status_counts)}"
+    )
+    forbidden = status_counts.get("403", 0)
+    if forbidden:
+        log(f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - likely a read-only key.")
+    bad_request = status_counts.get("400", 0)
+    if bad_request:
         log(
-            f"Done: {values_deleted}/{pair_count} property values deleted "
-            f"({len(affected)} requests). Status breakdown: {format_status_counts(status_counts)}"
+            f"  {bad_request} rejected (HTTP 400): often field-level access control on one of the "
+            "properties - a request naming any restricted property fails as a whole."
         )
-        forbidden = status_counts.get("403", 0)
-        if forbidden:
-            log(f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - likely a read-only key.")
-        bad_request = status_counts.get("400", 0)
-        if bad_request:
-            log(
-                f"  {bad_request} rejected (HTTP 400): often field-level access control on one of the "
-                "properties - a request naming any restricted property fails as a whole."
-            )
-        if failures:
-            log(f"  {len(failures)} failure(s) - see the FAILED lines above for details")
-            return 1
+    if failures:
+        log(f"  {len(failures)} failure(s) - see the FAILED lines above for details")
+        return 1
     return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    properties = sorted(set(args.properties))
+    session = build_session(args)
+    affected = discover_affected(session, args, properties)
+
+    if not affected:
+        log("Nothing to scrub.")
+        return 0
+
+    pair_count = sum(len(p["matched_properties"]) for p in affected)
+    log_preview(affected)
+
+    if args.dry_run:
+        log("")
+        log("DRY RUN: no changes made.")
+        return 0
+
+    if not confirm_scrub(args, affected, pair_count):
+        return 1
+
+    return execute_scrub(session, args, affected, pair_count)
 
 
 if __name__ == "__main__":
