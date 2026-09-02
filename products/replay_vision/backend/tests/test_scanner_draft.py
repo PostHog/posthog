@@ -941,9 +941,9 @@ class TestDraftV2(_VisionAPITestCase):
         assert draft.estimated_monthly_observations == 300
 
     def test_the_model_and_credit_cap_reach_the_draft(self):
-        draft = self._run(pages=("/billing",), generate=_draft_v2(model="gemini-3.7-flash"))
+        draft = self._run(pages=("/billing",), generate=_draft_v2(model="gemini-3.8-flash"))
 
-        assert draft.model == "gemini-3.7-flash"
+        assert draft.model == "gemini-3.8-flash"
         assert draft.credit_limit == 10_000
 
 
@@ -968,7 +968,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
             sampling_mode="comprehensive",
             sampling_rate=0.25,
             estimated_monthly_observations=1_000,
-            model="gemini-3.7-flash",
+            model="gemini-3.8-flash",
             credit_limit=5_000,
         )
 
@@ -988,7 +988,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         body = resp.json()
         assert body["sampling_mode"] == "comprehensive"
         assert body["sampling_rate"] == 0.25
-        assert body["model"] == "gemini-3.7-flash"
+        assert body["model"] == "gemini-3.8-flash"
         assert body["credit_limit"] == 5000
         assert body["estimated_monthly_observations"] == 1000
 

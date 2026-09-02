@@ -241,13 +241,13 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 2,
     [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
-    [ScannerModelEnumApi.Gemini37Flash]: 15,
+    [ScannerModelEnumApi.Gemini38Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
     [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
-    [ScannerModelEnumApi.Gemini37Flash]: 'Gemini 3.7 Flash',
+    [ScannerModelEnumApi.Gemini38Flash]: 'Gemini 3.8 Flash',
 }
 
 // Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
@@ -259,12 +259,12 @@ const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, s
     test: {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
-        [ScannerModelEnumApi.Gemini37Flash]: 'Ultra',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Ultra',
     },
     'lite-standard-pro': {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
-        [ScannerModelEnumApi.Gemini37Flash]: 'Pro',
+        [ScannerModelEnumApi.Gemini38Flash]: 'Pro',
     },
 }
 

@@ -51,8 +51,7 @@ from ee.hogai.utils.untrusted import as_untrusted_data
 logger = structlog.get_logger(__name__)
 
 # Interactive request path, but drafting a whole scanner well needs more model than the tag helper.
-# The stable flash tier: gemini-3.6-flash is retired in billing.py's lineup.
-_DRAFT_MODEL = "gemini-3.7-flash"
+_DRAFT_MODEL = "gemini-3.8-flash"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_NAME_LENGTH = 255  # ReplayScanner.name column length
 _MAX_DESCRIPTION_LENGTH = 1_000
@@ -667,11 +666,11 @@ class _LlmDraftV2(BaseModel):
         default="comprehensive",
         description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
     )
-    model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"] = Field(
+    model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"] = Field(
         default="gemini-3-flash-preview",
         description="The model that watches each recording. Pick by how much judgment the goal needs: "
         "'gemini-3.5-flash-lite' (cheapest, 2 credits) for a simple yes/no check, 'gemini-3-flash-preview' "
-        "(balanced, 5 credits) for an everyday scanner, 'gemini-3.7-flash' (most capable, 15 credits) for "
+        "(balanced, 5 credits) for an everyday scanner, 'gemini-3.8-flash' (most capable, 15 credits) for "
         "nuanced scoring, summarizing, or subtle judgment. A pricier model watches fewer recordings for the "
         "same budget, so only step up when the goal truly needs the extra judgment.",
     )
@@ -742,7 +741,7 @@ Pick the single type that best fits the goal, then draft the scanner:
     from the recording ("did the user reach the confirmation page?").
   - gemini-3-flash-preview (balanced): the default. Most everyday monitors and classifiers, where the
     judgment is moderate.
-  - gemini-3.7-flash (most capable): scoring intensity, summarizing, or any goal needing subtle reading
+  - gemini-3.8-flash (most capable): scoring intensity, summarizing, or any goal needing subtle reading
     of intent, emotion, or a hard multi-step judgment.
 - rationale: one or two sentences, addressed to the user, explaining why the chosen type, model, and
   settings fit their goal (e.g. why a scorer on the capable model, or which pages the filter covers and
