@@ -187,15 +187,15 @@ describe('getIssueReplayDateRange', () => {
     it('pads a single-occurrence issue so the window is not zero width', () => {
         const seenAt = '2024-01-01T12:00:00.000Z'
         const range = getIssueReplayDateRange(seenAt, dayjs(seenAt))
-        expect(range.date_from).toEqual('2024-01-01T11:00:00.000Z')
+        expect(range.date_from).toEqual('2023-12-31T12:00:00.000Z')
         expect(range.date_to).toEqual('2024-01-01T13:00:00.000Z')
     })
 
-    it('extends date_from before first_seen to catch sessions that started earlier', () => {
+    it('extends date_from a full day before first_seen to catch sessions that started earlier', () => {
         const firstSeen = '2024-01-01T12:00:00.000Z'
         const lastSeen = dayjs('2024-01-02T12:00:00.000Z')
         const range = getIssueReplayDateRange(firstSeen, lastSeen)
-        expect(range.date_from).toEqual('2024-01-01T11:00:00.000Z')
+        expect(range.date_from).toEqual('2023-12-31T12:00:00.000Z')
         expect(range.date_to).toEqual('2024-01-02T13:00:00.000Z')
     })
 
@@ -225,13 +225,13 @@ describe('getIssueReplayDateRange', () => {
     // metrics error-spike overlay, and it used to crash the issue scene render.
     it('anchors on last_seen when first_seen is missing', () => {
         const range = getIssueReplayDateRange(null, dayjs('2024-01-02T12:00:00.000Z'))
-        expect(range.date_from).toEqual('2024-01-02T11:00:00.000Z')
+        expect(range.date_from).toEqual('2024-01-01T12:00:00.000Z')
         expect(range.date_to).toEqual('2024-01-02T13:00:00.000Z')
     })
 
     it('anchors on the selected event when first_seen and last_seen are missing', () => {
         const range = getIssueReplayDateRange(null, null, '2024-04-01T12:00:00.000Z')
-        expect(range.date_from).toEqual('2024-04-01T11:00:00.000Z')
+        expect(range.date_from).toEqual('2024-03-31T12:00:00.000Z')
         expect(range.date_to).toEqual('2024-04-01T13:00:00.000Z')
         expect(() => getIssueReplayDateRange(null, null)).not.toThrow()
     })
