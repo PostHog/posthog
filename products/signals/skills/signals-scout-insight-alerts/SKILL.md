@@ -1,9 +1,8 @@
 ---
 name: signals-scout-insight-alerts
 description: >
-  Signals scout over a project's own configured insight alerts. Reads each alert's recent
-  firing history and files a report for the firings a human likely missed — especially ones
-  the standard notification path stayed silent on.
+  Signals scout over the project's configured insight alerts. Reads each alert's recent firing
+  history and surfaces the firings a human likely missed.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the alert tools (alerts-list,

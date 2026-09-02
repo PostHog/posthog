@@ -163,6 +163,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
+    "RealTimeUsage": {"product": Product.BILLING, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -298,6 +299,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
+            | NodeKind.MCP_MISSING_CAPABILITIES_QUERY
         ):
             return {"product": Product.MCP_ANALYTICS}
         case (
@@ -450,6 +452,10 @@ class QueryTags(BaseModel):
     # True on precompute READ queries served from expired-within-grace jobs (serve-stale path),
     # so query_log can compare stale-served vs fresh reads without joining Prometheus.
     precompute_stale: Optional[bool] = None
+    # Why a web analytics read skipped precompute: the `LazyPrecomputeIneligible` subclass name its
+    # gate refused it with. A live read is otherwise indistinguishable from a precompute miss.
+    # Web-only, so it carries the product prefix the shared fields above do not need.
+    web_analytics_precompute_ineligible_reason: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays

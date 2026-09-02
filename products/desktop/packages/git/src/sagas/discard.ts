@@ -2,12 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { GitSaga, type GitSagaInput } from "../git-saga";
 
-export type GitFileStatus =
-  | "modified"
-  | "added"
-  | "deleted"
-  | "renamed"
-  | "untracked";
+type GitFileStatus = "modified" | "added" | "deleted" | "renamed" | "untracked";
 
 export interface DiscardFileChangesInput extends GitSagaInput {
   filePath: string;

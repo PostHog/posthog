@@ -1,13 +1,14 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 LEGACY_URL = "https://legacy.example.com/.well-known/oauth-client-metadata"
 MOVED_URL = "https://moved.example.com/.well-known/oauth-client-metadata"
 STRAY_URL = "https://stray.example.com/.well-known/oauth-client-metadata"
 
 
-class BackfillCimdClientIdMigrationTest(TestMigrations):
+# The latest migration creates an index concurrently, so teardown must not run inside a transaction.
+class BackfillCimdClientIdMigrationTest(NonAtomicTestMigrations):
     migrate_from = "1323_proxyrecord_root_redirect_url"
     migrate_to = "1324_backfill_cimd_client_id"
 

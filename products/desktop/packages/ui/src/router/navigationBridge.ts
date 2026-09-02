@@ -60,6 +60,10 @@ export function navigateToFeed(feedId: string): void {
   });
 }
 
+export function navigateToFeeds(): void {
+  void getRouterOrNull()?.navigate({ to: "/feeds" });
+}
+
 export function navigateToChannel(channelId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/spaces/$channelId",
@@ -142,10 +146,28 @@ export function navigateToInboxPullRequestDetail(reportId: string): void {
   });
 }
 
-export function navigateToInboxReportDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
+export function navigateToInboxReportDetail(
+  reportId: string,
+  options?: { returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+
+  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
+  if (inboxTriageOrigin) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin,
+    });
+  }
+
+  void router.navigate({
     to: "/inbox/reports/$reportId",
     params: { reportId },
+    state: inboxTriageOrigin
+      ? (previous) => ({ ...previous, inboxTriageOrigin })
+      : undefined,
   });
 }
 
@@ -223,14 +245,6 @@ export function navigateToContext(path?: string): void {
   });
 }
 
-export function navigateToSkills(): void {
-  void getRouterOrNull()?.navigate({ to: "/skills" });
-}
-
-export function navigateToMcpServers(): void {
-  void getRouterOrNull()?.navigate({ to: "/mcp-servers" });
-}
-
 // The spaces index, where the project's spaces are listed.
 export function navigateToSpaces(): void {
   void getRouterOrNull()?.navigate({ to: "/spaces" });
@@ -292,10 +306,6 @@ export function goForwardInHistory(): void {
 // `useRouterState` hook from `@tanstack/react-router`.
 export function getCurrentMatches() {
   return getRouterOrNull()?.state.matches ?? [];
-}
-
-export function getCurrentLocation() {
-  return getRouterOrNull()?.state.location ?? null;
 }
 
 export function subscribeToRouterResolved(handler: () => void): () => void {

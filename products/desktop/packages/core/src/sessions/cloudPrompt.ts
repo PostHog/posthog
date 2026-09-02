@@ -130,7 +130,7 @@ export function getCloudPromptTransport(
   };
 }
 
-export function cloudPromptToBlocks(prompt: QueuedCloudPrompt): ContentBlock[] {
+function cloudPromptToBlocks(prompt: QueuedCloudPrompt): ContentBlock[] {
   if (typeof prompt !== "string") {
     return prompt;
   }

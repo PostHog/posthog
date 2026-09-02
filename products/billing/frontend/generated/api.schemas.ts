@@ -43,9 +43,7 @@ export interface BillingOverviewResponseApi {
     startup_program_label?: string | null
     /** @nullable */
     startup_program_label_previous?: string | null
-    /** @nullable */
     stripe_portal_url?: string | null
-    /** @nullable */
     external_billing_provider_invoices_url?: string | null
     /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
     products?: BillingOverviewResponseApiProductsItem[]

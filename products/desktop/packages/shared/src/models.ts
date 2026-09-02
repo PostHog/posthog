@@ -1,3 +1,5 @@
+import type { Adapter } from "./adapter";
+
 /**
  * Returns the id unless it's a premium family (currently Fable) that must be
  * an explicit per-task pick and never the implicit default for a new task.
@@ -15,7 +17,7 @@ export function defaultEligibleModel(
  * adapters mark models the caller's org can't use so pickers render them
  * locked behind an upgrade gate instead of omitting them.
  */
-export const RESTRICTED_MODEL_META_KEY = "posthog.code/restrictedModel";
+const RESTRICTED_MODEL_META_KEY = "posthog.code/restrictedModel";
 
 export function restrictedModelMeta(): Record<string, unknown> {
   return { [RESTRICTED_MODEL_META_KEY]: true };
@@ -50,4 +52,22 @@ export function selectOptionDocsUrl(
 ): string | undefined {
   const url = meta?.[OPTION_DOCS_URL_META_KEY];
   return typeof url === "string" ? url : undefined;
+}
+
+/**
+ * ACP SessionConfigSelectOption `_meta` key naming the harness a model runs
+ * on, so a picker offering models across harnesses can switch to the right
+ * one when a cross-harness model is chosen.
+ */
+const MODEL_HARNESS_META_KEY = "posthog.code/modelHarness";
+
+export function modelHarnessMeta(adapter: Adapter): Record<string, unknown> {
+  return { [MODEL_HARNESS_META_KEY]: adapter };
+}
+
+export function selectOptionHarness(
+  meta: Record<string, unknown> | null | undefined,
+): Adapter | undefined {
+  const harness = meta?.[MODEL_HARNESS_META_KEY];
+  return harness === "claude" || harness === "codex" ? harness : undefined;
 }

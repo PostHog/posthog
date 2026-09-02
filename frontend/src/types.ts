@@ -90,7 +90,7 @@ import type { ExperimentFeatureFlagInputApi } from 'products/experiments/fronten
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -843,9 +843,13 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /** Plan-derived events data retention window in months (synced from billing). */
+    /**
+     * Plan-derived events data retention window in months (synced from billing). Read-only: it follows the plan's
+     * data retention entitlement, so support cannot change it outside the enterprise plan.
+     * See https://github.com/PostHog/posthog/issues/17031
+     */
     event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only. */
     events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
@@ -1180,6 +1184,8 @@ export enum PropertyFilterType {
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    /** Customer analytics account relationship — the key is the relationship definition id */
+    AccountRelationship = 'account_relationship',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -1217,6 +1223,11 @@ export interface EventMetadataPropertyFilter extends BasePropertyFilter {
 
 export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.RevenueAnalytics
+    operator: PropertyOperator
+}
+
+export interface AccountRelationshipPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.AccountRelationship
     operator: PropertyOperator
 }
 
@@ -4788,6 +4799,15 @@ export type HotKey =
     | 'x'
     | 'y'
     | 'z'
+    | '1'
+    | '2'
+    | '3'
+    | '4'
+    | '5'
+    | '6'
+    | '7'
+    | '8'
+    | '9'
     | 'escape'
     | 'enter'
     | 'space'
@@ -4862,6 +4882,7 @@ export enum PropertyDefinitionType {
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
     Account = 'account',
+    AccountRelationship = 'account_relationship',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
@@ -5509,6 +5530,7 @@ export interface SubscriptionType {
     integration_id?: number | null
     prompt?: string | null
     ai_prompt_config?: AIPromptConfigApi | null
+    delivery_config?: DeliveryConfigApi
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5646,6 +5668,7 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    files_write_requestable?: IntegrationConfigApi['files_write_requestable']
     /** GitHub only. When false, disconnecting also uninstalls the App from GitHub. */
     installation_shared?: IntegrationConfigApi['installation_shared']
     /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
@@ -7293,6 +7316,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_model'
         | 'task_repository'
         | 'task_mcp_installations'
+        | 'signals_scout'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -7353,7 +7377,7 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]

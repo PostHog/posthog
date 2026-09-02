@@ -152,6 +152,12 @@ class TestExecuteGraphql:
         with pytest.raises(NewRelicRetryableError):
             self._execute(self._response(body=body))
 
+    def test_malformed_json_body_is_retryable(self) -> None:
+        response = self._response()
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Unterminated string", "", 0)
+        with pytest.raises(NewRelicRetryableError):
+            self._execute(response)
+
     def test_returns_data_on_success(self) -> None:
         body = {"data": {"actor": {"account": {"id": ACCOUNT_ID}}}}
         assert self._execute(self._response(body=body)) == body["data"]

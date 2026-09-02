@@ -5,7 +5,6 @@ import {
 } from "@posthog/core/inbox/inboxQuery";
 import type {
   AvailableSuggestedReviewersResponse,
-  SignalProcessingStateResponse,
   SignalReport,
   SignalReportArtefactsResponse,
   SignalReportSignalsResponse,
@@ -159,19 +158,6 @@ export function useInboxAvailableSuggestedReviewers(options?: {
   return query;
 }
 
-export function useInboxSignalProcessingState(options?: {
-  enabled?: boolean;
-  refetchInterval?: number | false | (() => number | false | undefined);
-  refetchIntervalInBackground?: boolean;
-  staleTime?: number;
-}) {
-  return useAuthenticatedQuery<SignalProcessingStateResponse>(
-    reportKeys.signalProcessingState,
-    (client) => client.getSignalProcessingState(),
-    options,
-  );
-}
-
 export function useInboxReportById(
   reportId: string | null,
   options?: {
@@ -240,7 +226,6 @@ export function useInboxReportSignals(
 }
 
 interface UpdateSuggestedReviewersVariables {
-  artefactId: string;
   /** Reviewer list sent to the server (it appends a new suggested_reviewers status row). */
   content: SuggestedReviewerWriteEntry[];
   /** Read-shape list used to optimistically show the new current reviewers. */
@@ -262,8 +247,7 @@ export function useUpdateSuggestedReviewers(reportId: string) {
     Error,
     UpdateSuggestedReviewersVariables
   >(
-    (client, { artefactId, content }) =>
-      client.updateSignalReportArtefact(reportId, artefactId, content),
+    (client, { content }) => client.setSignalReportReviewers(reportId, content),
     {
       onMutate: async ({ optimisticReviewers }) => {
         await queryClient.cancelQueries({ queryKey });

@@ -79,7 +79,6 @@ export function PullRequestCardView({
                 <ConventionalCommitScopeTag
                   type={conventionalTitle.type}
                   scope={conventionalTitle.scope}
-                  compact
                 />
               )
             }

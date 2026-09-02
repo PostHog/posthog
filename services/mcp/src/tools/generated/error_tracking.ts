@@ -13,6 +13,8 @@ import {
     ErrorTrackingGroupingRulesCreateBody,
     ErrorTrackingGroupingRulesUpdateBody,
     ErrorTrackingGroupingRulesUpdateParams,
+    ErrorTrackingIssuesAssignPartialUpdateBody,
+    ErrorTrackingIssuesAssignPartialUpdateParams,
     ErrorTrackingIssuesMergeCreateBody,
     ErrorTrackingIssuesMergeCreateParams,
     ErrorTrackingIssuesPartialUpdateBody,
@@ -250,6 +252,31 @@ const errorTrackingGroupingRulesUpdate = (): ToolBase<typeof ErrorTrackingGroupi
         const result = await context.api.request<unknown>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingIssuesAssignPartialUpdateSchema = ErrorTrackingIssuesAssignPartialUpdateParams.omit({
+    project_id: true,
+}).extend(ErrorTrackingIssuesAssignPartialUpdateBody.shape)
+
+const errorTrackingIssuesAssignPartialUpdate = (): ToolBase<
+    typeof ErrorTrackingIssuesAssignPartialUpdateSchema,
+    Schemas.ErrorTrackingIssueAssignResponse
+> => ({
+    name: 'error-tracking-issues-assign-partial-update',
+    schema: ErrorTrackingIssuesAssignPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesAssignPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.assignee !== undefined) {
+            body['assignee'] = params.assignee
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingIssueAssignResponse>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/assign/`,
             body,
         })
         return result
@@ -851,6 +878,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
     'error-tracking-grouping-rules-update': errorTrackingGroupingRulesUpdate,
+    'error-tracking-issues-assign-partial-update': errorTrackingIssuesAssignPartialUpdate,
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
