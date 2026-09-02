@@ -20,6 +20,7 @@ import contextvars
 from concurrent.futures import ThreadPoolExecutor
 
 from opentelemetry import trace
+from opentelemetry.trace import Span
 
 from posthog.schema import HogQLQueryResponse
 
@@ -51,11 +52,17 @@ MAX_SERVICES = 500
 DEFAULT_LOOKBACK = dt.timedelta(days=1)
 
 
-def _root_timing_seconds(response: HogQLQueryResponse) -> float | None:
-    for timing in response.timings or ():
-        if timing.k == ".":
-            return timing.t
-    return None
+def _set_query_timing_attributes(span: Span, response: HogQLQueryResponse) -> None:
+    """Split the HogQL root timing from the ClickHouse read.
+
+    `.` is the whole lifecycle (parse, resolve, print, execute), so a slow overview
+    trace needs `./clickhouse_execute` to tell a slow read from slow query building.
+    """
+    timings = {timing.k: timing.t for timing in response.timings or ()}
+    if (query_seconds := timings.get(".")) is not None:
+        span.set_attribute("query.seconds", query_seconds)
+    if (clickhouse_seconds := timings.get("./clickhouse_execute")) is not None:
+        span.set_attribute("clickhouse.seconds", clickhouse_seconds)
 
 
 @frozen
@@ -106,9 +113,7 @@ class MetricsOverviewQueryRunner:
                 workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
                 settings=_QUERY_SETTINGS,
             )
-            clickhouse_seconds = _root_timing_seconds(response)
-            if clickhouse_seconds is not None:
-                span.set_attribute("clickhouse.seconds", clickhouse_seconds)
+            _set_query_timing_attributes(span, response)
             if not response.results:
                 return _OverviewTotals(last_seen=None, metric_names=0, series=0)
             last_seen, metric_names, series = response.results[0]
@@ -145,9 +150,7 @@ class MetricsOverviewQueryRunner:
                 workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
                 settings=_QUERY_SETTINGS,
             )
-            clickhouse_seconds = _root_timing_seconds(response)
-            if clickhouse_seconds is not None:
-                span.set_attribute("clickhouse.seconds", clickhouse_seconds)
+            _set_query_timing_attributes(span, response)
             span.set_attribute("services.count", len(response.results))
             return tuple(
                 MetricsServiceOverview(
