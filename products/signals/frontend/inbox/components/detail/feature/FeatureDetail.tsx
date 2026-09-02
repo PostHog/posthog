@@ -467,37 +467,6 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
 
     return (
         <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-            <div className="flex shrink-0 flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between">
-                <div className="flex max-w-[80ch] flex-col gap-1">
-                    <h2 className="m-0 text-base font-semibold">Planning</h2>
-                    <p className="m-0 text-sm text-secondary">{planningDescription}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 @2xl:shrink-0">
-                    {planningTask ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={startPlanningSession}
-                            loading={startingPlanningSession}
-                        >
-                            {planningActionLabel}
-                        </LemonButton>
-                    ) : null}
-                    {!isManaged ? (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={finishPlanning}
-                            loading={finishingPlanning}
-                            disabledReason={finishDisabledReason}
-                            tooltip={finishDisabledReason ? undefined : 'Activate the feature owner'}
-                        >
-                            Finish planning
-                        </LemonButton>
-                    ) : null}
-                </div>
-            </div>
-
             {openQuestions.length > 0 ? (
                 <div className="shrink-0">
                     <DetailSection
@@ -562,19 +531,43 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                 <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 gap-5 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] @4xl:grid-rows-1">
                     <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
                         <div className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-primary bg-surface-primary px-4">
-                            {planningTaskId && planningRunId ? (
-                                <Suspense fallback={<LemonSkeleton className="my-4 h-24" />}>
-                                    <TaskRunChat
-                                        taskId={planningTaskId}
-                                        runId={planningRunId}
-                                        onRunStarted={loadReportTasks}
-                                    />
-                                </Suspense>
-                            ) : (
-                                <div className="flex flex-1 items-center justify-center text-sm text-tertiary">
-                                    Starting the planning conversation…
-                                </div>
-                            )}
+                            <div className="flex min-h-0 flex-1 flex-col">
+                                {planningTaskId && planningRunId ? (
+                                    <Suspense fallback={<LemonSkeleton className="my-4 h-24" />}>
+                                        <TaskRunChat
+                                            taskId={planningTaskId}
+                                            runId={planningRunId}
+                                            onRunStarted={loadReportTasks}
+                                        />
+                                    </Suspense>
+                                ) : (
+                                    <div className="flex flex-1 items-center justify-center text-sm text-tertiary">
+                                        Starting the planning conversation…
+                                    </div>
+                                )}
+                            </div>
+                            <div className="-mx-4 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-primary px-4 py-2">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={startPlanningSession}
+                                    loading={startingPlanningSession}
+                                >
+                                    {planningActionLabel}
+                                </LemonButton>
+                                {!isManaged ? (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={finishPlanning}
+                                        loading={finishingPlanning}
+                                        disabledReason={finishDisabledReason}
+                                        tooltip={finishDisabledReason ? undefined : 'Activate the feature owner'}
+                                    >
+                                        Finish planning
+                                    </LemonButton>
+                                ) : null}
+                            </div>
                         </div>
                     </div>
                     <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-y-auto pr-2">
