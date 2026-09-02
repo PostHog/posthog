@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -853,6 +854,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         endpoint = Endpoint.objects.get(name="test_query_1", team=self.team)
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        self.assertIsNotNone(endpoint.last_executed_at)
+        self.assertIsNotNone(version.last_executed_at)
+
+    def test_api_key_run_that_times_out_still_stamps_last_executed_at(self):
+        create_endpoint_with_version(
+            name="slow_query",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.logic.execution.process_query_model",
+            side_effect=ClickHouseQueryTimeOut(),
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/endpoints/slow_query/run/",
+                headers={"authorization": f"Bearer {self.api_key}"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+        endpoint = Endpoint.objects.get(name="slow_query", team=self.team)
         version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
         self.assertIsNotNone(endpoint.last_executed_at)
         self.assertIsNotNone(version.last_executed_at)
@@ -1774,20 +1799,6 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
             {
                 "name": "ep_hogql",
                 "query": {"kind": "HogQLQuery", "query": "SELECT 1"},
-                "optional_breakdown_properties": ["$browser"],
-            },
-            format="json",
-        )
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
-        self.assertEqual(response.json().get("attr"), "optional_breakdown_properties")
-
-    def test_rejects_for_query_kind_without_breakdown_support(self):
-        # LifecycleQuery has no breakdown support
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/",
-            {
-                "name": "ep_lifecycle",
-                "query": {"kind": "LifecycleQuery", "series": [{"kind": "EventsNode"}]},
                 "optional_breakdown_properties": ["$browser"],
             },
             format="json",

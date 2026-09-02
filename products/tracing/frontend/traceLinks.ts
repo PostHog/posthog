@@ -3,8 +3,12 @@
 // root timestamp so a cold load can bound the ClickHouse lookup (the table is time-keyed and OTel
 // trace ids embed no timestamp — an unhinted id lookup would scan the whole retention window).
 
+import { combineUrl } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
+
+import type { DateRange } from '~/queries/schema/schema-general'
 
 export interface TraceLinkParams {
     traceId: string
@@ -28,6 +32,18 @@ export function traceUrl({ traceId, spanId, ts }: TraceLinkParams): string {
 /** Absolute, shareable URL for a trace view. */
 export function absoluteTraceUrl(params: TraceLinkParams): string {
     return urls.absolute(traceUrl(params))
+}
+
+/**
+ * Spans for one service over a window — the pivot other products offer when they know a service
+ * and a time range but no trace id. The service goes in as a list because `tracingSceneLogic`
+ * reads it back through `parseTagsFilter`, which splits a bare string on commas.
+ */
+export function tracingUrlForService(serviceName: string, { dateRange }: { dateRange?: DateRange } = {}): string {
+    return combineUrl(urls.tracing(), {
+        serviceNames: [serviceName],
+        ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
+    }).url
 }
 
 /** The window a `ts`-hinted cold load queries: ±1h is generous for any single trace's spans. */

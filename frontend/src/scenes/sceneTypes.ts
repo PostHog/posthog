@@ -33,6 +33,7 @@ export enum Scene {
     Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
+    CustomerAnalyticsAccount = 'CustomerAnalyticsAccount',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
@@ -90,6 +91,7 @@ export enum Scene {
     IntegrationsLanding = 'IntegrationsLanding',
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
+    IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
     LegacyPlugin = 'LegacyPlugin',
@@ -152,6 +154,7 @@ export enum Scene {
     ReplayVisionActionEditor = 'ReplayVisionActionEditor',
     ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
+    RealTimeUsage = 'RealTimeUsage',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
@@ -303,6 +306,8 @@ export interface SceneConfig {
     name?: string
     /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
     description?: string
+    /** Link to this product's page on posthog.com/docs. Shown next to the product in sidebar settings */
+    docsHref?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */

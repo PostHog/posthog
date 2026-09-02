@@ -11,7 +11,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic, getAudienceDedupeKey } from './steps/batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -33,6 +33,7 @@ const TriggerPopover = ({
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
             // Account audiences carry no person, so email dedup never applies to them.
             dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
+            sendsEmail: hogFlowSendsEmail(workflow),
         })
     )
 
@@ -114,7 +115,7 @@ const TriggerPopover = ({
                     loading={blastRadiusLoading}
                     disabledReason={
                         blastRadiusExceeded && blastRadius?.limit != null
-                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(blastRadius.limit)} ${isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will be loosened in the future.`
+                            ? `Your audience is above this project's batch limit of ${humanFriendlyNumber(blastRadius.limit)} ${isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow it.${hogFlowSendsEmail(workflow) ? ' The limit rises as the project builds a clean sending history.' : ''}`
                             : undefined
                     }
                     onClick={() => {

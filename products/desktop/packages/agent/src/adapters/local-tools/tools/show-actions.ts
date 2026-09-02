@@ -12,7 +12,7 @@ export const showActionsSchema = {
     .describe("One to four actions, in the order they should appear."),
 };
 
-export const SHOW_ACTIONS_TOOL_DESCRIPTION =
+const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "Show the user a card of clickable buttons in PostHog Desktop, so they can " +
   "act on what you just told them without retyping it. Pass 1 to 4 actions. " +
   "Each action is a typed verb, never a URL: there is no URL parameter and " +
@@ -26,7 +26,10 @@ export const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "on its own. Pass `report_id` to open one report instead of the whole inbox. " +
   "Offer only what the person actually wants to do next, in the order they " +
   "would want it. Buttons that decorate an answer are noise, so skip the call " +
-  "entirely when there is nothing worth clicking.";
+  "entirely when there is nothing worth clicking. " +
+  "The buttons are drawn where you call the tool, so write the text they " +
+  "follow from first and call this after it. Calling it before the text puts " +
+  "the buttons above the message that explains them.";
 
 /**
  * Offers the user buttons; it does not press them. The handler only

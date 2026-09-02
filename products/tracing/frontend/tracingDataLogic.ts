@@ -23,12 +23,19 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import {
+    NEW_QUERY_STARTED_ERROR_MESSAGE,
+    UNMOUNTING_ERROR_MESSAGE,
+    abortResilientLoading,
+    isUserInitiatedError,
+} from 'lib/utils/kea-logic-builders'
 
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
 
 import type { DateRange } from '../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
+import { TRACING_DATE_FORMAT } from './dateFormats'
 import {
     type DurationHistogramRow,
     type LatencyHeatmapRow,
@@ -77,17 +84,6 @@ const DEFAULT_PAGE_SIZE = 100
 // the full set for client-side sort/filter, unlike the smaller default the endpoint serves agents.
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
-export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
-export const UNMOUNTING_ERROR_MESSAGE = 'unmounting component' as const
-
-// kea-loaders reduces a rejection to its message, so an aborted request arrives here as the reason
-// text we passed to `abort()`. Neither of our reasons contains "abort", so both need matching by
-// name: an unmatched one is treated as a genuine failure, which toasts the user and fires a
-// `tracing query failed` capture for a request that was cancelled on purpose.
-export function isUserInitiatedError(error: unknown): boolean {
-    const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || error === UNMOUNTING_ERROR_MESSAGE || errorStr.includes('abort')
-}
 
 // A ts hint (from a shared/cold link) bounds the lookup tightly around the trace instead of the
 // scene's current date range — the table is time-keyed, so this is what keeps an id lookup from
@@ -765,19 +761,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchSpansFailure: () => true,
             },
         ],
-        spansLoading: [
-            false as boolean,
-            {
-                fetchSpans: () => true,
-                fetchSpansSuccess: () => false,
-                // A superseded query is aborted by the newer one that already re-set loading true;
-                // keep loading so the list holds its spinner instead of flashing "No spans found".
-                fetchSpansFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-                fetchNextPage: () => true,
-                fetchNextPageSuccess: () => false,
-                fetchNextPageFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-            },
-        ],
+        // A superseded query is aborted by the newer one that already re-set loading true;
+        // keep loading so the list holds its spinner instead of flashing "No spans found".
+        spansLoading: [false as boolean, abortResilientLoading('fetchSpans', 'fetchNextPage')],
         sparklineLoading: [
             false as boolean,
             {
@@ -802,14 +788,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchLatencyHeatmapFailure: () => false,
             },
         ],
-        aggregationLoading: [
-            false as boolean,
-            {
-                fetchAggregation: () => true,
-                fetchAggregationSuccess: () => false,
-                fetchAggregationFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-            },
-        ],
+        aggregationLoading: [false as boolean, abortResilientLoading('fetchAggregation')],
         spanTreeLoading: [
             false as boolean,
             {
@@ -1264,7 +1243,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(
-                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                humanFriendlyDetailedTime(currentItem.time, TRACING_DATE_FORMAT, 'HH:mm:ss', {
                                     timestampStyle: 'absolute',
                                 })
                             )

@@ -3,7 +3,6 @@ import dataclasses
 
 from django.db import transaction
 
-from celery import current_app
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -123,27 +122,12 @@ def _succeed_node_and_data_modeling_job(
     job.error = None
     job.save()
 
-    if node is not None and node.saved_query_id is not None:
-        saved_query_id = str(node.saved_query_id)
-        team_id = inputs.team_id
-        transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
     return SucceedNodeAndJobOutcome(
         node=node,
         job=job,
         enrichment_needed=enrichment_needed,
         enrichment_saved_query_id=enrichment_saved_query_id,
     )
-
-
-def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
-    try:
-        current_app.send_task(
-            "customer_analytics.process_custom_property_sync",
-            kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
-        )
-    except Exception as e:
-        LOGGER.exception("custom_property_sync_enqueue_failed", team_id=team_id, saved_query_id=saved_query_id)
-        capture_exception(e)
 
 
 @activity.defn

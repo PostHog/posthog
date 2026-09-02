@@ -25,17 +25,17 @@ pub struct CloneArgs {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
-    /// How the release is associated with exceptions. `symbol-set` is the default. It stamps the
-    /// release id into the source maps, so the upload binds the symbol set to that release.
-    /// EXPERIMENTAL `event` stamps nothing and leaves the maps release-independent. Each event
-    /// then resolves its own release from the app version and namespace the SDK already sends.
-    /// The coordinates you pass to `hermes upload` must match the app's. Also settable via
+    /// How the release is associated with exceptions. `event` is the default. It stamps nothing
+    /// and leaves the maps release-independent. Each event then resolves its own release from the
+    /// app version and namespace the SDK already sends. The coordinates you pass to
+    /// `hermes upload` must match the app's. `symbol-set` stamps the release id into the source
+    /// maps instead, so the upload binds the symbol set to that release. Also settable via
     /// `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
         value_enum,
-        default_value = "symbol-set"
+        default_value = "event"
     )]
     pub release_mode: ReleaseMode,
 }
