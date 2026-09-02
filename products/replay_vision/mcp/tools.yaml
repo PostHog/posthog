@@ -247,10 +247,10 @@ tools:
             itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set
             `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's
             other scanners. The scanner stops scanning once the credits left cannot cover another observation, and
-            resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an
-            alert from the scanner's Scouts and Alerts tabs. For
-            a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision`
-            skill first — it derives the query from the experiment's exposure criteria.
+            resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert
+            from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, load
+            the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's
+            exposure criteria.
         exclude_params:
             - id
             - scanner_version
