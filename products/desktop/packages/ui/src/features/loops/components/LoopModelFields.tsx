@@ -32,6 +32,8 @@ interface LoopModelFieldsProps {
     effort: LoopSchemas.LoopReasoningEffortEnum | null,
   ) => void;
   disabled?: boolean;
+  /** Hidden for a workflow-backed loop: the task step picks the adapter itself. */
+  adapterEditable?: boolean;
 }
 
 /**
@@ -52,6 +54,7 @@ export function LoopModelFields({
   onModelChange,
   onReasoningEffortChange,
   disabled,
+  adapterEditable = true,
 }: LoopModelFieldsProps) {
   const modelFlags = useModelRolloutFlags();
   const configOptions = useLoopModelConfigOptions(adapter);
@@ -117,16 +120,18 @@ export function LoopModelFields({
       </Field>
 
       <Flex gap="4" wrap="wrap">
-        <Field label="Adapter" className="min-w-[180px] flex-1">
-          <SettingsOptionSelect
-            value={adapter}
-            options={ADAPTER_OPTIONS}
-            onValueChange={handleAdapterChange}
-            disabled={disabled}
-            size="lg"
-            ariaLabel="Adapter"
-          />
-        </Field>
+        {adapterEditable ? (
+          <Field label="Adapter" className="min-w-[180px] flex-1">
+            <SettingsOptionSelect
+              value={adapter}
+              options={ADAPTER_OPTIONS}
+              onValueChange={handleAdapterChange}
+              disabled={disabled}
+              size="lg"
+              ariaLabel="Adapter"
+            />
+          </Field>
+        ) : null}
 
         <Field label="Reasoning effort" className="min-w-[180px] flex-1">
           <SettingsOptionSelect
