@@ -298,8 +298,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 }
             />
 
-            <ObservationPinnedProperties sessionId={observation.session_id} />
-
             <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
                 <div
                     className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
@@ -467,6 +465,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     </section>
                 )}
             </div>
+
+            <ObservationPinnedProperties sessionId={observation.session_id} />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>
