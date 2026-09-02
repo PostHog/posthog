@@ -70,6 +70,32 @@ class Migration(migrations.Migration):
             ],
         ),
         # Declared without a condition, so Postgres holds this one as a table constraint rather
-        # than a bare index. Dropping it is a metadata change; there is no concurrent form.
-        migrations.RemoveConstraint(model_name="asyncdeletion", name="unique deletion for groups"),
+        # than a bare index. Dropping it is a metadata change; there is no concurrent form. This
+        # migration is not atomic, so the drop commits before the migration row is recorded, and
+        # the preceding concurrent-index helpers have already zeroed this session's timeouts.
+        # `IF EXISTS` keeps a bin/migrate retry after a partial apply a no-op rather than failing
+        # on a constraint that is already gone.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveConstraint(model_name="asyncdeletion", name="unique deletion for groups"),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql='ALTER TABLE posthog_asyncdeletion DROP CONSTRAINT IF EXISTS "unique deletion for groups";',
+                    reverse_sql="""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint
+                            WHERE conname = 'unique deletion for groups' AND conrelid = 'posthog_asyncdeletion'::regclass
+                        ) THEN
+                            ALTER TABLE posthog_asyncdeletion
+                            ADD CONSTRAINT "unique deletion for groups"
+                            UNIQUE ("deletion_type", "key", "group_type_index");
+                        END IF;
+                    END $$;
+                    """,
+                ),
+            ],
+        ),
     ]
