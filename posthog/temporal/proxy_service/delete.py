@@ -14,6 +14,7 @@ from temporalio import activity, workflow
 
 from posthog.dataclasses import frozen
 from posthog.models import ProxyRecord
+from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.cloudflare import (
@@ -138,6 +139,13 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
         inputs.domain,
     )
 
+    # Records created before the serializer validated this field can hold a value Cloudflare
+    # never accepted as a custom hostname, so no Cloudflare resource exists for it. Sending the
+    # value anyway only gets the request rejected, and the delete must still remove the record.
+    if not is_valid_proxy_domain(inputs.domain):
+        logger.info("Skipping Cloudflare cleanup: domain %s is not a plain hostname", inputs.domain)
+        return
+
     errors: list[str] = []
 
     # Worker route cleanup intentionally omitted: per-domain routes are no longer created (we
@@ -152,14 +160,21 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
         else:
             logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
     except CloudflareAPIError as e:
-        logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
-        errors.append(f"Custom Hostname deletion failed: {e}")
+        # A rejected value names no Cloudflare resource, so there is nothing left to delete.
+        if e.is_validation_error():
+            logger.info("Cloudflare rejected domain %s as a Custom Hostname; nothing to delete: %s", inputs.domain, e)
+        else:
+            logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
+            errors.append(f"Custom Hostname deletion failed: {e}")
 
     try:
         await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, None)
     except CloudflareAPIError as e:
-        logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
-        errors.append(f"Root redirect deletion failed: {e}")
+        if e.is_validation_error():
+            logger.info("Cloudflare rejected domain %s as a redirect key; nothing to delete: %s", inputs.domain, e)
+        else:
+            logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
+            errors.append(f"Root redirect deletion failed: {e}")
 
     if errors:
         raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
