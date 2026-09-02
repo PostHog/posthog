@@ -3,7 +3,7 @@
 
 def build_query(table: str) -> str:
     """Curated SELECT over a synced Trunk quarantined-tests table: the reconstructed runner-native
-    nodeid, a runner label, and the parsed quarantine timestamp.
+    nodeid, a runner label, where the test lives, and the parsed quarantine timestamp.
 
     Trunk keys a test by (file, classname, name) and overloads ``parent`` per uploader (verified
     against a real connected source): 'pytest' for pytest, the test file path for jest and
@@ -11,6 +11,9 @@ def build_query(table: str) -> str:
     pytest class; jest and Playwright need no reassembly; Rust and Storybook rows carry no file, so
     the nodeid falls back to classname::name. Rows without a name or quarantine time carry nothing
     a consumer can attribute or age, so they drop here.
+
+    ``parent`` stays inside this view: the reading of it a consumer needs is ``source_path`` (where
+    the test file sits, as its suite reported it) and ``crate`` (Rust, which reports no file).
     """
     return f"""
     SELECT
@@ -21,6 +24,8 @@ def build_query(table: str) -> str:
             name
         ) AS nodeid,
         file,
+        any(source_path) AS source_path,
+        any(crate) AS crate,
         any(status) AS status,
         any(quarantine_setting) AS quarantine_setting,
         any(test_case_id) AS test_case_id,
@@ -36,6 +41,9 @@ def build_query(table: str) -> str:
                 parent LIKE '%.stories.tsx', 'storybook',
                 'jest'
             ) AS runner,
+            ifNull(parent, '') AS parent,
+            if(runner = 'rust', '', if(ifNull(file, '') != '', ifNull(file, ''), parent)) AS source_path,
+            if(runner = 'rust', splitByString('::', parent)[1], '') AS crate,
             ifNull(file, '') AS file,
             ifNull(name, '') AS name,
             ifNull(classname, '') AS classname,

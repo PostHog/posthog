@@ -25,6 +25,11 @@ describe("classifyAgentError", () => {
     ["API Error: Request timed out.", "upstream_timeout"],
     ["API Error: 429 rate limited", "upstream_provider_failure"],
     ["API Error: 529 overloaded", "upstream_provider_failure"],
+    ["API Error: Content block not found", "content_block_rejection"],
+    [
+      "API Error: Content block is not a thinking block",
+      "content_block_rejection",
+    ],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       "turn_ended_without_response",
