@@ -296,7 +296,7 @@ class Command(BaseCommand):
 
             total += 1
             try:
-                outcome = self._recompute_cohort(cohort, seen_cohorts_cache, cohort_dependencies)
+                outcome = self._recompute_cohort(cohort, team, seen_cohorts_cache, cohort_dependencies)
                 if outcome.validation_failed:
                     validation_errors += 1
                 # Counted before the save, so a realtime cohort whose save raises still reports as one.
@@ -326,7 +326,11 @@ class Command(BaseCommand):
 
     def _load_team_cohorts(self, team: Team, batch_size: int) -> list[Cohort]:
         """Read every cohort on the team, one page at a time."""
-        base_qs = Cohort.objects.filter(team=team).select_related("team").order_by("id")
+        # No `select_related("team")`: the caller already holds the team object and passes it into
+        # `_recompute_cohort`, so joining it in here would only hydrate the deprecated taxonomy
+        # columns (which TOAST out to megabytes) onto every retained cohort row. The forward-FK
+        # defer that `TeamManager` applies does not reach a `select_related` JOIN.
+        base_qs = Cohort.objects.filter(team=team).order_by("id")
         all_cohorts: list[Cohort] = []
         last_id = 0
 
@@ -353,6 +357,7 @@ class Command(BaseCommand):
     def _recompute_cohort(
         self,
         cohort: Cohort,
+        team: Team,
         seen_cohorts_cache: dict[int, CohortOrEmpty],
         cohort_dependencies: dict[int, set[int]],
     ) -> CohortResaveOutcome:
@@ -369,7 +374,7 @@ class Command(BaseCommand):
         # Compute the new filters with inline bytecode and cohort_type
         # Use defensive validation with detailed error reporting
         clean_filters, computed_type, validation_error_list = validate_filters_and_compute_realtime_support(
-            filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
+            filters, team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
         )
 
         # If validation failed but we got the original filters back, log the issue and skip
