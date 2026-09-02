@@ -2188,3 +2188,60 @@ def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     assert len(approvals) == 1
     assert approvals[0]["body"]["commit_id"] == "sha120a"
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_mint_pins_allowed_models_when_configured(team, stamphog_chain: StamphogChain) -> None:
+    # A configured model list rides the mint request so a leaked token can call nothing else.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 118, "sha118a")
+    minted = {"token": "phe_run", "allowed_models": ["anthropic/claude-sonnet-5", "anthropic/claude-haiku-4-5"]}
+    mint = MagicMock(return_value=_mint_response(201, minted))
+
+    with (
+        override_settings(
+            **_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5", "claude-haiku-4-5"]
+        ),
+        patch.object(activities.requests, "post", mint),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    assert mint.call_args.kwargs["json"]["allowed_models"] == ["claude-sonnet-5", "claude-haiku-4-5"]
+    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert env["AI_GATEWAY_API_KEY"] == "phe_run"
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_mint_omits_allowed_models_by_default(team, stamphog_chain: StamphogChain) -> None:
+    # Unset means unpinned: the field is absent, never an empty list (which the gateway rejects).
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 119, "sha119a")
+    mint = MagicMock(return_value=_mint_response(201, {"token": "phe_run"}))
+
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=[]),
+        patch.object(activities.requests, "post", mint),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    assert "allowed_models" not in mint.call_args.kwargs["json"]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_mint_warns_when_the_gateway_ignores_the_model_pin(team, stamphog_chain: StamphogChain) -> None:
+    # A gateway replica that predates the pin field mints an unpinned token. The review still runs
+    # (the token works); the missing echo is logged so the unpinned state is visible.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 120, "sha120a")
+    mint = MagicMock(return_value=_mint_response(201, {"token": "phe_run"}))
+
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5"]),
+        patch.object(activities.requests, "post", mint),
+        patch.object(activities.activity.logger, "warning") as warning,
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    assert any("without a model pin" in str(call.args[0]) for call in warning.call_args_list)
+    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
+    assert env["AI_GATEWAY_API_KEY"] == "phe_run"

@@ -179,7 +179,7 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     sandbox. Retries once on rate limits, 5xx and network errors; any other refusal is final. Fails
     closed: hosted runs never fall back to a shared key.
     """
-    body: dict[str, str | int] = {
+    body: dict[str, object] = {
         "cap_usd": _REVIEWER_TOKEN_CAP_USD,
         "ttl_seconds": _REVIEWER_TOKEN_TTL_SECONDS,
         "product": STAMPHOG_AI_PRODUCT,
@@ -187,6 +187,9 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
     }
     if user.distinct_id:
         body["user"] = user.distinct_id
+    allowed_models = list(settings.STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS)
+    if allowed_models:
+        body["allowed_models"] = allowed_models
     # The config URL carries the OpenAI /v1 base; the mint route hangs off the gateway root.
     mint_url = f"{gateway.url.rstrip('/').removesuffix('/v1')}/v1/tokens"
     last_error = ""
@@ -203,10 +206,15 @@ def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: 
         else:
             if 200 <= response.status_code < 300:
                 try:
-                    token = response.json().get("token")
+                    payload = response.json()
+                    token = payload.get("token")
                 except (ValueError, AttributeError):
-                    token = None
+                    payload, token = {}, None
                 if token:
+                    if allowed_models and not payload.get("allowed_models"):
+                        # A gateway replica that predates the pin field ignores it: the token works
+                        # but is unpinned, so say so rather than fail the review.
+                        activity.logger.warning(f"Run {run.id}: gateway minted the reviewer token without a model pin")
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token
                 last_error = "mint response carried no token"
