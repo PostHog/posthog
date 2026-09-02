@@ -46,6 +46,8 @@ import type {
 import {
     DEFAULT_WIDGET_MODEL,
     DEFAULT_WIDGET_PROMPT,
+    MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+    MAX_WIDGET_PROMPT_LENGTH,
     WIDGET_MODEL_INFO,
     isWidgetModel,
     type WidgetModel,
@@ -134,8 +136,14 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     generateWidget: (
         prompt: string,
         model: WidgetModel,
+        operation: WidgetGenerationOperation,
+        expectedCurrentVersionId?: string
+    ) => {
+        prompt: string
+        model: WidgetModel
         operation: WidgetGenerationOperation
-    ) => { prompt: string; model: WidgetModel; operation: WidgetGenerationOperation }
+        expectedCurrentVersionId?: string
+    }
     generationCanceled: () => { value: true }
     generationFailed: (error: string) => { error: string }
     generationRequestFinished: () => { value: true }
@@ -212,9 +220,15 @@ type notebookNodeGeneratedWidgetSettingsLogicType = MakeLogicType<
 
 function errorMessage(error: unknown): string {
     if (error instanceof ApiError) {
-        const response = error.data as { detail?: unknown } | undefined
+        const response = error.data as Record<string, unknown> | undefined
         if (typeof response?.detail === 'string') {
             return response.detail
+        }
+        const fieldError = Object.values(response ?? {}).find(
+            (value): value is string[] => Array.isArray(value) && typeof value[0] === 'string'
+        )
+        if (fieldError) {
+            return fieldError[0]
         }
     }
     return error instanceof Error ? error.message : 'The widget request failed.'
@@ -399,10 +413,16 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             closeSourceModal: true,
             dataRefreshFinished: true,
             dataRefreshStarted: true,
-            generateWidget: (prompt: string, model: WidgetModel, operation: WidgetGenerationOperation) => ({
+            generateWidget: (
+                prompt: string,
+                model: WidgetModel,
+                operation: WidgetGenerationOperation,
+                expectedCurrentVersionId?: string
+            ) => ({
                 prompt,
                 model,
                 operation,
+                expectedCurrentVersionId,
             }),
             generationCanceled: true,
             generationFailed: (error: string) => ({ error }),
@@ -854,7 +874,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.cancellationFailed(message)
                     }
                 },
-                generateWidget: async ({ prompt, model, operation }) => {
+                generateWidget: async ({ prompt, model, operation, expectedCurrentVersionId }) => {
                     if (!props.isEditable || values.generationRequestLoading || values.isWorking) {
                         return
                     }
@@ -875,6 +895,18 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         )
                         return
                     }
+                    const maxPromptLength =
+                        operation === 'regenerate' ? MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH : MAX_WIDGET_PROMPT_LENGTH
+                    if (submittedPrompt.length > maxPromptLength) {
+                        actions.generationFailed(
+                            `Keep widget instructions to ${maxPromptLength.toLocaleString()} characters or fewer.`
+                        )
+                        return
+                    }
+                    if (operation === 'improve' && !expectedCurrentVersionId) {
+                        actions.generationFailed('Reload the widget before improving it.')
+                        return
+                    }
                     actions.generationRequestStarted()
                     invalidateStatusRequests()
                     const generationId = uuidv4()
@@ -891,6 +923,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                                         generation_id: generationId,
                                         model,
                                         generation_operation: operation,
+                                        expected_current_version_id: expectedCurrentVersionId,
                                     },
                                     { signal }
                                 )
@@ -946,7 +979,12 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         return
                     }
                     if (values.selectedVersion && isWidgetModel(values.selectedVersion.model)) {
-                        actions.generateWidget(values.sourceChangePrompt, values.selectedVersion.model, 'improve')
+                        actions.generateWidget(
+                            values.sourceChangePrompt,
+                            values.selectedVersion.model,
+                            'improve',
+                            values.sourceVersionId ?? undefined
+                        )
                     }
                 },
                 loadSource: async () => {
@@ -1124,6 +1162,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     )
                 },
                 openSourceModal: () => {
+                    actions.loadStatus()
                     if (values.status?.has_versions && !values.selectedVersion) {
                         actions.loadVersions(true)
                     }

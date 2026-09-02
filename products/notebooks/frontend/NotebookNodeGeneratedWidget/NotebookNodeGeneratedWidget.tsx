@@ -25,7 +25,6 @@ import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
 import { DEFAULT_WIDGET_MODEL, isWidgetModel, type WidgetModel } from './widgetModels'
-import { getWidgetName } from './widgetName'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
     prompt?: string
@@ -273,7 +272,7 @@ function ExpandedWidget({
                         <WidgetArtifactFrame
                             key={`${selectedBuildHash}-${frameRevision}`}
                             artifactUrl={selectedArtifactUrl}
-                            title={getWidgetName(prompt)}
+                            title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={(name, offset, limit, runId, signal) =>
                                 loadWidgetFrame(
@@ -464,7 +463,7 @@ export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeG
     titlePlaceholder: 'Widget',
     Component,
     Settings: NotebookNodeGeneratedWidgetSettings,
-    serializedText: (attributes) => getWidgetName(typeof attributes.prompt === 'string' ? attributes.prompt : ''),
+    serializedText: () => 'Widget',
     heightEstimate: 420,
     minHeight: 180,
     resizeable: true,

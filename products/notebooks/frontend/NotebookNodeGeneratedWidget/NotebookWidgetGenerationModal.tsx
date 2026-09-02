@@ -8,7 +8,7 @@ import {
     type NotebookNodeGeneratedWidgetLogicProps,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
-import { WIDGET_MODEL_OPTIONS } from './widgetModels'
+import { MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH, MAX_WIDGET_PROMPT_LENGTH, WIDGET_MODEL_OPTIONS } from './widgetModels'
 
 export function NotebookWidgetGenerationModal({
     logicProps,
@@ -30,6 +30,7 @@ export function NotebookWidgetGenerationModal({
     const promptId = `widget-change-prompt-${logicProps.nodeId}`
     const modelId = `widget-change-model-${logicProps.nodeId}`
     const isRegenerationVersionLoading = generationModalOperation === 'regenerate' && !selectedVersion
+    const isImprovementVersionLoading = generationModalOperation === 'improve' && !selectedVersion
     const modalTitle = generationModalOperation === 'improve' ? 'Improve widget' : 'Regenerate widget'
     const modalDescription =
         generationModalOperation === 'improve'
@@ -41,11 +42,12 @@ export function NotebookWidgetGenerationModal({
             !prompt.trim() ||
             generationRequestLoading ||
             isWorking ||
-            isRegenerationVersionLoading
+            isRegenerationVersionLoading ||
+            isImprovementVersionLoading
         ) {
             return
         }
-        generateWidget(prompt, generationDraftModel, generationModalOperation)
+        generateWidget(prompt, generationDraftModel, generationModalOperation, selectedVersion?.id)
     }
 
     return (
@@ -62,7 +64,7 @@ export function NotebookWidgetGenerationModal({
                         type="primary"
                         onClick={() => submitGenerationDraft(generationDraftPrompt)}
                         disabledReason={
-                            isRegenerationVersionLoading
+                            isRegenerationVersionLoading || isImprovementVersionLoading
                                 ? 'Loading the widget version.'
                                 : !generationDraftPrompt.trim()
                                   ? 'Add instructions first'
@@ -87,7 +89,12 @@ export function NotebookWidgetGenerationModal({
                         onPressCmdEnter={submitGenerationDraft}
                         minRows={6}
                         autoFocus
-                        disabled={isRegenerationVersionLoading}
+                        disabled={isRegenerationVersionLoading || isImprovementVersionLoading}
+                        maxLength={
+                            generationModalOperation === 'regenerate'
+                                ? MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH
+                                : MAX_WIDGET_PROMPT_LENGTH
+                        }
                         className="mt-1 ph-no-capture"
                         placeholder={
                             generationModalOperation === 'improve'
@@ -103,7 +110,7 @@ export function NotebookWidgetGenerationModal({
                         value={generationDraftModel}
                         options={WIDGET_MODEL_OPTIONS}
                         onChange={setGenerationDraftModel}
-                        disabled={isRegenerationVersionLoading}
+                        disabled={isRegenerationVersionLoading || isImprovementVersionLoading}
                         fullWidth
                         className="mt-1"
                     />

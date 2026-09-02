@@ -10,6 +10,7 @@ import {
     type NotebookNodeGeneratedWidgetLogicProps,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
+import { MAX_WIDGET_PROMPT_LENGTH } from './widgetModels'
 
 export function NotebookWidgetSourceModal(props: NotebookNodeGeneratedWidgetLogicProps): JSX.Element {
     const logic = notebookNodeGeneratedWidgetLogic(props)
@@ -86,6 +87,7 @@ export function NotebookWidgetSourceModal(props: NotebookNodeGeneratedWidgetLogi
                             onPressCmdEnter={improveSource}
                             placeholder="Describe the changes you want."
                             minRows={4}
+                            maxLength={MAX_WIDGET_PROMPT_LENGTH}
                             autoFocus
                             className="mt-1 ph-no-capture"
                         />

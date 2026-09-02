@@ -786,6 +786,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.openSourceModal()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(notebooksWidgetStatus).toHaveBeenCalledTimes(2)
         expect(notebooksWidgetSource).toHaveBeenCalledWith(
             String(MOCK_TEAM_ID),
             'notebook-1',
@@ -807,6 +808,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             expect.objectContaining({
                 prompt: 'Use a darker background',
                 generation_operation: 'improve',
+                expected_current_version_id: versionId,
             }),
             expect.objectContaining({ signal: expect.anything() })
         )
@@ -983,6 +985,23 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
         expect(logic.values.generationError).toBe('Another generation won the race.')
         expect(logic.values.isWorking).toBe(false)
+    })
+
+    it('surfaces field-level generation errors', async () => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+        jest.mocked(notebooksWidgetGenerate).mockRejectedValue(
+            new ApiError('Invalid request', 400, undefined, {
+                prompt: ['Keep widget instructions to 20,000 characters or fewer.'],
+            })
+        )
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'initial')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.generationError).toBe('Keep widget instructions to 20,000 characters or fewer.')
     })
 
     it('refreshes status without claiming a restore succeeded when its response is lost', async () => {

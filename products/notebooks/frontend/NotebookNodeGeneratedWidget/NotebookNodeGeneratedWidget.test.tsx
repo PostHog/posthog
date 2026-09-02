@@ -352,6 +352,7 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
             'https://example.com/untrusted-widget.html#theme=light'
         )
+        expect(container.querySelector('iframe')?.getAttribute('title')).toBe('Widget')
     })
 
     it('requires exact-build consent when the security review passes', async () => {
