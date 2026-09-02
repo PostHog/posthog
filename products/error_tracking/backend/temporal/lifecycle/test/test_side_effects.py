@@ -158,7 +158,7 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
     oversized_result.get.assert_called_once_with(timeout=0)
     retry_result.get.assert_called_once_with(timeout=0)
 
-    # Delivery starts once, after the internal event landed, with by-reference event data.
+    # Delivery starts once per transition with by-reference event data.
     start_delivery.assert_called_once()
     delivery_kwargs = start_delivery.call_args.kwargs
     assert delivery_kwargs["team_id"] == inputs.team_id
@@ -168,10 +168,11 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
     assert delivery_kwargs["status"] == "Pending Release"
     assert delivery_kwargs["assignee"] == inputs.assignee
     assert delivery_kwargs["event_uuid"] == inputs.event_uuid
-    assert delivery_kwargs["event_timestamp"] == "2026-07-21T12:05:00+00:00"
+    assert delivery_kwargs["event_timestamp"] == inputs.event_timestamp
 
 
 def test_internal_event_reraises_non_size_kafka_errors() -> None:
+    inputs = _inputs()
     result = MagicMock()
     result.get.side_effect = KafkaException(KafkaError(KafkaError._TRANSPORT))  # type: ignore[attr-defined]
     sent_events: list[InternalEventEvent] = []
@@ -194,12 +195,15 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
             side_effect=capture_event,
         ),
         patch("products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow"
+        ) as start_delivery,
         pytest.raises(KafkaException),
     ):
         produce_issue_lifecycle_internal_event(
-            _inputs(),
+            inputs,
             event="$error_tracking_issue_spiking",
-            exception_timestamp="invalid",
+            exception_timestamp="2026-07-21T12:30:00Z",
             include_status=False,
         )
 
@@ -207,6 +211,12 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
     assert sent_events[0].event == "$error_tracking_issue_spiking"
     assert "status" not in sent_events[0].properties
     assert sent_events[0].properties["severity"] == "high"
+    assert sent_events[0].properties["exception_timestamp"] == "2026-07-21T12:30:00+00:00"
+    # A failed publish must not drop the alert, and the alert keys the exception by its
+    # own timestamp even when the lifecycle event carries the spike detection time.
+    start_delivery.assert_called_once()
+    assert start_delivery.call_args.kwargs["event_uuid"] == inputs.event_uuid
+    assert start_delivery.call_args.kwargs["event_timestamp"] == inputs.event_timestamp
 
 
 @pytest.mark.asyncio
