@@ -90,6 +90,12 @@ CHECK_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=90)
 CLOUDFLARE_CHECK_ATTEMPTS = 2
 CLOUDFLARE_CHECK_RETRY_DELAY_S = 1.0
 
+# One message for every way Cloudflare leaves the certificate unchecked, since the customer takes
+# the same action for all of them. The monitor schedule is daily, so it must not promise sooner.
+CLOUDFLARE_UNAVAILABLE_WARNING = (
+    "Could not check the TLS certificate: Cloudflare was unavailable. The next scheduled check will try again."
+)
+
 
 @dataclass
 class MonitorManagedProxyInputs:
@@ -222,17 +228,21 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
 
 
 async def _get_custom_hostname_with_retry(domain: str) -> t.Optional[CustomHostname]:
-    """Fetch the hostname from Cloudflare, retrying once on a transient transport failure.
+    """Fetch the hostname from Cloudflare, retrying once on a transient failure.
 
-    A failed call to the Cloudflare API says nothing about the proxy, so a brief network blip
-    should get a second try before the caller degrades the check to a warning.
+    A failed call to the Cloudflare API says nothing about the proxy, so a brief network blip or a
+    rate limit should get a second try before the caller degrades the check to a warning.
     """
     for _ in range(CLOUDFLARE_CHECK_ATTEMPTS - 1):
         try:
             return await asyncio.to_thread(get_custom_hostname_by_domain, domain)
-        except requests.RequestException:
+        except (requests.RequestException, CloudflareAPIError) as e:
+            # A rate limit clears on its own, the way create.py already treats it. Any other API
+            # error is a real answer about the hostname, so a second identical call adds nothing.
+            if isinstance(e, CloudflareAPIError) and not e.is_rate_limited():
+                raise
             await asyncio.sleep(CLOUDFLARE_CHECK_RETRY_DELAY_S)
-    # Final attempt. A transport failure here escapes to the caller.
+    # Final attempt. A failure here escapes to the caller.
     return await asyncio.to_thread(get_custom_hostname_by_domain, domain)
 
 
@@ -282,13 +292,18 @@ async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckAct
             proxy_record.domain,
             e,
         )
-        return CheckActivityOutput(
-            errors=[],
-            warnings=[
-                "Could not check the TLS certificate: Cloudflare did not respond. The next scheduled check will try again."
-            ],
-        )
+        return CheckActivityOutput(errors=[], warnings=[CLOUDFLARE_UNAVAILABLE_WARNING])
     except CloudflareAPIError as e:
+        # A rate limit that outlives the retry is still transient, so it degrades the same way. A
+        # permanent API error is a defect worth reporting, and the run has nothing to say about
+        # the certificate either way.
+        if e.is_rate_limited():
+            logger.warning(
+                "Cloudflare rate limited the certificate check for domain %s: %s",
+                proxy_record.domain,
+                e,
+            )
+            return CheckActivityOutput(errors=[], warnings=[CLOUDFLARE_UNAVAILABLE_WARNING])
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
 

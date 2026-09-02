@@ -13,13 +13,16 @@ from parameterized import parameterized
 from posthog.models import Organization, ProxyRecord
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
     CustomHostname,
     CustomHostnameSSL,
     CustomHostnameSSLStatus,
     CustomHostnameStatus,
 )
+from posthog.temporal.proxy_service.common import NonRetriableException
 from posthog.temporal.proxy_service.monitor import (
     CLOUDFLARE_CHECK_ATTEMPTS,
+    CLOUDFLARE_UNAVAILABLE_WARNING,
     PROXY_LIVE_CHECK_TIMEOUT_S,
     CheckActivityInput,
     _check_cloudflare_certificate_status,
@@ -325,6 +328,29 @@ class TestCheckCloudflareCertificateStatus(TestCase):
         self.assertEqual(result.errors, [])
         self.assertEqual(len(result.warnings), 1)
         self.assertEqual(mock_get.call_count, CLOUDFLARE_CHECK_ATTEMPTS)
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.CLOUDFLARE_CHECK_RETRY_DELAY_S", 0)
+    @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
+    async def test_rate_limited_cloudflare_api_retries_then_warns(self, mock_get):
+        # A rate limit is transient too, so it must not raise and discard the results the run has.
+        mock_get.side_effect = CloudflareAPIError("rate limit", errors=[{"code": 10000}])
+
+        result = await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.warnings, [CLOUDFLARE_UNAVAILABLE_WARNING])
+        self.assertEqual(mock_get.call_count, CLOUDFLARE_CHECK_ATTEMPTS)
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
+    async def test_a_permanent_cloudflare_error_is_not_retried(self, mock_get):
+        mock_get.side_effect = CloudflareAPIError("Invalid zone identifier")
+
+        with self.assertRaises(NonRetriableException):
+            await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())
+
+        self.assertEqual(mock_get.call_count, 1)
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.CLOUDFLARE_CHECK_RETRY_DELAY_S", 0)
