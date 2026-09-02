@@ -144,7 +144,9 @@ The workflow uses **three separate activities** with independent timeouts and re
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
-- 10 minute timeout for full agent run (600 seconds)
+- Allowlisted models run on OpenAI's flex service tier (half-price tokens); a failed flex run reruns once on the standard tier, and a run where both tiers fail hands back its partial labels
+- `LLMA_LABELING_FLEX_ENABLED=false` (worker env) turns flex off without a deploy
+- 10 minute activity timeout for the full agent run; individual LLM calls are capped at 120s on flex and 240s on standard so no single call can starve the budget
 - See `labeling_agent/README.md` for detailed agent architecture
 
 **Activity 3 (Emit)** - Database write:
@@ -352,7 +354,10 @@ Key constants in `constants.py`:
 | `LABELING_AGENT_MODEL`              | gpt-5.4                           | OpenAI model for labeling agent                                      |
 | `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization                             |
 | `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                                            |
-| `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)                                     |
+| `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run budget (seconds); per-call client timeouts are capped |
+| `LABELING_CALL_TIMEOUT`             | 120.0                             | Per-call timeout for flex calls and the standard-tier rerun          |
+| `LABELING_STANDARD_CALL_TIMEOUT`    | 240.0                             | Per-call cap for standard-tier calls (under the ai-gateway ceiling)  |
+| `FLEX_CAPABLE_MODELS`               | gpt-5.4 (+mini/nano)              | Models allowed to request the flex tier, per OpenAI's pricing page   |
 | `DEFAULT_HDBSCAN_MIN_SAMPLES`       | 5                                 | Min samples for HDBSCAN core points                                  |
 | `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.02                              | Min cluster size as fraction of total samples                        |
 | `DEFAULT_UMAP_N_COMPONENTS`         | 100                               | UMAP dimensions for clustering                                       |

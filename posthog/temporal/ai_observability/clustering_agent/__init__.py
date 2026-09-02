@@ -26,15 +26,16 @@ logger = structlog.get_logger(__name__)
 
 # Deliberately an allowlist rather than the family prefix: OpenAI decides flex eligibility per
 # model (gpt-5.4-pro is excluded, for example), so a new labeling model must not inherit the
-# flex tier until someone checks the pricing page and adds it here. Keep in sync with
-# FLEX_CAPABLE_MODELS in products/ai_observability/backend/summarization/llm/openai.py.
+# flex tier until someone checks the pricing page and adds it here.
 FLEX_CAPABLE_MODELS: frozenset[str] = frozenset({"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"})
 
-# Per-call timeout for the flex client and the standard-tier rerun. It must stay under the
-# ai-gateway's buffered-response ceiling (~290s, answered as 504), and both attempts share the
-# activity's 600s budget with every other call the agent makes, so no single parked call may
-# consume it. The activity's start_to_close deadline remains the hard stop.
+# Per-call timeouts. Flex calls and the standard-tier rerun fail fast so both attempts fit the
+# activity's 600s budget. Standard calls are capped below the ai-gateway's buffered-response
+# ceiling (~290s, answered as 504): a longer client timeout is unreachable through the gateway,
+# and 2 attempts x 240s stays inside the activity budget. The activity's start_to_close deadline
+# remains the hard stop.
 LABELING_CALL_TIMEOUT = 120.0
+LABELING_STANDARD_CALL_TIMEOUT = 240.0
 
 
 def get_labeling_llm(
@@ -56,20 +57,22 @@ def get_labeling_llm(
 
     Labeling runs as a daily batch, so allowlisted models request the flex
     service tier for half-price tokens. A flex client gets a short per-call
-    timeout and no SDK retries: `invoke_labeling_agent` owns recovery, and
-    retrying against the same starved tier would only stack timeouts.
+    timeout and no SDK retries: `prepare_labeling_agent_run` owns recovery,
+    and retrying against the same starved tier would only stack timeouts.
+    Standard clients get one SDK retry and a timeout capped below the
+    ai-gateway ceiling, so no single call can outlive the activity budget.
     """
     use_flex = flex and settings.LLMA_LABELING_FLEX_ENABLED and model in FLEX_CAPABLE_MODELS
     return build_langchain_chat_client(
         model,
-        LABELING_CALL_TIMEOUT if use_flex else timeout,
+        LABELING_CALL_TIMEOUT if use_flex else min(timeout, LABELING_STANDARD_CALL_TIMEOUT),
         ai_product="aio_clustering",
         trace_id=trace_id,
         session_id=session_id,
         properties=properties,
         distinct_id=distinct_id,
         service_tier="flex" if use_flex else None,
-        max_retries=0 if use_flex else 2,
+        max_retries=0 if use_flex else 1,
     )
 
 
@@ -108,27 +111,50 @@ def prepare_labeling_agent_run(
     fails. The labeling callers turn any exception into default cluster labels, so without
     the rerun a flex refusal degrades label quality silently. Each attempt gets a deep copy
     of the state: the labeling tools write labels into it in place, and the rerun must not
-    start from the failed flex attempt's partial progress.
+    start from the failed flex attempt's partial progress. When both attempts fail, the
+    runner hands back the last attempt's partial labels instead of raising: the tools
+    already wrote them into the state, and discarding them would throw away paid-for work.
     """
-    llm_kwargs: dict[str, Any] = {
-        "trace_id": trace_id,
-        "session_id": session_id,
-        "properties": properties,
-        "distinct_id": distinct_id,
-    }
-    flex_llm = get_labeling_llm(model, timeout, **llm_kwargs)
+    flex_llm = get_labeling_llm(
+        model,
+        timeout,
+        trace_id=trace_id,
+        session_id=session_id,
+        properties=properties,
+        distinct_id=distinct_id,
+    )
 
     def run(initial_state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        state = copy.deepcopy(initial_state)
         fell_back = False
         try:
-            result = make_agent(flex_llm).invoke(copy.deepcopy(initial_state), config)
-        except APIError as flex_error:
-            if flex_llm.service_tier != "flex" or not _is_flex_recoverable(flex_error):
-                raise
-            logger.info("labeling_flex_fell_back", error_type=type(flex_error).__name__, model=model)
-            fell_back = True
-            standard_llm = get_labeling_llm(model, LABELING_CALL_TIMEOUT, flex=False, **llm_kwargs)
-            result = make_agent(standard_llm).invoke(copy.deepcopy(initial_state), config)
+            try:
+                result = make_agent(flex_llm).invoke(state, config)
+            except APIError as flex_error:
+                if flex_llm.service_tier != "flex" or not _is_flex_recoverable(flex_error):
+                    raise
+                logger.info("labeling_flex_fell_back", error_type=type(flex_error).__name__, model=model)
+                fell_back = True
+                standard_llm = get_labeling_llm(
+                    model,
+                    LABELING_CALL_TIMEOUT,
+                    flex=False,
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    properties=properties,
+                    distinct_id=distinct_id,
+                )
+                state = copy.deepcopy(initial_state)
+                result = make_agent(standard_llm).invoke(state, config)
+        except Exception:
+            partial_labels = dict(state.get("current_labels") or {})
+            logger.exception(
+                "labeling_agent_failed",
+                fell_back=fell_back,
+                partial_labels=len(partial_labels),
+                model=model,
+            )
+            return {"messages": [], "current_labels": partial_labels}
         # The tier the last response reports actually served, so production logs answer whether
         # the gateway forwards service_tier and how often flex refuses.
         logger.info(

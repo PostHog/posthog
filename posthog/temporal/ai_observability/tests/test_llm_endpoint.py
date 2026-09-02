@@ -220,11 +220,15 @@ class TestBuildOpenAIChatClient:
                 "gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d", flex=False
             )
 
+        from posthog.temporal.ai_observability.clustering_agent import LABELING_STANDARD_CALL_TIMEOUT
+
         assert flex_client.request_timeout == LABELING_CALL_TIMEOUT
         assert flex_client.max_retries == 0
         assert standard_client.service_tier is None
-        assert standard_client.request_timeout == 600.0
-        assert standard_client.max_retries == 2
+        # Capped below the ai-gateway ceiling: 2 attempts x 240s fits the 600s activity budget,
+        # where the old 600s x 3 attempts could not.
+        assert standard_client.request_timeout == LABELING_STANDARD_CALL_TIMEOUT
+        assert standard_client.max_retries == 1
 
 
 def _http_error_parts(status_code: int):
@@ -310,10 +314,7 @@ class TestPrepareLabelingAgentRun:
         assert result["current_labels"] == {1: "label"}
 
     def test_configuration_errors_do_not_rerun_on_the_standard_tier(self):
-        # A 400 fails identically on both tiers; a rerun would double the cost of a broken setup
-        # and hide it from the error path.
-        from openai import BadRequestError
-
+        # A 400 fails identically on both tiers; a rerun would double the cost of a broken setup.
         tiers_used = []
 
         def make_agent(llm):
@@ -325,10 +326,28 @@ class TestPrepareLabelingAgentRun:
 
             return Agent()
 
-        with pytest.raises(BadRequestError):
-            self._invoke(make_agent)
+        result = self._invoke(make_agent)
 
         assert tiers_used == ["flex"]
+        assert result["current_labels"] == {}
+
+    def test_failed_runs_hand_back_the_last_attempts_partial_labels(self):
+        # The tools write labels into the state as they go; a run where both tiers fail must
+        # surface that paid-for progress instead of shipping all-default labels.
+        def make_agent(llm):
+            class Agent:
+                def invoke(self, state, config):
+                    if llm.service_tier == "flex":
+                        state["current_labels"].update({1: "flex label", 2: "flex label"})
+                        raise _rate_limit_error()
+                    state["current_labels"][3] = "standard label"
+                    raise _gateway_ceiling_error()
+
+            return Agent()
+
+        result = self._invoke(make_agent, initial_state={"messages": [], "current_labels": {}})
+
+        assert result["current_labels"] == {3: "standard label"}
 
     def test_flex_success_runs_once(self):
         tiers_used = []
@@ -427,4 +446,5 @@ class TestPrepareLabelingAgentRun:
             client = get_labeling_llm("gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d")
 
         assert client.service_tier is None
-        assert client.max_retries == 2
+        # The lever lands on the bounded standard shape, not the old 600s x 3-attempt one.
+        assert client.max_retries == 1
