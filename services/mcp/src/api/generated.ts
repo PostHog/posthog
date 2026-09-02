@@ -29090,6 +29090,16 @@ export namespace Schemas {
          * @nullable
          */
       median_merge_to_deploy_seconds_prev: number | null;
+      /**
+         * Median seconds from a PR's open to the first successful deployment containing it — the full open-to-deploy lead time over the same deployed-PR population as median_merge_to_deploy_seconds. Null when nothing deployed in the window.
+         * @nullable
+         */
+      median_open_to_deploy_seconds: number | null;
+      /**
+         * Previous-window twin of median_open_to_deploy_seconds.
+         * @nullable
+         */
+      median_open_to_deploy_seconds_prev: number | null;
       /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
       deployed_pr_count: number;
       /** Previous-window twin of deployed_pr_count. */
