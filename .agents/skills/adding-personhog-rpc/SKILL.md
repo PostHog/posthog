@@ -26,10 +26,13 @@ If the data being accessed doesn't live in one of these tables, this RPC doesn't
 | `posthog_grouptypemapping`           | NonPersonData | All ops: replica                                             |
 | `posthog_cohortpeople`               | NonPersonData | All ops: replica                                             |
 | `posthog_featureflaghashkeyoverride` | NonPersonData | All ops: replica                                             |
-| `posthog_personoverride`             | PersonData    | Reads/writes follow person routing                           |
 | `posthog_personlessdistinctid`       | PersonData    | Same as person                                               |
 
 If the table is not listed above, **stop** — this data should not go through personhog.
+
+`posthog_personoverride` is intentionally not listed:
+the table has no reader or writer, so do not add an RPC against it
+(see [references/database-indexes.md](references/database-indexes.md)).
 
 ## Step 0: design the data access pattern
 
