@@ -397,7 +397,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     if (teamId == null) {
                         return { count: 0, next: null, previous: null, results: [] }
                     }
-                    const params = new URLSearchParams({ search, limit: '100', offset: String(offset) })
+                    const params = new URLSearchParams({ search, limit: '50', offset: String(offset) })
                     const tagPage: PaginatedResponse<string> = await api.get(
                         `api/projects/${teamId}/tags?${params.toString()}`
                     )
