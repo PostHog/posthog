@@ -12,6 +12,8 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
@@ -361,9 +363,13 @@ def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
         # concurrent run committed in between.
         check.failing_since = None
         updated.append("failing_since")
-    check.save(update_fields=updated)
-    if outcome.status in FAILING_STATUSES:
-        _claim_failing_streak(check, ran_at)
+    # One transaction, so the row lock the status write takes is held across the streak claim. Apart,
+    # the two commit separately and a concurrent pass can land in the gap: the claim then matches
+    # failing_since IS NULL and stamps a streak onto a row that already reads passed.
+    with transaction.atomic():
+        check.save(update_fields=updated)
+        if outcome.status in FAILING_STATUSES:
+            _claim_failing_streak(check, ran_at)
 
 
 def _claim_failing_streak(check: DataQualityCheck, failed_at: datetime) -> None:
