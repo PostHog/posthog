@@ -145,7 +145,7 @@ def clone_key(clone: dict) -> tuple[frozenset, str]:
     itself does, which is what the gate is for.
     """
     pair = frozenset((clone["firstFile"]["name"], clone["secondFile"]["name"]))
-    return pair, hashlib.sha1(clone["fragment"].encode()).hexdigest()
+    return pair, hashlib.sha256(clone["fragment"].encode()).hexdigest()
 
 
 def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
