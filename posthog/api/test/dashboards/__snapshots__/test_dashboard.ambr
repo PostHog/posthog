@@ -291,7 +291,7 @@
   FROM "posthog_sharingconfiguration"
   WHERE ("posthog_sharingconfiguration"."enabled"
          AND ("posthog_sharingconfiguration"."expires_at" IS NULL
-              OR "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz)
+              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
          AND "posthog_sharingconfiguration"."dashboard_id" = 99999
          AND "posthog_sharingconfiguration"."team_id" = 99999)
   LIMIT 1
@@ -4886,7 +4886,7 @@
   FROM "posthog_sharingconfiguration"
   WHERE ("posthog_sharingconfiguration"."enabled"
          AND ("posthog_sharingconfiguration"."expires_at" IS NULL
-              OR "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz)
+              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
          AND "posthog_sharingconfiguration"."dashboard_id" = 99999
          AND "posthog_sharingconfiguration"."team_id" = 99999)
   LIMIT 1
@@ -5957,7 +5957,7 @@
   FROM "posthog_sharingconfiguration"
   WHERE ("posthog_sharingconfiguration"."enabled"
          AND ("posthog_sharingconfiguration"."expires_at" IS NULL
-              OR "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz)
+              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
          AND "posthog_sharingconfiguration"."dashboard_id" = 99999
          AND "posthog_sharingconfiguration"."team_id" = 99999)
   LIMIT 1
@@ -10550,7 +10550,7 @@
   FROM "posthog_sharingconfiguration"
   WHERE ("posthog_sharingconfiguration"."enabled"
          AND ("posthog_sharingconfiguration"."expires_at" IS NULL
-              OR "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz)
+              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
          AND "posthog_sharingconfiguration"."dashboard_id" = 99999
          AND "posthog_sharingconfiguration"."team_id" = 99999)
   LIMIT 1
@@ -10723,7 +10723,7 @@
   FROM "posthog_sharingconfiguration"
   WHERE ("posthog_sharingconfiguration"."enabled"
          AND ("posthog_sharingconfiguration"."expires_at" IS NULL
-              OR "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz)
+              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
          AND "posthog_sharingconfiguration"."dashboard_id" = 99999
          AND "posthog_sharingconfiguration"."team_id" = 99999)
   LIMIT 1
@@ -11793,7 +11793,7 @@
   FROM "posthog_sharingconfiguration"
   WHERE ("posthog_sharingconfiguration"."enabled"
          AND ("posthog_sharingconfiguration"."expires_at" IS NULL
-              OR "posthog_sharingconfiguration"."expires_at" > '2024-01-01 12:00:00+00:00'::timestamptz)
+              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
          AND "posthog_sharingconfiguration"."dashboard_id" = 99999
          AND "posthog_sharingconfiguration"."team_id" = 99999)
   LIMIT 1

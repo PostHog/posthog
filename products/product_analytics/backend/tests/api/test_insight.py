@@ -34,6 +34,7 @@ from posthog.schema import (
     EventsNode,
     EventsQuery,
     FilterLogicalOperator,
+    FunnelsQuery,
     HogQLFilters,
     HogQLQuery,
     InsightNodeKind,
@@ -41,6 +42,7 @@ from posthog.schema import (
     NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    StickinessQuery,
     TrendsQuery,
 )
 
@@ -498,18 +500,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
 
     def test_get_insight_in_dashboard_context(self) -> None:
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}
         )
 
-        insight_id, _ = self.dashboard_api.create_insight(
-            {"filters": filter_dict, "name": "insight", "dashboards": [dashboard_id]}
-        )
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight", "dashboards": [dashboard_id]})
 
         insight_in_isolation = self.dashboard_api.get_insight(insight_id)
         self.assertIsNotNone(insight_in_isolation.get("filters_hash", None))
@@ -564,18 +559,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             mock_record_outcome.assert_not_called()
 
     def test_get_insight_in_shared_context(self) -> None:
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}
         )
 
-        insight_id, _ = self.dashboard_api.create_insight(
-            {"filters": filter_dict, "name": "insight", "dashboards": [dashboard_id]}
-        )
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight", "dashboards": [dashboard_id]})
         sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
 
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
@@ -633,9 +621,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # never execute the body of. A 200 alone doesn't prove this: insight_result's
         # broad except Exception swallows calculation crashes into a query_status error
         # and still renders 200, so assert the embedded result actually computed.
-        filter_dict = {"events": [{"id": "$pageview"}]}
-
-        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "name": "insight"})
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight"})
         sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
 
         # .json suffix returns exported_data directly, skipping exporter.html rendering
@@ -655,9 +641,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # reaching the override helpers, a viewer could pair a unique filters_override with
         # refresh=force_blocking on every request — each novel value is a fresh cache miss that
         # recomputes synchronously, defeating the throttle this PR relies on.
-        insight_id, _ = self.dashboard_api.create_insight(
-            {"filters": {"events": [{"id": "$pageview"}]}, "name": "insight"}
-        )
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight"})
         sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
 
         valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
@@ -1078,7 +1062,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 data={
                     "short_id": f"insight{i}",
                     "dashboards": [dashboard.pk],
-                    "filters": {"events": [{"id": "$pageview"}]},
                 }
             )
 
@@ -1112,7 +1095,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 data={
                     "short_id": short_id,
                     "dashboards": [d.pk for d in dashboards],
-                    "filters": {"events": [{"id": "$pageview"}]},
                 }
             )
             soft_deleted_dashboard = Dashboard.objects.create(name=f"deleted dashboard for {short_id}", team=self.team)
@@ -1162,9 +1144,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         url = f"/api/projects/{self.team.id}/insights/?saved=true&limit=30"
 
         def _create_insight_with_alerts(short_id: str) -> None:
-            insight_id, _ = self.dashboard_api.create_insight(
-                data={"short_id": short_id, "filters": {"events": [{"id": "$pageview"}]}}
-            )
+            insight_id, _ = self.dashboard_api.create_insight(data={"short_id": short_id})
             threshold = Threshold.objects.create(
                 team=self.team,
                 insight_id=insight_id,
@@ -1216,12 +1196,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
-        self.dashboard_api.create_insight(
-            data={
-                "short_id": f"insight",
-                "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]},
-            }
-        )
+        # Written through the ORM because the API only accepts a query, while legacy rows still have to list.
+        Insight.objects.create(team=self.team, filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
         self.dashboard_api.create_insight(
             data={
                 "short_id": f"insight",
@@ -1237,26 +1213,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         journeys_insight_id, _ = self.dashboard_api.create_insight(
             data={"query": {"kind": "InsightVizNode", "source": {"kind": "PathsV2Query"}}}
         )
-        paths_insight_id, _ = self.dashboard_api.create_insight(
-            data={"filters": {"insight": "PATHS", "events": [{"id": "$pageview"}]}}
+        # Written through the ORM because the API only accepts a query, while legacy rows still have to list.
+        paths_insight = Insight.objects.create(
+            team=self.team, filters={"insight": "PATHS", "events": [{"id": "$pageview"}]}
         )
 
         journeys_response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=JOURNEYS")
         assert [insight["id"] for insight in journeys_response.json()["results"]] == [journeys_insight_id]
 
         paths_response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=PATHS")
-        assert [insight["id"] for insight in paths_response.json()["results"]] == [paths_insight_id]
+        assert [insight["id"] for insight in paths_response.json()["results"]] == [paths_insight.id]
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
-        insight_one_id, _ = self.dashboard_api.create_insight(
-            {"name": "insight 1", "filters": {"events": [{"id": "$pageview"}]}}
-        )
-        insight_two_id, _ = self.dashboard_api.create_insight(
-            {"name": "insight 2", "filters": {"events": [{"id": "$pageview"}]}}
-        )
-        insight_three_id, _ = self.dashboard_api.create_insight(
-            {"name": "insight 3", "filters": {"events": [{"id": "$pageview"}]}}
-        )
+        insight_one_id, _ = self.dashboard_api.create_insight({"name": "insight 1"})
+        insight_two_id, _ = self.dashboard_api.create_insight({"name": "insight 2"})
+        insight_three_id, _ = self.dashboard_api.create_insight({"name": "insight 3"})
 
         dashboard_one_id, _ = self.dashboard_api.create_dashboard(
             {"name": "dashboard 1", "filters": {"date_from": "-180d"}}
@@ -1364,16 +1335,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_insight_items_on_a_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
 
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-                "dashboards": [dashboard_id],
-            }
-        )
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
 
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile)
@@ -1382,16 +1344,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
         deleted_dashboard_id, _ = self.dashboard_api.create_dashboard({})
 
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-                "dashboards": [dashboard_id, deleted_dashboard_id],
-            }
-        )
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id, deleted_dashboard_id]})
 
         self.dashboard_api.update_dashboard(deleted_dashboard_id, {"deleted": True})
 
@@ -1412,16 +1365,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboard_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
 
-        insight_id, insight_json = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-                "dashboards": [dashboard_id],
-            }
-        )
+        insight_id, insight_json = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
 
         tile: DashboardTile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
         tile.deleted = True
@@ -1618,10 +1562,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("legacy_filters_funnels", {"insight": "FUNNELS"}, None, "funnels"),
+            (
+                "query_funnels",
+                InsightVizNode(source=FunnelsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+                "funnels",
+            ),
             (
                 "query_trends",
-                None,
                 InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
                 "trends",
             ),
@@ -1631,20 +1578,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_creating_insight_with_dashboard_fires_tile_added_event(
         self,
         _name: str,
-        filters: dict | None,
-        query: dict | None,
+        query: dict,
         expected_insight_type: str,
         mock_report_user_action: mock.Mock,
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
         mock_report_user_action.reset_mock()
 
-        data: dict = {"dashboards": [dashboard_id]}
-        if filters:
-            data["filters"] = filters
-        if query:
-            data["query"] = query
-        self.dashboard_api.create_insight(data)
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id], "query": query})
 
         mock_report_user_action.assert_any_call(
             self.user,
@@ -1661,7 +1602,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Important dashboard"})
 
-        self.dashboard_api.create_insight({"filters": {"insight": "TRENDS"}, "dashboards": [dashboard_id]})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
 
         limit_call = next(
             call for call in mock_report_user_action.call_args_list if call.args[1] == "resource limit hit"
@@ -1672,7 +1613,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_adding_insight_to_dashboard_fires_tile_added_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
-        insight_id, _ = self.dashboard_api.create_insight({"filters": {"insight": "STICKINESS"}})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"query": InsightVizNode(source=StickinessQuery(series=[EventsNode(event="$pageview")])).model_dump()}
+        )
         mock_report_user_action.reset_mock()
 
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
@@ -1710,7 +1653,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_removing_insight_from_dashboard_fires_tile_removed_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
         insight_id, _ = self.dashboard_api.create_insight(
-            {"filters": {"insight": "STICKINESS"}, "dashboards": [dashboard_id]}
+            {
+                "query": InsightVizNode(source=StickinessQuery(series=[EventsNode(event="$pageview")])).model_dump(),
+                "dashboards": [dashboard_id],
+            }
         )
         mock_report_user_action.reset_mock()
 
@@ -1914,31 +1860,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filters_hash"], original_filters_hash)
-
-    @skip("Compatibility issue caused by test account filters")
-    def test_update_insight_filters(self) -> None:
-        insight = Insight.objects.create(
-            team=self.team,
-            name="insight with custom filters",
-            created_by=self.user,
-            filters={"events": [{"id": "$pageview"}]},
-        )
-
-        for custom_name, expected_name in zip(
-            ["Custom filter", 100, "", "  ", None],
-            ["Custom filter", "100", None, None, None],
-        ):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{insight.id}",
-                {"filters": {"events": [{"id": "$pageview", "custom_name": custom_name}]}},
-            )
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            response_data = response.json()
-            self.assertEqual(response_data["filters"]["events"][0]["custom_name"], expected_name)
-            insight.refresh_from_db()
-            self.assertEqual(insight.filters["events"][0]["custom_name"], expected_name)
 
     def test_save_new_funnel(self) -> None:
         dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
@@ -3432,14 +3353,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
 
         self.dashboard_api.create_insight(
-            data={
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-                "dashboards": [dashboard_own_team.pk, dashboard_other_team.pk],
-            },
+            data={"dashboards": [dashboard_own_team.pk, dashboard_other_team.pk]},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -3458,13 +3372,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # logged in to self.team and trying to create an insight in another_team
         self.dashboard_api.create_insight(
             team_id=another_team.pk,
-            data={
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-            },
+            data={},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -3473,16 +3381,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
         dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
 
-        insight_id, _ = self.dashboard_api.create_insight(
-            data={
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-                "dashboards": [dashboard_own_team.pk],
-            }
-        )
+        insight_id, _ = self.dashboard_api.create_insight(data={"dashboards": [dashboard_own_team.pk]})
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",

@@ -1,7 +1,7 @@
 """Build the insight `query` payloads that tests used to write as legacy `filters`.
 
-The insights API rejects a write that carries only `filters`, so a test that wants an insight
-with a given definition sends the equivalent query instead.
+The insights API only stores a definition sent as a query, so a test that wants an insight with
+a given definition sends the equivalent query instead.
 """
 
 from typing import Any
