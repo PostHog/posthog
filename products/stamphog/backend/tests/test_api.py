@@ -1,12 +1,17 @@
+from typing import Any
+
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import signing
-from django.test import SimpleTestCase
+from django.db import transaction
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, uuid7
@@ -69,6 +74,43 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["repository"] == "PostHog/posthog"
         assert body["provider"] == "github"
         assert body["enabled"] is False
+
+    def test_toggling_enabled_writes_an_activity_log_row(self) -> None:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        # Review history hangs off the config as a reverse relation; the diff must leave it out.
+        PullRequest.objects.create(team_id=self.team.id, repo_config_id=created["id"], pr_number=1)
+        self.client.patch(f"{self.url}{created['id']}/", {"enabled": False}, format="json")
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+        assert log.team_id == self.team.id
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "PostHog/posthog"
+        assert log.detail["changes"] == [
+            {"type": "StamphogRepoConfig", "action": "changed", "field": "enabled", "before": True, "after": False}
+        ]
+
+    def test_rolled_back_config_write_leaves_no_activity_row(self) -> None:
+        # Repo configs live on the stamphog database while the audit row lives on the main one, so
+        # the audit write has to ride that connection's commit rather than landing immediately.
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        config = StamphogRepoConfig.objects.for_team(self.team.id).get(id=created["id"])
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+
+        with override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with pytest.raises(RuntimeError):
+                    with transaction.atomic(using="stamphog_db_writer"):
+                        config.enabled = False
+                        config.save()
+                        raise RuntimeError("the write this audits failed")
+            assert not updates.exists()
+
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with transaction.atomic(using="stamphog_db_writer"):
+                    config.enabled = False
+                    config.save()
+            assert updates.exists()
 
     def test_blank_installation_does_not_reserve_repo_across_teams(self) -> None:
         # A manual placeholder carries a blank installation and proves no ownership, so it must not
@@ -150,11 +192,21 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert StamphogRepoConfig.objects.unscoped().filter(id=theirs.id).exists()
 
-    def test_delete_soft_disables_as_tombstone(self) -> None:
+    @parameterized.expand(
+        [
+            ("delete", "delete", None, status.HTTP_204_NO_CONTENT),
+            ("patch", "patch", {"enabled": False}, status.HTTP_200_OK),
+        ]
+    )
+    def test_disabling_a_repo_tombstones_supersedes_and_records_it(
+        self, _name: str, method: str, body: dict[str, Any] | None, expected_status: int
+    ) -> None:
         # A hard delete would cascade away the PRs and review runs (including posted_review_id), so a
         # push to a previously approved PR could no longer resolve the config or dismiss the stale
         # approval — deleting a repo must not launder a standing approval. In-flight runs are
         # superseded too: their workflows never re-check enabled and could still post an approval.
+        # Both routes disable through the same facade transaction, so both must land the supersede
+        # and the audit row.
         mine = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/mine", installation_id="3", enabled=True, digest_enabled=True
         )
@@ -164,13 +216,19 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         in_flight = ReviewRun.objects.unscoped().create(
             team_id=self.team.id, pull_request=pull_request, head_sha="sha-live", status=ReviewRunStatus.REVIEWING
         )
-        response = self.client.delete(f"{self.url}{mine.id}/")
-        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        response = getattr(self.client, method)(f"{self.url}{mine.id}/", body, format="json")
+        assert response.status_code == expected_status, response.content
         mine.refresh_from_db()
         in_flight.refresh_from_db()
         assert mine.enabled is False
         assert mine.digest_enabled is False
         assert in_flight.status == ReviewRunStatus.SUPERSEDED
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=str(mine.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
+        assert (enabled_change["before"], enabled_change["after"]) == (True, False)
 
     def test_cannot_enable_digest_without_reviews(self) -> None:
         # Wiring guard for the serializer matrix below: the viewset must actually reject the
@@ -398,6 +456,17 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert all(not config.enabled for config in bound)
         # The caller becomes the connecting user — the identity review-sandbox credentials are minted under.
         assert all(config.connected_by_user_id == self.user.id for config in bound)
+        # One audit row per connected repo, written as a batch: the per-row receiver is silenced for
+        # the sync loop because an installation can expose thousands of repositories.
+        created = ActivityLog.objects.filter(scope="StamphogRepoConfig", activity="created")
+        assert created.count() == 2
+        connected_names = set()
+        for log in created:
+            assert log.user == self.user
+            assert log.detail is not None
+            assert log.detail["type"] == "connected"
+            connected_names.add(log.detail["name"])
+        assert connected_names == {"PostHog/other", "PostHog/posthog"}
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -431,8 +500,13 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # An uninstall/reinstall cycle mints a new installation id; the old binding is dead (the app
         # can only be installed once per repo). Re-syncing the verified new installation must rebind
         # the team's existing row instead of skipping it and leaving the repo dead forever.
+        previous_connector_id = 4242
         stale = StamphogRepoConfig.objects.unscoped().create(
-            team_id=self.team.id, repository="PostHog/posthog", installation_id="41", enabled=True
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="41",
+            enabled=True,
+            connected_by_user_id=previous_connector_id,
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -443,6 +517,19 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         stale.refresh_from_db()
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
+        assert stale.connected_by_user_id == self.user.id
+        # The restamp reads its before-value from the locked row, so the log names who held the
+        # connection before this sync took it over.
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=str(stale.id), activity="updated")
+        connector_changes = []
+        for log in updates:
+            assert log.detail is not None
+            connector_changes += [c for c in log.detail["changes"] if c["field"] == "connected_by_user_id"]
+        assert len(connector_changes) == 1
+        assert (connector_changes[0]["before"], connector_changes[0]["after"]) == (
+            previous_connector_id,
+            self.user.id,
+        )
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)

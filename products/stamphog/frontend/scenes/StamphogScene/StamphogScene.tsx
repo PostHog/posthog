@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StamphogTabs } from '../../components/StamphogTabs'
 import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
+import { REVIEW_MODE_LABELS } from '../../reviewModeLabels'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
 export const scene: SceneExport = {
@@ -137,8 +138,8 @@ function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updat
                 disabledReason={updating ? 'Updating' : undefined}
                 onChange={(mode) => setReviewMode(repo.id, mode)}
                 options={[
-                    { value: ReviewModeEnumApi.All, label: 'All PRs' },
-                    { value: ReviewModeEnumApi.Label, label: 'Label-triggered' },
+                    { value: ReviewModeEnumApi.All, label: REVIEW_MODE_LABELS[ReviewModeEnumApi.All] },
+                    { value: ReviewModeEnumApi.Label, label: REVIEW_MODE_LABELS[ReviewModeEnumApi.Label] },
                 ]}
             />
             {repo.review_mode === ReviewModeEnumApi.Label && (
