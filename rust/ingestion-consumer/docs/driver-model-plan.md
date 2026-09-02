@@ -28,8 +28,9 @@ Both stacks start from this plan branch ([#91468](https://github.com/PostHog/pos
 | --- | --- | --- |
 | Cycle 1 | `c1-delete-eager-flush` | Change 1. |
 | Cycle 2 | `c2-common-ledger` -> `c2-ledger-shadow` -> `c2-ledger-active` -> `c2-ledger-cleanup` | Changes 2 through 5, one PR per plan step. |
+| Cycle 3 | `c3-demux-groups` -> `c3-batcher` -> `c3-scheduler-seam` -> `c3-key-table` -> `c3-scheduler-switch` | Changes 6 through 10, one PR per plan step. |
 
-The stacks are independent: cycle 2 can begin without cycle 1. The merge gates remain part of the plan: change 4 cannot merge until change 3 has soaked with a zero mismatch counter, and change 5 cannot merge until change 4 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
+The stacks are independent: cycle 2 can begin without cycle 1, and cycle 3 needs only cycle 1 and the crate from change 2. The merge gates remain part of the plan: change 4 cannot merge until change 3 has soaked with a zero mismatch counter, and change 5 cannot merge until change 4 is stable on every lane. Draft PRs may be prepared earlier, but they must not collapse those gates.
 
 ## The cycle model
 
@@ -239,12 +240,13 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 - Group messages per partition first, then per routing key. Keep offset order inside each group.
 - The dispatcher flattens the groups back into one message list. Sub-batch assembly does not change.
 - Change 7 submits them to the batcher as the accumulator.
+- The group is the seam vocabulary between the consumer loop and the batcher, so it lives in `common-kafka-consumer`, generic over the key and the message body. The crate's demux knows no routing key of its own: a keyless message is one group on its own, and the dispatcher keeps naming such a group with its synthetic per-message key.
 
 **Interfaces:**
 
-- Add `Group` in `types.rs`: partition, routing key, messages in offset order.
+- Add `Partition` to the crate's `types.rs`, and `Group` and `Accumulator` in `accumulator.rs`: a group is a partition, an optional key, and its offsets and messages in offset order; the accumulator is the demux that builds one poll's groups.
 - Modify `CollectedBatch`: carries `Vec<Group>` instead of a flat message list.
-- Modify `Dispatcher::assign_and_send`: takes groups and flattens them. `group_messages_by_routing_key` moves to the collect path.
+- Modify `Dispatcher::assign_and_send`: takes groups and flattens them. The demux moves to the collect path; the dispatcher keeps only the routing-key naming.
 
 ### 7. Encapsulate the worker batcher (prepare)
 
@@ -267,7 +269,7 @@ Exit criterion: zero key-order sentinel violations, `ingestion_consumer_transpor
 
 **Interfaces:**
 
-- Add `Accumulator`: one poll's groups, in poll order.
+- Submit the `Accumulator` from change 6 as one poll's groups, in poll order.
 - Add `Batcher` in `batcher.rs`: `submit(Accumulator)` in, a channel of `GroupCompletion` out. It owns `Dispatcher` and the send tasks, and holds shared handles to `GrpcTransport`, `Router`, and `WorkerRegistry`. It creates batch ids internally.
 - Add `GroupCompletion`: partition, assignment epoch, offsets, accepted count. No batch id and no messages: the batcher keeps the bodies for retry, and the ledger needs only the offsets.
 - Modify `IngestionConsumer`: drop `scatter` and `flush_deferred` — they move into the batcher. Keep collect, commit, and the admission cap. Correlate completions to polls by partition and offset.

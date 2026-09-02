@@ -785,10 +785,10 @@ export interface WidgetJobApi {
  * * `high` - high
  * * `critical` - critical
  */
-export type WidgetSecurityReviewSeverityEnumApi =
-    (typeof WidgetSecurityReviewSeverityEnumApi)[keyof typeof WidgetSecurityReviewSeverityEnumApi]
+export type GeneratedWidgetVersionSecurityReviewSeverityEnumApi =
+    (typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi)[keyof typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi]
 
-export const WidgetSecurityReviewSeverityEnumApi = {
+export const GeneratedWidgetVersionSecurityReviewSeverityEnumApi = {
     None: 'none',
     Low: 'low',
     Medium: 'medium',
@@ -834,7 +834,7 @@ export interface WidgetSecurityReviewApi {
      * * `medium` - medium
      * * `high` - high
      * * `critical` - critical */
-    severity: WidgetSecurityReviewSeverityEnumApi
+    severity: GeneratedWidgetVersionSecurityReviewSeverityEnumApi
     /** Concise result from the automated security review. */
     summary: string
     /** Potential security issues found in the source. */
@@ -915,9 +915,10 @@ export interface WidgetSourceApi {
  * * `improve` - improve
  * * `revert` - revert
  */
-export type VersionOperationEnumApi = (typeof VersionOperationEnumApi)[keyof typeof VersionOperationEnumApi]
+export type GeneratedWidgetVersionOperationEnumApi =
+    (typeof GeneratedWidgetVersionOperationEnumApi)[keyof typeof GeneratedWidgetVersionOperationEnumApi]
 
-export const VersionOperationEnumApi = {
+export const GeneratedWidgetVersionOperationEnumApi = {
     Initial: 'initial',
     Regenerate: 'regenerate',
     Improve: 'improve',
@@ -958,7 +959,7 @@ export interface WidgetVersionApi {
      * * `regenerate` - regenerate
      * * `improve` - improve
      * * `revert` - revert */
-    version_operation: VersionOperationEnumApi
+    version_operation: GeneratedWidgetVersionOperationEnumApi
     /** Instructions added by this version. */
     prompt_delta: string
     /** Complete instructions represented by this version. */

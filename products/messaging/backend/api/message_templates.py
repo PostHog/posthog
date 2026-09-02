@@ -1,7 +1,7 @@
 from copy import deepcopy
 from typing import Any
 
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -178,17 +178,19 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         return instance
 
 
-DESIGN_OPERATION_TYPES = [
-    "update_content",
-    "update_column",
-    "update_row",
-    "update_body",
-    "add_content",
-    "remove_content",
-    "move_content",
-    "add_row",
-    "remove_row",
-]
+class EmailTemplateDesignOperation(models.TextChoices):
+    UPDATE_CONTENT = "update_content", "update_content"
+    UPDATE_COLUMN = "update_column", "update_column"
+    UPDATE_ROW = "update_row", "update_row"
+    UPDATE_BODY = "update_body", "update_body"
+    ADD_CONTENT = "add_content", "add_content"
+    REMOVE_CONTENT = "remove_content", "remove_content"
+    MOVE_CONTENT = "move_content", "move_content"
+    ADD_ROW = "add_row", "add_row"
+    REMOVE_ROW = "remove_row", "remove_row"
+
+
+DESIGN_OPERATION_TYPES = list(EmailTemplateDesignOperation.values)
 
 # Per-op required fields, validated in DesignOperationSerializer.validate so a malformed op is rejected
 # before any are applied (the whole batch is atomic).

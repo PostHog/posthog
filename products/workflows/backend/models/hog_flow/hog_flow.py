@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Final
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -101,6 +102,11 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
 }
 
 
+def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(HogFlow.OriginProduct.choices)
+
+
 class HogFlow(UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
@@ -128,11 +134,19 @@ class HogFlow(UUIDTModel):
         TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
         ONLY_AT_END = "exit_only_at_end"
 
+    class OriginProduct(models.TextChoices):
+        LOOPS = "loops", "Loops"
+
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
+    # The product surface that owns this workflow, so that surface can list only its own flows.
+    # Null for workflows built directly in the workflows UI or over the API.
+    origin_product = models.CharField(
+        max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
