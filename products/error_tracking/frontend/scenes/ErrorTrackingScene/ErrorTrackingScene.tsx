@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBadge, LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonTab, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -16,15 +16,15 @@ import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, CyclotronJobFiltersType } from '~/types'
 
 import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
-import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
-import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { errorTrackingEmptyState } from '../../emptyState/errorTrackingEmptyState'
 import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
@@ -46,10 +46,11 @@ const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
     logic: errorTrackingSceneLogic,
+    productKey: ProductKey.ERROR_TRACKING,
+    emptyState: errorTrackingEmptyState,
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
@@ -80,14 +81,13 @@ export function ErrorTrackingScene(): JSX.Element {
             key: 'issues',
             label: 'Issues',
             content: (
-                <ErrorTrackingSetupPrompt>
-                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                <>
                     <SourceMapsBanner />
                     <IssuesList />
                     {/* Renders a hidden div — keep it after IssuesList so the sticky bar's
                         first:-mt-4 can detect whether a banner renders above it */}
                     <ErrorTrackingIssueFilteringTool />
-                </ErrorTrackingSetupPrompt>
+                </>
             ),
         },
         {
@@ -240,22 +240,5 @@ const Header = (): JSX.Element => {
                 }
             />
         </>
-    )
-}
-
-const IngestionStatusCheck = (): JSX.Element | null => {
-    return (
-        <LemonBanner type="warning" className="my-2">
-            <p>
-                <strong>No Exception events have been detected!</strong>
-            </p>
-            <p>
-                To use the Error tracking product, please{' '}
-                <Link to="https://posthog.com/docs/error-tracking/installation">
-                    enable exception capture within the PostHog SDK
-                </Link>{' '}
-                (otherwise it'll be a little empty!)
-            </p>
-        </LemonBanner>
     )
 }

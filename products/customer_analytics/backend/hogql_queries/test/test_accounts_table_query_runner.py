@@ -19,6 +19,7 @@ from posthog.schema import (
     AccountsTableAccountIdFilter,
     AccountsTableAggregateMetric,
     AccountsTableAggregation,
+    AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableCountMetric,
     AccountsTableCountThresholdMetric,
@@ -30,6 +31,8 @@ from posthog.schema import (
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableRelationshipFilter,
+    AccountsTableRelationshipOperator,
     AccountsTableSearchFilter,
     AccountsTableSort,
     AccountsTableSortDirection,
@@ -445,6 +448,41 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert [row.id for row in response.results] == [str(active_account.id)]
         assert str(untagged_account.id) not in {row.id for row in response.results}
 
+    def test_filters_by_relationship_definition_and_user(self) -> None:
+        csm_account = create_account(team_id=self.team.id, name="CSM")
+        ae_account = create_account(team_id=self.team.id, name="AE")
+        csm_definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        ae_definition = AccountRelationshipDefinition.objects.unscoped().create(
+            team=self.team, name="Account executive"
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=csm_account,
+            definition=csm_definition,
+            user=self.user,
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=ae_account,
+            definition=ae_definition,
+            user=self.user,
+        )
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[
+                    AccountsTableRelationshipFilter(
+                        definitionId=str(csm_definition.id),
+                        operator=AccountsTableRelationshipOperator.EXACT,
+                        userIds=[self.user.id],
+                    )
+                ],
+            )
+        )
+
+        assert [row.id for row in response.results] == [str(csm_account.id)]
+
     def test_unassigned_and_account_id_filters(self) -> None:
         assigned_account = create_account(team_id=self.team.id, name="Assigned")
         unassigned_account = create_account(team_id=self.team.id, name="Unassigned")
@@ -456,6 +494,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             user=self.user,
         )
 
+        assigned_response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableAssignedFilter()]))
         unassigned_response = self._run(AccountsTableQuery(columns=[], filters=[AccountsTableUnassignedFilter()]))
         account_response = self._run(
             AccountsTableQuery(
@@ -464,6 +503,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
         )
 
+        assert [row.id for row in assigned_response.results] == [str(assigned_account.id)]
         assert [row.id for row in unassigned_response.results] == [str(unassigned_account.id)]
         assert [row.id for row in account_response.results] == [str(assigned_account.id)]
 
@@ -1040,6 +1080,38 @@ class TestAccountsTableQueryAPI(APIBaseTest):
                 },
                 "refresh": "force_blocking",
             },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
+        account = create_account(team_id=self.team.id, name="Acme")
+        endpoint = f"/api/projects/{self.team.id}/accounts_table_query/"
+        accounts_query = AccountsTableQuery(columns=[], filters=[]).model_dump()
+        payload = {"query": accounts_query, "refresh": "force_blocking"}
+
+        denied = self.client.post(
+            endpoint,
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {self._token(['query:read'])}"},
+        )
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+
+        allowed = self.client.post(
+            endpoint,
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {self._token(['account:read'])}"},
+        )
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+        assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]
+
+    def test_accounts_table_query_endpoint_rejects_other_query_kinds(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/accounts_table_query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
             format="json",
         )
 

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.
     LangSmithRepeatedCursorError,
     LangSmithResponseTooLargeError,
     LangSmithResumeConfig,
+    LangSmithRunsPageTooLargeError,
     _fetch_page,
     _read_capped_body,
     _resolve_window_start,
@@ -246,6 +247,39 @@ class TestRunsPagination:
 
         assert len(rows) == 2501
         assert manager.saved == [LangSmithResumeConfig(cursor=None, window_start=None)]
+
+
+class TestRunsPageShrinking:
+    def test_oversized_page_halves_limit_and_retries_same_cursor(self):
+        # A legitimate host with large prompt payloads can trip MAX_RESPONSE_BYTES on a full page.
+        # The walk must halve the limit and re-request the same cursor (skipping no runs), not fail.
+        manager = FakeManager()
+        limits: list[int] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            limit = json_body["limit"]
+            limits.append(limit)
+            if limit > 25:
+                raise LangSmithResponseTooLargeError("oversized")
+            return {"runs": [_run("a")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert [r["id"] for r in rows] == ["a"]
+        assert limits == [100, 50, 25]  # halved on the same cursorless first page until it fits
+
+    def test_single_run_page_still_oversized_raises(self):
+        # If even a one-run page exceeds the cap, halving can't help; fail with the non-retryable
+        # error instead of re-hitting the same wall until the activity timeout.
+        manager = FakeManager()
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            raise LangSmithResponseTooLargeError("oversized")
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            with pytest.raises(LangSmithRunsPageTooLargeError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
 
 class TestOffsetPagination:

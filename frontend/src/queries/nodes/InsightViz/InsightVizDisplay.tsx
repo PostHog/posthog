@@ -94,7 +94,7 @@ function DashboardInsightRefreshHintOrLoading({
                 key={queryId}
                 insightProps={insightProps}
                 renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+                suppressSlowQuerySuggestions
             />
         )
     }
@@ -498,7 +498,15 @@ export function InsightVizDisplay({
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return null
+        return (
+            <InsightLoadingState
+                queryId={queryId}
+                key={queryId}
+                insightProps={insightProps}
+                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+            />
+        )
     }
 
     return (

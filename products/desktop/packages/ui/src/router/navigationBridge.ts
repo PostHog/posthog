@@ -60,6 +60,10 @@ export function navigateToFeed(feedId: string): void {
   });
 }
 
+export function navigateToFeeds(): void {
+  void getRouterOrNull()?.navigate({ to: "/feeds" });
+}
+
 export function navigateToChannel(channelId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/spaces/$channelId",
@@ -142,10 +146,28 @@ export function navigateToInboxPullRequestDetail(reportId: string): void {
   });
 }
 
-export function navigateToInboxReportDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
+export function navigateToInboxReportDetail(
+  reportId: string,
+  options?: { returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+
+  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
+  if (inboxTriageOrigin) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin,
+    });
+  }
+
+  void router.navigate({
     to: "/inbox/reports/$reportId",
     params: { reportId },
+    state: inboxTriageOrigin
+      ? (previous) => ({ ...previous, inboxTriageOrigin })
+      : undefined,
   });
 }
 

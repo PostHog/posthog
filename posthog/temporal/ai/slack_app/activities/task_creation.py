@@ -8,7 +8,8 @@ from django.db import models
 import structlog
 from temporalio import activity
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.helpers.slack_scopes import has_scopes
+from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.attachments import (
     PreparedSlackAttachments,
     build_slack_attachment_prompt_text,
@@ -37,7 +38,6 @@ _INITIATOR_PLACEHOLDER = "<original user message was here>"
 # Slack scopes the canvas/file living-artifact adapters check at delivery time.
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 _SLACK_ARTIFACT_DELIVERY_KEY = "slack_artifact_delivery"
-_SLACK_ARTIFACT_DELIVERY_NONE = "none"
 _SLACK_ARTIFACT_DELIVERY_MESSAGE = "message"
 _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE = "canvas_file"
 # Charts are a second key rather than a fourth mode: an agent build that predates them
@@ -125,28 +125,18 @@ def _artifact_delivery_state_updates(integration: Integration) -> dict[str, Any]
     """Run state telling the agent which Slack delivery routes this workspace has.
 
     The agent turns these into its delivery constraints, so the wording lives with the
-    agent and the gating stays here. Canvas and file delivery needs its own rollout flag
-    *and* the Slack scopes the adapters write with, so that the agent is never invited to
-    create an artifact delivery would reject. Charts are gated on the flag alone: they
-    post as an image block referencing a PostHog-hosted url, which needs no upload and so
-    no ``files:write``. That difference is the whole point of the separate key — a
-    workspace waiting on the in-review scopes can still deliver charts. Resolved when the
-    run is created, before the sandbox boots and reads the state.
+    agent and the gating stays here. Canvas and file delivery needs the Slack scopes the
+    adapters write with, so that the agent is never invited to create an artifact
+    delivery would reject. Charts need no scope: they post as an image block referencing
+    a PostHog-hosted url, which needs no upload and so no ``files:write`` — a workspace
+    still missing the adapter scopes can still deliver charts. Resolved when the run is
+    created, before the sandbox boots and reads the state.
     """
-    from products.slack_app.backend.feature_flags import (  # noqa: PLC0415
-        is_slack_app_canvas_file_artifacts_enabled,
-        is_slack_app_living_artifacts_enabled,
-    )
-
-    if not is_slack_app_living_artifacts_enabled(integration):
-        return {_SLACK_ARTIFACT_DELIVERY_KEY: _SLACK_ARTIFACT_DELIVERY_NONE, _SLACK_CHART_DELIVERY_KEY: False}
-
-    charts_enabled = is_slack_app_canvas_file_artifacts_enabled(integration)
-    if charts_enabled and not SlackIntegration(integration).missing_scopes(_SLACK_CANVAS_FILE_ADAPTER_SCOPES):
+    if has_scopes(integration, _SLACK_CANVAS_FILE_ADAPTER_SCOPES):
         mode = _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE
     else:
         mode = _SLACK_ARTIFACT_DELIVERY_MESSAGE
-    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode, _SLACK_CHART_DELIVERY_KEY: charts_enabled}
+    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode, _SLACK_CHART_DELIVERY_KEY: True}
 
 
 def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[str]:

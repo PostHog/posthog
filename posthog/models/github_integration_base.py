@@ -187,6 +187,21 @@ class GitHubIntegrationBase:
         """The GitHub App installation ID. Override in subclasses where the field name differs."""
         return self.integration.integration_id
 
+    def _installation_cache_scope(self) -> str:
+        """Cache identity for data GitHub scopes to the installation, not to the PostHog row.
+
+        Many rows can share one installation and they all read it through the same installation
+        token, so keying on the row splits one answer into N copies that each refetch it against the
+        one shared rate-limit budget. Same identity rule as the egress limiter (posthog/egress/README.md).
+        A row with no installation id falls back to its own scope so it cannot read another's entry.
+        """
+        installation_id = self.github_installation_id
+        if installation_id:
+            return f"installation:{installation_id}"
+        # Integration and UserIntegration are separate tables with independent primary keys, so the
+        # row id alone names two different rows.
+        return f"{type(self.integration).__name__}:{self.integration.id}"
+
     # --- App-level JWT authentication ---
 
     @classmethod
@@ -1946,7 +1961,7 @@ class GitHubIntegrationBase:
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        cache_key = f"github_integration:default_branch:{self.integration.id}:{repo_path}"
+        cache_key = f"github_integration:default_branch:{self._installation_cache_scope()}:{repo_path}"
 
         cached = cache.get(cache_key)
         if isinstance(cached, str):
@@ -2083,7 +2098,7 @@ class GitHubIntegrationBase:
     # --- Cached branch operations ---
 
     def _get_branch_cache_key(self, repo: str) -> str:
-        return f"github_integration:branches:{self.integration.id}:{repo.lower()}"
+        return f"github_integration:branches:{self._installation_cache_scope()}:{repo.lower()}"
 
     def _get_branch_cache(self, repo: str) -> dict[str, Any] | None:
         cached = cache.get(self._get_branch_cache_key(repo))

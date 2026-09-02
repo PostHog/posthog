@@ -41,7 +41,8 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # shadow stdlib/pyyaml for the privileged process — top-level modules (yaml.py),
 # shadow packages (yaml/__init__.py), and extension modules (yaml.so, *.pyd)
 # alike — so the whole directory is gated rather than enumerating suffixes.
-tools/owners/** @PostHog/team-security
+# DevEx maintains the resolver and reviews it with that risk in mind.
+tools/owners/** @PostHog/team-devex
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect the distributed owners.yaml files, which drive non-required reviewer
