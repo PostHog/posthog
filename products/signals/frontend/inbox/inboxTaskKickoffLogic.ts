@@ -73,10 +73,16 @@ const ACTION_CAPABLE_STATUSES: readonly SignalReportStatus[] = [
     SignalReportStatus.PENDING_INPUT,
 ]
 
+/** Whether Ask AI hands this report's status the action-capable framing rather than answer-only.
+ * The Ask AI copy keys off this too, so the UI never invites an action the wrapper would refuse. */
+export function isActionCapableReportStatus(status: SignalReportStatus): boolean {
+    return ACTION_CAPABLE_STATUSES.includes(status)
+}
+
 export function buildDiscussReportPrompt(report: SignalReport, reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
-    if (!ACTION_CAPABLE_STATUSES.includes(report.status)) {
+    if (!isActionCapableReportStatus(report.status)) {
         return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
     }
     // Framed as question-or-action because a report's suggested prompts include next-step requests

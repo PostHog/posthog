@@ -45,7 +45,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
-from products.signals.backend.scout_authorship import resolve_report_scout_skill
+from products.signals.backend.scout_authorship import resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
@@ -462,21 +462,24 @@ def _create_implementation_task_if_absent(
 
 
 def _live_skill_owner_logins(team: Team, report_id: str) -> set[str]:
-    """GitHub logins (lowercased) of the report's authoring scout's *current* owners.
+    """GitHub logins (lowercased) of the *current* owners of every scout that touched the report.
 
     The `is_skill_owner` stamp on a stored reviewer entry is a write-time snapshot: an owner added
     after the stamp (or racing the stamping transaction, whose owner read is not serialized with
     `LLMSkillOwner` writes) leaves a stale `False`. Autostart resolves the live set again at identity
-    time so a now-owner can never become the runner through a stale stamp. Empty for reports no
-    scout authored (pipeline / custom agent) — their reviewers are commit-authorship-derived and
-    carry no owner exposure."""
-    skill_name = resolve_report_scout_skill(team.id, report_id)
-    if not skill_name:
-        return set()
-    owner_uuids = resolve_skill_owner_user_uuids(team, skill_name)
+    time so a now-owner can never become the runner through a stale stamp. The union spans every
+    touching scout, not just the report's author, because the stored reviewers follow whichever
+    scout last wrote them — a later editing scout's owner must be excluded too, and over-exclusion
+    only sends the report to the trusted reviewer-less fallback. Empty for reports no scout touched
+    (pipeline / custom agent) — their reviewers are commit-authorship-derived and carry no owner
+    exposure."""
+    skill_names = resolve_touching_scout_skills(team.id, report_id)
+    owner_uuids: set[str] = set()
+    for skill_name in skill_names:
+        owner_uuids.update(resolve_skill_owner_user_uuids(team, skill_name))
     if not owner_uuids:
         return set()
-    uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, owner_uuids)
+    uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, list(owner_uuids))
     return {login for login in uuid_to_login.values() if login}  # already lowercased by the resolver
 
 

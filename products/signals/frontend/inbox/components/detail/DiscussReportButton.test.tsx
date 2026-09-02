@@ -140,4 +140,12 @@ describe('DiscussReportButton', () => {
 
         expect(screen.queryByText('Suggestions')).not.toBeInTheDocument()
     })
+
+    it('does not invite actions where the kickoff wrapper would only answer', async () => {
+        // The kickoff prompt pins the agent to answering on a resolved report, so a placeholder
+        // saying "tell AI what to do next" would promise an action the run won't carry out.
+        await openPopover({ ...makeReport(), status: SignalReportStatus.RESOLVED })
+
+        expect(screen.getByPlaceholderText('Ask a question about this report')).toBeInTheDocument()
+    })
 })

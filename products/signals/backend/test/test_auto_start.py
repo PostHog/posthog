@@ -23,6 +23,7 @@ from products.signals.backend.auto_start import (
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
+    _live_skill_owner_logins,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
@@ -169,6 +170,37 @@ def test_resolve_autostart_assignee_excludes_live_owners_past_a_stale_stamp(orga
     )
     assert assignee is not None
     assert assignee.id == author.id
+
+
+@pytest.mark.django_db
+def test_live_owner_logins_span_every_scout_that_touched_the_report(organization, team):
+    # Stored reviewers follow whichever scout last wrote them, but single-skill authorship
+    # resolution prefers the report's author — so resolving only the author's owners would let an
+    # owner of a later *editing* scout slip through as autostart identity. The live set must union
+    # the owners of every touching scout.
+    editing_skill = "signals-scout-editor"
+    owner = _create_org_member_with_github("owner@example.com", organization, "EditorOwner")
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    LLMSkillOwner = apps.get_model("skills", "LLMSkillOwner")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    with team_scope(team.id, canonical=True):
+        for skill_name, ids_field in ((SCOUT_SKILL, "emitted_report_ids"), (editing_skill, "edited_report_ids")):
+            task = Task.objects.create(
+                team=team, title="scout run", description="d", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+            )
+            SignalScoutRun.objects.create(
+                team=team,
+                task_run=TaskRun.objects.create(task=task, team=team),
+                skill_name=skill_name,
+                skill_version=1,
+                **{ids_field: [str(report.id)]},
+            )
+        LLMSkillOwner.objects.create(team=team, skill_name=editing_skill, user=owner)
+
+    assert _live_skill_owner_logins(team, str(report.id)) == {"editorowner"}
 
 
 @pytest.mark.parametrize(

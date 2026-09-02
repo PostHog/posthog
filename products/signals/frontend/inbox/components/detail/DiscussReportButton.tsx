@@ -8,7 +8,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 import { InboxQuestionSource, captureInboxReportAction, discussQuestionProperties } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxTaskKickoffLogic, isActionCapableReportStatus } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 
 // How much of a suggestion a draft has to keep, at one end or the other, to still count as an edit
@@ -127,7 +127,11 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                         placeholder={
                             suggestions.length > 0
                                 ? 'Pick a suggestion above, or write your own'
-                                : 'Ask a question, or tell AI what to do next'
+                                : // Only invite actions where the kickoff wrapper will actually carry
+                                  // them out — on other statuses the agent is pinned to answering.
+                                  isActionCapableReportStatus(report.status)
+                                  ? 'Ask a question, or tell AI what to do next'
+                                  : 'Ask a question about this report'
                         }
                         maxLength={4000}
                         rows={4}

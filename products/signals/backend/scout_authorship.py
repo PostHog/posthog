@@ -22,6 +22,21 @@ def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
     return resolve_authoring_skill_names(team_id, [report_id]).get(report_id, "")
 
 
+def resolve_touching_scout_skills(team_id: int, report_id: str) -> set[str]:
+    """Every scout whose runs emitted or edited one report.
+
+    The single-owner resolution below prefers the author, but a report's stored reviewers follow
+    whichever scout last wrote them — possibly a later editor. Callers that exclude skill owners
+    from autostart identity need the owners of every scout that could have produced the stored
+    reviewers, so this returns the union of touching skills. Deleted skills are kept: their owner
+    rows and stored picks can outlive the skill row, and over-exclusion is the safe direction.
+    """
+    runs = SignalScoutRun.objects.filter(team_id=team_id).filter(
+        Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
+    )
+    return {skill_name for skill_name in runs.values_list("skill_name", flat=True) if skill_name}
+
+
 def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[str, str]:
     """Map every report id to the scout that owns it, "" meaning the fleet.
 
