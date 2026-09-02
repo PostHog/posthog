@@ -21,10 +21,10 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 
+from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.temporal.alerts.delivery import (
     ALERT_THROTTLE_KEY_PREFIX,
-    MAX_THROTTLE_TTL,
     PENDING_CLAIM_TTL,
     AlertDeliveryError,
     deliver_alert_notifications,
@@ -490,11 +490,12 @@ class TestSlackThreadDelivery(AlertTestMixin):
         )
         return SlackApiError(f"slack {code}", response)
 
-    def test_terminal_slack_errors_are_recorded_and_not_retried(self):
-        # The bot is not in the channel: no retry fixes that, so the destination is
+    @parameterized.expand([("not_in_channel",), ("channel_not_found",), ("token_revoked",), ("missing_scope",)])
+    def test_terminal_slack_errors_are_recorded_and_not_retried(self, code):
+        # No retry fixes a missing channel or a dead token, so the destination is
         # marked failed and the notification completes without burning attempts.
         client = self._mock_slack()
-        client.chat_postMessage.side_effect = self._slack_error("not_in_channel")
+        client.chat_postMessage.side_effect = self._slack_error(code)
         alert = self._create_alert(triggers=["issue_created"])
 
         assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 0
@@ -503,7 +504,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
         with team_scope(self.team.id):
             destination = alert.destinations.get()
             thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
-        assert destination.last_error == "Slack error: not_in_channel"
+        assert destination.last_error == f"Slack error: {code}"
         assert destination.consecutive_failures == 1
         assert thread.pending_notification_id is None
 
@@ -543,7 +544,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
             redis.return_value.set.return_value = True
             assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
 
-        assert redis.return_value.set.call_args.kwargs["ex"] == int(MAX_THROTTLE_TTL.total_seconds())
+        assert redis.return_value.set.call_args.kwargs["ex"] == MAX_THROTTLE_SECONDS
         client.chat_postMessage.assert_called_once()
 
     def test_rate_limited_slack_call_retries_after_the_window(self):

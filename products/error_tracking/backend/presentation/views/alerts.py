@@ -13,7 +13,6 @@ from posthog.models.user import User
 from products.error_tracking.backend.facade import alerts as alerts_facade
 
 # PostgreSQL integer column bound; larger values would 500 on save.
-MAX_THROTTLE_SECONDS = 2**31 - 1
 
 
 class _StrictCharField(serializers.CharField):
@@ -125,8 +124,8 @@ class ErrorTrackingAlertCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=0,
         min_value=0,
-        max_value=MAX_THROTTLE_SECONDS,
-        help_text="Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.",
+        max_value=alerts_facade.MAX_THROTTLE_SECONDS,
+        help_text="Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.",
     )
     destinations = ErrorTrackingAlertDestinationRequestSerializer(
         many=True,
@@ -156,8 +155,8 @@ class ErrorTrackingAlertUpdateRequestSerializer(serializers.Serializer):
     throttle_seconds = serializers.IntegerField(
         required=False,
         min_value=0,
-        max_value=MAX_THROTTLE_SECONDS,
-        help_text="Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.",
+        max_value=alerts_facade.MAX_THROTTLE_SECONDS,
+        help_text="Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.",
     )
     destinations = ErrorTrackingAlertDestinationRequestSerializer(
         many=True,
