@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import DomainNameValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
@@ -378,6 +378,11 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         return request.user.id == obj.user_id
 
 
+class MCPInstallationScope(models.TextChoices):
+    PERSONAL = "personal", "personal"
+    SHARED = "shared", "shared"
+
+
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
@@ -391,7 +396,7 @@ class InstallCustomSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
         help_text=(
@@ -442,7 +447,7 @@ class InstallTemplateSerializer(serializers.Serializer):
     install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
     posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
     scope = serializers.ChoiceField(
-        choices=["personal", "shared"],
+        choices=MCPInstallationScope.choices,
         required=False,
         default="personal",
         help_text=(

@@ -25,7 +25,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -212,13 +212,15 @@ def _rows_synced_in_billing_period(
             logger.warning("BillingLimits: cached row count is not a number, querying Postgres", error=str(e))
 
     # Completed rows for every team in the org, excluding each source's first 7 free days.
+    # Rows bill once per destination the run delivered to. A run completes only when every
+    # destination took it, so the count is exact.
     result = ExternalDataJob.objects.filter(
         Q(finished_at__gte=F("pipeline__created_at") + timedelta(days=7)),
         team_id__in=team_ids,
         finished_at__gte=billing_cycle_start,
         billable=True,
         status=ExternalDataJob.Status.COMPLETED,
-    ).aggregate(total_rows=Sum("rows_synced"))
+    ).aggregate(total_rows=Sum(F("rows_synced") * billable_destination_multiplier()))
     rows_synced_in_billing_period = result.get("total_rows") or 0
 
     if redis is not None:

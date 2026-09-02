@@ -172,6 +172,8 @@ describe('log-pattern-mask', () => {
             ['json string', '"quoted 7"', 'json_string', 'quoted <N>'],
             ['json number primitive', '42', 'primitive', '<N>'],
             ['prose body', 'plain text 3', 'plaintext', 'plain text <N>'],
+            ['json object behind leading whitespace', ' \n\t{"msg":"hi 9"}', 'json_object_or_array', 'hi <N>'],
+            ['prose body that opens like JSON', 'null pointer at line 4', 'plaintext', 'null pointer at line <N>'],
         ])('body kind %s', (_name, body, expectedKind, expectedPattern) => {
             const result = computeLogPattern(body)
             expect(result.bodyKind).toEqual(expectedKind)

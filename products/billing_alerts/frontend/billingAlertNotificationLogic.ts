@@ -3,6 +3,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isHttpsUrl } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,18 +28,6 @@ export interface PendingBillingAlertDestination {
 
 export interface BillingAlertNotificationLogicProps {
     alert: BillingAlertConfigurationApi | null
-}
-
-export function isHttpsUrl(value: string): boolean {
-    const trimmed = value.trim()
-    if (!trimmed) {
-        return false
-    }
-    try {
-        return new URL(trimmed).protocol === 'https:'
-    } catch {
-        return false
-    }
 }
 
 export interface billingAlertNotificationLogicValues {

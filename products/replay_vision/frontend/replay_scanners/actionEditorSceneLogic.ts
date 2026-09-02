@@ -17,11 +17,11 @@ import {
     visionScannersRetrieve,
 } from '../generated/api'
 import {
-    AlertConfigFrequencyEnumApi,
+    AlertFrequencyEnumApi,
     DeliveryTargetTypeEnumApi,
-    VisionActionModeEnumApi,
+    ActionModeEnumApi,
     VisionAlertDirectionEnumApi,
-    VisionAlertMetricEnumApi,
+    VisionActionAlertMetricEnumApi,
 } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
 import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
@@ -240,8 +240,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                     {
                         key: `action-${actionId}`,
                         name:
-                            loadedAction?.name ||
-                            (loadedAction?.mode === VisionActionModeEnumApi.Alert ? 'Alert' : 'Digest'),
+                            loadedAction?.name || (loadedAction?.mode === ActionModeEnumApi.Alert ? 'Alert' : 'Digest'),
                         path: urls.replayVisionAction(actionId),
                     },
                     { key: `action-${actionId}-edit`, name: 'Edit' }
@@ -264,7 +263,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 alert_threshold,
             }: VisionActionForm) => ({
                 name: !name?.trim()
-                    ? mode === VisionActionModeEnumApi.Alert
+                    ? mode === ActionModeEnumApi.Alert
                         ? 'Give this alert a name'
                         : 'Give this digest a name'
                     : undefined,
@@ -272,7 +271,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
                 // Alerts have no schedule UI (checked continuously on every sweep), so weekdays don't apply.
                 cadence:
-                    mode !== VisionActionModeEnumApi.Alert && cadence.weekdays.length === 0
+                    mode !== ActionModeEnumApi.Alert && cadence.weekdays.length === 0
                         ? { hour: 'Pick at least one day' }
                         : undefined,
                 min_score:
@@ -280,8 +279,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                         ? "Min score can't exceed max score"
                         : undefined,
                 alert_threshold:
-                    mode === VisionActionModeEnumApi.Alert &&
-                    alert_frequency === AlertConfigFrequencyEnumApi.OnBreach &&
+                    mode === ActionModeEnumApi.Alert &&
+                    alert_frequency === AlertFrequencyEnumApi.OnBreach &&
                     alert_threshold == null
                         ? 'Set a threshold'
                         : undefined,
@@ -298,13 +297,13 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const body = buildActionBody(form, scannerId)
                 if (values.isNew) {
                     const created = await visionActionsCreate(String(teamId), body)
-                    lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Digest created')
+                    lemonToast.success(form.mode === ActionModeEnumApi.Alert ? 'Alert created' : 'Digest created')
                     visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                     router.actions.push(urls.replayVisionAction(created.id))
                     return
                 }
                 const updated = await visionActionsPartialUpdate(String(teamId), values.actionId, body)
-                lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Digest updated')
+                lemonToast.success(form.mode === ActionModeEnumApi.Alert ? 'Alert updated' : 'Digest updated')
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
@@ -345,10 +344,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             // keeps validation and the submitted alert_config consistent with what the editor shows.
             // The mode is fixed once the editor opens, so this only has to fire on init/load, not on a
             // mode toggle.
-            if (scannerType === 'summarizer' && values.actionForm.mode === VisionActionModeEnumApi.Alert) {
+            if (scannerType === 'summarizer' && values.actionForm.mode === ActionModeEnumApi.Alert) {
                 actions.setActionFormValues({
-                    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
-                    alert_metric: VisionAlertMetricEnumApi.Count,
+                    alert_frequency: AlertFrequencyEnumApi.EveryMatch,
+                    alert_metric: VisionActionAlertMetricEnumApi.Count,
                 })
             }
         },
@@ -386,10 +385,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             // else gets the fresh-form default so flipping a digest to an alert starts at every_match.
             const alertFrequency =
                 action.alert_config?.frequency ??
-                (action.mode === VisionActionModeEnumApi.Alert
-                    ? AlertConfigFrequencyEnumApi.OnBreach
-                    : AlertConfigFrequencyEnumApi.EveryMatch)
-            const alertMetric = action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count
+                (action.mode === ActionModeEnumApi.Alert
+                    ? AlertFrequencyEnumApi.OnBreach
+                    : AlertFrequencyEnumApi.EveryMatch)
+            const alertMetric = action.alert_config?.metric ?? VisionActionAlertMetricEnumApi.Count
             const alertDirection = action.alert_config?.direction ?? VisionAlertDirectionEnumApi.Above
             actions.setActionFormValues({
                 name: action.name,
@@ -400,7 +399,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',
                 webhook_url: action.delivery_config?.[0]?.url ?? '',
-                mode: action.mode ?? VisionActionModeEnumApi.GroupSummary,
+                mode: action.mode ?? ActionModeEnumApi.GroupSummary,
                 alert_frequency: alertFrequency,
                 alert_metric: alertMetric,
                 alert_threshold: action.alert_config?.threshold ?? 1,
@@ -415,7 +414,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
 
         submitActionFormFailure: ({ error }: { error?: Error & { detail?: string } }) => {
-            const noun = values.actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+            const noun = values.actionForm.mode === ActionModeEnumApi.Alert ? 'alert' : 'digest'
             lemonToast.error(`Failed to save ${noun}${error?.detail ? `: ${error.detail}` : ''}`)
         },
     })),
@@ -427,9 +426,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             // Mode is picked before opening the editor (the "New digest" / "New alert" buttons), so the
             // form opens committed to one shape rather than showing a type toggle.
             const startMode =
-                mode === VisionActionModeEnumApi.Alert
-                    ? VisionActionModeEnumApi.Alert
-                    : VisionActionModeEnumApi.GroupSummary
+                mode === ActionModeEnumApi.Alert ? ActionModeEnumApi.Alert : ActionModeEnumApi.GroupSummary
             actions.resetActionForm({ ...NEW_ACTION_FORM(), mode: startMode }) // clear values left from a previous edit
         },
         [urls.replayVisionActionEdit(':actionId')]: ({ actionId }) => {
