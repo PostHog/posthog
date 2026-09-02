@@ -380,9 +380,10 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "distinct_id": "user123",
     });
 
-    // Capacity is one token and a denial does not extend the window, so the last request of
-    // the burst is served only if the burst spans BURST - 1 seconds. That keeps the blocked
-    // case independent of how long one round trip takes on a loaded runner.
+    // Capacity is one token and a denial does not extend the window. Only a grant moves the
+    // window forward by one second, so the whole burst is served without a block only if it
+    // spans BURST - 1 seconds. Below that, at least one request is blocked, which keeps the
+    // check independent of how long one round trip takes on a loaded runner.
     const BURST: usize = 6;
     let mut statuses = Vec::with_capacity(BURST);
     for _ in 0..BURST {
@@ -396,10 +397,9 @@ async fn test_rate_limit_replenishment() -> Result<()> {
     }
 
     assert_eq!(statuses[0], StatusCode::OK, "First request allowed");
-    assert_eq!(
-        statuses[BURST - 1],
-        StatusCode::TOO_MANY_REQUESTS,
-        "Burst blocked once the bucket is empty"
+    assert!(
+        statuses.contains(&StatusCode::TOO_MANY_REQUESTS),
+        "Burst blocked once the bucket is empty: {statuses:?}"
     );
 
     // 1100ms clears the one-second window the last grant opened. A slow burst only adds margin.
