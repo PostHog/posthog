@@ -183,8 +183,8 @@ export function WatchStrip({
                 data-moved={entry.moved}
                 title={entry.label}
               >
-                <b>{formatNumber(entry.value)}</b>
                 {points.length > 1 ? <Spark points={points} /> : null}
+                <b>{formatNumber(entry.value)}</b>
                 <span>{deltaShort(entry)}</span>
               </span>
             );

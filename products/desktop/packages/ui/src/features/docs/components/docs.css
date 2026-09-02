@@ -353,33 +353,38 @@
 .doc-watch-figures {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 8px;
 }
 
+/* One figure is a small chip: the trend, the number, its change. The frame keeps them together. */
 .doc-watch-figure {
   display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
+  padding: 3px 8px 3px 6px;
+  border: 1px solid var(--gray-5);
+  border-radius: 999px;
+  background: var(--gray-1);
   font-size: 11.5px;
   color: var(--gray-10);
 }
 
 .doc-watch-figure b {
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--gray-12);
 }
 
 .doc-watch-figure .doc-spark {
-  align-self: center;
+  margin: 0;
   stroke: var(--gray-8);
 }
 
-.doc-watch-figure[data-moved="true"] b,
 .doc-watch-figure[data-moved="true"] {
+  border-color: color-mix(in srgb, var(--amber-9) 45%, var(--gray-5));
   color: var(--amber-11);
 }
 
