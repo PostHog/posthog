@@ -2888,6 +2888,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
             "examples": ["claude-code/2.1.141 (cli)", "Anthropic/ClaudeAI"],
         },
+        "$mcp_vendor_client": {
+            "label": "MCP vendor client",
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -3099,8 +3104,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["hono"],
         },
         "mcp_vendor_client": {
-            "label": "MCP vendor client",
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "label": "MCP vendor client (legacy)",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "mcp_session_client_name": {
@@ -3605,6 +3610,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$product_tours_activated": {
             "label": "Product tours activated",
             "description": "The product tours that have been activated for this user.",
+            "type": "String",
+        },
+        "$fbc": {
+            "label": "Facebook click ID (fbc)",
+            "description": "The Facebook click ID in the format Meta's Conversions API expects, built when PostHog saw the fbclid so it carries the time of the ad click. Equivalent to the `_fbc` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
             "type": "String",
         },
     },

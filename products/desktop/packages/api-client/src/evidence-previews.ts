@@ -1155,9 +1155,11 @@ export function decorateSurveyPreview(
 }
 
 export function shapeErrorIssuePreview(
-  issue: Schemas.ErrorTrackingIssueFull,
+  issue: Schemas.ErrorTrackingIssueRead,
 ): EvidencePreview {
-  const firstSeen = `First seen ${formatDay(issue.first_seen)}`;
+  const firstSeen = issue.first_seen
+    ? `First seen ${formatDay(issue.first_seen)}`
+    : undefined;
   const assignee = issue.assignee
     ? `${issue.assignee.type} (${issue.assignee.id})`
     : null;
@@ -1172,7 +1174,7 @@ export function shapeErrorIssuePreview(
       : undefined,
     sections: detailSection("Issue", [
       ["Status", issue.status ? humanizeStatus(issue.status) : null],
-      ["First seen", formatDay(issue.first_seen)],
+      ["First seen", issue.first_seen ? formatDay(issue.first_seen) : null],
       ["Assignee", assignee],
       [
         "Linked issues",
