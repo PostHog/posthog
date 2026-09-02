@@ -61,8 +61,7 @@ class WidgetAuthSerializer(serializers.Serializer):
         required=False,
         help_text="HMAC-SHA256 of identity_distinct_id using the team's signing secret",
     )
-    # Optional signed email claim. EmailField bounds and validates the value before it can
-    # reach a SQL match; the hash is a signed claim binding this email to identity_distinct_id.
+    # EmailField bounds the value before SQL matching. The hash binds its identity and expiry.
     identity_email = serializers.EmailField(
         required=False,
         max_length=254,
@@ -71,7 +70,12 @@ class WidgetAuthSerializer(serializers.Serializer):
     identity_hash_email = serializers.RegexField(
         r"^[0-9a-f]{64}$",
         required=False,
-        help_text="Signed HMAC-SHA256 email claim bound to identity_distinct_id",
+        help_text="HMAC-SHA256 email claim bound to identity_distinct_id and identity_exp_email",
+    )
+    identity_exp_email = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Unix timestamp when the signed email claim expires",
     )
 
     def validate(self, data):
@@ -83,10 +87,11 @@ class WidgetAuthSerializer(serializers.Serializer):
             )
         has_email = "identity_email" in data
         has_email_hash = "identity_hash_email" in data
-        if has_email != has_email_hash or (has_email and not has_identity):
-            raise serializers.ValidationError(
-                "Send identity_email and identity_hash_email together with identity_distinct_id and identity_hash."
-            )
+        has_email_expiry = "identity_exp_email" in data
+        if has_email != has_email_hash:
+            raise serializers.ValidationError("Send identity_email and identity_hash_email together.")
+        if has_email_expiry and (not has_email or not has_identity):
+            raise serializers.ValidationError("Send identity_exp_email with the email claim and base identity fields.")
         return data
 
 

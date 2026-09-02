@@ -1,4 +1,5 @@
 import json
+import time
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
@@ -13,6 +14,8 @@ from parameterized import parameterized
 
 from posthog.models import UserHomeSettings
 from posthog.utils import get_context_for_template
+
+from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
 
 
 class TestGetContextForTemplate(APIBaseTest):
@@ -115,3 +118,5 @@ class TestGetContextForTemplate(APIBaseTest):
         if expects_claim:
             claims = json.loads(context["js_posthog_identity_claims"])
             assert claims["email"]["value"] == self.user.email.lower()
+            current_time = int(time.time())
+            assert current_time < claims["email"]["expires_at"] <= current_time + IDENTITY_CLAIM_MAX_AGE_SECONDS

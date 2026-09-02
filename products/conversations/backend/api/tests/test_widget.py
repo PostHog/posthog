@@ -1,3 +1,4 @@
+import time
 import uuid
 
 from posthog.test.base import BaseTest
@@ -16,7 +17,11 @@ from posthog.rate_limit import WidgetTeamPollThrottle
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
-from products.conversations.backend.services.identity import compute_identity_claim_hash, compute_identity_hash
+from products.conversations.backend.services.identity import (
+    IDENTITY_CLAIM_MAX_AGE_SECONDS,
+    compute_identity_claim_hash,
+    compute_identity_hash,
+)
 
 
 def _verification_counter(outcome: str, source: str) -> float:
@@ -847,10 +852,19 @@ class TestWidgetIdentityVerification(BaseTest):
 
     # --- Email claim bridge ---
 
-    def _email_claim(self, email):
+    def _email_claim(self, email, *, expires_at=None):
+        if expires_at is None:
+            expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
         return {
             "identity_email": email,
-            "identity_hash_email": compute_identity_claim_hash(self.distinct_id, "email", email, self.secret),
+            "identity_hash_email": compute_identity_claim_hash(
+                self.distinct_id,
+                "email",
+                email,
+                self.secret,
+                expires_at=expires_at,
+            ),
+            "identity_exp_email": expires_at,
         }
 
     def _create_email_ticket(
@@ -936,6 +950,38 @@ class TestWidgetIdentityVerification(BaseTest):
     def test_list_tickets_tampered_email_claim_is_ignored(self):
         email = "person@example.com"
         self._create_email_ticket(email, identity_verified=True)
+        email_claim = self._email_claim(email)
+        email_claim["identity_hash_email"] = "0" * 64
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **email_claim,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_expired_email_claim_is_ignored(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **self._email_claim(email, expires_at=int(time.time()) - 1),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_legacy_email_claim_without_expiry_is_ignored(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
             {
@@ -949,18 +995,41 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
 
-    def test_list_tickets_email_claim_bound_to_other_distinct_id_is_ignored(self):
-        # A claim signed for a different base identity must not bridge under this viewer.
+    def test_list_tickets_modified_email_claim_expiry_is_ignored(self):
         email = "person@example.com"
         self._create_email_ticket(email, identity_verified=True)
-        foreign_hash = compute_identity_claim_hash("someone_else", "email", email, self.secret)
+        email_claim = self._email_claim(email)
+        email_claim["identity_exp_email"] += 1
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
             {
                 "identity_distinct_id": self.distinct_id,
                 "identity_hash": self.identity_hash,
-                "identity_email": email,
-                "identity_hash_email": foreign_hash,
+                **email_claim,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_email_claim_bound_to_other_distinct_id_is_ignored(self):
+        # A claim signed for a different base identity must not bridge under this viewer.
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        email_claim = self._email_claim(email)
+        email_claim["identity_hash_email"] = compute_identity_claim_hash(
+            "someone_else",
+            "email",
+            email,
+            self.secret,
+            expires_at=email_claim["identity_exp_email"],
+        )
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **email_claim,
             },
             **self._get_headers(),
         )
@@ -1004,6 +1073,44 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(unclaimed_response.json()["count"], 1)
         self.assertEqual(claimed_response.json()["count"], 2)
+
+    @parameterized.expand([("direct_identity", False), ("email_claim", True)])
+    def test_new_message_invalidates_identity_ticket_cache(self, _name, use_email_claim):
+        email = "person@example.com"
+        ticket = self._create_email_ticket(email, identity_verified=True) if use_email_claim else self._create_ticket()
+        query = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+        }
+        if use_email_claim:
+            query.update(self._email_claim(email))
+
+        initial_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            query,
+            **self._get_headers(),
+        )
+        self.assertEqual(initial_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(initial_response.json()["results"][0]["unread_count"], 0)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content="Agent reply",
+                created_by=self.user,
+                item_context={"author_type": "team", "is_private": False},
+            )
+
+        updated_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            query,
+            **self._get_headers(),
+        )
+        self.assertEqual(updated_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated_response.json()["results"][0]["unread_count"], 1)
+        self.assertEqual(updated_response.json()["results"][0]["last_message"], "Agent reply")
 
     def test_get_messages_email_bridge_allows_verified_ticket(self):
         email = "person@example.com"
@@ -1265,18 +1372,32 @@ class TestWidgetIdentityVerification(BaseTest):
         ticket = self._create_ticket()
         ticket.unread_customer_count = 3
         ticket.save()
+        identity = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+        }
+
+        cached_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            identity,
+            **self._get_headers(),
+        )
+        self.assertEqual(cached_response.json()["results"][0]["unread_count"], 3)
 
         response = self.client.post(
             f"/api/conversations/v1/widget/messages/{ticket.id}/read",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-            },
+            identity,
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket.refresh_from_db()
         self.assertEqual(ticket.unread_customer_count, 0)
+        updated_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            identity,
+            **self._get_headers(),
+        )
+        self.assertEqual(updated_response.json()["results"][0]["unread_count"], 0)
 
     def test_mark_read_invalid_hash_no_session_returns_forbidden(self):
         ticket = self._create_ticket()
@@ -1315,6 +1436,7 @@ class TestWidgetAuthSerializer(SimpleTestCase):
                     "identity_distinct_id": "user_123",
                     "identity_hash": "a" * 64,
                     "identity_email": "person@example.com",
+                    "identity_exp_email": int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS,
                 },
             ),
             (
@@ -1323,6 +1445,7 @@ class TestWidgetAuthSerializer(SimpleTestCase):
                     "identity_distinct_id": "user_123",
                     "identity_hash": "a" * 64,
                     "identity_hash_email": "b" * 64,
+                    "identity_exp_email": int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS,
                 },
             ),
             (
@@ -1331,15 +1454,28 @@ class TestWidgetAuthSerializer(SimpleTestCase):
                     "widget_session_id": str(uuid.uuid4()),
                     "identity_email": "person@example.com",
                     "identity_hash_email": "b" * 64,
+                    "identity_exp_email": int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS,
                 },
             ),
         ]
     )
-    def test_email_claim_requires_complete_base_and_claim_pairs(self, _name, payload):
+    def test_email_claim_requires_complete_base_and_claim_triplet(self, _name, payload):
         serializer = WidgetTicketsQuerySerializer(data=payload)
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("non_field_errors", serializer.errors)
+
+    def test_legacy_email_claim_pair_is_accepted(self):
+        serializer = WidgetTicketsQuerySerializer(
+            data={
+                "identity_distinct_id": "user_123",
+                "identity_hash": "a" * 64,
+                "identity_email": "person@example.com",
+                "identity_hash_email": "b" * 64,
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
 
 
 class TestWidgetContextSanitization(SimpleTestCase):
