@@ -376,7 +376,8 @@ function JoinValidationStatus(): JSX.Element | null {
                             onClick={() => {
                                 window.open(
                                     'https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=join-modal-validation-error',
-                                    '_blank'
+                                    '_blank',
+                                    'noopener'
                                 )
                             }}
                         >
