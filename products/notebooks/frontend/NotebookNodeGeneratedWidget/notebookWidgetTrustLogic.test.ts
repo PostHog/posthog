@@ -43,6 +43,7 @@ describe('notebookWidgetTrustLogic', () => {
         notebookWidgetTrustLogic.actions.trustBuild(null, BUILD_HASH)
 
         expect(trustFor({ userId: null }).buildTrusted).toBe(true)
+        expect(trustFor({ userId: 12 }).buildTrusted).toBe(false)
         expect(notebookWidgetTrustLogic.values.trustByUser).toEqual({})
     })
 })
