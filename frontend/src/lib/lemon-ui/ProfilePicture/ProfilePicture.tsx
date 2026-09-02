@@ -2,11 +2,11 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import md5 from 'md5'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { inStorybookTestRunner } from 'lib/utils/dom'
+import { gravatarUrl as buildGravatarUrl } from 'lib/utils/gravatar'
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
@@ -56,8 +56,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         // Check if Gravatar exists
         const identifier = email || (name?.includes('@') ? name : undefined)
         if (identifier) {
-            const hash = md5(identifier.trim().toLowerCase())
-            return `https://www.gravatar.com/avatar/${hash}?s=96&d=404`
+            return buildGravatarUrl(identifier)
         }
     }, [email, hedgehogProfile, name])
 
