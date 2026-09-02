@@ -437,8 +437,9 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
         planningTask,
         startingPlanningSession,
         openQuestions,
+        answeringQuestionId,
     } = useValues(logic)
-    const { finishPlanning, startPlanningSession } = useActions(logic)
+    const { cancelAnswering, finishPlanning, startAnswering, startPlanningSession } = useActions(logic)
     const reportDetailLogic = inboxReportDetailLogic({ reportId: report.id, report })
     const { reportArtefacts } = useValues(reportDetailLogic)
     const { loadReportTasks } = useActions(reportDetailLogic)
@@ -446,6 +447,7 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
     const planningTaskId = planningTask?.task.id
     const planningRun = planningTask?.task.latest_run
     const planningRunId = planningRun?.id
+    const activeQuestion = openQuestions.find((artefact) => artefact.id === answeringQuestionId)
     const planningActionLabel =
         planningSessionActive ||
         planningRun?.status === TaskRunStatus.FAILED ||
@@ -496,6 +498,50 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                 </div>
             </div>
 
+            {openQuestions.length > 0 ? (
+                <div className="shrink-0">
+                    <DetailSection
+                        icon={<IconQuestion />}
+                        title="Open questions"
+                        meta={
+                            <span className="text-[0.6875rem] text-tertiary tabular-nums">{openQuestions.length}</span>
+                        }
+                    >
+                        <div className="hide-scrollbar flex items-center gap-2 overflow-x-auto pb-1">
+                            {openQuestions.map((artefact) => {
+                                const questionText =
+                                    typeof artefact.content?.question === 'string' ? artefact.content.question : ''
+
+                                return (
+                                    <LemonButton
+                                        key={artefact.id}
+                                        type="secondary"
+                                        size="small"
+                                        active={answeringQuestionId === artefact.id}
+                                        className="max-w-72 shrink-0"
+                                        tooltip={questionText}
+                                        tooltipPlacement="bottom"
+                                        data-attr="feature-planning-open-question"
+                                        onClick={() =>
+                                            answeringQuestionId === artefact.id
+                                                ? cancelAnswering()
+                                                : startAnswering(artefact.id)
+                                        }
+                                    >
+                                        <span className="truncate">{questionText}</span>
+                                    </LemonButton>
+                                )
+                            })}
+                        </div>
+                        {activeQuestion ? (
+                            <div className="mt-2">
+                                <OpenQuestionItem report={report} artefact={activeQuestion} />
+                            </div>
+                        ) : null}
+                    </DetailSection>
+                </div>
+            ) : null}
+
             {!planningTask ? (
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded border border-primary bg-surface-primary p-6 text-center">
                     <IconAI className="text-2xl text-tertiary" />
@@ -532,27 +578,6 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                         </div>
                     </div>
                     <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-y-auto pr-2">
-                        <DetailSection
-                            icon={<IconQuestion />}
-                            title="Open questions"
-                            meta={
-                                <span className="text-[0.6875rem] text-tertiary tabular-nums">
-                                    {openQuestions.length}
-                                </span>
-                            }
-                        >
-                            {openQuestions.length > 0 ? (
-                                <div className="flex flex-col gap-3">
-                                    {openQuestions.map((artefact) => (
-                                        <OpenQuestionItem key={artefact.id} report={report} artefact={artefact} />
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="m-0 text-sm italic text-tertiary">
-                                    No open questions. The agent asks here when it needs your input.
-                                </p>
-                            )}
-                        </DetailSection>
                         <DetailSection icon={<IconDocument />} title="Summary">
                             {report.summary ? (
                                 <LemonMarkdown className={MARKDOWN_BODY_CLASSES} disableImages>
