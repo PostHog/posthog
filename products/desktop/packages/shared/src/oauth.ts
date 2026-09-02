@@ -217,6 +217,8 @@ export const OAUTH_SCOPES = [
   "user:write",
   "user_interview:read",
   "user_interview:write",
+  "vision_action:read",
+  "vision_action:write",
   "visual_review:read",
   "visual_review:write",
   "warehouse_objects:read",
@@ -242,7 +244,7 @@ export const OAUTH_SCOPES = [
 // applies to every future server-side scope addition the app relies on, even when
 // OAUTH_SCOPES itself is unchanged.
 // v7: "*" replaced with the explicit list above.
-export const OAUTH_SCOPE_VERSION = 8;
+export const OAUTH_SCOPE_VERSION = 7;
 
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
   switch (region) {
