@@ -3,6 +3,7 @@
 from typing import ClassVar, Literal, NamedTuple
 
 from posthog.models.user import User
+from posthog.security.url_validation import resolve_and_validate_host
 
 from . import common, model
 
@@ -75,8 +76,6 @@ class PostgreSQLServerIntegration:
         created_by: User | None = None,
         **config,
     ) -> model.Integration:
-        from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
-
         host = common._return_non_empty_str_from_config(config, "host", friendly_name="Host", kind=cls.integration_kind)
         try:
             resolve_and_validate_host(host)

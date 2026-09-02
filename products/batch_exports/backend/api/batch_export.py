@@ -1,14 +1,11 @@
 import uuid
-import socket
 import typing
 import builtins
 import datetime as dt
-import ipaddress
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import models, transaction
@@ -44,6 +41,7 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     Integration,
 )
+from posthog.security.url_validation import resolve_and_validate_host
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -1082,78 +1080,7 @@ class _DatabaseFieldFinder(TraversingVisitor):
         super().visit_field(node)
 
 
-INTERNAL_NETWORKS = (
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-)
-
-
-def is_ip_internal(ip: str) -> bool:
-    """Check if IP belongs to an internal network."""
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        raise ValueError("Could not parse IP")
-
-    if any(addr in network for network in INTERNAL_NETWORKS):
-        return True
-    return False
-
-
-def resolve_and_validate_url(url: str) -> None:
-    """Ensure provided url point to a non-internal IP."""
-    try:
-        parsed = urlparse(url)
-    except Exception as e:
-        raise ValueError(f"Invalid URL'{url}': {e}") from e
-
-    host = parsed.hostname
-    if not host:
-        raise ValueError("URL has no hostname")
-
-    resolve_and_validate_host(host)
-
-
-def is_local_dev_or_test() -> bool:
-    return settings.DEBUG or settings.TEST
-
-
 INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
-
-
-def resolve_and_validate_host(host: str) -> None:
-    """Ensure provided host resolves to a non-internal IP."""
-    if host == "localhost" and is_local_dev_or_test():
-        return
-
-    # Host may already be an IP literal
-    try:
-        if is_ip_internal(host) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
-        return
-    except ValueError:
-        # Not an IP literal, requires DNS
-        pass
-
-    try:
-        # getaddrinfo supports both ipv4 and ipv6
-        results = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
-        raise ValueError(f"Could not resolve '{host}': {e}") from e
-
-    # Keeps only unique ips from the result tuple
-    resolved_ips = {str(r[4][0]) for r in results}
-
-    for ip in resolved_ips:
-        if is_ip_internal(ip) and not is_local_dev_or_test():
-            raise ValueError("Host resolved to internal IP")
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
