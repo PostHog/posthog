@@ -15,12 +15,12 @@ Don't re-export through `lib/__init__.py` - a `from .` re-export there trips the
 
 ```python
 from lib.errors import PostHogScriptError            # the one error type; raise for any expected, operator-facing failure
-from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
+from lib.console import close_log_file, confirm, format_status_counts, log, printable, resolve_output_base, set_log_file
 from lib.posthog_api import build_session, request_with_retries, resolve_host
 ```
 
 - `lib.errors` - `PostHogScriptError`.
-- `lib.console` - `log` (stderr output), `printable` (escape untrusted text), `confirm` (typed-keyword prompt, EOF-safe), `format_status_counts` (status histogram), `set_log_file`/`close_log_file` (stream every `log()` line to a file too, in addition to stderr - see Output below).
+- `lib.console` - `log` (stderr output), `printable` (escape untrusted text), `confirm` (typed-keyword prompt, EOF-safe), `format_status_counts` (status histogram), `resolve_output_base` (numbers `--output` around an existing findings/log pair instead of overwriting it), `set_log_file`/`close_log_file` (stream every `log()` line to a file too, in addition to stderr - see Output below).
 - `lib.posthog_api` - `resolve_host`, `request_with_retries` (every HTTP call), `build_session` (auth per the standard `--personal-api-key`/`--session-id` flags), `setup_session_auth` (the browser-session half of `build_session`, for a script that needs bespoke auth flow), `log_session_expiry` (logs the impersonated session's remaining idle-timeout time; no-op for personal-API-key auth), plus `MAX_RETRIES`.
 
 Never re-implement retries, host resolution, auth, output, or the error type inside a script.
@@ -50,7 +50,8 @@ All human output goes to **stderr** via `log()`, so **stdout** stays clean for `
 Do not use `print` (ruff `T2` flags it).
 
 `--output NAME` (a base name, no extension) writes two files: `NAME-findings.json` (the scan report, written once discovery finishes) and `NAME-log.txt` (every `log()` line, streamed as it happens via `set_log_file`/`close_log_file`).
-Call `set_log_file(f"{args.output}-log.txt")` before any other work in `main()` and `close_log_file()` in a `finally` around the call into `run()`, so a crash or Ctrl-C mid-run still leaves a complete transcript up to that point - never buffer log lines in memory to write out at the end.
+Resolve `args.output` through `resolve_output_base(args.output)` first, at the very top of `main()` - if either file already exists (a previous run at the same name), it numbers up (`NAME-2`, `NAME-3`, ...) instead of overwriting them, and reassigns `args.output` so every downstream use picks up the resolved name automatically.
+Call `set_log_file(f"{args.output}-log.txt")` right after that (using the resolved name) and `close_log_file()` in a `finally` around the call into `run()`, so a crash or Ctrl-C mid-run still leaves a complete transcript up to that point - never buffer log lines in memory to write out at the end.
 
 Wrap any value that originated from ingested data (property names, `distinct_id`s, an API error body) in `printable()` before logging it.
 Those strings can carry terminal escape sequences that would otherwise spoof or wipe the operator's terminal.
@@ -85,6 +86,7 @@ Call out anything eventually-consistent (e.g. ingestion lag) in the module docst
   def main() -> int:
       args = parse_args()
       if args.output:
+          args.output = resolve_output_base(args.output)
           set_log_file(f"{args.output}-log.txt")
       try:
           return run(args)

@@ -1,5 +1,6 @@
 """Terminal output and confirmation helpers shared by the support CLI scripts."""
 
+import os
 import sys
 from collections import Counter
 from typing import Optional, TextIO
@@ -7,6 +8,23 @@ from typing import Optional, TextIO
 from .errors import PostHogScriptError
 
 _log_file: Optional[TextIO] = None
+
+
+def resolve_output_base(base: str) -> str:
+    """Return `base`, or `base-2`/`base-3`/... if its findings/log files already exist.
+
+    Keeps a --output run from clobbering a previous one's report or transcript. Both files
+    always share the same resolved base, so e.g. `NAME-2-findings.json` pairs with
+    `NAME-2-log.txt`.
+    """
+    candidate = base
+    suffix = 1
+    while os.path.exists(f"{candidate}-findings.json") or os.path.exists(f"{candidate}-log.txt"):
+        suffix += 1
+        candidate = f"{base}-{suffix}"
+    if candidate != base:
+        log(f"  {base}-findings.json / {base}-log.txt already exist - using {candidate} instead")
+    return candidate
 
 
 def set_log_file(path: str) -> None:

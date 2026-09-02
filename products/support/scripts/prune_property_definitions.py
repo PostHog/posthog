@@ -51,7 +51,7 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
+from lib.console import close_log_file, confirm, format_status_counts, log, printable, resolve_output_base, set_log_file
 from lib.errors import PostHogScriptError
 from lib.posthog_api import build_session, log_session_expiry, request_with_retries, resolve_host
 
@@ -242,6 +242,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.output:
+        args.output = resolve_output_base(args.output)
         set_log_file(f"{args.output}-log.txt")
     try:
         return run(args)
