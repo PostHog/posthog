@@ -57,7 +57,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import get_safe_next_url, is_sso_reauth_begin, sso_failure_redirect_url
+from posthog.helpers.sso import (
+    friendly_social_provider,
+    get_safe_next_url,
+    is_sso_reauth_begin,
+    sso_failure_redirect_url,
+)
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -427,43 +432,41 @@ class LoginPrecheckSerializer(serializers.Serializer):
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
             "saml_available": saml_available,
             "webauthn_credentials": webauthn_credentials,
-            **self._available_local_methods(email, saml_available=saml_available),
+            **_available_local_methods(email, saml_available=saml_available),
         }
 
-    @staticmethod
-    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
-        """
-        Report whether this account can log in with a password, and which of its linked social
-        identities are actually usable on this instance, so the login form can stop offering a
-        password box (or a dead SSO button) to an account that cannot use it.
 
-        An email with no active user looks identical to a user who does have a password — a typo
-        must never be a dead end, and it keeps the account-existence signal limited to accounts
-        that are genuinely passwordless.
-        """
-        # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
-        # describe a different account than the one a password would authenticate: exact case first,
-        # then case-insensitive, and deterministic (last logged in) if case variations coexist.
-        user = EmailLookupHandler.get_user_by_email(email)
-        if user is None:
-            return {"password_login_available": True, "social_providers": []}
+def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+    """
+    Report whether this account can log in with a password, and which of its linked social
+    identities are actually usable on this instance, so the login form can stop offering a
+    password box (or a dead SSO button) to an account that cannot use it.
 
-        # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
-        # password, so the `bool(...)` half of the check is load-bearing.
-        password_login_available = bool(user.password) and user.has_usable_password()
+    An email with no active user looks identical to a user who does have a password — a typo
+    must never be a dead end, and it keeps the account-existence signal limited to accounts
+    that are genuinely passwordless.
+    """
+    # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
+    # describe a different account than the one a password would authenticate: exact case first,
+    # then case-insensitive, and deterministic (last logged in) if case variations coexist.
+    user = EmailLookupHandler.get_user_by_email(email)
+    if user is None:
+        return {"password_login_available": True, "social_providers": []}
 
-        usable_providers = {
-            provider for provider, available in get_instance_available_sso_providers().items() if available
-        }
-        if saml_available:
-            # SAML is domain-configured rather than instance-configured, so it isn't covered above.
-            usable_providers.add("saml")
-        linked_providers = set(user.social_auth.values_list("provider", flat=True))
+    # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
+    # password, so the `bool(...)` half of the check is load-bearing.
+    password_login_available = bool(user.password) and user.has_usable_password()
 
-        return {
-            "password_login_available": password_login_available,
-            "social_providers": sorted(linked_providers & usable_providers),
-        }
+    usable_providers = {provider for provider, available in get_instance_available_sso_providers().items() if available}
+    if saml_available:
+        # SAML is domain-configured rather than instance-configured, so it isn't covered above.
+        usable_providers.add("saml")
+    linked_providers = set(user.social_auth.values_list("provider", flat=True))
+
+    return {
+        "password_login_available": password_login_available,
+        "social_providers": sorted(linked_providers & usable_providers),
+    }
 
 
 class NonCreatingViewSetMixin(mixins.CreateModelMixin):
@@ -1117,6 +1120,21 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [] if settings.E2E_TESTING else [LoginPrecheckThrottle]
 
 
+def _sso_only_reset_refusal(email: str) -> str | None:
+    """Why a password reset makes no sense for this account, or None when it does.
+
+    Only an account that has no usable password but does have a working SSO method gets a reason:
+    a passwordless account with nothing else linked still needs the reset email to get back in.
+    """
+    saml_available = OrganizationDomain.objects.get_is_saml_available_for_email(email)
+    methods = _available_local_methods(email, saml_available=saml_available)
+    if methods["password_login_available"] or not methods["social_providers"]:
+        return None
+
+    providers = " or ".join(friendly_social_provider(provider) for provider in methods["social_providers"])
+    return f"This account has no password to reset. Log in with {providers} instead."
+
+
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField(
         write_only=True, help_text="Email address of the account to send a password reset link to."
@@ -1148,6 +1166,14 @@ class PasswordResetSerializer(serializers.Serializer):
             user = User.objects.filter(is_active=True, email=email).first()
 
         if user:
+            sso_only_detail = _sso_only_reset_refusal(email)
+            if sso_only_detail:
+                # The generic "check your email" screen leaves a passwordless person guessing while
+                # the real way in is SSO, so name that method instead. `/api/login/precheck` already
+                # reports the same thing for any address, so this reveals no new account.
+                report_user_password_reset_requested("sso_only", user)
+                raise serializers.ValidationError(sso_only_detail, code="sso_only")
+
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)

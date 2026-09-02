@@ -263,13 +263,25 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
             errors: ({ email }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
             }),
+            // kea-forms counts manual errors as validation errors and blocks submit while any are
+            // set, clearing them only on field touch or form reset. The `code` we store below maps
+            // to no field, so touching the email input can't clear it — without this, an unhandled
+            // error code (e.g. sso_enforced) would wedge every later retry with no request sent.
+            preSubmit: () => {
+                actions.setRequestPasswordResetManualErrors({})
+            },
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
 
                 try {
                     await api.create('api/reset/', { email })
                 } catch (e: any) {
-                    actions.setRequestPasswordResetManualErrors({ email: e.detail ?? 'An error occurred' })
+                    // The code drives which screen the scene shows (throttled, SSO-only, …), so it
+                    // has to survive alongside the field-level message.
+                    actions.setRequestPasswordResetManualErrors({
+                        code: e.code,
+                        email: e.detail ?? 'An error occurred',
+                    })
                     posthog.captureException('Failed to reset password', { extra: { error: e } })
                     throw e
                 }

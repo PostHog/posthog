@@ -38,7 +38,8 @@ export function PasswordReset(): JSX.Element {
 
     return (
         <BridgePage view="password-reset" footer={<SupportModalButton />}>
-            {requestPasswordResetManualErrors?.code === 'throttled' ? (
+            {requestPasswordResetManualErrors?.code === 'throttled' ||
+            requestPasswordResetManualErrors?.code === 'sso_only' ? (
                 <div className="text-center ">
                     <IconErrorOutline className="text-5xl text-danger" />
                 </div>
@@ -54,6 +55,8 @@ export function PasswordReset(): JSX.Element {
                 <Spinner />
             ) : !preflight?.email_service_available ? (
                 <EmailUnavailable />
+            ) : requestPasswordResetManualErrors?.code === 'sso_only' ? (
+                <ResetSsoOnly detail={requestPasswordResetManualErrors.email} />
             ) : requestPasswordResetManualErrors?.code === 'throttled' ? (
                 <ResetThrottled />
             ) : requestPasswordResetSucceeded ? (
@@ -142,6 +145,29 @@ function ResetSuccess(): JSX.Element {
         <div className="text-center">
             Request received successfully! If the email <b>{requestPasswordReset?.email || 'you typed'}</b> exists,
             you’ll receive an email with a reset link soon.
+            <div className="mt-4">
+                <LemonButton
+                    type="primary"
+                    status="alt"
+                    data-attr="back-to-login"
+                    center
+                    fullWidth
+                    onClick={() => push('/login')}
+                    size="large"
+                >
+                    Back to login
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function ResetSsoOnly({ detail }: { detail?: string }): JSX.Element {
+    const { push } = useActions(router)
+
+    return (
+        <div className="text-center">
+            {detail || 'This account has no password to reset. Log in with single sign-on instead.'}
             <div className="mt-4">
                 <LemonButton
                     type="primary"

@@ -15,6 +15,18 @@ def get_safe_next_url(next_url: str | None, request: HttpRequest) -> str | None:
     return None
 
 
+SOCIAL_PROVIDER_DISPLAY_NAMES = {
+    "google-oauth2": "Google",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+}
+
+
+def friendly_social_provider(provider: str) -> str:
+    """Name a login provider the way a person reads it. Every unmapped provider is a SAML IdP."""
+    return SOCIAL_PROVIDER_DISPLAY_NAMES.get(provider, "single sign-on (SAML)")
+
+
 def _is_authenticated(request: HttpRequest) -> bool:
     # Not every request reaching these helpers has been through AuthenticationMiddleware
     user = getattr(request, "user", None)

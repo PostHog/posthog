@@ -1667,6 +1667,52 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("Google, GitHub", html_message)
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
+    @patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @patch("posthoganalytics.capture")
+    def test_sso_only_account_is_told_which_provider_to_use(self, mock_capture, mock_sso_providers):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        mock_sso_providers.return_value = {"google-oauth2": True, "github": False, "gitlab": False}
+
+        self.user.set_unusable_password()
+        self.user.save()
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-oauth2|test")
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "sso_only")
+        self.assertIn("Log in with Google", response.json()["detail"])
+
+        # No reset email leaves the mailbox, and the account is left untouched
+        self.assertEqual(len(mail.outbox), 0)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.requested_password_reset_at)
+
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="password reset requested",
+            properties={"outcome": "sso_only", "$process_person_profile": False},
+            groups=ANY,
+        )
+
+    @patch("posthog.api.authentication.get_instance_available_sso_providers")
+    def test_passwordless_account_with_no_usable_sso_still_gets_reset_link(self, mock_sso_providers):
+        # A linked provider the instance does not offer is not a way back in, so the reset email
+        # must still be sent rather than refused.
+        set_instance_setting("EMAIL_HOST", "localhost")
+        mock_sso_providers.return_value = {"google-oauth2": False, "github": False, "gitlab": False}
+
+        self.user.set_unusable_password()
+        self.user.save()
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-oauth2|test")
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(len(mail.outbox), 1)
+
     @patch("posthoganalytics.capture")
     def test_unknown_email_gets_no_account_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
