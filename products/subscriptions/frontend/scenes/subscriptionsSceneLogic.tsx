@@ -19,7 +19,7 @@ import { Breadcrumb } from '~/types'
 import { subscriptionsList, subscriptionsTestDeliveryCreate } from 'products/subscriptions/frontend/generated/api'
 import {
     SubscriptionsListResourceType,
-    TargetTypeEnumApi,
+    SubscriptionTargetEnumApi,
     type PaginatedSubscriptionListApi,
     type SubscriptionsListTargetType,
 } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -76,7 +76,7 @@ function parseSubscriptionsSearchParams(searchParams: Record<string, unknown>): 
 
     const ttRaw = searchParams['target_type']
     const targetTypeFilter: SubscriptionsListTargetType | null =
-        ttRaw === TargetTypeEnumApi.Email || ttRaw === TargetTypeEnumApi.Slack ? ttRaw : null
+        ttRaw === SubscriptionTargetEnumApi.Email || ttRaw === SubscriptionTargetEnumApi.Slack ? ttRaw : null
 
     let page = 1
     const pageRaw = searchParams['page']
