@@ -608,12 +608,14 @@ class _FakeCollection:
         self,
         docs: list[dict[str, Any]],
         error: Exception | None = None,
+        error_after: int = 0,
         fallback_docs: list[dict[str, Any]] | None = None,
         fallback_error: Exception | None = None,
         fallback_error_after: int = 0,
     ) -> None:
         self._docs = docs
         self._error = error
+        self._error_after = error_after
         # Docs returned by a second find() call made without no_cursor_timeout, simulating the
         # fallback path taken when the tier rejects that option.
         self._fallback_docs = fallback_docs
@@ -634,7 +636,7 @@ class _FakeCollection:
         self.find_calls.append(kwargs)
         self.find_queries.append(query)
         if kwargs.get("no_cursor_timeout"):
-            cursor = _FakeCursor(self._docs, self._error)
+            cursor = _FakeCursor(self._docs, self._error, self._error_after)
         else:
             docs = self._fallback_docs if self._fallback_docs is not None else self._docs
             resume_after = _resume_after(query)
@@ -697,9 +699,9 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
 
-    def test_cursor_closed_when_iteration_fails(self):
-        # A no_cursor_timeout cursor never expires on its own, so a mid-read failure (like the
-        # CursorNotFound this guards against) must still close it or it leaks server-side.
+    def test_cursor_closed_when_iteration_fails_with_no_progress(self):
+        # A no_cursor_timeout cursor that dies before yielding any document has no safe resume
+        # point — re-raise so Temporal retries the whole activity.
         collection = _FakeCollection([], error=CursorNotFound("cursor id 123 not found"))
 
         with self.assertRaises(CursorNotFound):
@@ -707,6 +709,29 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
 
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
+
+    def test_no_timeout_cursor_killed_mid_stream_resumes_from_last_id(self):
+        # Regression: CursorNotFound can fire even when no_cursor_timeout=True is honored
+        # (e.g. primary election, Atlas maintenance). The initial cursor is _id-ordered, so
+        # last_id is a safe resume point — resume instead of failing the whole sync.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=CursorNotFound("cursor id 123 not found"),
+            error_after=2,
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert len(collection.find_calls) == 2
+        assert collection.find_calls[0].get("no_cursor_timeout") is True
+        assert "no_cursor_timeout" not in collection.find_calls[1]
+        # Resume query picks up after the last document that was yielded.
+        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
+        # Initial cursor is _id-sorted; resumed cursor is also _id-sorted.
+        assert collection.cursors[0].sorted_by == ["_id", 1]
+        assert collection.cursors[1].sorted_by == ["_id", 1]
 
     @parameterized.expand(
         [

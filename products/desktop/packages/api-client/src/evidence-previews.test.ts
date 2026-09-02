@@ -405,7 +405,7 @@ describe("evidence preview shaping", () => {
       name: "TypeError in CouponValidator",
       status: "pending_release",
       first_seen: "2024-01-03T10:00:00Z",
-    } as Schemas.ErrorTrackingIssueFull);
+    } as Schemas.ErrorTrackingIssueRead);
     expect(preview.detail).toMatch(/^First seen Jan 3/);
     expect(preview.status).toEqual({
       label: "Pending release",
@@ -899,7 +899,16 @@ describe("evidence preview shaping", () => {
         detail: "Enabled · Old rollout",
         facts: ["100% rollout"],
       },
-      { status: "stale", reason: "Rolled out to 100% for at least 30 days" },
+      {
+        status: "stale",
+        reason: "Rolled out to 100% for at least 30 days",
+        rollout: {
+          effectively_full_rollout: true,
+          has_targeting_conditions: false,
+          max_rollout_percentage: 100,
+          is_multivariate: false,
+        },
+      },
       [
         ["2024-01-01", 900000],
         ["2024-01-02", 1200000],
