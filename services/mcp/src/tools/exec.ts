@@ -923,7 +923,8 @@ export function createExecTool(
                     // one: formatter-toggle tools then skip the server-side formatter (clean raw
                     // JSON, no `__formatted_results_override` duplication), and tools where the
                     // field is a real backend param (dashboard-insights-run) keep full function.
-                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                    const toolSchema = tool.schema
+                    if (useJson && schemaHasOutputFormat(toolSchema)) {
                         input.output_format = 'json'
                     }
 
@@ -931,7 +932,7 @@ export function createExecTool(
                     // otherwise bad input reaches the HTTP layer and builds URLs like
                     // `.../actions/undefined/`, a misleading 404 that hides the offending
                     // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = tool.schema.safeParse(input, { reportInput: true })
+                    const validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
                         const message = formatInputValidationError(tool.name, validation.error)
                         trackInnerCall?.(tool.name, {
@@ -947,7 +948,7 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, tool.schema)
+                            describeValidationError(validation.error, input, toolSchema)
                         )
                     }
                     input = validation.data as Record<string, unknown>
