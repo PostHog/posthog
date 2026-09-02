@@ -8,9 +8,11 @@ from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import close_old_connections, connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from temporalio import activity
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
@@ -31,10 +33,19 @@ from products.data_quality.backend.temporal.activities.cleanup import (
     _cleanup,
     _delete_dead_runs,
     _LiveSubjects,
+    cleanup_check_runs_activity,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 BATCH_SIZE = "products.data_quality.backend.temporal.activities.cleanup.RETENTION_DELETE_BATCH_SIZE"
+
+
+class TestCleanupActivityDefinition(SimpleTestCase):
+    def test_the_activity_is_sync_so_its_heartbeats_reach_temporal(self) -> None:
+        # This flag picks the heartbeat implementation the sweep gets. An async activity gets the
+        # event-loop one, which raises on the worker thread, so the first heartbeat aborts the pass.
+        definition = activity._Definition.must_from_callable(cleanup_check_runs_activity)
+        assert definition.is_async is False
 
 
 class TestRetentionSweep(BaseTest):

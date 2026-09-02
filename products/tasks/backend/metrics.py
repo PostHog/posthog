@@ -316,8 +316,8 @@ PUSH_DISPATCHER_OUTCOMES_TOTAL = Counter(
     labelnames=["kind", "outcome"],
 )
 
-# reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
-# (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
+# reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked,
+# context_missing (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
 LOOP_FIRE_TOTAL = Counter(
     "posthog_tasks_loop_fire_total",
     "Loop trigger fire outcomes",

@@ -118,6 +118,8 @@ const FIRE_BLOCKED_MESSAGES: Record<string, string> = {
   owner_inactive: "The loop owner's account can no longer start runs.",
   owner_changed:
     "The loop's owner changed while the run was starting. Try again.",
+  context_missing:
+    "The context this loop keeps up to date is gone. Point it at another one, or turn its context updates off.",
 };
 
 export function loopFireBlockedMessage(

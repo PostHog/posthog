@@ -8,11 +8,11 @@ from django.db import transaction
 from django.db.models import Exists, F, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import Greatest
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_db_connections
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
@@ -66,8 +66,11 @@ def _delete_in_batches(queryset: "QuerySet[Any]") -> dict[str, int]:
 
 
 @activity.defn
-async def cleanup_check_runs_activity() -> CleanupOutcome:
-    return await sync_to_async(_cleanup)()
+@close_db_connections
+def cleanup_check_runs_activity() -> CleanupOutcome:
+    # Declared sync so Temporal gives the sweep its thread-safe heartbeat. An async activity that
+    # ran the same body on a worker thread keeps the event-loop heartbeat, which raises there.
+    return _cleanup()
 
 
 def _cleanup() -> CleanupOutcome:
