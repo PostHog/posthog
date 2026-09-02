@@ -482,7 +482,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
     125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
-    128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
+    128: ErrorCodeMeta(
+        # The raw CH message embeds the array size, which differs on every run and splits one
+        # defect into many error tracking issues, so this carries a fixed message.
+        "TOO_LARGE_ARRAY_SIZE",
+        user_safe="This query matched too much data to process. Narrow the date range, or add filters to match fewer events.",
+    ),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
     130: ErrorCodeMeta("CANNOT_READ_ARRAY_FROM_TEXT"),
     131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE"),
