@@ -42,11 +42,11 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
-import { createDefaultSyncMergeMode } from '~/ingestion/common/persons/person-merge-types'
+import { MergeMode, createDefaultSyncMergeMode } from '~/ingestion/common/persons/person-merge-types'
 import { extractEventOps } from '~/ingestion/common/persons/person-update'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
-import { MergePersonsRequest } from '~/ingestion/common/persons/persons-store'
+import { MergePersonsRequest, MergePersonsResult } from '~/ingestion/common/persons/persons-store'
 import { RoutingPersonsStore } from '~/ingestion/common/persons/routing-persons-store'
 import { Hub } from '~/types'
 
@@ -117,7 +117,13 @@ describe('personhog shadow parity (e2e)', () => {
             site_url: '',
         } as any)
 
-    const createThroughBoth = async (distinctId: string, properties: Record<string, unknown>, batch: number) => {
+    const createThroughBoth = async (
+        distinctId: string,
+        properties: Record<string, unknown>,
+        batch: number,
+        extraDistinctIds?: string[],
+        isIdentified = false
+    ) => {
         const result = await routing.createPerson(
             DateTime.utc(),
             properties,
@@ -125,10 +131,10 @@ describe('personhog shadow parity (e2e)', () => {
             {},
             teamId,
             null,
-            false,
+            isIdentified,
             uuidFromDistinctId(teamId, distinctId),
             { distinctId },
-            undefined,
+            extraDistinctIds?.map((extra) => ({ distinctId: extra })),
             undefined,
             batch
         )
@@ -138,8 +144,64 @@ describe('personhog shadow parity (e2e)', () => {
         return result.person
     }
 
+    /** One merge through both backends, with the ack awaited. */
+    const runMerge = async (
+        targetDistinctId: string,
+        sourceDistinctIds: string[],
+        opts: {
+            allowIdentifiedSources?: boolean
+            mergeMode?: MergeMode
+            eventUuid?: string
+            sourceEventUuids?: string[]
+            set?: Record<string, unknown>
+        } = {}
+    ) => {
+        const mergeOps = ops({ $set: opts.set ?? {} }, '$identify')
+        // The processor marks the caller identified on every merge-shaped
+        // event and applies it on the follow-up update; the saga stamps the
+        // survivor itself, so without this the Postgres row lags behind.
+        mergeOps.isIdentified = true
+        const result = await routing.mergePersons(
+            {
+                teamId,
+                targetDistinctId,
+                sources: sourceDistinctIds.map((distinctId, i) => ({
+                    distinctId,
+                    eventUuid: opts.sourceEventUuids?.[i] ?? new UUIDT().toString(),
+                })),
+                eventOps: mergeOps,
+                eventUuid: opts.eventUuid ?? new UUIDT().toString(),
+                allowIdentifiedSources: opts.allowIdentifiedSources ?? false,
+                mergeMode: opts.mergeMode ?? createDefaultSyncMergeMode(),
+                createdAtMs: Date.now(),
+            },
+            batchId
+        )
+        await result.kafkaAck
+        return { result, mergeOps }
+    }
+
+    /**
+     * The follow-up property update the processor runs after a merge:
+     * Postgres leaves the event ops to it, the saga already applied them,
+     * and the idempotent re-fold converges the two.
+     */
+    const applyMergeFollowUp = async (
+        result: MergePersonsResult,
+        mergeOps: ReturnType<typeof ops>,
+        targetDistinctId: string
+    ) => {
+        if ((result.survivorNeedsUpdate ?? true) && result.survivor) {
+            await routing.applyEventOps(result.survivor, mergeOps, targetDistinctId, batchId)
+        }
+    }
+
     const divergences = () => counterTotal(personhogStoreShadowDivergenceCounter)
     const shadowErrors = () => counterTotal(personhogStoreShadowErrorsCounter)
+    const divergencesByField = async (field: string): Promise<number> =>
+        (await personhogStoreShadowDivergenceCounter.get()).values
+            .filter((entry) => entry.labels.field === field)
+            .reduce((sum, entry) => sum + entry.value, 0)
 
     interface DurableRow {
         uuid: string
@@ -273,21 +335,211 @@ describe('personhog shadow parity (e2e)', () => {
         await createThroughBoth(distinctId, { plan: 'free' }, batchId)
         const person = await routing.fetchForUpdate(teamId, distinctId, batchId)
         expect(person).not.toBeNull()
-        await routing.applyEventOps(person!, ops({ $set: { plan: 'pro', level: 3 } }), distinctId, batchId)
+        const [afterSet] = await routing.applyEventOps(
+            person!,
+            ops({ $set: { plan: 'pro', level: 3 } }),
+            distinctId,
+            batchId
+        )
+        // $set_once must not beat the standing value and $unset must land:
+        // Postgres refines these client-side, the leader server-side, and
+        // this is where the two refinements could drift. Chained on the
+        // returned person, as the processor chains events: Postgres refines
+        // against the caller's snapshot, so a stale one hides the unset.
+        await routing.applyEventOps(
+            afterSet,
+            ops({ $set_once: { plan: 'ignored', fresh: 'kept' }, $unset: ['level'] }),
+            distinctId,
+            batchId
+        )
         await routing.flush()
         routing.releaseBatch(batchId)
 
+        // The durable rows first: waiting for the writer here also makes the
+        // checking read below deterministic, since the identity resolve
+        // serves writer-applied state.
+        await expectDurableRowParity(distinctId)
+
         // A fresh batch, so both sides read their backend rather than a
         // cached answer; the shadow comparison is the assertion surface.
+        // The checking read exercises the other personhog read path, the
+        // identity resolve without a leader hop.
         batchId += 1
+        const checked = await routing.fetchForChecking(teamId, distinctId, batchId)
+        expect(checked?.uuid).toBe(uuidFromDistinctId(teamId, distinctId))
         const reread = await routing.fetchForUpdate(teamId, distinctId, batchId)
 
         expect(reread?.uuid).toBe(uuidFromDistinctId(teamId, distinctId))
-        expect(reread?.properties).toMatchObject({ plan: 'pro', level: 3 })
+        expect(reread?.properties).toEqual({ plan: 'pro', fresh: 'kept' })
         expect(await counterTotal(personhogStoreShadowComparedCounter)).toBeGreaterThan(0)
         expect(await divergences()).toBe(0)
         expect(await shadowErrors()).toBe(0)
-        await expectDurableRowParity(distinctId)
+    })
+
+    it('a merge of two unseen ids births the person with both, identically', async () => {
+        const target = id('birth-target')
+        const source = id('birth-source')
+        const { result, mergeOps } = await runMerge(target, [source], { set: { born: 'yes' } })
+
+        expect(result.results[0]?.outcome).toBe('attached')
+        expect(result.survivor?.uuid).toBe(uuidFromDistinctId(teamId, target))
+        await applyMergeFollowUp(result, mergeOps, target)
+        await routing.flush()
+        routing.releaseBatch(batchId)
+        await expectDurableRowParity(target)
+        await expectDurableRowParity(source)
+
+        batchId += 1
+        const viaSource = await routing.fetchForUpdate(teamId, source, batchId)
+        expect(viaSource?.uuid).toBe(uuidFromDistinctId(teamId, target))
+        expect(viaSource?.properties).toMatchObject({ born: 'yes' })
+        expect(await divergences()).toBe(0)
+        expect(await shadowErrors()).toBe(0)
+    })
+
+    it('an unseen target attaches to the one existing person, with the verdict-name divergence pinned', async () => {
+        const source = id('attach-source')
+        const target = id('attach-target')
+        await createThroughBoth(source, { origin: 'source' }, batchId)
+
+        const { result, mergeOps } = await runMerge(target, [source])
+
+        // The existing person keeps surviving on both backends and only its
+        // id set grows, but the verdict names differ by design: the saga
+        // establishes the unresolved target first, so by execution both ids
+        // share one person and it answers noop_same_person where Postgres's
+        // one-exists branch says attached.
+        expect(result.results[0]?.outcome).toBe('attached')
+        expect(result.survivor?.uuid).toBe(uuidFromDistinctId(teamId, source))
+        expect(await divergencesByField('outcome')).toBe(1)
+        expect(await divergencesByField('survivor')).toBe(0)
+        await applyMergeFollowUp(result, mergeOps, target)
+        await routing.flush()
+        routing.releaseBatch(batchId)
+        await expectDurableRowParity(source)
+        await expectDurableRowParity(target)
+
+        batchId += 1
+        const viaTarget = await routing.fetchForUpdate(teamId, target, batchId)
+        expect(viaTarget?.uuid).toBe(uuidFromDistinctId(teamId, source))
+        expect(await shadowErrors()).toBe(0)
+    })
+
+    it('a merge of two ids already on one person answers noop identically', async () => {
+        const target = id('same-target')
+        const source = id('same-source')
+        await createThroughBoth(target, {}, batchId, [source])
+
+        const { result } = await runMerge(target, [source])
+
+        expect(result.results[0]?.outcome).toBe('noop_same_person')
+        expect(result.survivor?.uuid).toBe(uuidFromDistinctId(teamId, target))
+        expect(await divergences()).toBe(0)
+        expect(await shadowErrors()).toBe(0)
+    })
+
+    it.each([
+        [false, 'skipped_already_identified'],
+        [true, 'merged'],
+    ])(
+        'an identified source with allowIdentifiedSources=%p answers %s on both backends',
+        async (allowIdentifiedSources, expected) => {
+            const target = id(`ident-${allowIdentifiedSources}-target`)
+            const source = id(`ident-${allowIdentifiedSources}-source`)
+            await createThroughBoth(target, {}, batchId)
+            await createThroughBoth(source, {}, batchId, undefined, true)
+
+            const { result, mergeOps } = await runMerge(target, [source], { allowIdentifiedSources })
+
+            expect(result.results[0]?.outcome).toBe(expected)
+            if (expected === 'merged') {
+                await applyMergeFollowUp(result, mergeOps, target)
+                await routing.flush()
+                routing.releaseBatch(batchId)
+                await expectDurableRowParity(target)
+                await expectDurableRowParity(source)
+            }
+            expect(await divergences()).toBe(0)
+            expect(await shadowErrors()).toBe(0)
+        }
+    )
+
+    it('a two-source fold settles every verdict identically', async () => {
+        const target = id('fold-target')
+        const first = id('fold-first')
+        const second = id('fold-second')
+        await createThroughBoth(target, { origin: 'target' }, batchId)
+        await createThroughBoth(first, { fromFirst: 'yes' }, batchId)
+        await createThroughBoth(second, { fromSecond: 'yes' }, batchId)
+
+        const { result, mergeOps } = await runMerge(target, [first, second], { set: { folded: 'yes' } })
+
+        expect(result.foldAborted).toBeUndefined()
+        expect(result.results.map((source) => source.outcome)).toEqual(['merged', 'merged'])
+        expect(result.survivor?.uuid).toBe(uuidFromDistinctId(teamId, target))
+        await applyMergeFollowUp(result, mergeOps, target)
+        await routing.flush()
+        routing.releaseBatch(batchId)
+        await expectDurableRowParity(target)
+        await expectDurableRowParity(first)
+        await expectDurableRowParity(second)
+
+        batchId += 1
+        const viaFirst = await routing.fetchForUpdate(teamId, first, batchId)
+        expect(viaFirst?.properties).toMatchObject({
+            origin: 'target',
+            fromFirst: 'yes',
+            fromSecond: 'yes',
+            folded: 'yes',
+        })
+        expect(await divergences()).toBe(0)
+        expect(await shadowErrors()).toBe(0)
+    })
+
+    it('a replayed merge pins the one documented verdict divergence', async () => {
+        const target = id('replay-target')
+        const source = id('replay-source')
+        await createThroughBoth(target, {}, batchId)
+        await createThroughBoth(source, {}, batchId)
+        const eventUuid = new UUIDT().toString()
+        const sourceEventUuids = [new UUIDT().toString()]
+        const { result: firstRun, mergeOps } = await runMerge(target, [source], { eventUuid, sourceEventUuids })
+        expect(firstRun.results[0]?.outcome).toBe('merged')
+        await applyMergeFollowUp(firstRun, mergeOps, target)
+        await routing.flush()
+        routing.releaseBatch(batchId)
+
+        personhogStoreShadowDivergenceCounter.reset()
+        batchId += 1
+        // A redelivery of the same event: Postgres re-runs against moved
+        // rows and lands on noop_same_person; the saga replays the recorded
+        // 'merged' verdict per op id. Same survivor, different verdict
+        // name — the one divergence this shape is allowed.
+        const { result: replay } = await runMerge(target, [source], { eventUuid, sourceEventUuids })
+
+        expect(replay.results[0]?.outcome).toBe('noop_same_person')
+        expect(replay.survivor?.uuid).toBe(uuidFromDistinctId(teamId, target))
+        expect(await divergencesByField('outcome')).toBe(1)
+        expect(await divergencesByField('survivor')).toBe(0)
+        expect(await shadowErrors()).toBe(0)
+    })
+
+    it('an over-limit source skips the merge in LIMIT mode, with the survivor divergence pinned', async () => {
+        const target = id('limit-target')
+        const source = id('limit-source')
+        await createThroughBoth(target, {}, batchId)
+        await createThroughBoth(source, {}, batchId, [id('limit-source-extra')])
+
+        const { result } = await runMerge(target, [source], { mergeMode: { type: 'LIMIT', limit: 1 } })
+
+        // Both backends skip on the same verdict; only the survivor field
+        // differs by design — Postgres answers none on the skip, the saga
+        // answers the target it resolved. The service maps the verdict to
+        // an error either way, so nothing reads the survivor.
+        expect(result.results[0]?.outcome).toBe('skipped_move_limit')
+        expect(await divergencesByField('outcome')).toBe(0)
+        expect(await divergencesByField('survivor')).toBe(1)
+        expect(await shadowErrors()).toBe(0)
     })
 
     it('a single-source merge settles the same survivor and verdict on both backends', async () => {
