@@ -17,6 +17,7 @@ from posthog.models import Organization, OrganizationMembership, PersonalAPIKey,
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.insight_queries import default_pageview_query
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -71,8 +72,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        if "query" not in data:
+            data["query"] = default_pageview_query()
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
         self.assertEqual(response.status_code, expected_status)

@@ -12,6 +12,8 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.test.insight_queries import query_from_legacy_filters
+
 from ee.api.test.base import APILicensedTest
 
 if TYPE_CHECKING:
@@ -125,7 +127,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an insight via API."""
         data = {
             "name": name,
-            "filters": {"events": [{"id": "$pageview"}], "display": "ActionsLineGraph"},
+            "query": query_from_legacy_filters({"events": [{"id": "$pageview"}], "display": "ActionsLineGraph"}),
             "description": "Test insight description",
             **kwargs,
         }

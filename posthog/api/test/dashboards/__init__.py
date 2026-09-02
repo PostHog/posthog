@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 from rest_framework import status
 
 from posthog.models.team import Team
+from posthog.test.insight_queries import default_pageview_query, query_from_legacy_filters
 
 from products.dashboards.backend.widget_registry import DashboardWidgetType
 
@@ -150,7 +151,11 @@ class DashboardAPI:
             team_id = self.team.id
 
         if "filters" not in data and "query" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+            data["query"] = default_pageview_query()
+        elif "query" not in data:
+            # The API no longer accepts legacy filters, so send the query they mean. Tests that
+            # pass filters here are about dashboards, not about how the definition is stored.
+            data = {**data, "query": query_from_legacy_filters(data.pop("filters"))}
 
         response = self.client.post(
             f"/api/projects/{team_id}/insights",

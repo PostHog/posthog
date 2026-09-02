@@ -953,6 +953,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
+    # The publish gate compares a share's expiry against now(), and the snapshot holds the literal.
+    @freeze_time("2024-01-01T12:00:00Z")
     def test_adding_insights_is_not_nplus1_for_gets(self):
         with mute_selected_signals():
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -1079,6 +1081,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert [r.get("tiles", None) for r in response["results"]] == [None, None]
 
     @snapshot_postgres_queries
+    @freeze_time("2024-01-01T12:00:00Z")
     def test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles(self) -> None:
         """
         this test only exists for the query snapshot
