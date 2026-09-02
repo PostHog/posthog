@@ -99,15 +99,28 @@ export function InboxReportRowView({
         </span>
       </div>
       <span className="flex shrink-0 items-center gap-2">
-        {report.status === "resolved" && (
-          <span
-            title="The fix shipped and this report closed"
-            className="flex items-center gap-1 rounded border border-(--green-6) bg-(--green-2) px-1.5 py-0.5 text-[12px] text-green-11"
-          >
-            <CheckCircleIcon size={11} />
-            Shipped
-          </span>
-        )}
+        {report.status === "resolved" &&
+          (report.implementation_pr_merged ? (
+            <span
+              title="The fix shipped and this report closed"
+              className="flex items-center gap-1 rounded border border-(--green-6) bg-(--green-2) px-1.5 py-0.5 text-[12px] text-green-11"
+            >
+              <CheckCircleIcon size={11} />
+              Shipped
+            </span>
+          ) : (
+            <span
+              title={
+                report.dismissal_reason
+                  ? `Resolved: ${dismissalReasonLabel(report.dismissal_reason)}`
+                  : "This report was resolved"
+              }
+              className="flex items-center gap-1 rounded border border-(--gray-6) bg-(--gray-2) px-1.5 py-0.5 text-[12px] text-gray-11"
+            >
+              <CheckCircleIcon size={11} />
+              Resolved
+            </span>
+          ))}
         {reviewers}
         <SignalReportPriorityBadge priority={report.priority} />
         {/* biome-ignore lint/a11y/noStaticElementInteractions: This span only stops nested controls from opening the row. */}
