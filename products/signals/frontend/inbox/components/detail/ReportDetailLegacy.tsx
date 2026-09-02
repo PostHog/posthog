@@ -56,6 +56,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
+import { ValidateLocallySection } from './ValidateLocallySection'
 
 const SIGNALS_TOOLTIP =
     'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
@@ -366,6 +367,7 @@ function InboxDetailFrameLegacy({
                         )}
                     </DetailSection>
                     {summaryFooter}
+                    <ValidateLocallySection report={report} reportUrl={reportUrl} />
                     {/* The rating closes out the report body, where the reading ends – ahead of the
                     supporting sections, which stack underneath once the layout drops to one column. */}
                     <ReportFeedbackFooter report={report} />

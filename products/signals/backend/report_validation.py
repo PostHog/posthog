@@ -1,11 +1,16 @@
 """The prompt a report hands its reader to check the finding on their own machine.
 
 A validation prompt is part of a report's content, not an entry in its log — it lives on
-`SignalReport.validation_prompt` alongside the summary it was written against, so it is replaced
-with that summary rather than accumulating versions beside it. Kept out of `artefact_schemas.py`
-for that reason, and kept as dependency-light as `report_prompts.py` for the same one: it loads
-with the signals models, so it must not drag `posthog.schema` onto every process's
-`django.setup()` path.
+`SignalReport.validation_prompt` alongside the summary it was written against, so a research run
+replaces it with that summary rather than accumulating versions beside it. Kept out of
+`artefact_schemas.py` for that reason, and kept as dependency-light as `report_prompts.py` for the
+same one: it loads with the signals models, so it must not drag `posthog.schema` onto every
+process's `django.setup()` path.
+
+Unlike `suggested_prompts`, a human summary edit through the API leaves it standing (see
+`views.py`'s `partial_update`). A suggested question is about the prose, so it dies with the prose;
+how to reproduce a slow query does not stop being true because someone reworded the summary above
+it. Losing the steps on an unrelated edit costs the reader more than the staleness does.
 
 The prompt stays on the report and never reaches the pull request. A reviewer who wants to trust a
 self-driving PR has to be able to reproduce the finding first, and the steps that make that
@@ -75,7 +80,7 @@ Include:
 - Where the query comes from in the codebase: the file and function that builds it, so the reader can change it. Say plainly if you could not find it.
 - The numbers pganalyze gave for it — call count, mean and total time, rows read — so the reader knows what "slow" means here.
 - `EXPLAIN (ANALYZE, BUFFERS)` on a read replica rather than a local database, and the plan lines to compare: which node the time sits in, and whether it reads an index or scans the relation.
-- For an index recommendation, how to test it before shipping it: build the index on the replica with `CREATE INDEX CONCURRENTLY`, re-run the plan, and compare against the plan you captured first. Say what a planner that ignores the new index would mean.""",
+- For an index recommendation, where to test it. A read replica rejects DDL, so the index cannot be built there — the reader needs a writable database whose statistics still resemble production, such as a restored snapshot or a clone. Tell them to capture the baseline plan on the replica, build the index on that writable copy, and compare the two plans. Say what a planner that ignores the new index would mean.""",
 }
 
 

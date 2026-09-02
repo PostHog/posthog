@@ -1500,6 +1500,9 @@ class SignalReportViewSet(
             if report.suggested_prompts:
                 report.suggested_prompts = []
                 update_fields.append("suggested_prompts")
+            # `validation_prompt` deliberately survives this edit — see `report_validation.py`.
+            # How to reproduce the finding does not stop being true because the summary was
+            # reworded, and the next research run replaces the prompt anyway.
 
         if update_fields:
             # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it

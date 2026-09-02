@@ -3,11 +3,14 @@
   "report_id": "test-backups-succesful-typo-001",
   "generated_at": "2026-04-17T10:00:00Z",
   "repository": "PostHog/posthog",
-  "signal_ids": ["7e000000-0000-0000-0000-000000000001"],
+  "signal_ids": [
+    "7e000000-0000-0000-0000-000000000001"
+  ],
   "result": {
     "title": "fix(backups): correct 'succesful' typo in docstring",
     "summary": "The docstring of the `_get_base_backup` function in `posthog/dags/backups.py` (line 346) misspells 'successful' as 'succesful'. This is a single-word typo in a docstring — no code behavior is affected.",
     "charts": [],
+    "validation_prompt": "Confirm the typo and that fixing it changes nothing else.\n\nRecreate:\n1. `grep -n succesful posthog/dags/backups.py` — the docstring of `_get_base_backup` misspells \"successful\".\n2. The string is a docstring, so nothing reads it at runtime. Confirm that: `grep -rn succesful --include=*.py .` should show no code, test, or fixture depending on the misspelling.\n\nTest:\n1. Fix the spelling and re-run the grep. The only remaining hits should be none.\n2. Run the backups dag tests. They should pass unchanged, because the change is a comment.\n3. If the grep turns up a second copy of the misspelling elsewhere, say so rather than fixing only the one the report names.",
     "old_artefacts": [],
     "new_artefacts": [
       {
