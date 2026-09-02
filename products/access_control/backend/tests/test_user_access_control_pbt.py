@@ -242,7 +242,16 @@ def build_instance(model_cls: type[models.Model], team: Team, user: User, _depth
         elif isinstance(field, models.IntegerField | models.FloatField | models.DecimalField):
             kwargs[field.name] = 0
         elif isinstance(field, models.CharField | models.TextField):
-            kwargs[field.name] = f"pbt-{field.name}-{next(_unique_counter)}"
+            if field.choices:
+                kwargs[field.name] = field.choices[0][0]
+            else:
+                suffix = str(next(_unique_counter))
+                value = f"pbt-{field.name}-{suffix}"
+                if field.max_length is not None and len(value) > field.max_length:
+                    # Keep the unique suffix; drop characters from the descriptive prefix
+                    value = value[: max(0, field.max_length - len(suffix))] + suffix
+                    value = value[: field.max_length]
+                kwargs[field.name] = value
         else:
             raise ValueError(f"Cannot generically fill {model_cls.__name__}.{field.name} ({type(field).__name__})")
 
