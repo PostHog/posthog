@@ -4,12 +4,17 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.core.cache import cache
+
+from parameterized import parameterized
+
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
 from products.ai_observability.backend.instrumentation_checklist.grading import ChecklistStats
 from products.ai_observability.backend.instrumentation_checklist.stats import (
-    _STATS_SQL,
+    _COUNTS_SQL,
+    _TOOLS_DECLARED_SQL,
     WINDOW_DAYS,
     fetch_checklist_stats,
 )
@@ -38,6 +43,12 @@ def _ai_event(
 
 
 class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Verdicts are cached per team, and the team id is stable across the class, so without this
+        # the first test to run answers every later one.
+        cache.clear()
+
     def test_counts_every_signal_the_checklist_grades(self) -> None:
         bulk_create_ai_events(
             [
@@ -67,7 +78,9 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
             events_with_session=1,
             events_declining_session=0,
             generations_with_tool_calls=1,
-            generations_with_tools_declared=1,
+            # Not False: a project already recording calls never needs the definitions question
+            # answered, so the wide read behind it is skipped rather than run.
+            tools_declared=None,
             sdk_generations=2,
             sdk_generations_identified=1,
             spans=1,
@@ -85,7 +98,7 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
             events_with_session=0,
             events_declining_session=0,
             generations_with_tool_calls=0,
-            generations_with_tools_declared=0,
+            tools_declared=False,
             sdk_generations=0,
             sdk_generations_identified=0,
             spans=0,
@@ -142,30 +155,29 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         # The ai_events MV strips $ai_tools from the properties blob, so a properties read returns a
         # silent zero in production and the checklist accuses a correctly instrumented project.
         # bulk_create_ai_events does not strip it, so no seeded-data assertion can catch this.
-        normalized = " ".join(_STATS_SQL.split())
+        normalized = " ".join(_TOOLS_DECLARED_SQL.split())
         assert "coalesce(tools, '')" in normalized
         # \b keeps $ai_tools_called, which does live in the properties blob, out of the match.
         assert re.search(r"properties\.\$ai_tools\b", normalized) is None
 
-    def test_an_empty_tool_array_is_not_counted_as_declared_definitions(self) -> None:
+    def test_the_tools_column_stays_out_of_the_counts_query(self) -> None:
+        # It is the widest column in the table, and reading it for every row costs about as much as
+        # every other column the checklist touches put together.
+        # \b keeps $ai_tools_called, which lives in the properties blob, out of the match.
+        assert re.search(r"\btools\b", " ".join(_COUNTS_SQL.split())) is None
+
+    @parameterized.expand(
+        [
+            ("an_empty_array_is_not_a_declaration", [], False),
+            ("a_real_definition_is", [{"type": "function", "function": {"name": "search"}}], True),
+        ]
+    )
+    def test_declared_tool_definitions(self, _name: str, tools: list[dict[str, Any]], expected: bool) -> None:
         bulk_create_ai_events(
-            [
-                _ai_event(
-                    team=self.team,
-                    event="$ai_generation",
-                    trace_id="trace-empty-tools",
-                    properties={"$ai_tools": []},
-                ),
-                _ai_event(
-                    team=self.team,
-                    event="$ai_generation",
-                    trace_id="trace-real-tools",
-                    properties={"$ai_tools": [{"type": "function", "function": {"name": "search"}}]},
-                ),
-            ]
+            [_ai_event(team=self.team, event="$ai_generation", trace_id="trace-1", properties={"$ai_tools": tools})]
         )
 
-        assert fetch_checklist_stats(self.team).generations_with_tools_declared == 1
+        assert fetch_checklist_stats(self.team).tools_declared is expected
 
     def test_a_session_id_counts_when_it_arrives_on_a_trace_rather_than_a_generation(self) -> None:
         bulk_create_ai_events(
@@ -226,10 +238,26 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         assert stats.sdk_generations == 1
         assert stats.sdk_generations_identified == 0
 
+    def test_a_verdict_is_reused_until_a_refresh_asks_for_a_new_one(self) -> None:
+        bulk_create_ai_events([_ai_event(team=self.team, event="$ai_generation", trace_id="trace-1")])
+        assert fetch_checklist_stats(self.team).total_events == 1
+
+        bulk_create_ai_events([_ai_event(team=self.team, event="$ai_span", trace_id="trace-1")])
+
+        assert fetch_checklist_stats(self.team).total_events == 1
+        assert fetch_checklist_stats(self.team, force_refresh=True).total_events == 2
+
+    def test_a_project_that_has_sent_nothing_is_not_held_at_zero(self) -> None:
+        assert fetch_checklist_stats(self.team).total_events == 0
+
+        bulk_create_ai_events([_ai_event(team=self.team, event="$ai_generation", trace_id="trace-1")])
+
+        assert fetch_checklist_stats(self.team).total_events == 1
+
     def test_the_aggregate_stays_ungrouped(self) -> None:
         # An ungrouped aggregate always returns exactly one row, so query_ai_events' empty-result
         # probe never fires and the stripped events table stays unreachable. A GROUP BY or HAVING
         # would let an empty project raise AIEventsNotFoundError instead of grading at zero.
-        normalized = " ".join(_STATS_SQL.split()).upper()
+        normalized = " ".join(_COUNTS_SQL.split()).upper()
         assert "GROUP BY" not in normalized
         assert "HAVING" not in normalized

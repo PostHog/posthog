@@ -260,7 +260,7 @@ export const FirstLoad: Story = {
     parameters: {
         layout: 'padded',
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST],
-        // The skeleton stands in for a read that has not answered, so it never settles in a story.
+        // The card holds its header until the read answers, so this story never settles.
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [

@@ -91032,6 +91032,13 @@ export namespace Schemas {
       Ocsf: 'ocsf',
     } as const;
 
+    export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean;
+    };
+
     export type AlertsListParams = {
     /**
      * Optional. Restrict results to alerts created by the user with this UUID.
