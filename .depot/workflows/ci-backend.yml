@@ -290,6 +290,11 @@ jobs:
               continue-on-error: true
             - uses: ./.depot/actions/paths-filter
               id: filter
+              # No `!= 'schedule'` arm, unlike canonical: this shadow has no `schedule`
+              # trigger (depot-exempt, see the header), so there is no cron run whose
+              # filter could narrow to a single commit. Canonical's reason for the extra
+              # arm is "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md.
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   list-files: 'escape'
