@@ -70,9 +70,13 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             patch(
                 "products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_paused"
             ) as paused_email,
+            patch(
+                "products.workflows.backend.services.workflow_email_health.send_workflow_email_sending_warning"
+            ) as warning_email,
             self.captureOnCommitCallbacks(execute=True),
         ):
             applied = sweep_workflow_email_health(now=self.now)
+        self.warning_email = warning_email.delay
         return applied, paused_email.delay
 
     def test_complaint_breach_pauses_the_workflow_and_notifies(self):
@@ -86,6 +90,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_paused_at is not None
         assert "Spam complaints reached 2%" in self.flow.email_sending_paused_reason
         assert paused_email.call_count == 1
+        # The rate is over the warn band too; the pause outranks the warning, so only one email.
+        assert self.warning_email.call_count == 0
 
     def test_hard_bounce_breach_pauses_the_workflow(self):
         self._seed(sent=400, hard_bounces=60)
@@ -122,6 +128,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_at is None
         assert paused_email.call_count == 0
+        assert self.warning_email.call_count == 0
 
     # Creating a HogFlowBatchJob fires a post_save signal that dispatches to the plugin server —
     # patched out like every other batch-job test, or the outbound HTTP attempt fails the test.
@@ -189,6 +196,49 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.refresh_from_db()
         assert self.flow.email_sending_paused_reason == "Earlier pause"
         assert paused_email.call_count == 0
+
+    def test_warn_band_warns_without_pausing(self):
+        # 0.2% complaints over 24h: above the 0.15% warn rate, below the 0.3% pause rate.
+        self._seed(sent=10000, complaints=20)
+
+        applied, paused_email = self._sweep()
+
+        assert applied == []
+        assert paused_email.call_count == 0
+        assert self.warning_email.call_count == 1
+        assert self.warning_email.call_args.kwargs["hog_flow_id"] == str(self.flow.id)
+        assert self.warning_email.call_args.kwargs["pause_rate"] == "0.3%"
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_paused_at is None
+        assert self.flow.email_sending_warned_at is not None
+
+    def test_warning_is_not_repeated_within_the_cooldown(self):
+        self._seed(sent=10000, complaints=20)
+        self.flow.email_sending_warned_at = self.now - timedelta(days=1)
+        self.flow.save(update_fields=["email_sending_warned_at"])
+
+        self._sweep()
+
+        assert self.warning_email.call_count == 0
+
+    def test_warning_repeats_once_the_cooldown_passed(self):
+        self._seed(sent=10000, complaints=20)
+        self.flow.email_sending_warned_at = self.now - timedelta(days=8)
+        self.flow.save(update_fields=["email_sending_warned_at"])
+
+        self._sweep()
+
+        assert self.warning_email.call_count == 1
+
+    @override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=False)
+    def test_dry_run_does_not_warn(self):
+        self._seed(sent=10000, complaints=20)
+
+        self._sweep()
+
+        assert self.warning_email.call_count == 0
+        self.flow.refresh_from_db()
+        assert self.flow.email_sending_warned_at is None
 
     @override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=False)
     def test_dry_run_finds_the_breach_but_writes_nothing(self):

@@ -629,6 +629,29 @@ describe("ArchiveService integration", () => {
         expect(ctx.service.getArchivedTaskIds()).toEqual(["nonexistent"]);
       }));
 
+    it("only lists a server-imported archive for its account and project", () =>
+      withTestContext({ hasWorkspace: false }, async (ctx) => {
+        await ctx.service.archiveTask({
+          taskId: "server-archive",
+          title: "Private server task",
+          serverArchiveScope: "us:user-a:42",
+        });
+        await ctx.service.archiveTask({ taskId: "local-archive" });
+
+        expect(ctx.service.getArchivedTaskIds("us:user-a:42")).toEqual([
+          "server-archive",
+          "local-archive",
+        ]);
+        expect(ctx.service.getArchivedTaskIds("us:user-b:42")).toEqual([
+          "local-archive",
+        ]);
+        expect(
+          ctx.service
+            .getArchivedTasks("us:user-b:42")
+            .map((task) => task.title),
+        ).not.toContain("Private server task");
+      }));
+
     // Unarchive and delete are parallel "remove a rowless task from the archived
     // list" operations sharing the same arrange step; the per-case `extraAssert`
     // covers what's unique (delete also drops the metadata row, not just the

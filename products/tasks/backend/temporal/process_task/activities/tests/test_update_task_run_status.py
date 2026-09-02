@@ -8,15 +8,45 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
+    USAGE_METRICS_RECORDED_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
 
 TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
+
+
+class _RecordingMetric:
+    def __init__(self, sink, name, attributes):
+        self.sink = sink
+        self.name = name
+        self.attributes = attributes
+
+    def record(self, value):
+        self.sink.append((self.name, value, self.attributes))
+
+    def add(self, value):
+        self.sink.append((self.name, value, self.attributes))
+
+
+class _RecordingMetricMeter:
+    def __init__(self, sink, attributes=None):
+        self.sink = sink
+        self.attributes = dict(attributes or {})
+
+    def with_additional_attributes(self, additional_attributes):
+        return _RecordingMetricMeter(self.sink, {**self.attributes, **dict(additional_attributes)})
+
+    def create_counter(self, name, description=None, unit=None):
+        return _RecordingMetric(self.sink, name, self.attributes)
+
+    def create_histogram(self, name, description=None, unit=None):
+        return _RecordingMetric(self.sink, name, self.attributes)
 
 
 async def _run_update_task_run_status(
@@ -213,6 +243,9 @@ class TestUpdateTaskRunStatusActivity:
             **(test_task_run.state or {}),
             "token_usage": dict(TOKEN_USAGE),
             "rtk_effective": True,
+            "benjamin_effective": True,
+            "benjamin_version": "2026.08.1",
+            "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
         }
         test_task_run.save(update_fields=["state"])
@@ -231,12 +264,38 @@ class TestUpdateTaskRunStatusActivity:
         assert props["total_tokens"] == 1500
         assert props["usage_turns"] == 3
         assert props["rtk_enabled"] is True
+        assert props["benjamin_enabled"] is True
+        assert props["benjamin_version"] == "2026.08.1"
         assert props["run_environment"] == test_task_run.environment
         assert props["termination_reason"] is None
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
+        assert mock_record.call_args.kwargs["benjamin_enabled"] is True
+        assert mock_record.call_args.kwargs["model"] == "gpt-5.6-sol"
         assert mock_record.call_args.kwargs["runtime_adapter"] == "codex"
         assert mock_record.call_args.kwargs["status"] == status
+        test_task_run.refresh_from_db()
+        assert test_task_run.state[USAGE_METRICS_RECORDED_STATE_KEY] is True
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.temporal.process_task.activities.update_task_run_status.record_run_token_usage")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_agent_terminalized_run_still_records_usage_metrics_once(
+        self, mock_capture, mock_record, activity_environment, test_task_run
+    ):
+        test_task_run.status = TaskRun.Status.COMPLETED
+        test_task_run.state = {**(test_task_run.state or {}), "token_usage": dict(TOKEN_USAGE)}
+        test_task_run.save(update_fields=["status", "state"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        mock_record.assert_called_once()
+        assert mock_record.call_args.kwargs["status"] == TaskRun.Status.COMPLETED
+        test_task_run.refresh_from_db()
+        assert test_task_run.state[USAGE_METRICS_RECORDED_STATE_KEY] is True
+        assert [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"] == []
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -498,3 +557,51 @@ class TestUpdateTaskRunStatusActivity:
 
         after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
         assert after == before + expected_delta
+
+
+class TestRecordRunTokenUsageMetrics:
+    def _record(self, activity_environment, **overrides):
+        recorded: list = []
+        activity_environment.metric_meter = _RecordingMetricMeter(recorded)
+        kwargs = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "rtk_enabled": True,
+            "benjamin_enabled": True,
+            "model": "gpt-5.6-sol",
+            "runtime_adapter": "codex",
+            "status": "completed",
+            **overrides,
+        }
+        activity_environment.run(record_run_token_usage, dict(TOKEN_USAGE), **kwargs)
+        return recorded
+
+    def test_records_turns_alongside_tokens(self, activity_environment):
+        recorded = self._record(activity_environment)
+
+        turns = [entry for entry in recorded if entry[0] == "tasks_run_turns"]
+        assert len(turns) == 1
+        assert turns[0][1] == 3
+        assert turns[0][2]["benjamin_enabled"] == "true"
+        assert turns[0][2]["model"] == "gpt-5.6-sol"
+
+    @pytest.mark.parametrize(
+        "model, expected",
+        [
+            ("gpt-5.6-sol", "gpt-5.6-sol"),
+            ("Claude-Sonnet-5", "claude-sonnet-5"),
+            ("some-unreleased-model", "other"),
+            ("", "unknown"),
+            (None, "unknown"),
+        ],
+    )
+    def test_model_attribute_is_bounded_to_the_catalogue(self, activity_environment, model, expected):
+        recorded = self._record(activity_environment, model=model)
+
+        assert {entry[2]["model"] for entry in recorded} == {expected}
+
+    @pytest.mark.parametrize("benjamin_enabled, expected", [(True, "true"), (False, "false"), (None, "unknown")])
+    def test_benjamin_attribute_labels_every_posture(self, activity_environment, benjamin_enabled, expected):
+        recorded = self._record(activity_environment, benjamin_enabled=benjamin_enabled)
+
+        assert {entry[2]["benjamin_enabled"] for entry in recorded} == {expected}

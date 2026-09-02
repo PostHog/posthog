@@ -70,6 +70,7 @@ from posthog.tasks.tasks import (
 )
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
+from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
@@ -390,12 +391,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
+    # Hourly rather than a tight poll: the tier system's hourly send bucket bounds how much a
+    # breaching workflow can send between runs, and the detection windows are 1h and 24h anyway.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/5"),
+        crontab(minute="35"),
         sweep_workflow_email_deliverability.s(),
         name="sweep workflow email deliverability",
-        expires_seconds=5 * 60,
+        expires_seconds=30 * 60,
     )
 
     # Flags cache sync - hourly
@@ -445,6 +448,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="45"),
         cleanup_stale_remote_config_expiry_tracking_task.s(),
         name="remote config cache expiry tracking cleanup",
+    )
+
+    # Abandoned presigned media uploads cleanup - daily at 4:15 AM
+    sender.add_periodic_task(
+        crontab(hour="4", minute="15"),
+        sweep_abandoned_media_uploads_task.s(),
+        name="sweep abandoned media uploads",
     )
 
     # Team metadata cache verification - hourly at minute 20

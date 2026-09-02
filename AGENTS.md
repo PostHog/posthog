@@ -31,7 +31,7 @@
     - Cloud task VMs (prebaked dev-stack image): run `bootstrap-dev-stack` first (restores compose host aliases, starts dockerd), then `uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait` (the detached start returns while the stack is still booting; `hogli wait` blocks until every process is ready) — always detached: the sandbox has no TTY, and phrocs under a pseudo-TTY balloons in memory until OOM-killed
     - Cloud task VMs: on user-created runs the backend usually starts the stack itself. While it does, `hogli start` exits without starting anything. Poll `/tmp/posthog-preview/status.json` until `state` is `ready` or `failed`. On `ready`, run `hogli wait`; it reports `not reachable` until the backend reaches the phrocs step, so retry it rather than forcing a second start. On `failed` (the backend does not retry), start the stack yourself with `hogli start -y -d`
     - Cloud task VMs, frontend work: `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled; product/Storybook builds still run from source
-    - Cloud task VMs, tests: scope every run to what you changed, with `hogli test --changed` or the test files that cover the touched code. Run a whole module, package, or repo-wide suite at most once, right before you push, and only for a cross-cutting change. CI runs the full matrix; repeating it in the sandbox costs minutes per run and floods the context with output. In a sandbox `hogli test` runs pytest with `-q` (set `HOGLI_TEST_VERBOSE=1` to stream prints)
+    - Cloud task VMs, tests: scope every run to what you changed, with `hogli test --changed` or the test files that cover the touched code. Run a whole module, package, or repo-wide suite at most once, right before you push, and only for a cross-cutting change. CI runs the full matrix; repeating it in the sandbox costs minutes per run and floods the context with output. In a sandbox `hogli test` runs pytest with `-q` (set `HOGLI_TEST_VERBOSE=1` to stream prints). `pytest.ini` already enables `--reuse-db`, and the prebaked dev-stack image seeds `test_posthog`; do not pass `--create-db` or override pytest `addopts`, because either discards the prewarmed schema. If pytest starts the full migration history, the VM image predates the database seed or the test database was replaced. Let that migration finish before retrying; interrupting it leaves a partial database that the next run must continue migrating.
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
@@ -252,7 +252,9 @@ When automating a convention, try these in order — only fall back to the next 
 3. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
 4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
-Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
+Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile.
+Changes to `.claude/hooks/` trigger a warning from the `pre-commit` hook; changes to `.claude/settings.json` are blocked outright by lint-staged.
+A warn-only check belongs in the `pre-commit` hook body rather than in a lint-staged task, because lint-staged discards the output of every task that exits 0.
 
 ### Mandatory skill invocation
 
@@ -279,6 +281,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`

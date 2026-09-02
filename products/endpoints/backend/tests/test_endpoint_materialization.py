@@ -1697,10 +1697,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
     def test_materialization_replaces_breakdown_sentinels_in_hogql(self):
-        from posthog.hogql_queries.insights.utils.breakdowns import (
-            BREAKDOWN_NULL_STRING_LABEL,
-            BREAKDOWN_OTHER_STRING_LABEL,
-        )
+        from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
         trends_query = {
             "kind": "TrendsQuery",

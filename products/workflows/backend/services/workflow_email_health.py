@@ -1,8 +1,10 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Final, Literal
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -12,7 +14,7 @@ from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_ap
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.schema_enums import ProductKey
-from posthog.tasks.email import send_workflow_email_sending_paused
+from posthog.tasks.email import send_workflow_email_sending_paused, send_workflow_email_sending_warning
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.email_sending_attribution import (
@@ -34,6 +36,13 @@ workflow_email_auto_pause_total = Counter(
     "workflow_email_auto_pause_total",
     "Workflows whose email the deliverability detector paused, or would have paused while it runs "
     "with enforcement off.",
+    labelnames=["signal", "window", "mode"],
+)
+
+workflow_email_warning_total = Counter(
+    "workflow_email_warning_total",
+    "Workflows whose admins the deliverability detector warned about rates approaching the pause "
+    "thresholds, or would have warned while it runs with enforcement off.",
     labelnames=["signal", "window", "mode"],
 )
 
@@ -97,6 +106,21 @@ def build_thresholds() -> list[DetectorThreshold]:
             min_events=settings.WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_MIN_EVENTS_24H,
             rate=settings.WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_24H,
         ),
+    ]
+
+
+def build_warn_thresholds() -> list[DetectorThreshold]:
+    """The warning band's lower edge: the pause table with lower rates and the same volume gates.
+    A workflow between a warn rate and its pause rate gets a heads-up email instead of a pause."""
+    warn_rates = {
+        ("complaint", "1h"): settings.WORKFLOW_EMAIL_WARN_COMPLAINT_RATE_1H,
+        ("complaint", "24h"): settings.WORKFLOW_EMAIL_WARN_COMPLAINT_RATE_24H,
+        ("bounce", "1h"): settings.WORKFLOW_EMAIL_WARN_BOUNCE_RATE_1H,
+        ("bounce", "24h"): settings.WORKFLOW_EMAIL_WARN_BOUNCE_RATE_24H,
+    }
+    return [
+        replace(threshold, rate=warn_rates[(threshold.signal, threshold.window_label)])
+        for threshold in build_thresholds()
     ]
 
 
@@ -234,31 +258,49 @@ def _breach(
     )
 
 
+@frozen
+class DetectorDecisions:
+    pauses: list[PauseDecision]
+    # Workflows inside the warning band: over a warn rate, under every pause rate, and not warned
+    # within the cooldown. A workflow never appears in both lists; the pause wins.
+    warnings: list[PauseDecision]
+
+
 def find_workflow_email_pauses(*, now: datetime | None = None) -> list[PauseDecision]:
     """Decide which workflows have earned an email pause. Reads only; writes nothing."""
+    return find_workflow_email_decisions(now=now).pauses
+
+
+def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDecisions:
+    """Decide which workflows have earned an email pause, and which are approaching one and get a
+    warning instead. Reads only; writes nothing."""
     now = now or timezone.now()
     tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.ENRICHMENT)
     thresholds = build_thresholds()
+    warn_thresholds = build_warn_thresholds()
 
     candidate_team_ids = _discover_candidate_team_ids(now=now, thresholds=thresholds)
     if not candidate_team_ids:
-        return []
+        return DetectorDecisions(pauses=[], warnings=[])
 
     # Already-paused workflows are skipped: the pause is in force and a second decision would only
     # re-notify. Resuming is what puts a workflow back in scope.
     flows_by_id = {
         str(flow.id): flow
         for flow in HogFlow.objects.filter(team_id__in=candidate_team_ids, email_sending_paused_at__isnull=True).only(
-            "id", "team_id", "name", "email_sending_resumed_at"
+            "id", "team_id", "name", "email_sending_resumed_at", "email_sending_warned_at"
         )
     }
     if not flows_by_id:
-        return []
+        return DetectorDecisions(pauses=[], warnings=[])
 
-    decisions: list[PauseDecision] = []
+    warn_cutoff = now - timedelta(days=settings.WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS)
+    pauses: list[PauseDecision] = []
+    warnings_by_flow: dict[str, PauseDecision] = {}
     paused_flow_ids: set[str] = set()
     for window, group in sorted(_thresholds_by_window(thresholds).items()):
         window_start = now - window
+        warn_group = [threshold for threshold in warn_thresholds if threshold.window == window]
         counts_by_team = _counts_by_flow(team_ids=sorted(candidate_team_ids), after=window_start)
         for team_id, (counts_by_flow, names_by_flow_id) in counts_by_team.items():
             for flow_id, counts in counts_by_flow.items():
@@ -273,18 +315,27 @@ def find_workflow_email_pauses(*, now: datetime | None = None) -> list[PauseDeci
                     # Re-arm after a resume. Without this, feedback that arrived before the pause
                     # is still inside the window, so resuming would immediately re-trip on it.
                     effective_counts = _clamped_counts_for_flow(flow=flow, after=resumed_at)
+                flow_name = names_by_flow_id.get(flow_id, "")
                 for threshold in group:
-                    decision = _breach(
-                        flow=flow,
-                        flow_name=names_by_flow_id.get(flow_id, ""),
-                        counts=effective_counts,
-                        threshold=threshold,
-                    )
+                    decision = _breach(flow=flow, flow_name=flow_name, counts=effective_counts, threshold=threshold)
                     if decision is not None:
-                        decisions.append(decision)
+                        pauses.append(decision)
                         paused_flow_ids.add(flow_id)
                         break
-    return decisions
+                if flow_id in paused_flow_ids or flow_id in warnings_by_flow:
+                    continue
+                warned_at = flow.email_sending_warned_at
+                if warned_at is not None and warned_at > warn_cutoff:
+                    continue
+                for threshold in warn_group:
+                    decision = _breach(flow=flow, flow_name=flow_name, counts=effective_counts, threshold=threshold)
+                    if decision is not None:
+                        warnings_by_flow[flow_id] = decision
+                        break
+    # A pause found in a longer window outranks a warning found in a shorter one, so the warning
+    # list is settled only after every window ran.
+    warnings = [decision for flow_id, decision in warnings_by_flow.items() if flow_id not in paused_flow_ids]
+    return DetectorDecisions(pauses=pauses, warnings=warnings)
 
 
 def pause_workflow_email_sending(
@@ -334,6 +385,49 @@ def apply_pause(decision: PauseDecision, *, now: datetime | None = None) -> bool
     )
 
 
+def apply_warning(decision: PauseDecision, *, now: datetime | None = None) -> bool:
+    """Stamp the warning and email the project's admins. Returns False when another run got there
+    first, or the workflow was paused or warned within the cooldown in the meantime.
+
+    A filtered `update` rather than `save`: the compare-and-set keeps two overlapping runs down to
+    one email, and skipping the model signal spares the workers a config reload for a field the
+    send path never reads.
+    """
+    now = now or timezone.now()
+    warn_cutoff = now - timedelta(days=settings.WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS)
+    with transaction.atomic():
+        updated = (
+            HogFlow.objects.filter(
+                id=decision.hog_flow_id, team_id=decision.team_id, email_sending_paused_at__isnull=True
+            )
+            .filter(Q(email_sending_warned_at__isnull=True) | Q(email_sending_warned_at__lte=warn_cutoff))
+            .update(email_sending_warned_at=now)
+        )
+        if not updated:
+            return False
+        pause_rate = _pause_rate_for(decision.threshold)
+        transaction.on_commit(
+            lambda: send_workflow_email_sending_warning.delay(
+                team_id=decision.team_id,
+                hog_flow_id=decision.hog_flow_id,
+                hog_flow_name=decision.hog_flow_name,
+                reason=decision.reason,
+                pause_rate=_format_rate(pause_rate),
+                warned_at=now.isoformat(),
+            )
+        )
+    return True
+
+
+def _pause_rate_for(warn_threshold: DetectorThreshold) -> float:
+    """The pause rate paired with a warn threshold, named in the warning email so the customer
+    knows where the line is."""
+    for threshold in build_thresholds():
+        if threshold.signal == warn_threshold.signal and threshold.window_label == warn_threshold.window_label:
+            return threshold.rate
+    return warn_threshold.rate
+
+
 def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDecision]:
     """Find workflows breaching a complaint or hard bounce threshold and pause their email.
 
@@ -341,29 +435,22 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     degrade delivery for every customer. This pauses the offending workflow only, which is the
     enforcement step that sits between doing nothing and suspending a whole project by hand.
 
+    Workflows approaching a threshold get a warning email instead, so their admins can clean up
+    the audience before the pause. The same flag covers both: warnings and pauses turn on together.
+
     While `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED` is off nothing is written. Each decision is still
     logged and counted, which is how the thresholds get calibrated before anything enforces.
     """
     now = now or timezone.now()
-    decisions = find_workflow_email_pauses(now=now)
+    decisions = find_workflow_email_decisions(now=now)
     enabled = settings.WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED
     applied: list[PauseDecision] = []
-    for decision in decisions:
+    for decision in decisions.pauses:
         if not enabled:
             workflow_email_auto_pause_total.labels(
                 signal=decision.threshold.signal, window=decision.threshold.window_label, mode="dry_run"
             ).inc()
-            logger.info(
-                "would_pause_workflow_email_sending",
-                team_id=decision.team_id,
-                hog_flow_id=decision.hog_flow_id,
-                signal=decision.threshold.signal,
-                window=decision.threshold.window_label,
-                emails_sent=decision.sent,
-                events=decision.events,
-                rate=decision.rate,
-                threshold_rate=decision.threshold.rate,
-            )
+            logger.info("would_pause_workflow_email_sending", **_decision_log_fields(decision))
             continue
         if not apply_pause(decision, now=now):
             continue
@@ -371,18 +458,35 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
         workflow_email_auto_pause_total.labels(
             signal=decision.threshold.signal, window=decision.threshold.window_label, mode="applied"
         ).inc()
-        logger.warning(
-            "paused_workflow_email_sending",
-            team_id=decision.team_id,
-            hog_flow_id=decision.hog_flow_id,
-            signal=decision.threshold.signal,
-            window=decision.threshold.window_label,
-            emails_sent=decision.sent,
-            events=decision.events,
-            rate=decision.rate,
-            threshold_rate=decision.threshold.rate,
-        )
+        logger.warning("paused_workflow_email_sending", **_decision_log_fields(decision))
+    for decision in decisions.warnings:
+        if not enabled:
+            workflow_email_warning_total.labels(
+                signal=decision.threshold.signal, window=decision.threshold.window_label, mode="dry_run"
+            ).inc()
+            logger.info("would_warn_workflow_email_sending", **_decision_log_fields(decision))
+            continue
+        if not apply_warning(decision, now=now):
+            continue
+        workflow_email_warning_total.labels(
+            signal=decision.threshold.signal, window=decision.threshold.window_label, mode="applied"
+        ).inc()
+        logger.warning("warned_workflow_email_sending", **_decision_log_fields(decision))
     return applied
+
+
+def _decision_log_fields(decision: PauseDecision) -> dict:
+    return {
+        "team_id": decision.team_id,
+        "hog_flow_id": decision.hog_flow_id,
+        "hog_flow_name": decision.hog_flow_name,
+        "signal": decision.threshold.signal,
+        "window": decision.threshold.window_label,
+        "emails_sent": decision.sent,
+        "events": decision.events,
+        "rate": decision.rate,
+        "threshold_rate": decision.threshold.rate,
+    }
 
 
 def resume_workflow_email_sending(flow: HogFlow, *, now: datetime | None = None) -> bool:
