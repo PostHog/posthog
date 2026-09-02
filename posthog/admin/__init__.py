@@ -66,6 +66,7 @@ _OAUTH_ADMIN_MODEL_NAMES = frozenset(
         "OAuthGrant",
         "OAuthIDToken",
         "OAuthRefreshToken",
+        "CIMDBlocklistEntry",
     }
 )
 
