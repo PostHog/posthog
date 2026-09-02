@@ -229,6 +229,10 @@ class Integration(models.Model):
                 oauth_config = oauth.OauthIntegration.oauth_config_for_kind(self.kind, region)
             except NotImplementedError:
                 # Reading an integration must not need the provider's OAuth app credentials.
+                # Jira saves its site name in config at connect time, so prefer it here rather
+                # than fall back to the raw cloud id.
+                if self.kind == "jira":
+                    return self.config.get("site_name") or self.integration_id
                 return self.integration_id
             return common.dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in google_cloud.GoogleCloudIntegration.supported_kinds:

@@ -150,17 +150,24 @@ class TestPinterestAdsIntegrationDisplayName(BaseTest):
 class TestOauthIntegrationDisplayName(BaseTest):
     @parameterized.expand(
         [
-            ("app_configured", "atlassian-client-id", "atlassian-secret", "acme"),
-            ("app_not_configured", "", "", "cloud-id-1"),
+            (
+                "app_configured_uses_saved_name",
+                "atlassian-client-id",
+                "atlassian-secret",
+                {"site_name": "acme"},
+                "acme",
+            ),
+            ("no_app_still_uses_saved_name", "", "", {"site_name": "acme"}, "acme"),
+            ("no_app_no_name_falls_back_to_id", "", "", {}, "cloud-id-1"),
         ]
     )
     def test_display_name_survives_a_missing_oauth_app(
-        self, _name: str, client_id: str, client_secret: str, expected: str
+        self, _name: str, client_id: str, client_secret: str, config: dict, expected: str
     ) -> None:
         integration = Integration.objects.create(
             team=self.team,
             kind="jira",
-            config={"site_name": "acme"},
+            config=config,
             integration_id="cloud-id-1",
         )
 
