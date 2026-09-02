@@ -38,7 +38,10 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     // sent as written, edited first, or written from scratch. Null until a row is clicked.
     const [filledFrom, setFilledFrom] = useState<string | null>(null)
 
-    const suggestions = report.suggested_prompts ?? []
+    // Suggestions can be action requests, and the kickoff wrapper only carries actions out on
+    // action-capable statuses — on any other status a stored suggestion would invite an action the
+    // run then merely answers, so none are offered.
+    const suggestions = isActionCapableReportStatus(report.status) ? (report.suggested_prompts ?? []) : []
 
     const questionSource = (trimmed: string): InboxQuestionSource => {
         if (filledFrom === null) {

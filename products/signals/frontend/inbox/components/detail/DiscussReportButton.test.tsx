@@ -133,10 +133,16 @@ describe('DiscussReportButton', () => {
         expect(extra).toEqual({ question_source: 'typed', suggestion_count: 0 })
     })
 
-    it('renders no suggestion rows for a report without any', async () => {
-        // Reports authored before this existed, and every pipeline report, must look exactly as they
-        // did — the section is not an empty state.
-        await openPopover(makeReport())
+    it.each([
+        ['a report without any', makeReport()],
+        // A stored suggestion can be an action request, and on an answer-only status the run would
+        // merely answer it — offering the row would invite an action that won't happen.
+        [
+            'an answer-only report, whose stored suggestions are hidden',
+            { ...makeReport([SUGGESTION]), status: SignalReportStatus.RESOLVED },
+        ],
+    ])('renders no suggestion rows for %s', async (_name, report) => {
+        await openPopover(report)
 
         expect(screen.queryByText('Suggestions')).not.toBeInTheDocument()
     })

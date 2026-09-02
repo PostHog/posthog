@@ -31,7 +31,9 @@ def resolve_touching_scout_skills(team_id: int, report_id: str) -> set[str]:
     reviewers, so this returns the union of touching skills. Deleted skills are kept: their owner
     rows and stored picks can outlive the skill row, and over-exclusion is the safe direction.
     """
-    runs = SignalScoutRun.objects.filter(team_id=team_id).filter(
+    # `for_team`, not an ambient-scope filter: the autostart caller runs in a Temporal activity,
+    # which sets no team scope, and the fail-closed manager raises there.
+    runs = SignalScoutRun.objects.for_team(team_id).filter(
         Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
     )
     return {skill_name for skill_name in runs.values_list("skill_name", flat=True) if skill_name}
