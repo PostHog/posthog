@@ -25,6 +25,7 @@ const generatingArgs = {
   isPromptPending: true,
   promptStartedAt: Date.now() - 5_400,
   lastGenerationDuration: null,
+  turnStatus: "Updating account settings layout",
   usage,
 };
 

@@ -1,20 +1,6 @@
 import { Brain, Circle } from "@phosphor-icons/react";
-import {
-  pickNextThinkingActivity,
-  pickThinkingActivity,
-} from "@posthog/core/sessions/thinkingActivities";
 import { Text } from "@posthog/quill";
-import { useEffect, useRef, useState } from "react";
-
-function getRandomThinkingMessage(): string {
-  return pickThinkingActivity(Math.random());
-}
-
-/** Pick a new word that differs from the current one, so consecutive changes
- *  always read as a change. */
-function getNextThinkingMessage(current: string): string {
-  return pickNextThinkingActivity(current, Math.random());
-}
+import { type ReactElement, useEffect, useRef, useState } from "react";
 
 /** How long the thread has to stay silent before the hint says so. Long enough
  *  that a normally chatty turn never trips it, short enough to land well inside
@@ -45,10 +31,7 @@ interface GeneratingIndicatorProps {
   startedAt?: number | null;
   /** Accumulated time (ms) spent waiting for user input, subtracted from elapsed display. */
   pausedDurationMs?: number;
-  /** Monotonic counter of finished tool/MCP calls. The status word advances
-   *  each time this changes, so it tracks real work completing rather than a
-   *  timer — a stalled agent keeps the same word. */
-  activityKey?: number;
+  status?: string | null;
   /** Timestamp (ms) of the newest event in the thread. Once it falls far enough
    *  behind, the hint adds a ticking "quiet for Ns" so a turn that renders
    *  nothing for minutes still reads as running rather than hung. */
@@ -58,12 +41,11 @@ interface GeneratingIndicatorProps {
 export function GeneratingIndicator({
   startedAt,
   pausedDurationMs,
-  activityKey,
+  status,
   lastActivityAt,
-}: GeneratingIndicatorProps) {
+}: GeneratingIndicatorProps): ReactElement {
   const [elapsed, setElapsed] = useState(0);
   const [quietFor, setQuietFor] = useState(0);
-  const [activity, setActivity] = useState(getRandomThinkingMessage);
 
   const pausedRef = useRef(pausedDurationMs ?? 0);
   pausedRef.current = pausedDurationMs ?? 0;
@@ -84,16 +66,6 @@ export function GeneratingIndicator({
     return () => clearInterval(interval);
   }, [startedAt]);
 
-  // Advance the word only when a tool/MCP call finishes (activityKey changes),
-  // not on an interval. The initial word stays put until the first call settles.
-  // Adjusted during render (React's blessed pattern for deriving state from a
-  // changed prop) rather than in an effect, so it never paints a stale word.
-  const prevActivityKeyRef = useRef(activityKey);
-  if (activityKey !== undefined && activityKey !== prevActivityKeyRef.current) {
-    prevActivityKeyRef.current = activityKey;
-    setActivity((current) => getNextThinkingMessage(current));
-  }
-
   const dot = (
     <Circle
       size={4}
@@ -108,10 +80,14 @@ export function GeneratingIndicator({
       style={{ WebkitUserSelect: "none" }}
     >
       <Brain size={12} className="ph-pulse shrink-0" />
-      <Text render={<span />} className="truncate text-[13px] text-accent-11">
-        {activity}...
+      <Text
+        render={<span />}
+        className="truncate text-[13px] text-accent-11"
+        aria-live="polite"
+      >
+        {status ?? "Working"}...
       </Text>
-      {/* The hint shrinks (and truncates) well before the activity word does. */}
+      {/* Keep the task status readable before truncating the elapsed-time hint. */}
       <Text
         render={<span />}
         className="shrink-[8] truncate text-(--gray-11) text-[13px]"

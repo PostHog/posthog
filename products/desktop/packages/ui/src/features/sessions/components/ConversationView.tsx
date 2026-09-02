@@ -59,6 +59,7 @@ import {
   useSessionViewActions,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
+import { useTurnStatus } from "@posthog/ui/features/sessions/turnStatusStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
@@ -150,11 +151,11 @@ export function ConversationView({
     isCompacting,
     isClearing,
     isBackgroundTurnActive,
-    completedToolCallCount,
     lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
+  const turnStatus = useTurnStatus(taskId);
 
   const firstUserMessageIdRef = useRef<string | undefined>(undefined);
   if (firstUserMessageIdRef.current === undefined) {
@@ -499,7 +500,7 @@ export function ConversationView({
         isCompacting={isCompacting}
         isClearing={isClearing}
         isBackgroundTurnActive={isBackgroundTurnActive}
-        completedToolCallCount={completedToolCallCount}
+        turnStatus={turnStatus}
         lastActivityAt={lastActivityAt}
       />
     </div>
