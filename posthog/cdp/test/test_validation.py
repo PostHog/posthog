@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 
 from posthog.cdp.validation import (
+    MAX_LIQUID_TEMPLATE_SOURCE_BYTES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     MappingsSerializer,
@@ -42,6 +43,25 @@ def validate_inputs_schema(data):
     serializer = InputsSchemaItemSerializer(data=data, many=True)
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data
+
+
+class TestLiquidInputValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("exact_ascii_boundary", "x" * MAX_LIQUID_TEMPLATE_SOURCE_BYTES, False),
+            ("split_nested_values", {"first": "x" * 60000, "second": "x" * 50000}, True),
+            ("utf8_bytes", "é" * (MAX_LIQUID_TEMPLATE_SOURCE_BYTES // 2 + 1), True),
+        ]
+    )
+    def test_liquid_source_limit(self, _name, value, should_error):
+        schema = [{"key": "payload", "type": "json", "templating": "liquid"}]
+        inputs = {"payload": {"value": value}}
+
+        if should_error:
+            with pytest.raises(ValidationError, match="100 KB total limit"):
+                validate_inputs(schema, inputs)
+        else:
+            assert validate_inputs(schema, inputs)["payload"]["value"] == value
 
 
 def create_example_inputs_schema():

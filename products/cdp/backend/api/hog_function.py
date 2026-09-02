@@ -496,6 +496,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # inputs/inputs_schema/filters into it made every metadata-only PATCH look to the viewset like
         # a config edit. It also means a form-encoded (immutable QueryDict) payload no longer 500s.
         data = {**data}
+        submitted_fields = set(data)
         self.initial_data = data
         team = self.context["get_team"]()
         is_create = self.context.get("is_create") or (
@@ -524,6 +525,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             to_bool(data["enabled"]) if data.get("enabled") is not None else (instance.enabled if instance else False)
         )
         self.context["function_will_be_enabled"] = False if deleted else enabled
+        liquid_configuration_changed = bool(submitted_fields & {"inputs", "inputs_schema", "mappings"})
+        liquid_configuration_activated = bool(
+            instance and ((not instance.enabled and enabled) or (instance.deleted and not deleted))
+        )
+        self.context["allow_oversized_liquid_templates"] = bool(
+            instance and (deleted or (not liquid_configuration_changed and not liquid_configuration_activated))
+        )
         # Warehouse sources deliver the row under event.properties, so input templates may use the
         # `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
         self.context["is_dwh_source"] = data["filters"].get("source") in DATA_WAREHOUSE_SOURCES

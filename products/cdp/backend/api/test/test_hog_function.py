@@ -13,6 +13,7 @@ from rest_framework import status
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.validation import MAX_LIQUID_TEMPLATE_SOURCE_BYTES
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (
@@ -2649,6 +2650,55 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
         assert "HOG code exceeds maximum size" in update_response.json()["detail"]
         assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
+
+    def test_rejects_oversized_liquid_inputs_on_create(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Large Liquid Template Function",
+                "type": "destination",
+                "hog": "return event",
+                "inputs_schema": [{"key": "payload", "type": "string", "templating": "liquid"}],
+                "inputs": {"payload": {"value": "x" * (MAX_LIQUID_TEMPLATE_SOURCE_BYTES + 1)}},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "100 KB total limit" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("disable", True, {"enabled": False}, status.HTTP_200_OK),
+            ("enable", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            (
+                "edit_disabled",
+                False,
+                {"inputs": {"payload": {"value": "y" * (MAX_LIQUID_TEMPLATE_SOURCE_BYTES + 1)}}},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_oversized_legacy_liquid_inputs_can_only_be_deactivated(
+        self, _name, initially_enabled, patch_data, expected_status
+    ):
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy large Liquid template",
+            type="destination",
+            hog="return event",
+            enabled=initially_enabled,
+            inputs_schema=[{"key": "payload", "type": "string", "templating": "liquid"}],
+            inputs={"payload": {"value": "x" * (MAX_LIQUID_TEMPLATE_SOURCE_BYTES + 1), "templating": "liquid"}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}/",
+            data=patch_data,
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "100 KB total limit" in response.json()["detail"]
 
     def test_transformation_undeletion_puts_at_end(self, *args):
         """Test that undeleted transformation functions are placed at the end of the execution order sequence."""

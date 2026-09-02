@@ -2,7 +2,12 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
-import { LiquidRenderer } from './liquid'
+import {
+    LIQUID_RENDER_LIMITS,
+    LiquidRenderBudget,
+    LiquidRenderLimits,
+    LiquidRenderer,
+} from './liquid'
 
 describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
@@ -333,6 +338,38 @@ describe('LiquidRenderer', () => {
             }
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
+        })
+    })
+
+    describe('resource limits', () => {
+        const limits = (overrides: Partial<LiquidRenderLimits>): LiquidRenderLimits => ({
+            ...LIQUID_RENDER_LIMITS,
+            ...overrides,
+        })
+
+        it.each([
+            ['source', limits({ maxSourceBytes: 10 }), '123456', '123456'],
+            ['output', limits({ maxOutputBytes: 10 }), '123456', '123456'],
+        ] as const)('shares the %s budget across rendered strings', (resource, renderLimits, first, second) => {
+            const budget = new LiquidRenderBudget(renderLimits)
+
+            expect(budget.render(first, globals)).toBe(first)
+            expect(() => budget.render(second, globals)).toThrow(expect.objectContaining({ resource }))
+        })
+
+        it('stops exponential string growth at the memory limit', () => {
+            const budget = new LiquidRenderBudget(limits({ maxMemoryUnits: 1024 }))
+            const template =
+                "{% assign value = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign value = value | append: value %}{% endfor %}{{ value | size }}"
+
+            expect(() => budget.render(template, globals)).toThrow(expect.objectContaining({ resource: 'memory' }))
+        })
+
+        it('stops nested loops at the shared render deadline', () => {
+            const budget = new LiquidRenderBudget(limits({ maxRenderDurationMs: 5 }))
+            const template = '{% for i in (1..10000) %}{% for j in (1..10000) %}{% endfor %}{% endfor %}'
+
+            expect(() => budget.render(template, globals)).toThrow(expect.objectContaining({ resource: 'render' }))
         })
     })
 })

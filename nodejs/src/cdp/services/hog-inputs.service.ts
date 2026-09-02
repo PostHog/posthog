@@ -7,7 +7,8 @@ import { logger } from '~/common/utils/logger'
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { execHog } from '../utils/hog-exec'
-import { LiquidRenderer } from '../utils/liquid'
+import { LiquidRenderBudget } from '../utils/liquid'
+import { recordLiquidRenderBudget } from '../utils/liquid-metrics'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -40,12 +41,13 @@ export class HogInputsService {
             // and decode any integration inputs (and push subscription inputs when newGlobals provided)
             ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
         }
+        const liquidRenderBudget = new LiquidRenderBudget()
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {
-                return formatLiquidInput(input.value, newGlobals, key)
+                return formatLiquidInput(input.value, newGlobals, key, liquidRenderBudget)
             }
             if (templating === 'hog' && input?.bytecode) {
                 return await formatHogInput(input.bytecode, newGlobals, key)
@@ -54,58 +56,80 @@ export class HogInputsService {
             return input.value
         }
 
-        // Add unsubscribe url if we have an email input here
-        const emailInputSchema = hogFunction.inputs_schema?.find((input) =>
-            ['native_email', 'email'].includes(input.type)
-        )
-        const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
+        try {
+            // Add unsubscribe url if we have an email input here
+            const emailInputSchema = hogFunction.inputs_schema?.find((input) =>
+                ['native_email', 'email'].includes(input.type)
+            )
+            const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
 
-        if (emailInputSchema && emailInput) {
-            if (!this.recipientTokensService) {
-                throw new Error('HogInputsService was constructed without messaging preference URL support')
+            if (emailInputSchema && emailInput) {
+                if (!this.recipientTokensService) {
+                    throw new Error('HogInputsService was constructed without messaging preference URL support')
+                }
+                // If we have an email value then we template it out to get the email address
+                const emailValue = await _formatInput(emailInput, emailInputSchema.key)
+                if (emailValue?.to?.email) {
+                    newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
+                        team_id: hogFunction.team_id,
+                        identifier: emailValue.to.email,
+                    })
+                    newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl({
+                        team_id: hogFunction.team_id,
+                        identifier: emailValue.to.email,
+                    })
+                }
             }
-            // If we have an email value then we template it out to get the email address
-            const emailValue = await _formatInput(emailInput, emailInputSchema.key)
-            if (emailValue?.to?.email) {
-                newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
-                    team_id: hogFunction.team_id,
-                    identifier: emailValue.to.email,
+
+            // Build a lookup of schema types for post-render coercion
+            const schemaTypes: Record<string, string> = {}
+            for (const schema of hogFunction.inputs_schema ?? []) {
+                schemaTypes[schema.key] = schema.type
+            }
+
+            const orderedInputs = Object.entries(inputs ?? {}).sort(([_k1, input1], [_k2, input2]) => {
+                return (input1?.order ?? -1) - (input2?.order ?? -1)
+            })
+
+            for (const [key, input] of orderedInputs) {
+                if (!input) {
+                    continue
+                }
+
+                let inputsResult = await _formatInput(input, key)
+
+                // Safety net: coerce string results to booleans for boolean schema fields.
+                // Handles edge cases where Liquid templating returns strings for boolean fields.
+                if (schemaTypes[key] === 'boolean' && typeof inputsResult === 'string') {
+                    const lower = inputsResult.trim().toLowerCase()
+                    inputsResult = lower === 'true' || lower === '1'
+                }
+
+                newGlobals.inputs[key] = inputsResult
+            }
+
+            return newGlobals.inputs
+        } finally {
+            const stats = liquidRenderBudget.getStats()
+            const limits = liquidRenderBudget.getLimits()
+            recordLiquidRenderBudget(stats, limits)
+
+            const crossedSoftLimit =
+                stats.renderDurationMs > limits.softRenderDurationMs || stats.outputBytes > limits.softOutputBytes
+            if (stats.hardLimit || crossedSoftLimit) {
+                logger.warn('Liquid template render budget crossed', {
+                    hogFunctionId: hogFunction.id,
+                    teamId: hogFunction.team_id,
+                    sourceBytes: stats.sourceBytes,
+                    renderDurationMs: stats.renderDurationMs,
+                    outputBytes: stats.outputBytes,
+                    level: stats.hardLimit ? 'hard' : 'soft',
+                    resource:
+                        stats.hardLimit ??
+                        (stats.renderDurationMs > limits.softRenderDurationMs ? 'render' : 'output'),
                 })
-                newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl({
-                    team_id: hogFunction.team_id,
-                    identifier: emailValue.to.email,
-                })
             }
         }
-
-        // Build a lookup of schema types for post-render coercion
-        const schemaTypes: Record<string, string> = {}
-        for (const schema of hogFunction.inputs_schema ?? []) {
-            schemaTypes[schema.key] = schema.type
-        }
-
-        const orderedInputs = Object.entries(inputs ?? {}).sort(([_k1, input1], [_k2, input2]) => {
-            return (input1?.order ?? -1) - (input2?.order ?? -1)
-        })
-
-        for (const [key, input] of orderedInputs) {
-            if (!input) {
-                continue
-            }
-
-            let inputsResult = await _formatInput(input, key)
-
-            // Safety net: coerce string results to booleans for boolean schema fields.
-            // Handles edge cases where Liquid templating returns strings for boolean fields.
-            if (schemaTypes[key] === 'boolean' && typeof inputsResult === 'string') {
-                const lower = inputsResult.trim().toLowerCase()
-                inputsResult = lower === 'true' || lower === '1'
-            }
-
-            newGlobals.inputs[key] = inputsResult
-        }
-
-        return newGlobals.inputs
     }
 
     public async buildInputsWithGlobals(
@@ -289,25 +313,26 @@ export const formatHogInput = async (
 export const formatLiquidInput = (
     value: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    key?: string
+    key?: string,
+    budget: LiquidRenderBudget = new LiquidRenderBudget()
 ): any => {
     if (value === null || value === undefined) {
         return value
     }
 
     if (typeof value === 'string') {
-        return LiquidRenderer.renderWithHogFunctionGlobals(value, globals)
+        return budget.render(value, globals)
     }
 
     if (Array.isArray(value)) {
-        return value.map((item) => formatLiquidInput(item, globals, key))
+        return value.map((item) => formatLiquidInput(item, globals, key, budget))
     }
 
     if (typeof value === 'object' && value !== null) {
         return Object.fromEntries(
             Object.entries(value).map(([key2, value]) => [
                 key2,
-                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2),
+                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2, budget),
             ])
         )
     }

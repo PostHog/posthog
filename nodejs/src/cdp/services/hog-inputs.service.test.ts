@@ -198,6 +198,21 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
+        it('contains an over-budget Liquid input without poisoning later builds', async () => {
+            hogFunction.inputs!.liquid_templated!.value =
+                "{% assign value = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign value = value | append: value %}{% endfor %}{{ value | size }}"
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toMatchObject({
+                name: 'LiquidTemplateResourceLimitError',
+                resource: 'memory',
+            })
+
+            hogFunction.inputs!.liquid_templated!.value = 'event: "{{ event.event }}"'
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).resolves.toMatchObject({
+                liquid_templated: 'event: "test"',
+            })
+        })
+
         it('should load integration inputs and replace access tokens with placeholders', async () => {
             hogFunction = createHogFunction({
                 ...hogFunction,

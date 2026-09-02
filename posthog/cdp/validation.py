@@ -32,10 +32,25 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+MAX_LIQUID_TEMPLATE_SOURCE_BYTES = 100 * 1024
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
 MASKED_SECRET_VALUE = "********"
+
+
+def liquid_template_source_bytes(value: Any) -> int:
+    total = 0
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            total += len(item.encode("utf-8"))
+        elif isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return total
 
 
 def masked_secret_input_keys(stored_inputs: object) -> list[str]:
@@ -892,6 +907,18 @@ class InputsSerializer(serializers.DictField):
 
         # Rebuild in sorted order
         result = {key: result[key] for key in sorted_keys}
+
+        liquid_source_bytes = sum(
+            liquid_template_source_bytes(item.get("value"))
+            for item in result.values()
+            if item.get("templating") == HogFunctionTemplating.LIQUID
+        )
+        if liquid_source_bytes > MAX_LIQUID_TEMPLATE_SOURCE_BYTES and not self.context.get(
+            "allow_oversized_liquid_templates", False
+        ):
+            raise serializers.ValidationError(
+                "Liquid template inputs are larger than the 100 KB total limit. Shorten them and try again."
+            )
 
         return result
         # Unlike standard dict validation we are iterating the schema - not the inputs
