@@ -12,7 +12,16 @@ describe('registerDataToolRenderers', () => {
         ['insight-get', 'Insight'],
         ['create_insight', 'Insight'],
         ['dashboard-create', 'Dashboard'],
+        ['dashboard-update', 'Dashboard'],
         ['upsert_dashboard', 'Dashboard'],
+        ['dashboard-create-text-tile', 'Dashboard update'],
+        ['dashboard-update-text-tile', 'Dashboard update'],
+        ['dashboard-delete-tile', 'Dashboard update'],
+        ['dashboard-reorder-tiles', 'Dashboard update'],
+        ['dashboard-tile-copy', 'Dashboard update'],
+        ['dashboard-widgets-batch-add', 'Dashboard update'],
+        ['dashboard-widgets-batch-update', 'Dashboard update'],
+        ['dashboards-move-tile-partial-update', 'Dashboard update'],
         ['query-session-recordings-list', 'Session recordings'],
         ['search_session_recordings', 'Session recordings'],
         ['query-error-tracking-issues-list', 'Error tracking'],
@@ -25,5 +34,6 @@ describe('registerDataToolRenderers', () => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
+        expect(entry?.requiresPostHogOrigin).toBe(true)
     })
 })

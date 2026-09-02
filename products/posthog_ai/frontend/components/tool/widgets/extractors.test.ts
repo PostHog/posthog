@@ -4,7 +4,9 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 
 import {
     extractDashboard,
+    extractDashboardMutationRevealTarget,
     extractErrorTrackingResponse,
+    extractInsightDashboardRevealTarget,
     extractQueryResult,
     extractRecordingFilters,
     extractVisualizationArtifact,
@@ -92,6 +94,80 @@ describe('mcp tool adapter extractors', () => {
                 rawInput: { command: 'call dashboard-create {}' },
             })
             expect(dashboard).toBeNull()
+        })
+    })
+
+    describe('extractInsightDashboardRevealTarget', () => {
+        it.each([
+            [
+                'one dashboard and a saved insight',
+                { short_id: 'abc123' },
+                { dashboards: [5] },
+                { dashboardId: 5, insightShortId: 'abc123' },
+            ],
+            ['no dashboard', { short_id: 'abc123' }, { dashboards: [] }, null],
+            ['multiple dashboards', { short_id: 'abc123' }, { dashboards: [5, 6] }, null],
+            ['malformed output', undefined, { dashboards: [5] }, null],
+        ])('returns %s only when one dashboard is safe to reveal', (_name, rawOutput, innerInput, expected) => {
+            expect(extractInsightDashboardRevealTarget(toolMessage(rawOutput, innerInput, 'insight-create'))).toEqual(
+                expected
+            )
+        })
+    })
+
+    describe('extractDashboardMutationRevealTarget', () => {
+        it.each([
+            ['dashboard-create-text-tile', { id: 101 }, { id: 5 }, { dashboardId: 5, tileId: 101 }],
+            ['dashboard-update-text-tile', { id: 102 }, { id: 5 }, { dashboardId: 5, tileId: 102 }],
+            ['dashboard-widgets-batch-add', { tiles: [{ id: 103 }] }, { id: 5 }, { dashboardId: 5, tileId: 103 }],
+            [
+                'dashboard-widgets-batch-update',
+                { updated: true },
+                { id: 5, widgets: [{ tile_id: 104 }] },
+                { dashboardId: 5, tileId: 104 },
+            ],
+            ['dashboard-update', { id: 5 }, { id: 5, tiles: [{ id: 105 }] }, { dashboardId: 5, tileId: 105 }],
+            ['dashboard-tile-copy', { id: 106 }, { id: 5 }, { dashboardId: 5 }],
+            ['dashboard-reorder-tiles', { id: 5 }, { id: 5 }, { dashboardId: 5 }],
+            ['dashboard-delete-tile', { id: 106 }, { id: 5 }, { dashboardId: 5 }],
+            [
+                'dashboards-move-tile-partial-update',
+                { id: 106 },
+                { id: 5, to_dashboard: 6, tile: { id: 106 } },
+                { dashboardId: 6, tileId: 106 },
+            ],
+        ])('extracts the schema-specific target for %s', (resolvedKey, rawOutput, innerInput, expected) => {
+            expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toEqual(
+                expected
+            )
+        })
+
+        it.each([
+            ['several created tiles', 'dashboard-widgets-batch-add', { tiles: [{ id: 101 }, { id: 102 }] }, { id: 5 }],
+            [
+                'several updated tiles',
+                'dashboard-widgets-batch-update',
+                { updated: true },
+                { id: 5, widgets: [{ tile_id: 101 }, { tile_id: 102 }] },
+            ],
+            [
+                'several dashboard-update tiles',
+                'dashboard-update',
+                { id: 5 },
+                { id: 5, tiles: [{ id: 101 }, { id: 102 }] },
+            ],
+        ])('does not select a tile when %s are affected', (_name, resolvedKey, rawOutput, innerInput) => {
+            expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toEqual({
+                dashboardId: 5,
+            })
+        })
+
+        it('rejects malformed output even when the input names a dashboard', () => {
+            expect(
+                extractDashboardMutationRevealTarget(
+                    toolMessage(undefined, { id: 5, tiles: [{ id: 101 }] }, 'dashboard-update')
+                )
+            ).toBeNull()
         })
     })
 

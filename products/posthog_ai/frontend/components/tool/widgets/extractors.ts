@@ -85,6 +85,21 @@ function asString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined
 }
 
+function asPositiveInteger(value: unknown): number | null {
+    if (typeof value === 'number') {
+        return Number.isSafeInteger(value) && value > 0 ? value : null
+    }
+    if (typeof value === 'string' && /^[1-9]\d*$/.test(value)) {
+        const parsed = Number(value)
+        return Number.isSafeInteger(parsed) ? parsed : null
+    }
+    return null
+}
+
+function isNotNull<T>(value: T | null): value is T {
+    return value !== null
+}
+
 const QUERY_WRAPPER_KIND_BY_TOOL_KEY: Record<string, NodeKind> = {
     'query-trends': NodeKind.TrendsQuery,
     'query-funnel': NodeKind.FunnelsQuery,
@@ -227,6 +242,73 @@ export function extractDashboard(message: ToolCallMessage): DashboardExtraction 
         id,
         name: asString(output.name) ?? asString(message.innerInput?.name),
         url: asString(output._posthogUrl) ?? asString(output.url),
+    }
+}
+
+export interface DashboardRevealTarget {
+    dashboardId: number
+    tileId?: number
+    insightShortId?: string
+}
+
+export function extractInsightDashboardRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    const dashboards = Array.isArray(message.innerInput?.dashboards)
+        ? message.innerInput.dashboards.map(asPositiveInteger).filter(isNotNull)
+        : []
+    const output = parseToolOutputRecord(message)
+    const insightShortId = asString(output?.short_id)
+
+    return dashboards.length === 1 && insightShortId ? { dashboardId: dashboards[0], insightShortId } : null
+}
+
+function singleTileId(value: unknown): number | undefined {
+    return Array.isArray(value) && value.length === 1
+        ? (asPositiveInteger(asRecord(value[0])?.id) ?? undefined)
+        : undefined
+}
+
+export function extractDashboardMutationRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
+    const output = parseToolOutputRecord(message)
+    if (!output) {
+        return null
+    }
+
+    const input = asRecord(message.innerInput)
+    if (!input) {
+        return null
+    }
+
+    const dashboardId = asPositiveInteger(
+        message.resolvedKey === 'dashboards-move-tile-partial-update' ? input.to_dashboard : input.id
+    )
+    if (!dashboardId) {
+        return null
+    }
+
+    switch (message.resolvedKey) {
+        case 'dashboard-create-text-tile':
+        case 'dashboard-update-text-tile':
+            return { dashboardId, tileId: asPositiveInteger(output.id) ?? undefined }
+        case 'dashboard-widgets-batch-add':
+            return { dashboardId, tileId: singleTileId(output.tiles) }
+        case 'dashboard-widgets-batch-update':
+            return {
+                dashboardId,
+                tileId:
+                    Array.isArray(input.widgets) && input.widgets.length === 1
+                        ? (asPositiveInteger(asRecord(input.widgets[0])?.tile_id) ?? undefined)
+                        : undefined,
+            }
+        case 'dashboard-update':
+            return { dashboardId, tileId: singleTileId(input.tiles) }
+        case 'dashboards-move-tile-partial-update':
+            return { dashboardId, tileId: asPositiveInteger(asRecord(input.tile)?.id) ?? undefined }
+        case 'dashboard-delete-tile':
+        case 'dashboard-reorder-tiles':
+        case 'dashboard-tile-copy':
+            return { dashboardId }
+        default:
+            return null
     }
 }
 
