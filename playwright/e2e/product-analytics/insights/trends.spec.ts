@@ -312,9 +312,9 @@ test.describe('Trends insights', () => {
 
         await test.step('navigate away and verify no orphaned tooltip', async () => {
             await insight.goToList()
-            // The scene heading renders whether or not the list has rows. A table only
+            // The scene title renders whether or not the list has rows. A table only
             // appears once something is saved, which depends on what ran before this.
-            await expect(page.getByRole('heading', { name: 'Product analytics', level: 1 })).toBeVisible()
+            await expect(page.getByTestId('scene-name')).toBeVisible()
             await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
     })
