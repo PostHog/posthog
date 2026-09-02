@@ -104,7 +104,10 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
-from products.growth.backend.temporal.signup_enrichment.schedule import create_icp_reenrichment_sweep_schedule
+from products.growth.backend.temporal.signup_enrichment.schedule import (
+    create_harmonic_status_poll_schedule,
+    create_icp_reenrichment_sweep_schedule,
+)
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
@@ -962,6 +965,7 @@ if settings.CLOUD_DEPLOYMENT:
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.
     if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
         schedules.append(create_icp_reenrichment_sweep_schedule)
+        schedules.append(create_harmonic_status_poll_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

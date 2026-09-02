@@ -53,6 +53,15 @@ class EnrichmentProvider(abc.ABC):
         """
         return None
 
+    async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
+        """Batch-poll the provider for the status of several previously archived tracking URNs.
+
+        Keyed by URN; a URN the provider has nothing to report for is simply absent from the
+        result rather than mapped to None, so callers can use plain membership checks. No-op by
+        default, same as enrichment_status_for.
+        """
+        return {}
+
 
 def _parent_company_urn(company: dict[str, Any]) -> Optional[str]:
     """Pick the parent-company URN from `relatedCompanies`: subsidiaryOf wins over acquiredBy.
@@ -88,6 +97,17 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
         entry = statuses.get(urn)
         status = entry.get("status") if isinstance(entry, dict) else None
         return status if isinstance(status, str) else None
+
+    async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
+        if not urns:
+            return {}
+        async with AsyncHarmonicClient() as client:
+            statuses = await client.get_enrichment_status(urns)
+        return {
+            urn: entry["status"]
+            for urn, entry in statuses.items()
+            if isinstance(entry, dict) and isinstance(entry.get("status"), str)
+        }
 
     async def _with_parent_company(
         self, client: AsyncHarmonicClient, company: dict[str, Any], fields: EnrichmentFields
