@@ -3786,7 +3786,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Bump the generation counter so any still-running invocation bails out before
             // applying stale decorations. Each run owns its own `generation` token.
             const generation = ++cache.decorationGeneration
-            const isStale = (): boolean => generation !== cache.decorationGeneration
 
             const editorInstance = props.editor
             if (!editorInstance?.getPosition || !editorInstance?.getModel) {
@@ -3797,6 +3796,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (!model || !position) {
                 return
             }
+
+            // A run bails when a newer run superseded it, or when the model was disposed while it
+            // awaited the parser or metadata. Switching to the BI view disposes the tab model but
+            // keeps this logic mounted, so the generation counter never advances, and
+            // `getPositionAt` throws "Model is disposed!" on a dead model.
+            const isStale = (): boolean => generation !== cache.decorationGeneration || model.isDisposed()
 
             const fullText = values.queryInput ?? ''
             const queries = splitQueries(fullText)
@@ -3844,7 +3849,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 offset: number
             ): Promise<{ range: IRange | null; decorations: editor.IModelDeltaDecoration[] }> => {
                 const subquery = await findInnermostSelectAtOffset(activeQuery.query, offset, activeQuery.start)
-                if (!subquery) {
+                if (!subquery || isStale()) {
                     return { range: null, decorations: [] }
                 }
                 const subStart = model.getPositionAt(subquery.start)
