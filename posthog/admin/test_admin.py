@@ -49,6 +49,7 @@ class TestOAuthSidebarRegrouping(BaseTest):
                     {"name": "OAuth grants", "object_name": "OAuthGrant"},
                     {"name": "OAuth ID tokens", "object_name": "OAuthIDToken"},
                     {"name": "OAuth refresh tokens", "object_name": "OAuthRefreshToken"},
+                    {"name": "CIMD Blocklist Entries", "object_name": "CIMDBlocklistEntry"},
                     {"name": "Users", "object_name": "User"},
                 ]
                 if app_label in (None, "posthog")

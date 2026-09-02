@@ -206,7 +206,7 @@ jobs:
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
     # Skipped on ready PRs and master pushes; the jest job falls back
-    # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
+    # to its full four-shard matrix in those cases. The ready-for-review
     # full run is the merge gate. The run-ci-frontend label forces the full
     # matrix on a draft. When selection can't be trusted on a draft (config
     # change, oversized diff, selector failure), the draft skips jest entirely
@@ -329,14 +329,12 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode uses two EE-tree shards because a widely imported
-                  # source file can make --findRelatedTests approach a full suite. The FOSS
-                  # structural check (ee/ removed) only matters when ee imports are
-                  # touched; defer that to the ready-for-review full run. --findRelatedTests
+                  # Selective mode uses two shards because a widely imported source file
+                  # can make --findRelatedTests approach a full suite. --findRelatedTests
                   # walks jest's import graph from these files and runs the matching
                   # *.test.* files.
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
-                  echo 'matrix={"include":[{"segment":"EE","chunk":1,"shard_count":2},{"segment":"EE","chunk":2,"shard_count":2}]}' >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":2},{"segment":"app","chunk":2,"shard_count":2}]}' >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
                   echo "changed_files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
                   echo "Selective mode: $(echo "$CHANGED_FILES" | wc -w) frontend source files"
@@ -778,19 +776,22 @@ jobs:
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            # On draft PRs, select-jest-tests may narrow this to two EE jobs
+            # On draft PRs, select-jest-tests may narrow this to two jobs
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
             # trusted. On ready PRs and master pushes it's skipped, so
-            # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
+            # we fall back to the full four-chunk fanout (the merge gate).
+            # `segment` is a single fixed value: it survives only as the naming
+            # token for job, JUnit file and artifact, which the timings reporter
+            # parses as `junit-results-frontend-<segment>-<chunk>`. There used to
+            # be a second FOSS segment that deleted ee/ and re-ran the suite, but
+            # ee/ holds no frontend code and nothing under frontend/, products/,
+            # common/ or packages/ imports from it, so the two segments ran
+            # byte-identical suites.
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["app"],"chunk":[1,2,3,4]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-            - name: Remove ee
-              if: matrix.segment == 'FOSS'
-              run: rm -rf ee
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -865,8 +866,9 @@ jobs:
                   retention-days: 1
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
-            # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
-            # so each segment uploads under its own variant. Internal PRs only (needs the secret).
+            # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
+            # secret). No Trunk variant: variants told apart the old FOSS and EE uploads of the same
+            # test files, and only one segment remains.
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -878,7 +880,6 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
-                  variant: ${{ matrix.segment }}
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
