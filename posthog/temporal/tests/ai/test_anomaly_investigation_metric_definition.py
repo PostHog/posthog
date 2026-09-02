@@ -116,3 +116,25 @@ def test_anomaly_context_carries_the_metric_definition() -> None:
 
     assert '"$pageview"' in context
     assert "unique users (DAU)" in context
+
+
+@parameterized.expand(
+    [
+        ("date_only", "2026-08-31", "2026-08-31 (Monday)"),
+        ("iso_timestamp", "2026-08-31T08:00:00+00:00", "2026-08-31T08:00:00+00:00 (Monday)"),
+        ("unparsable_label", "31-Aug-2026 08:00", "31-Aug-2026 08:00"),
+    ]
+)
+def test_triggered_dates_carry_the_weekday(_name: str, triggered: str, expected: str) -> None:
+    context = build_anomaly_context(
+        alert_name="Task runs",
+        metric_description="Task runs",
+        detector_type="zscore",
+        triggered_dates=[triggered],
+        triggered_metadata=None,
+        calculated_value=7456.0,
+        interval="hour",
+        metric_definition=UNAVAILABLE,
+    )
+
+    assert f"Triggered dates: {expected}\n" in context
