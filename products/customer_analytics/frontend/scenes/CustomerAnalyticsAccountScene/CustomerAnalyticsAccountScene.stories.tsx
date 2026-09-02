@@ -136,6 +136,9 @@ const meta: Meta = {
                 'api/projects/:team_id/organization_members/': { count: 0, results: [] },
                 'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
                 'api/environments/:team_id/warehouse_view_link/': { count: 0, results: [] },
+                'api/projects/:team_id/accounts/': { count: 1, results: [account] },
+                'api/projects/:team_id/feature_requests/': { count: 0, results: [] },
+                'api/projects/:team_id/feature_request_product_areas/': { count: 0, results: [] },
             },
             post: {
                 'api/environments/:team_id/query/': { results: [] },

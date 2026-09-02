@@ -27,7 +27,11 @@ function DateValue({ value, withTime }: { value: string; withTime: boolean }): J
     return (
         <>
             <span className="text-lg font-semibold">
-                <TZLabel time={parsed} formatDate="MMM D, YYYY" formatTime={withTime ? 'HH:mm' : undefined} />
+                {withTime ? (
+                    <TZLabel time={parsed} formatDate="MMM D, YYYY" formatTime="HH:mm" />
+                ) : (
+                    parsed.format('MMM D, YYYY')
+                )}
             </span>
             <span className="text-xs text-secondary">{parsed.fromNow()}</span>
         </>

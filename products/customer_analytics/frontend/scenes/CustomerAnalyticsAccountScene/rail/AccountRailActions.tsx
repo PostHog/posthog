@@ -10,8 +10,9 @@ import { urls } from 'scenes/urls'
 import { accountLinksLogic } from 'products/customer_analytics/frontend/components/Accounts/accountLinksLogic'
 import { accountNotebooksLogic } from 'products/customer_analytics/frontend/components/Accounts/accountNotebooksLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
-import { FeatureRequestCreateModal } from 'products/customer_analytics/frontend/components/FeatureRequests/FeatureRequestCreateModal'
-import { featureRequestsLogic } from 'products/customer_analytics/frontend/components/FeatureRequests/featureRequestsLogic'
+
+import { customerAnalyticsAccountSceneLogic } from '../customerAnalyticsAccountSceneLogic'
+import { AccountFeatureRequestComposer } from './AccountFeatureRequestComposer'
 
 interface AccountRailActionsProps {
     accountId: string
@@ -21,7 +22,8 @@ export function AccountRailActions({ accountId }: AccountRailActionsProps): JSX.
     const { createdNoteLoading } = useValues(accountNotebooksLogic({ accountId }))
     const { createNote } = useActions(accountNotebooksLogic({ accountId }))
     const { links } = useValues(accountLinksLogic({ accountId }))
-    const { openCreateRequest, setAccountId } = useActions(featureRequestsLogic)
+    const { featureRequestComposerOpen } = useValues(customerAnalyticsAccountSceneLogic)
+    const { openFeatureRequestComposer } = useActions(customerAnalyticsAccountSceneLogic)
 
     const organizationLink = links.find((link) => link.key === 'organization')
     const overflowItems: LemonMenuItems = [
@@ -86,8 +88,7 @@ export function AccountRailActions({ accountId }: AccountRailActionsProps): JSX.
                 aria-label="Add feature request"
                 onClick={() => {
                     posthog.capture(AccountsEvents.DetailRailActionClicked, { action: 'add_feature_request' })
-                    openCreateRequest()
-                    setAccountId(accountId)
+                    openFeatureRequestComposer()
                 }}
                 data-attr="account-rail-add-feature-request"
             />
@@ -101,7 +102,7 @@ export function AccountRailActions({ accountId }: AccountRailActionsProps): JSX.
                     data-attr="account-rail-more"
                 />
             </LemonMenu>
-            <FeatureRequestCreateModal />
+            {featureRequestComposerOpen ? <AccountFeatureRequestComposer accountId={accountId} /> : null}
         </div>
     )
 }

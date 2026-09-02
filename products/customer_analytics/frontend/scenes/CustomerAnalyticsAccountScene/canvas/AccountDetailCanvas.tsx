@@ -74,7 +74,7 @@ export function AccountDetailCanvas({ account }: AccountDetailCanvasProps): JSX.
     }
 
     return (
-        <div className="flex-1 min-w-0 flex flex-col min-h-0 bg-primary" data-attr="account-detail-canvas">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0 bg-surface-secondary" data-attr="account-detail-canvas">
             <div className="shrink-0 bg-surface-primary border-b px-3">
                 <LemonTabs
                     activeKey={selectedView?.id ?? ''}

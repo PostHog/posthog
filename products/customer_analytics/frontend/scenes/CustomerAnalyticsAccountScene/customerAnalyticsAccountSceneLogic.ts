@@ -39,6 +39,7 @@ export interface customerAnalyticsAccountSceneLogicValues {
     accountLoading: boolean
     requestedViewId: string | null
     tagsSaving: boolean
+    featureRequestComposerOpen: boolean
     breadcrumbs: Breadcrumb[]
     groupTypeIndex: number | null
     isAccountMissing: boolean
@@ -78,6 +79,9 @@ export interface customerAnalyticsAccountSceneLogicActions {
     }
     updateTagsDone: (account: AccountApi | null) => {
         account: AccountApi | null
+    }
+    openFeatureRequestComposer: () => {
+        value: true
     }
 }
 
@@ -132,6 +136,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         setRequestedViewId: (viewId: string | null) => ({ viewId }),
         updateTags: (tags: string[]) => ({ tags }),
         updateTagsDone: (account: AccountApi | null) => ({ account }),
+        openFeatureRequestComposer: true,
     }),
     reducers({
         account: [
@@ -172,6 +177,12 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             {
                 updateTags: () => true,
                 updateTagsDone: () => false,
+            },
+        ],
+        featureRequestComposerOpen: [
+            false,
+            {
+                openFeatureRequestComposer: () => true,
             },
         ],
     }),
