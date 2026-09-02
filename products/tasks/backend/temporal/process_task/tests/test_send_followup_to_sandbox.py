@@ -777,6 +777,22 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["refresh_github"].assert_not_called()
         _patches["user_msg"].assert_not_called()
 
+    def test_a_cancelled_status_run_rejects_before_rebinding_credentials(self, _patches):
+        # Loop overlap and lifecycle cancellation set CANCELLED without the cancel marker,
+        # so the status alone must reject the follow-up.
+        _patches["task_run"].state = {}
+        _patches["task_run"].status = _patches["task_run_cls"].Status.CANCELLED
+
+        with pytest.raises(ApplicationError) as excinfo:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert str(excinfo.value) == RUN_STOPPING_MESSAGE
+        assert excinfo.value.non_retryable
+        _patches["conn_token"].assert_not_called()
+        _patches["refresh"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
+        _patches["user_msg"].assert_not_called()
+
     def test_stopped_sandbox_says_so_once_instead_of_retrying(self, _patches):
         _patches["refresh_github"].return_value = SandboxRebindFailure.SANDBOX_NOT_RUNNING
 

@@ -307,7 +307,11 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         # background-mode runs hang until the inactivity timeout because
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
-    if (task_run.state or {}).get("cancel_requested_at"):
+    # Reject the marker written by user-initiated cancel, and the bare CANCELLED status that
+    # loop overlap and lifecycle cancellation set without that marker (loop_runs.py,
+    # loop_lifecycle.py). Either means the run is winding down, so no follow-up should rebind
+    # credentials or reach the sandbox.
+    if (task_run.state or {}).get("cancel_requested_at") or task_run.status == TaskRun.Status.CANCELLED:
         if peer_message_id is not None:
             _mark_peer_delivery_outcome(
                 peer_message_id, AgentPeerMessage.Outcome.DELIVERY_FAILED, "run_stopping", RUN_STOPPING_MESSAGE
