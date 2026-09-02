@@ -1392,10 +1392,12 @@ export interface eventUsageLogicActions {
     }
     reportExperimentTimeseriesViewed: (
         experimentId: ExperimentIdType,
-        metric: ExperimentMetric
+        metric: ExperimentMetric,
+        outcome?: string
     ) => {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
+        outcome: string | undefined
     }
     reportExperimentUpdated: (experiment: Experiment) => {
         experiment: Experiment
@@ -2726,9 +2728,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ status, properties }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
-        reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
+        reportExperimentTimeseriesViewed: (
+            experimentId: ExperimentIdType,
+            metric: ExperimentMetric,
+            outcome?: string
+        ) => ({
             experimentId,
             metric,
+            outcome,
         }),
         reportExperimentTimeseriesRecalculated: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
             experimentId,
@@ -3928,11 +3935,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentTimeseriesViewed: ({
             experimentId,
             metric,
+            outcome,
         }: {
             experimentId: ExperimentIdType
             metric: ExperimentMetric
+            outcome?: string
         }) => {
-            posthog.capture('experiment timeseries viewed', { experiment_id: experimentId, metric })
+            posthog.capture('experiment timeseries viewed', { experiment_id: experimentId, metric, outcome })
         },
         reportExperimentTimeseriesRecalculated: ({
             experimentId,

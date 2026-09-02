@@ -1,8 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconClock, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconClock, IconInfo, IconRefresh, IconWarning } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonDialog,
+    LemonDivider,
+    LemonModal,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -38,13 +47,25 @@ export function TimeseriesModal({
     experiment,
 }: TimeseriesModalProps): JSX.Element {
     const logic = experimentTimeseriesLogic({ experiment, metric: isOpen ? metric : undefined })
-    const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading, isRecalculating, timeseries } =
-        useValues(logic)
+    const {
+        chartData,
+        progressMessage,
+        timeseriesLoading,
+        isRecalculating,
+        timeseries,
+        timeseriesDisplayState,
+        timeseriesErrors,
+    } = useValues(logic)
     const { recalculateTimeseries, loadTimeseries } = useActions(logic)
 
     const processedChartData = useMemo(() => {
         return chartData(variantResult.key)
     }, [chartData, variantResult.key])
+
+    const errorEntries = useMemo(
+        () => (timeseriesErrors ? Object.entries(timeseriesErrors).sort(([a], [b]) => a.localeCompare(b)) : []),
+        [timeseriesErrors]
+    )
 
     const isStaleExperiment =
         isLaunched(experiment) && !hasEnded(experiment)
@@ -71,6 +92,79 @@ export function TimeseriesModal({
                 children: 'Cancel',
             },
         })
+    }
+
+    const renderEmptyState = (): JSX.Element => {
+        // The request itself failed — reloading is the fix, not recalculating.
+        if (timeseriesDisplayState === 'error') {
+            return (
+                <div className="py-10 text-center text-muted flex flex-col items-center gap-3 max-w-sm mx-auto">
+                    <IconWarning className="text-2xl" />
+                    <div>We could not load this time series. Try again, or reload the page.</div>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={() => loadTimeseries({ metric })}
+                        loading={timeseriesLoading}
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
+            )
+        }
+
+        // The calculation ran and failed — show what broke, and let people recalculate.
+        if (timeseriesDisplayState === 'failed') {
+            return (
+                <div className="py-10 text-center text-muted flex flex-col items-center gap-3 max-w-md mx-auto">
+                    <IconWarning className="text-2xl" />
+                    <div>Time series calculation failed. Recalculate to try again.</div>
+                    {errorEntries.length > 0 && (
+                        <LemonCollapse
+                            className="w-full text-left"
+                            panels={[
+                                {
+                                    key: 'errors',
+                                    header:
+                                        errorEntries.length === 1 ? 'Show error' : `Show ${errorEntries.length} errors`,
+                                    content: (
+                                        <div className="flex flex-col gap-1 text-xs font-mono max-h-40 overflow-auto">
+                                            {errorEntries.map(([date, message]) => (
+                                                <div key={date}>
+                                                    <span className="text-muted">{date}</span> — {message}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    )}
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={handleRecalculate}
+                        loading={isRecalculating}
+                    >
+                        Recalculate
+                    </LemonButton>
+                </div>
+            )
+        }
+
+        // 'pending' — not computed yet.
+        return (
+            <div className="py-10 text-center text-muted flex flex-col items-center gap-2 max-w-80 mx-auto">
+                <IconClock className="text-2xl" />
+                <div>
+                    No time series data yet. PostHog calculates it once per day. Check your calculation time in{' '}
+                    <Link to={`${urls.experiments()}?tab=settings`} target="_blank">
+                        settings
+                    </Link>
+                    .
+                </div>
+            </div>
+        )
     }
 
     return (
@@ -168,22 +262,13 @@ export function TimeseriesModal({
                                 }
                             />
                         </div>
-                        {hasTimeseriesData && processedChartData ? (
+                        {timeseriesDisplayState === 'data' && processedChartData ? (
                             <VariantTimeseriesChart
                                 chartData={processedChartData}
                                 isRatioMetric={isExperimentRatioMetric(metric)}
                             />
                         ) : (
-                            <div className="py-10 text-center text-muted flex flex-col items-center gap-2 max-w-80 mx-auto">
-                                <IconClock className="text-2xl" />
-                                <div>
-                                    Timeseries data is calculated once per day. Check your calculation time in{' '}
-                                    <Link to={`${urls.experiments()}?tab=settings`} target="_blank">
-                                        settings
-                                    </Link>
-                                    .
-                                </div>
-                            </div>
+                            renderEmptyState()
                         )}
                     </div>
                 )}

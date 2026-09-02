@@ -764,13 +764,6 @@ export interface experimentLogicActions {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
     } // eventUsageLogic
-    reportExperimentTimeseriesViewed: (
-        experimentId: ExperimentIdType,
-        metric: ExperimentMetricUnion
-    ) => {
-        experimentId: ExperimentIdType
-        metric: ExperimentMetricUnion
-    } // eventUsageLogic
     reportExperimentVariantScreenshotUploaded: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     } // eventUsageLogic
@@ -1516,7 +1509,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
-                'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
                 'reportExperimentMetricsRefreshed',
