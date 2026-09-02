@@ -78,8 +78,8 @@ describe('supportSettingsLogic', () => {
             logic = supportSettingsLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            logic.actions.setNewEmailFromEmail('help@albo.inc')
-            logic.actions.setNewEmailFromName('Albo Support')
+            logic.actions.setNewEmailFromEmail('help@example.com')
+            logic.actions.setNewEmailFromName('Example Support')
 
             logic.actions.connectEmail()
             await expectLogic(logic).toFinishAllListeners()
