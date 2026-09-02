@@ -2264,8 +2264,10 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
     if not any(sharers.values()):
         return IspDomains(readable=tuple(domains), withheld=(), shared=())
 
-    # A sharer outside this organization cannot be visible, so it fails closed here rather than
-    # needing a separate branch. Adding such a domain is blocked today; rows predating that are not.
+    # A sharer outside this organization is never visible, so a cross-organization domain fails
+    # closed through the same subset test rather than needing a branch of its own. Not dead code:
+    # the guard in EmailIntegration.create_native_integration matches config__domain exactly, so a
+    # subdomain of a domain another organization verified is not blocked from being added.
     visible = set(
         visible_teams_for_user(team.organization, user_access_control, user_permissions).values_list("id", flat=True)
     )
