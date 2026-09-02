@@ -18587,6 +18587,12 @@ export namespace Schemas {
       message: string;
       /** TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+      /**
+         * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface ComposeTicketResponse {
@@ -24207,6 +24213,7 @@ export namespace Schemas {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25537,6 +25544,7 @@ export namespace Schemas {
       Anvil: 'Anvil',
       Coolify: 'Coolify',
       SocialPilot: 'SocialPilot',
+      Strato: 'Strato',
     } as const;
 
     /**
@@ -26880,7 +26888,8 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28936,7 +28945,8 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -37485,7 +37495,8 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -38849,7 +38860,8 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -79541,7 +79553,8 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -80921,7 +80934,8 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -82283,7 +82297,8 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -86277,9 +86292,9 @@ export namespace Schemas {
       runner: string;
       /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
       nodeid: string;
-      /** Repo-relative path of the test file, as Trunk reports it. */
+      /** Repo-relative path of the test file, empty when neither the repository nor Trunk places it. */
       file: string;
-      /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+      /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
       owner_team: string;
       /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
       status: string;
@@ -86305,6 +86320,8 @@ export namespace Schemas {
       tests: TrunkQuarantinedTest[];
       /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
       available: boolean;
+      /** False when the repository's ownership files could not be read, so every test reads as 'unowned' for that reason rather than because no team claims it. */
+      owners_resolved: boolean;
       /** Days a quarantine may stand before it counts as overdue. */
       ttl_days: number;
       /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
@@ -90740,7 +90757,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Case-insensitive substring search across account name and external ID.
+     * Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.
      */
     search?: string;
     /**
@@ -98774,6 +98791,14 @@ export namespace Schemas {
 
     export type SignalsReportsListParams = {
     /**
+     * Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.
+     */
+    actionability?: string;
+    /**
+     * Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.
+     */
+    already_addressed?: boolean;
+    /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string;
@@ -98806,6 +98831,10 @@ export namespace Schemas {
      */
     priority?: string;
     /**
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     */
+    scope?: string;
+    /**
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string;
@@ -98817,6 +98846,10 @@ export namespace Schemas {
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;
+    /**
+     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     */
+    sort?: string;
     /**
      * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
      */
@@ -98837,6 +98870,18 @@ export namespace Schemas {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string;
+    /**
+     * PostHog user UUID used when scope=teammate.
+     */
+    teammate_uuid?: string;
+    /**
+     * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
+     */
+    use_priority_preference?: boolean;
+    /**
+     * Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.
+     */
+    view?: string;
     };
 
     export type SignalsReportArtefactsListParams = {

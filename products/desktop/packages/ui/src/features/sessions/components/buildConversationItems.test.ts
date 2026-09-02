@@ -37,7 +37,12 @@ function progressMsg(
   };
 }
 
-function userPromptMsg(ts: number, id: number, text: string): AcpMessage {
+function userPromptMsg(
+  ts: number,
+  id: number,
+  text: string,
+  messageId?: string,
+): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -45,7 +50,10 @@ function userPromptMsg(ts: number, id: number, text: string): AcpMessage {
       jsonrpc: "2.0",
       id,
       method: "session/prompt",
-      params: { prompt: [{ type: "text", text }] },
+      params: {
+        prompt: [{ type: "text", text }],
+        ...(messageId ? { _meta: { messageId } } : {}),
+      },
     },
   };
 }
@@ -225,6 +233,22 @@ describe("buildConversationItems", () => {
         ],
       },
     ]);
+  });
+
+  it("renders one user message when a delivery is retried", () => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "do the thing", "delivery-1"),
+        userPromptMsg(2, 2, "do the thing", "delivery-1"),
+        agentMessageMsg(3, "Done"),
+        promptResponseMsg(4, 2),
+      ],
+      null,
+    );
+
+    expect(result.items.filter((item) => item.type === "user_message")).toEqual(
+      [expect.objectContaining({ content: "do the thing" })],
+    );
   });
 
   it("keeps item ids stable when older history is prepended", () => {
