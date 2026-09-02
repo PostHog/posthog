@@ -75,16 +75,18 @@ export function ReportsInboxViewPresentation({
         <PageHeaderHeading>
           <PageHeaderTitleRow>
             <PageHeaderTitle>Self-driving</PageHeaderTitle>
-            <PageHeaderActions>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={onConfigureAgents}
-              >
-                Configure agents
-              </Button>
-            </PageHeaderActions>
+            {!showConfigureAgentsEmptyState && (
+              <PageHeaderActions>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={onConfigureAgents}
+                >
+                  Configure agents
+                </Button>
+              </PageHeaderActions>
+            )}
           </PageHeaderTitleRow>
           <PageHeaderDescription>
             Issues and opportunities found in your product, ready to review

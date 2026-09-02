@@ -263,7 +263,8 @@ describe("ReportsInboxView", () => {
     render(<ReportsInboxView />);
 
     expect(screen.getByText("Nothing to review")).toBeTruthy();
-    await userEvent.click(screen.getAllByText("Configure agents")[1]);
+    expect(screen.getAllByText("Configure agents")).toHaveLength(1);
+    await userEvent.click(screen.getByText("Configure agents"));
     expect(mocks.navigateToAgents).toHaveBeenCalledOnce();
   });
 
