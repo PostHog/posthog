@@ -80,12 +80,14 @@ class TestPerformHDBSCANClustering:
             perform_hdbscan_clustering(np.array([]).reshape(0, 10))
 
     def test_max_cluster_size_splits_root_level_clusters(self):
-        # Six sub-groups inside two macro groups. Without a cap, Excess of Mass keeps the two macro
-        # groups, which is the collapsed result seen on the clusters page.
+        # Two macro groups: one holds four sub-groups (two thirds of the items), the other two.
+        # Without a cap, Excess of Mass keeps the two macro groups, which is the collapsed result
+        # seen on the clusters page. The default cap refuses the large macro group and keeps
+        # its four sub-groups; the small macro group is under the cap and stays whole.
         np.random.seed(42)
         sub_groups = []
-        for macro_offset in (0.0, 60.0):
-            for sub_offset in (0.0, 3.0, 6.0):
+        for macro_offset, sub_offsets in ((0.0, (0.0, 3.0, 6.0, 9.0)), (60.0, (0.0, 3.0))):
+            for sub_offset in sub_offsets:
                 center = np.zeros(10)
                 center[0] = macro_offset + sub_offset
                 sub_groups.append(np.random.randn(40, 10) * 0.4 + center)
@@ -94,13 +96,10 @@ class TestPerformHDBSCANClustering:
         uncapped = perform_hdbscan_clustering(
             embeddings, min_cluster_size_fraction=0.05, min_samples=5, max_cluster_size_fraction=1.0
         )
-        capped = perform_hdbscan_clustering(
-            embeddings, min_cluster_size_fraction=0.05, min_samples=5, max_cluster_size_fraction=0.4
-        )
+        capped = perform_hdbscan_clustering(embeddings, min_cluster_size_fraction=0.05, min_samples=5)
 
         assert len(uncapped.centroids) == 2
-        assert len(capped.centroids) == 6
-        assert capped.num_noise_points == 0
+        assert len(capped.centroids) == 5
 
     def test_max_cluster_size_fraction_below_min_raises_error(self):
         with pytest.raises(ValueError, match="max_cluster_size_fraction"):

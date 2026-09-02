@@ -275,7 +275,7 @@ def perform_hdbscan_clustering(
     embeddings: np.ndarray,
     min_cluster_size_fraction: float = 0.02,
     min_samples: int = 5,
-    max_cluster_size_fraction: float = 0.4,
+    max_cluster_size_fraction: float = 0.5,
 ) -> HDBSCANResult:
     """
     Perform HDBSCAN clustering on embeddings.
