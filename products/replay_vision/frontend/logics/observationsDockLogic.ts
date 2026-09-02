@@ -83,6 +83,9 @@ export interface observationsDockLogicActions {
     retryObservationSuccess: (observationId: string) => {
         observationId: string
     }
+    openDock: () => {
+        value: true
+    }
     setDockOpen: (open: boolean) => {
         open: boolean
     }
@@ -154,6 +157,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         retryObservation: (observationId: string) => ({ observationId }),
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
+        // Opens the dock for this recording only. setDockOpen persists the cross-recording preference
+        // through its listener, so programmatic opens after a summary must use this instead, or they
+        // overwrite a collapse the user made, including from a host that has no dock at all.
+        openDock: true,
         setDockOpen: (open: boolean) => ({ open }),
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
@@ -203,6 +210,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             false,
             {
                 setDockOpen: (_, { open }) => open,
+                openDock: () => true,
             },
         ],
         scannerPickerOpen: [
@@ -288,7 +296,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 return
             }
             if (values.observations.some((o) => isSummaryObservation(o) && o.status === 'succeeded')) {
-                actions.setDockOpen(true)
+                actions.openDock()
             }
         }
         // Show the row that is coming, and re-read the quota the scan spent. Only call this when a scan
@@ -333,7 +341,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     // the row may not be readable here, and the reload can also fail. Confirm the row
                     // is in hand before naming it, and leave a way to re-read when it stays hidden.
                     actions.summarizeFailure()
-                    actions.setDockOpen(true)
+                    actions.openDock()
                     // Both retries re-read the same rows, but they follow different failures: a row the
                     // reload could not see, and a reload that did not complete. Keep them apart.
                     const tryAgain = (dataAttr: string): ToastButton => ({
@@ -372,7 +380,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     // A scan is in flight either way — ours, or one this project already had running
                     // against the shared inline scanner — so the poll window has a row to wait for.
                     actions.summarizeSuccess()
-                    actions.setDockOpen(true)
+                    actions.openDock()
                     afterScanStarted()
                 } else {
                     // Nothing started and nothing to read, so the poll window would watch for a row
@@ -417,7 +425,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
             loadObservationsFailure: reschedulePoll,
 
-            // Every open and close runs through here, so the preference tracks the last one the user made.
+            // The user's explicit dock toggle is the only caller of setDockOpen, so persisting here keeps
+            // the cross-recording preference tracking their last choice. Programmatic opens use openDock.
             setDockOpen: ({ open }) => actions.setSummaryDockAutoExpand(open),
 
             observe: async ({ scannerId }) => {
@@ -436,7 +445,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 if (values.observations.some((o) => o.scanner_id === scannerId)) {
                     lemonToast.info('This scanner has already been run on this recording.')
                     actions.observeFailure()
-                    actions.setDockOpen(true)
+                    actions.openDock()
                     return
                 }
                 cache.observeInFlight = true

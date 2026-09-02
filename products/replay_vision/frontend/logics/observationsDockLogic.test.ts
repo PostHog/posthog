@@ -199,6 +199,22 @@ describe('observationsDockLogic', () => {
         nextRecording.unmount()
     })
 
+    it('opens the dock after a summary starts without persisting the auto-expand preference', async () => {
+        // The shared summarize button also runs on the ticket panel, which renders no dock. Opening the
+        // dock after a scan starts must not rewrite the collapsed preference the user saved on the replay
+        // page, or summarizing one recording silently re-expands the dock for every later one.
+        preferences.actions.setSummaryDockAutoExpand(false)
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+        await expectLogic(logic).toMatchValues({ dockOpen: true })
+        await expectLogic(preferences).toMatchValues({ summaryDockAutoExpand: false })
+    })
+
     const loadScanners = async (scanners: ReplayScannerApi[]): Promise<void> => {
         scannerResults = scanners
         // The mock holds the scanner fetch open, and its release hook only exists once the handler runs.
