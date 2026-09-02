@@ -838,6 +838,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 model=serializer.validated_data["model"],
                 generation_id=serializer.validated_data["generation_id"],
                 operation=serializer.validated_data["generation_operation"],
+                expected_current_version_id=serializer.validated_data.get("expected_current_version_id"),
             )
         except WidgetError as error:
             return self._widget_error_response(error)
