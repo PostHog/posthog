@@ -12,6 +12,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.logic.node_suspension import resume_nodes
+from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
@@ -95,7 +96,7 @@ def materialize_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     node = Node.objects.filter(saved_query_id=saved_query.id).first()
     if node is None:
         # v2 was already confirmed, so a node should exist; a missing one is a data inconsistency.
-        # Skip rather than fall back to the v1 schedule, which no longer exists on a v2 team.
-        logger.warning("materialize_saved_query_missing_node", saved_query_id=str(saved_query.id))
-        return
+        # Raise rather than return: returning reports a materialization the caller can then find no
+        # trace of, and there is no v1 schedule left to fall back to.
+        raise MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node to materialize")
     start_node_materialization(node)

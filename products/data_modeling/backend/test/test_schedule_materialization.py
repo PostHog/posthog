@@ -118,6 +118,53 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval is None
 
+    def test_virgin_dag_is_born_on_tiers_with_the_tiered_flag_off(self):
+        # nothing mints v1 schedules any more, so a bootstrap the flag declines leaves the query
+        # with no scheduler at all — and the flag reads false on every self-hosted deployment
+        node = Node.objects.get(saved_query=self.sq)
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=False),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{NODE_MAT}.sync_connect"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.sq.schedule_materialization()
+
+        create.assert_called_once()
+        assert is_tier_schedule_id(create.call_args.kwargs["id"])
+        # the flag gates the write-through path, so the requested cadence has to survive as a
+        # seeded target instead
+        node.refresh_from_db()
+        assert get_declared_target(node) == timedelta(hours=12)
+
+    def test_failed_bootstrap_retracts_the_materialized_claim(self):
+        # the reconcile runs after the caller's transaction commits, so a failure has no caller
+        # left to raise into: leaving is_materialized set would report a schedule that was
+        # never created
+        self.sq.is_materialized = True
+        self.sq.save(update_fields=["is_materialized"])
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
+            mock.patch(
+                f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=Exception("temporal unavailable"))
+            ),
+            mock.patch(f"{RECONCILE}.capture_exception"),
+            mock.patch(f"{NODE_MAT}.sync_connect"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.sq.schedule_materialization()
+
+        self.sq.refresh_from_db()
+        assert self.sq.is_materialized is False
+
     def test_rejected_frequency_leaves_a_virgin_dag_unbootstrapped(self):
         # the bootstrap is all side effects, and on_commit fires immediately for the callers that
         # are not inside an atomic block — so seeding or scheduling before the frequency is

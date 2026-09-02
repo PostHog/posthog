@@ -14,6 +14,7 @@ _LAZY = {
     "UnsupportedFrequencyTargetError": "logic.freshness",
     "humanize_cadence": "logic.freshness",
     "HasDependentsError": "logic.saved_query_dag_sync",
+    "MissingDagNodeError": "logic.saved_query_dag_sync",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
     "promote_view_nodes_to_matview": "logic.saved_query_dag_sync",
     "sync_saved_query_to_dag": "logic.saved_query_dag_sync",

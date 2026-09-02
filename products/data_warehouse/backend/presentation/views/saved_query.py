@@ -1606,7 +1606,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
-        from products.data_modeling.backend.facade.api import clear_incremental_state, materialize_saved_query
+        from products.data_modeling.backend.facade.api import (
+            MissingDagNodeError,
+            clear_incremental_state,
+            materialize_saved_query,
+        )
 
         body = SavedQueryRunSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -1615,10 +1619,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         if body.validated_data["full_refresh"]:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
-            # build on and rebuilds. Done before dispatch so the run it triggers is the rebuild.
+            # build on and rebuilds. Commit it before dispatch, and outside any transaction the
+            # dispatch could roll back, or the worker reads the old watermark and runs
+            # incrementally instead.
             clear_incremental_state(saved_query)
 
-        materialize_saved_query(saved_query)
+        try:
+            materialize_saved_query(saved_query)
+        except MissingDagNodeError:
+            raise exceptions.ValidationError(
+                detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
+            )
 
         log_activity(
             organization_id=self.team.organization_id,
