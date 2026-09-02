@@ -667,6 +667,14 @@ class WorkflowTaskDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class WorkflowTaskRateLimits:
+    """Optional per-project overrides for workflow-created AI task daily limits."""
+
+    per_workflow: int | None = Field(default=None, ge=0)
+    per_team: int | None = Field(default=None, ge=0)
+
+
+@dataclass(frozen=True, kw_only=True)
 class WorkflowTaskSlackContext:
     """The Slack thread whose message triggered the workflow run, so the task reports back there.
 
