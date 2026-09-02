@@ -59,6 +59,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -74,12 +75,11 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property
+from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
-from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
@@ -105,7 +105,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 
 
-# Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
+# Mirrors SerializedPerson in posthog/hogql_queries/serialized_actors.py.
 # Nullability mirrors the TypedDict: only Optional[...] fields are nullable; matched_recordings
 # and value_at_data_point are always present in the response (always-set keys), even if empty/None.
 class CohortPersonResultSerializer(serializers.Serializer):

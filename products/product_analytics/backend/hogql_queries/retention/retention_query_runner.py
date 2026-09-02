@@ -42,12 +42,12 @@ from posthog.hogql_queries.utils.breakdowns import (
 )
 from posthog.hogql_queries.utils.properties import has_cohort_property
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
-from posthog.queries.util import correct_result_for_sampling
 
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (

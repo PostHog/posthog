@@ -68,7 +68,7 @@ rules:
               - 'posthog/helpers/__init__.py'
               - 'products/product_analytics/backend/hogql_queries/funnels/__init__.py'
               - 'posthog/plugins/__init__.py'
-              - 'posthog/queries/properties_timeline/__init__.py'
+              - 'posthog/hogql_queries/properties_timeline/__init__.py'
               - 'products/ai_observability/backend/api/__init__.py'
               - 'products/ai_observability/backend/providers/formatters/tools_handler/__init__.py'
               - 'products/ai_observability/backend/summarization/llm/__init__.py'

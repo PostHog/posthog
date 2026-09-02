@@ -23,7 +23,7 @@ from rest_framework.settings import api_settings
 from posthog.hogql.property import parse_semver
 
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
-from posthog.queries.base import determine_parsed_date_for_property_matching
+from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 
 from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100

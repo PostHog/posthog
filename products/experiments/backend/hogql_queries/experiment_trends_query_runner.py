@@ -33,9 +33,9 @@ from posthog.hogql import ast
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.hogql_queries.insights.trends.math_functions import ALL_SUPPORTED_MATH_FUNCTIONS
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.trends_statistics_v2_continuous import (

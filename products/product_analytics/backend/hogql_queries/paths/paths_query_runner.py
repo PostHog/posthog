@@ -33,10 +33,10 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import HOGQL, PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
-from posthog.queries.util import correct_result_for_sampling
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.funnels.utils import funnel_window_interval_unit_to_sql

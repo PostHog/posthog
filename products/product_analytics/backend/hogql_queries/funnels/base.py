@@ -22,8 +22,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID
 from posthog.hogql_queries.utils.entities import is_equal, is_superset
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models.property.property import PropertyName
-from posthog.queries.util import correct_result_for_sampling
 from posthog.types import FunnelEntityNode
 
 from products.actions.backend.models.action import Action

@@ -7,7 +7,12 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 
 from posthog.models.property.property import ValueT
-from posthog.queries.util import convert_to_datetime_aware
+
+
+def convert_to_datetime_aware(date_obj: datetime.datetime) -> datetime.datetime:
+    if date_obj.tzinfo is None:
+        date_obj = date_obj.replace(tzinfo=datetime.UTC)
+    return date_obj
 
 
 def determine_parsed_date_for_property_matching(value: ValueT) -> datetime.datetime | None:

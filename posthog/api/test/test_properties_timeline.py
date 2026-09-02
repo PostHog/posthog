@@ -16,8 +16,8 @@ from posthog.test.base import (
 
 from rest_framework import status
 
+from posthog.hogql_queries.properties_timeline.properties_timeline import PropertiesTimelineResult
 from posthog.models.filters.mixins.base import BreakdownType
-from posthog.queries.properties_timeline.properties_timeline import PropertiesTimelineResult
 
 MATERIALIZED_COLUMN_KWARGS = {"person_properties": ["foo", "bar"]}
 TEST_PERSON_ID = uuid.UUID("12345678-0000-0000-0000-000000000001")

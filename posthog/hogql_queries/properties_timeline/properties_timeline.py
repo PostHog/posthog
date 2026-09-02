@@ -1,6 +1,10 @@
 import json
 import datetime
-from typing import Any, TypedDict, Union, cast
+from datetime import timedelta
+from typing import Any, TypedDict, TypeVar, Union, cast
+from zoneinfo import ZoneInfo
+
+from dateutil.relativedelta import relativedelta
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
@@ -9,17 +13,36 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TREND_FILTER_TYPE_ACTIONS
+from posthog.hogql_queries.properties_timeline.query_date_range import QueryDateRange
 from posthog.models.entity import Entity
+from posthog.models.filters import Filter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
 from posthog.models.person.person import Person
 from posthog.models.property.util import extract_tables_and_properties
 from posthog.models.team.team import Team
-from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.util import offset_time_series_date_by_interval
 
 from products.actions.backend.models.action import Action
+
+F = TypeVar("F", Filter, PropertiesTimelineFilter)
+
+
+def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, team: Team) -> datetime.datetime:
+    """If the insight is time-series, offset date according to the interval of the filter."""
+    if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+        return date
+    if filter.interval == "month":
+        date = (date + relativedelta(months=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif filter.interval == "week":
+        date = (date + timedelta(weeks=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif filter.interval == "hour":
+        date = date + timedelta(hours=1)
+    else:  # "day" is the default interval
+        date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=ZoneInfo(team.timezone))
+    return date
 
 
 class PropertiesTimelinePoint(TypedDict):
