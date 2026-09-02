@@ -134,9 +134,11 @@ impl FileSelectionArgs {
 /// How exceptions get associated with a release.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReleaseMode {
-    /// Bind the release to the uploaded symbol sets (the previous behavior)
+    /// Bind the release to the uploaded symbol sets
     SymbolSet,
-    /// EXPERIMENTAL: resolve the release per event from an id injected into each chunk
+    /// Resolve the release per event (the default). A web build reads an id injected into the
+    /// chunk. A Hermes build injects nothing, and resolves the release from the app version and
+    /// namespace the SDK already sends
     Event,
 }
 
@@ -226,6 +228,16 @@ impl UploadConflictArgs {
 impl ReleaseArgs {
     pub fn resolve_info_plist(&self) -> Result<Self> {
         self.resolve_info_plist_with_environment(|name| std::env::var(name).ok())
+    }
+
+    /// Whether the coordinates identify a release an event can resolve.
+    ///
+    /// An event carries its own app metadata, and the server keys a release on the name and the
+    /// packed version. It packs the build into that version, so a release without a build matches
+    /// no event that sends `$app_build`. Call this on resolved args, because `--info-plist` fills
+    /// the same three fields.
+    pub fn event_coordinates_complete(&self) -> bool {
+        self.name.is_some() && self.version.is_some() && self.build.is_some()
     }
 
     fn resolve_info_plist_with_environment<F>(&self, environment: F) -> Result<Self>
@@ -360,6 +372,28 @@ mod tests {
             build: build.map(String::from),
             info_plist: None,
             skip_release_on_fail: true,
+        }
+    }
+
+    #[test]
+    fn event_mode_needs_every_release_coordinate() {
+        // The server packs the build into the version it keys a release on, so a release without
+        // one matches no event that sends `$app_build`.
+        let cases = [
+            //  name,             version,       build,        complete
+            (Some("com.app"), Some("1.0"), Some("42"), true),
+            (Some("com.app"), Some("1.0"), None, false),
+            (Some("com.app"), None, Some("42"), false),
+            (None, Some("1.0"), Some("42"), false),
+            (None, None, None, false),
+        ];
+
+        for (name, version, build, complete) in cases {
+            assert_eq!(
+                make_args(name, version, build).event_coordinates_complete(),
+                complete,
+                "name={name:?} version={version:?} build={build:?}"
+            );
         }
     }
 
