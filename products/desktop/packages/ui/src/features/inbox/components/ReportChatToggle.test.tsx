@@ -70,7 +70,7 @@ describe("ReportChatToggle", () => {
     expect(
       openButton.querySelector('[data-slot="chat-icon"]'),
     ).toBeInTheDocument();
-    expect(openButton).not.toHaveTextContent("Chat");
+    expect(openButton).toHaveTextContent("Chat");
     expect(openButton).toHaveAttribute("aria-pressed", "false");
 
     await user.click(openButton);

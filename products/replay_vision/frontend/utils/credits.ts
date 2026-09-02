@@ -1,10 +1,10 @@
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 /** 1 credit = $0.01. Amounts arrive from the API as integer credits. Credits are the unit we bill, so credits are
- * what we show. The dollar anchor is reserved for the three spend surfaces (the spend meter, the scanner list's
- * spend column, and the cost estimate) — repeating it in every tooltip, banner, and dropdown option is noise.
- * Those three pair `formatCreditCount` with `creditsToUsd` when the dollar gets its own line, or use the inline
- * `formatCredits`. Everywhere else is `formatCreditCount` alone. */
+ * what we show. The dollar anchor is reserved for the spend surfaces (the spend meter, the scanner list's
+ * spend column, the cost estimate, and the experiment wizard's scanner opt-in) — repeating it in every tooltip,
+ * banner, and dropdown option is noise. Those pair `formatCreditCount` with `creditsToUsd` when the dollar gets
+ * its own line, or use the inline `formatCredits`. Everywhere else is `formatCreditCount` alone. */
 export const CREDITS_PER_DOLLAR = 100
 
 /** e.g. 1200 -> "$12.00". */

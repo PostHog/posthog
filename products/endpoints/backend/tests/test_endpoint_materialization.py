@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -15,8 +16,6 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
-
-from posthog.schema import RetentionQuery
 
 from posthog.hogql.errors import QueryError
 
@@ -505,44 +504,49 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Cohort breakdowns are not supported", response.json()["detail"])
 
-    def test_can_materialize_lifecycle_query(self):
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user1",
-        )
-        flush_persons_and_events()
-
+    @parameterized.expand(
+        [
+            (
+                "lifecycle",
+                {
+                    "kind": "LifecycleQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "dateRange": {"date_from": "-7d"},
+                    "interval": "day",
+                },
+            ),
+            (
+                "retention",
+                {
+                    "kind": "RetentionQuery",
+                    "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-08"},
+                    "retentionFilter": {
+                        "period": "Day",
+                        "totalIntervals": 7,
+                        "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                        "targetEntity": {
+                            "id": "$user_signed_up",
+                            "name": "$user_signed_up",
+                            "type": TREND_FILTER_TYPE_EVENTS,
+                        },
+                        "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                    },
+                },
+            ),
+        ]
+    )
+    def test_can_materialize_allowed_insight_query(self, _name: str, query: dict[str, Any]) -> None:
         endpoint = create_endpoint_with_version(
-            name="test_lifecycle_query",
+            name=f"test_{_name}_query",
             team=self.team,
-            query={
-                "kind": "LifecycleQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "dateRange": {"date_from": "-7d"},
-                "interval": "day",
-            },
+            query=query,
             created_by=self.user,
         )
         version = endpoint.versions.first()
+        assert version is not None
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {
-                "is_materialized": True,
-                "data_freshness_seconds": 43200,
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        version.refresh_from_db()
-        self.assertIsNotNone(version.saved_query)
-        saved_query = version.saved_query
-        assert saved_query is not None
-        assert saved_query.query is not None
-        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
-        self.assertIsInstance(saved_query.query["query"], str)
+        can_materialize, reason = version.can_materialize()
+        self.assertTrue(can_materialize, reason)
 
     @parameterized.expand(
         [
@@ -588,52 +592,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         can_materialize, reason = version.can_materialize()
         self.assertFalse(can_materialize)
         self.assertIn(query["kind"], reason)
-
-    def test_can_materialize_retention_query(self):
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user1",
-        )
-        flush_persons_and_events()
-
-        endpoint = create_endpoint_with_version(
-            name="test_retention_query",
-            team=self.team,
-            query=RetentionQuery(
-                dateRange={"date_from": "2025-01-01", "date_to": "2025-01-08"},
-                retentionFilter={
-                    "period": "Day",
-                    "totalIntervals": 7,
-                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
-                    "targetEntity": {
-                        "id": "$user_signed_up",
-                        "name": "$user_signed_up",
-                        "type": TREND_FILTER_TYPE_EVENTS,
-                    },
-                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                },
-            ).model_dump(),
-            created_by=self.user,
-        )
-        version = endpoint.versions.first()
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {
-                "is_materialized": True,
-                "data_freshness_seconds": 43200,
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        version.refresh_from_db()
-        self.assertIsNotNone(version.saved_query)
-        saved_query = version.saved_query
-        assert saved_query is not None
-        assert saved_query.query is not None
-        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_materialization_status_in_response(self):
         """Test that materialization status is included in endpoint response."""
@@ -1733,10 +1691,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
     def test_materialization_replaces_breakdown_sentinels_in_hogql(self):
-        from posthog.hogql_queries.insights.utils.breakdowns import (
-            BREAKDOWN_NULL_STRING_LABEL,
-            BREAKDOWN_OTHER_STRING_LABEL,
-        )
+        from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
         trends_query = {
             "kind": "TrendsQuery",

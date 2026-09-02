@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { resolveRtkPrefix } from "../adapters/claude/session/rtk";
 
 const execFileAsync = promisify(execFile);
@@ -69,6 +70,69 @@ export function scrubbedGainEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
       env[key],
     ]),
   );
+}
+
+export interface RtkSavingsNotificationOptions {
+  taskId: string;
+  runId: string;
+  teamId: number;
+  runtimeAdapter?: string;
+  model?: string;
+  resolveSavings?: () => Promise<RtkSavingsSummary | null>;
+}
+
+export async function createRtkSavingsNotification({
+  taskId,
+  runId,
+  teamId,
+  runtimeAdapter,
+  model,
+  resolveSavings = resolveRtkSavings,
+}: RtkSavingsNotificationOptions): Promise<{
+  type: "notification";
+  timestamp: string;
+  notification: {
+    jsonrpc: "2.0";
+    method: typeof POSTHOG_NOTIFICATIONS.RTK_SAVINGS;
+    params: {
+      task_id: string;
+      run_id: string;
+      team_id: number;
+      counter_id: string;
+      cumulative_commands: number;
+      cumulative_input_tokens: number;
+      cumulative_output_tokens: number;
+      cumulative_tokens_saved: number;
+      runtime_adapter?: string;
+      model?: string;
+    };
+  };
+} | null> {
+  const savings = await resolveSavings();
+  if (!savings) {
+    return null;
+  }
+
+  return {
+    type: "notification",
+    timestamp: new Date().toISOString(),
+    notification: {
+      jsonrpc: "2.0",
+      method: POSTHOG_NOTIFICATIONS.RTK_SAVINGS,
+      params: {
+        task_id: taskId,
+        run_id: runId,
+        team_id: teamId,
+        counter_id: taskId,
+        cumulative_commands: savings.totalCommands,
+        cumulative_input_tokens: savings.inputTokens,
+        cumulative_output_tokens: savings.outputTokens,
+        cumulative_tokens_saved: savings.tokensSaved,
+        runtime_adapter: runtimeAdapter,
+        model,
+      },
+    },
+  };
 }
 
 export async function resolveRtkSavings({

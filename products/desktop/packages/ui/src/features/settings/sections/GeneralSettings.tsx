@@ -1,15 +1,12 @@
-import { ArrowSquareOut } from "@phosphor-icons/react";
-import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button, Switch } from "@posthog/quill";
+import { Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
   EFFORT_LEVELS,
 } from "@posthog/shared/domain-types";
-import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
@@ -26,6 +23,7 @@ import {
 import { SettingsSegmented } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { ThemePicker } from "@posthog/ui/features/settings/components/ThemePicker";
+import { AccountSection } from "@posthog/ui/features/settings/sections/AccountSettings";
 import { UpdatesSection } from "@posthog/ui/features/settings/sections/UpdatesSettings";
 import {
   type AutoConvertLongText,
@@ -59,10 +57,6 @@ const MESSAGING_MODE_OPTIONS = [
 
 export function GeneralSettings() {
   const hostTRPC = useHostTRPC();
-  const isAuthenticated = useAuthStateValue(
-    (state) => state.status === "authenticated",
-  );
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
 
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -250,31 +244,9 @@ export function GeneralSettings() {
     [sendMessagesWith, setSendMessagesWith],
   );
 
-  const accountUrl = buildPostHogUrl("/settings/user", cloudRegion);
-
   return (
     <div className="flex flex-col gap-7">
-      {isAuthenticated && (
-        <SettingsCard>
-          <SettingsCardRow
-            label="PostHog account"
-            description="Account and billing details are managed on PostHog"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!accountUrl}
-              onClick={() => {
-                if (accountUrl) window.open(accountUrl, "_blank");
-              }}
-            >
-              Manage
-              <ArrowSquareOut size={12} />
-            </Button>
-          </SettingsCardRow>
-        </SettingsCard>
-      )}
+      <AccountSection />
 
       <SettingsSection
         label="Appearance"

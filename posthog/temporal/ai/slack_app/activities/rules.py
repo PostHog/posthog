@@ -9,7 +9,7 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
 
 logger = structlog.get_logger(__name__)
 
@@ -47,7 +47,6 @@ def handle_posthog_code_rules_command_activity(
         integration,
         channel=channel,
         thread_ts=thread_ts,
-        trigger_ts=inputs.event.get("ts") or "",
         slack_user_id=slack_user_id,
         slack_workspace_id=inputs.slack_team_id,
         user_id=user_id,
@@ -165,7 +164,8 @@ def handle_posthog_code_slack_mention_command_activity(
                 "This Slack workspace is connected to multiple PostHog projects. "
                 f"Use `{inputs.command_prefix} project <id>` to set a default first, then re-run your command."
             )
-        SlackIntegration(candidates[0]).client.chat_postEphemeral(
+        post_slack_ephemeral(
+            SlackIntegration(candidates[0]).client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
@@ -192,9 +192,6 @@ def handle_posthog_code_slack_mention_command_activity(
         target,
         channel=channel,
         thread_ts=thread_ts,
-        # The command message itself, which a top-level reply is answering even though it
-        # is deliberately placed at channel root. A slash command creates no message.
-        trigger_ts=event.get("ts") or "",
         slack_user_id=slack_user_id,
         slack_workspace_id=inputs.slack_team_id,
         user_id=user_id,

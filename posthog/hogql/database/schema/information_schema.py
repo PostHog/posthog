@@ -19,8 +19,6 @@ import hashlib
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
-from django.db.models import Q
-
 import structlog
 
 from posthog.hogql import ast
@@ -972,6 +970,10 @@ def _references_denied_table(referenced_table_names: Optional[list[str]], denied
     return False
 
 
+def references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
+    return _references_denied_table(referenced_table_names, denied)
+
+
 def _can_read_catalog(context: "HogQLContext") -> bool:
     """Whether the caller has data_catalog read access, mirroring the REST viewset's resource gate.
 
@@ -1076,60 +1078,6 @@ def _denial_applies(context: "HogQLContext", denied: set[str]) -> bool:
     return bool(denied) or data_quality.can_be_object_denied(_access_control(context))
 
 
-def _visible_data_quality_checks(
-    context: "HogQLContext", team_id: int, checks: list[Any], denied: set[str]
-) -> list[Any]:
-    """The checks a caller may see, by the rule the REST surfaces apply.
-
-    A check is out of reach on any of three counts: its own subject is denied, the definition it
-    would run next reads one that is, or the run behind its ``last_status`` read one. The row is both
-    tenses at once, so the definition is judged by the names it resolves today and the run by the
-    identities it pinned.
-
-    Subject names come from the subjects themselves rather than the copy denormalized onto the check,
-    which only a run rewrites, so a rename cannot carry a denied subject back into a list.
-    """
-    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
-
-    if not _denial_applies(context, denied):
-        return checks
-    recordings = data_quality.latest_run_recordings(team_id, [check.id for check in checks])
-    current_names = data_quality.resolve_subject_names(
-        team_id,
-        [
-            data_quality.subject_identity(check.subject_type, check.subject_uuid)
-            for check in checks
-            if check.subject_uuid
-        ]
-        + data_quality.pinned_subject_refs(recording.referenced_subjects for recording in recordings.values()),
-    )
-    return [
-        check
-        for check in checks
-        if not _references_denied_table(
-            [
-                current_names.get(
-                    data_quality.subject_identity(check.subject_type, check.subject_uuid), check.subject_name
-                )
-            ],
-            denied,
-        )
-        and not data_quality.check_reads_denied_subject(team_id, check.check_type, check.config, denied)
-        and not _last_run_read_a_denied_subject(recordings.get(check.id), current_names, denied)
-    ]
-
-
-def _last_run_read_a_denied_subject(recording: Any, current_names: dict[Any, str], denied: set[str]) -> bool:
-    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
-
-    # A check that never ran carries no verdict, so there is nothing here to authorize.
-    if recording is None:
-        return False
-    return data_quality.run_reads_unreadable_subject(
-        recording.check_type, recording.referenced_subjects, current_names, denied
-    )
-
-
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
     """Load the team's data quality check definitions as information_schema rows (fail-soft).
 
@@ -1143,10 +1091,19 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
     from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
 
     try:
+        from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
         denied = context.database._denied_tables if context.database is not None else set()
         queryset = DataQualityCheck.objects.for_team(team_id).filter(deleted=False).order_by("-created_at")
         if allowed is not None:
             queryset = queryset.filter(name__in=allowed)
+        checks = list(queryset)
+        if _denial_applies(context, denied):
+            if context.database is None:
+                return []
+            checks = data_quality.visible_checks(
+                team_id, checks, data_quality.denial_context(team_id, context.database)
+            )
         return [
             [
                 str(check.id),
@@ -1164,62 +1121,11 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
                 check.last_run_at.isoformat() if check.last_run_at else None,
                 check.created_at.isoformat(),
             ]
-            for check in _visible_data_quality_checks(context, team_id, list(queryset), denied)
+            for check in checks
         ]
     except Exception:
         logger.exception("information_schema: failed to load data quality checks", team_id=team_id)
         return []
-
-
-def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
-    """Exclude, in SQL, every run that read a subject the caller is denied.
-
-    A run is judged on the identities it pinned as it executed, by the same rule the REST routes
-    apply, so the two surfaces cannot come to different answers about the same run. Editing a check
-    therefore cannot rewrite what its history discloses, and deleting a subject cannot free its name
-    for something else to answer for it. A referencing run that pinned nothing predates the
-    recording and is withheld rather than assumed harmless.
-
-    Only the types that can read past their own subject reach the recording scan. A run of any other
-    type is readable whatever it recorded, and the aggregation this narrows runs over the team's
-    whole retained history before the window applies.
-    """
-    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
-
-    subjects = set(runs.values_list("subject_type", "subject_uuid", "subject_name").distinct())
-    recordings = list(
-        runs.filter(check_type__in=data_quality.referencing_check_types())
-        .values_list("check_type", "referenced_subjects")
-        .distinct()
-    )
-    current_names = data_quality.resolve_subject_names(
-        team_id,
-        [data_quality.subject_identity(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
-        + data_quality.pinned_subject_refs(recorded for _, recorded in recordings),
-    )
-    blocked_subjects = [
-        subject_uuid
-        for subject_type, subject_uuid, stamped in subjects
-        if _references_denied_table(
-            [current_names.get(data_quality.subject_identity(subject_type, subject_uuid), stamped)], denied
-        )
-    ]
-    if blocked_subjects:
-        runs = runs.exclude(subject_uuid__in=blocked_subjects)
-
-    blocked_recordings = Q()
-    for check_type, recorded in recordings:
-        if not data_quality.run_reads_unreadable_subject(check_type, recorded, current_names, denied):
-            continue
-        # A JSONField compares None against JSON null, not against the SQL NULL a run without a
-        # recording stores, so the two cases cannot share one lookup.
-        if recorded is None:
-            blocked_recordings |= Q(check_type=check_type, referenced_subjects__isnull=True)
-        else:
-            blocked_recordings |= Q(check_type=check_type, referenced_subjects=recorded)
-    if blocked_recordings:
-        runs = runs.exclude(blocked_recordings)
-    return runs
 
 
 def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
@@ -1235,6 +1141,8 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
     from products.data_quality.backend.facade.models import DataQualityCheckRun  # noqa: PLC0415
 
     try:
+        from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
         denied = context.database._denied_tables if context.database is not None else set()
         base = DataQualityCheckRun.objects.for_team(team_id)
         if allowed is not None:
@@ -1246,7 +1154,9 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
         # Never on the denied set alone: deleting the subject a caller was denied is what empties it,
         # which is the case this withholds runs for.
         if _denial_applies(context, denied):
-            base = _without_denied_runs(team_id, base, denied)
+            if context.database is None:
+                return []
+            base = data_quality.without_denied_runs(base, data_quality.denial_context(team_id, context.database))
         return [
             [
                 str(run.id),
@@ -1284,12 +1194,21 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
     from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
 
     try:
+        from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
         denied = context.database._denied_tables if context.database is not None else set()
         checks_qs = DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True)
         if allowed is not None:
             checks_qs = checks_qs.filter(subject_name__in=allowed)
+        checks = list(checks_qs)
+        if _denial_applies(context, denied):
+            if context.database is None:
+                return []
+            checks = data_quality.visible_checks(
+                team_id, checks, data_quality.denial_context(team_id, context.database)
+            )
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
-        for check in _visible_data_quality_checks(context, team_id, list(checks_qs), denied):
+        for check in checks:
             # A hard-deleted subject has no id to key a rollup on, and its checks only skip.
             if check.subject_uuid is None:
                 continue
@@ -1553,11 +1472,13 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
     Returns nothing unless the caller has data_catalog read access. Excludes certifications whose target
     is soft-deleted (or orphaned by a soft-deleted source) — matching `certifications_for_team` — and
     drops any whose target is denied or invisible to the caller. `allowed` trims the query to the
-    pushed-down set of target names.
+    requested set of target names.
     """
     team_id = context.team_id
     if team_id is None or not _can_read_catalog(context):
         return []
+    from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
+
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
     record_catalog_read("certifications")
@@ -1567,21 +1488,25 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
             .exclude(table__deleted=True)
             .exclude(table__external_data_source__deleted=True)
             .exclude(saved_query__deleted=True)
-            .select_related("table", "saved_query", "certified_by")
+            .select_related("table", "table__external_data_source", "saved_query", "certified_by")
             .order_by("-created_at")
         )
-        if allowed is not None:
-            certs = certs.filter(Q(table__name__in=allowed) | Q(saved_query__name__in=allowed))
         rows: list[list[Any]] = []
         for cert in certs:
             if cert.table_id is not None:
-                target_name = cert.table.name if cert.table else None
+                target_name = (
+                    get_data_warehouse_table_name(cert.table.external_data_source, cert.table.name)
+                    if cert.table
+                    else None
+                )
                 target_id = str(cert.table_id)
                 target_kind = "table"
             else:
                 target_name = cert.saved_query.name if cert.saved_query else None
                 target_id = str(cert.saved_query_id)
                 target_kind = "view"
+            if allowed is not None and target_name not in allowed:
+                continue
             if target_name is None or not _catalog_table_visible(context, target_name):
                 continue
             rows.append(
@@ -1914,7 +1839,10 @@ class InformationSchemaCertificationsTable(InformationSchemaTable):
     description: str = _CERTIFICATIONS_DESCRIPTION
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Certification UUID — pass to the certify/deprecate tools."),
-        "target_name": _string_field("target_name", description="Name of the certified table or view."),
+        "target_name": _string_field(
+            "target_name",
+            description="Queryable HogQL name of the certified table or view (for example, stripe.subscriptions).",
+        ),
         "target_id": _string_field(
             "target_id",
             description=(
@@ -2216,6 +2144,29 @@ def direct_connection_information_schema_node() -> TableNode:
     # Drops the `certification` column, which is data-catalog state about the team's own tables.
     disable_data_catalog(node)
     return node
+
+
+def static_column_rows() -> list[list[Any]]:
+    """`columns` rows for the statically-defined schema, resolved without a team or any database
+    access, so build-time tooling can render exactly what `system.information_schema.columns`
+    serves at query time.
+
+    Team-scoped inputs (warehouse tables, semantic-layer annotations, column statistics) resolve
+    empty at `team_id=None` — the static schema is all that's left, which is the point.
+
+    Row layout matches `_Introspection.column_rows()`:
+    `[table_schema, table_name, column_name, ordinal, data_type, is_nullable, is_array, field_kind,
+    description, null_fraction, min_value, max_value]`.
+    """
+    # Deferred: `Database` imports the schema package, so a module-level import would cycle.
+    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
+    from posthog.hogql.database.database import Database  # noqa: PLC0415
+
+    database = Database()
+    # `enable_select_queries` lets expression columns be typed by the value they evaluate to
+    # (`deleted` → `Integer`) instead of falling back to the generic "Expression".
+    context = HogQLContext(team_id=None, database=database, enable_select_queries=True)
+    return _Introspection(database, context).column_rows()
 
 
 def disable_data_catalog(info_schema: TableNode) -> None:

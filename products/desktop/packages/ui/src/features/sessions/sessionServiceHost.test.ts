@@ -271,6 +271,11 @@ const mockFeatureFlags = vi.hoisted(() => ({
 
 const mockSettingsState = vi.hoisted(() => ({
   customInstructions: "",
+  ste100Enabled: true,
+  codexModelAccess: "posthog-gateway" as "posthog-gateway" | "own-subscription",
+  claudeModelAccess: "posthog-gateway" as
+    | "posthog-gateway"
+    | "own-subscription",
   spokenNotifications: false,
   syncCustomInstructionsFromFile: false,
   syncedCustomInstructions: null as {
@@ -423,7 +428,6 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     hasSessionPromptEventForTaskRun: mockHasSessionPromptEventForTaskRun,
     isAbsoluteFolderPath: actual.isAbsoluteFolderPath,
     isFatalSessionError: actual.isFatalSessionError,
-    isRateLimitError: actual.isRateLimitError,
     isSteerPromptParams: actual.isSteerPromptParams,
     isTurnCompleteEvent: actual.isTurnCompleteEvent,
     normalizePromptToBlocks: vi.fn((p) =>
@@ -485,6 +489,9 @@ describe("SessionService", () => {
     mockHasSessionPromptEventForTaskRun.mockReturnValue(false);
     resetSessionService();
     mockSettingsState.customInstructions = "";
+    mockSettingsState.ste100Enabled = true;
+    mockSettingsState.codexModelAccess = "posthog-gateway";
+    mockSettingsState.claudeModelAccess = "posthog-gateway";
     mockSettingsState.spokenNotifications = false;
     mockFeatureFlags.isEnabled.mockReturnValue(false);
     mockSettingsState.syncCustomInstructionsFromFile = false;
@@ -866,7 +873,78 @@ describe("SessionService", () => {
       });
 
       expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({ customInstructions: "synced from file" }),
+        expect.objectContaining({
+          customInstructions:
+            "synced from file\n\nTalk and write only in Simplified Technical English (ASD-STE100).",
+        }),
+      );
+    });
+
+    it("starts Codex with the access selected for the task", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+      });
+
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+    });
+
+    it("starts Claude with the access selected for the task", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      });
+
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "claude",
+          claudeModelAccess: "own-subscription",
+        }),
+      );
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "claude",
+          claudeModelAccess: "own-subscription",
+        }),
       );
     });
 
@@ -2997,7 +3075,7 @@ describe("SessionService", () => {
                 sessionUpdate: "agent_message_chunk",
                 content: {
                   type: "text",
-                  text: '<insight id="9pQx3">Checkout funnel</insight>',
+                  text: '<insight id="9pQx3">Checkout funnel</insight> <report id="rep-1">Latency regression</report>',
                 },
               },
             },
@@ -3031,6 +3109,12 @@ describe("SessionService", () => {
             name: "Checkout funnel",
             object_kind: "insight",
             object_id: "9pQx3",
+            source_message_id: "turn-1700000000",
+          },
+          {
+            name: "Latency regression",
+            object_kind: "report",
+            object_id: "rep-1",
             source_message_id: "turn-1700000000",
           },
         ]);
@@ -9384,12 +9468,13 @@ describe("SessionService", () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
     });
 
@@ -9436,12 +9521,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(true);
       // Optimistic update
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -9499,8 +9585,13 @@ describe("SessionService", () => {
         new Error("Failed"),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(currentSession.configOptions).toEqual([
         expect.objectContaining({
           id: "mode",
@@ -9612,8 +9703,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledTimes(1);
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(

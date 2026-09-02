@@ -22,11 +22,11 @@ import {
 
 import {
     ATTRIBUTION_ROW_LIMIT,
-    BREAKDOWN_LABELS,
     MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
     MODEL_LABELS,
     marketingAttributionLogic,
 } from '../../logic/marketingAttributionLogic'
+import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import { AttributionChart } from './AttributionChart'
 
 const modelTooltip = (model: AttributionMode, windowDays: number): string => {

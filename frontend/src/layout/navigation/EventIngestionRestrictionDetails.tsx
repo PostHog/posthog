@@ -1,7 +1,7 @@
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { EventIngestionRestriction, RestrictionType } from 'lib/logic/eventIngestionRestrictionLogic'
 
-import type { PipelinesEnumApi } from '~/generated/core/api.schemas'
+import type { IngestionPipelineEnumApi } from '~/generated/core/api.schemas'
 
 interface RestrictionEffect {
     label: string
@@ -38,7 +38,7 @@ const UNKNOWN_EFFECT: RestrictionEffect = {
     description: 'Matching events are handled differently from normal. Contact support for details.',
 }
 
-const PIPELINE_LABELS: Record<PipelinesEnumApi, string> = {
+const PIPELINE_LABELS: Record<IngestionPipelineEnumApi, string> = {
     analytics: 'analytics',
     session_recordings: 'session recordings',
     errortracking: 'error tracking',

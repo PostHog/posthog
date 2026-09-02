@@ -9,6 +9,11 @@ import {
   cancelPermissionInput,
   cancelPromptInput,
   cancelSessionInput,
+  claudeAuthTerminalInput,
+  claudeAuthTerminalOutput,
+  claudeSubscriptionStatusOutput,
+  codexSubscriptionLoginOutput,
+  codexSubscriptionStatusOutput,
   getPiModelCatalogInput,
   getPiModelCatalogOutput,
   getPreviewConfigOptionsInput,
@@ -83,6 +88,43 @@ export const agentRouter = router({
     .query(({ ctx }) =>
       ctx.container.get<AgentService>(AGENT_SERVICE).getRtkStatus(),
     ),
+
+  codexSubscriptionStatus: publicProcedure
+    .output(codexSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getCodexSubscriptionStatus(),
+    ),
+
+  claudeSubscriptionStatus: publicProcedure
+    .output(claudeSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getClaudeSubscriptionStatus(),
+    ),
+
+  claudeAuthTerminal: publicProcedure
+    .input(claudeAuthTerminalInput)
+    .output(claudeAuthTerminalOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getClaudeAuthTerminal(input.action),
+    ),
+
+  codexSubscriptionLoginStart: publicProcedure
+    .output(codexSubscriptionLoginOutput)
+    .mutation(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .startCodexSubscriptionLogin(),
+    ),
+
+  codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).signOutCodexSubscription(),
+  ),
 
   reconnect: publicProcedure
     .input(reconnectSessionInput)
@@ -235,6 +277,10 @@ export const agentRouter = router({
     .query(({ ctx, input }) =>
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
-        .getPreviewConfigOptions(input.apiHost, input.adapter),
+        .getPreviewConfigOptions(
+          input.apiHost,
+          input.adapter,
+          input.allHarnessModels,
+        ),
     ),
 });

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::cli::BlastArgs;
 use crate::client::HarnessClient;
+use crate::pool::TargetPool;
 use crate::report::{print_report, ConsistencyViolation};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
@@ -20,7 +21,7 @@ use crate::traffic_metrics;
 pub async fn run(args: BlastArgs) -> Result<()> {
     let client =
         HarnessClient::connect_with_channels(&args.router_url, args.router_channels).await?;
-    let person_ids = Arc::new(args.person_ids.clone());
+    let person_ids = Arc::new(TargetPool::new(args.person_ids.clone()));
 
     println!(
         "Blasting {} persons for {} with concurrency {}...",
@@ -115,7 +116,7 @@ impl PropertyPlan {
 pub async fn run_traffic(
     client: &HarnessClient,
     team_id: i64,
-    person_ids: Arc<Vec<i64>>,
+    person_ids: Arc<TargetPool>,
     duration: Duration,
     concurrency: usize,
     rate_per_sec: Option<f64>,
@@ -124,6 +125,9 @@ pub async fn run_traffic(
     state: &PersonState,
     stop: Arc<AtomicBool>,
 ) -> Result<()> {
+    if person_ids.is_empty() {
+        bail!("no traffic targets: the pool is empty");
+    }
     let deadline = Instant::now() + duration;
     let worker_tick = rate_per_sec.map(|rate| per_worker_tick(rate, concurrency));
 
@@ -148,7 +152,11 @@ pub async fn run_traffic(
                 if let Some(pacer) = pacer.as_mut() {
                     pacer.tick().await;
                 }
-                let person_id = person_ids[rng.gen_range(0..person_ids.len())];
+                // The merge lane can empty the pool. Stop instead of
+                // spinning.
+                let Some(person_id) = person_ids.pick_random(&mut rng) else {
+                    break;
+                };
 
                 let key = plan.key(worker_id, &mut rng);
                 let value = Uuid::new_v4().to_string();
@@ -180,6 +188,12 @@ pub async fn run_traffic(
                         }
                     }
                     Err(e) => {
+                        if is_lifecycle_rejection(&e) {
+                            // The write did not apply, so the key stays
+                            // certain.
+                            collector.writes.record_lifecycle_rejection();
+                            continue;
+                        }
                         collector.writes.record_failure();
                         traffic_metrics::record_write_failed(traffic_metrics::LANE_BLAST, &e);
                         state.record_write_uncertain(person_id, &key).await;
@@ -198,6 +212,26 @@ pub async fn run_traffic(
     Ok(())
 }
 
+/// True for the refusals a lifecycle op causes: FAILED_PRECONDITION
+/// with the leader's fenced header, or NOT_FOUND for a destroyed
+/// person. Both mean the write did not apply. Other FAILED_PRECONDITION
+/// causes, such as a handoff, stay failures.
+pub fn is_lifecycle_rejection(err: &anyhow::Error) -> bool {
+    let Some(status) = err.downcast_ref::<tonic::Status>() else {
+        return false;
+    };
+    match status.code() {
+        tonic::Code::NotFound => true,
+        tonic::Code::FailedPrecondition => status.metadata().contains_key("x-person-fenced"),
+        _ => false,
+    }
+}
+
+pub fn is_not_found(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<tonic::Status>()
+        .is_some_and(|status| status.code() == tonic::Code::NotFound)
+}
+
 /// The tick interval each of `concurrency` workers needs so their
 /// combined rate hits `rate_per_sec`. Rates too low to represent tick at
 /// most once per hour rather than dividing by zero.
@@ -211,6 +245,8 @@ pub fn per_worker_tick(rate_per_sec: f64, concurrency: usize) -> Duration {
 /// violation, not a skip: NotFound for a person with acked writes means the
 /// person is gone, and a read error (retried once, since verification can
 /// race a settling handoff) means visibility cannot be asserted at all.
+/// A merged source must not read as alive. Its writes are verified on
+/// the survivor.
 pub async fn verify_strong(
     client: &HarnessClient,
     collector: &StatsCollector,
@@ -220,17 +256,36 @@ pub async fn verify_strong(
     let person_ids = state.person_ids().await;
     let mut all_violations = Vec::new();
 
+    for person_id in state.merged_source_ids().await {
+        let start = Instant::now();
+        match strong_read_with_retry(client, team_id, person_id).await {
+            // NOT_FOUND is the expected answer for a merged source.
+            Err(e) if is_not_found(&e) => collector.reads.record_success(start.elapsed()),
+            Ok(Some(person)) if !person.is_deleted => {
+                collector.reads.record_success(start.elapsed());
+                all_violations.push(ConsistencyViolation {
+                    person_id,
+                    key: "__merged_source_alive".to_string(),
+                    expected: json!("not found after the merge"),
+                    actual: json!({ "version": person.version }),
+                });
+            }
+            Ok(_) => collector.reads.record_success(start.elapsed()),
+            Err(e) => {
+                collector.reads.record_failure();
+                all_violations.push(ConsistencyViolation {
+                    person_id,
+                    key: "__strong_read_failed".to_string(),
+                    expected: json!("readable"),
+                    actual: json!(e.to_string()),
+                });
+            }
+        }
+    }
+
     for person_id in person_ids {
         let start = Instant::now();
-        let mut result = client
-            .get_person(team_id, person_id, ConsistencyLevel::Strong)
-            .await;
-        if result.is_err() {
-            sleep(Duration::from_secs(2)).await;
-            result = client
-                .get_person(team_id, person_id, ConsistencyLevel::Strong)
-                .await;
-        }
+        let result = strong_read_with_retry(client, team_id, person_id).await;
 
         match result {
             Ok(Some(person)) => {
@@ -271,6 +326,23 @@ pub async fn verify_strong(
     }
 
     Ok(all_violations)
+}
+
+async fn strong_read_with_retry(
+    client: &HarnessClient,
+    team_id: i64,
+    person_id: i64,
+) -> Result<Option<personhog_proto::personhog::types::v1::Person>> {
+    let mut result = client
+        .get_person(team_id, person_id, ConsistencyLevel::Strong)
+        .await;
+    if result.as_ref().is_err_and(|e| !is_not_found(e)) {
+        sleep(Duration::from_secs(2)).await;
+        result = client
+            .get_person(team_id, person_id, ConsistencyLevel::Strong)
+            .await;
+    }
+    result
 }
 
 #[cfg(test)]

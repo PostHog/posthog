@@ -13,12 +13,11 @@ import {
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -39,7 +38,6 @@ const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
 }
 
 export function CustomPropertiesConfig(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const {
         filteredDefinitions,
         definitionsLoading,
@@ -65,8 +63,6 @@ export function CustomPropertiesConfig(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const accountSyncHistoryEnabled = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC]
-
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
         LemonDialog.open({
             title: `Delete ${definition.name}?`,
@@ -149,15 +145,13 @@ export function CustomPropertiesConfig(): JSX.Element {
                 ),
         },
         {
-            title: accountSyncHistoryEnabled ? (
+            title: (
                 <span className="flex items-center gap-1">
                     Sync
                     <Tooltip title="Expand a warehouse-backed account property to see staging, retries, and account updates.">
                         <IconInfo className="text-secondary" />
                     </Tooltip>
                 </span>
-            ) : (
-                'Sync'
             ),
             render: (_, definition) => {
                 if (definition.is_canonical) {
@@ -250,9 +244,7 @@ export function CustomPropertiesConfig(): JSX.Element {
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
                 expandable={{
                     rowExpandable: (definition) =>
-                        accountSyncHistoryEnabled &&
-                        definition.target_type === 'account' &&
-                        !!definition.source?.saved_query,
+                        definition.target_type === 'account' && !!definition.source?.saved_query,
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
                     noIndent: true,
                     expandedRowRender: (definition) =>

@@ -13,7 +13,7 @@ const taskMetadataSchema = z.object({
   lastActivityAt: z.string().nullable(),
 });
 
-export type TaskMetadata = z.infer<typeof taskMetadataSchema>;
+type TaskMetadata = z.infer<typeof taskMetadataSchema>;
 
 const EMPTY: TaskMetadata = {
   pinnedAt: null,
