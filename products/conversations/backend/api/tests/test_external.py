@@ -371,6 +371,9 @@ class TestExternalTicketAPI(BaseTest):
             ("inverted_range", {"days": ["monday"], "time": ["17:00", "09:00"], "timezone": "UTC"}),
             ("unknown_timezone", {"days": ["monday"], "time": "any", "timezone": "Mars/Olympus"}),
             ("unknown_weekday", {"days": ["funday"], "time": "any", "timezone": "UTC"}),
+            ("hour_out_of_range", {"days": ["monday"], "time": ["09:00", "99:00"], "timezone": "UTC"}),
+            ("wrong_part_count", {"days": ["monday"], "time": ["9", "17"], "timezone": "UTC"}),
+            ("non_numeric_time", {"days": ["monday"], "time": ["ab:cd", "ef:gh"], "timezone": "UTC"}),
         ]
     )
     def test_patch_rejects_invalid_business_hours(self, _name, business_hours):
@@ -381,6 +384,9 @@ class TestExternalTicketAPI(BaseTest):
             **self._auth_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # A malformed window is business-hours input, so it is reported under
+        # `sla_business_hours`, not the deadline calculator's `sla_amount` key.
+        self.assertIn("sla_business_hours", response.json()["error"])
 
     def test_get_ticket_returns_sla_due_at(self):
         from django.utils import timezone

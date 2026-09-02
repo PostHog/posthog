@@ -29,6 +29,26 @@ from products.conversations.backend.models.constants import Priority, Status
 from products.conversations.backend.services.sla import MAX_SLA_AMOUNT_BY_UNIT, WEEKDAYS, compute_sla_deadline
 
 
+def _sla_clock_minutes(value: object) -> int:
+    """Parse an 'HH:MM' string into minutes since midnight, rejecting malformed or out-of-range times.
+
+    Comparing the window bounds as minutes (not as text) keeps a bad time like
+    '99:00' from passing here and surfacing later under `sla_amount`.
+    """
+    if not isinstance(value, str):
+        raise serializers.ValidationError("sla_business_hours.time entries must be HH:MM strings")
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise serializers.ValidationError(f"sla_business_hours.time entries must be HH:MM, got {value!r}")
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise serializers.ValidationError(f"sla_business_hours.time entries must be HH:MM, got {value!r}")
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise serializers.ValidationError(f"sla_business_hours.time entries out of range, got {value!r}")
+    return hour * 60 + minute
+
+
 class TicketActionUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
     priority = serializers.ChoiceField(choices=[p.value for p in Priority], required=False)
@@ -61,9 +81,7 @@ class TicketActionUpdateSerializer(serializers.Serializer):
         if time_cfg != "any":
             if not (isinstance(time_cfg, list) and len(time_cfg) == 2):
                 raise serializers.ValidationError("sla_business_hours.time must be 'any' or [start, end]")
-            if not isinstance(time_cfg[0], str) or not isinstance(time_cfg[1], str):
-                raise serializers.ValidationError("sla_business_hours.time entries must be HH:MM strings")
-            if time_cfg[0] >= time_cfg[1]:
+            if _sla_clock_minutes(time_cfg[0]) >= _sla_clock_minutes(time_cfg[1]):
                 raise serializers.ValidationError("sla_business_hours.time start must be strictly before end")
 
         tz_name = value.get("timezone") or "UTC"
