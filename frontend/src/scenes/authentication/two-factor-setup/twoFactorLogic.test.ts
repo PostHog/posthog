@@ -7,7 +7,7 @@ import { twoFactorLogic } from './twoFactorLogic'
 
 describe('twoFactorLogic', () => {
     let logic: ReturnType<typeof twoFactorLogic.build>
-    let secretsMinted: number
+    let secretsMinted = 0
 
     beforeEach(() => {
         secretsMinted = 0

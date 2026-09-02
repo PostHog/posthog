@@ -105,18 +105,12 @@ export interface twoFactorLogicActions {
         errorObject?: any
     }
     closeTwoFactorSetupModalSuccess: (
-        startSetup: {
-            secret: string
-            success: boolean
-        } | null,
+        startSetup: null,
         payload?: {
             value: true
         }
     ) => {
-        startSetup: {
-            secret: string
-            success: boolean
-        } | null
+        startSetup: null
         payload?: {
             value: true
         }

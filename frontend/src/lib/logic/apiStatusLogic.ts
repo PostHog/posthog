@@ -39,6 +39,17 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+function shouldOpenTwoFactorSetupModal(): boolean {
+    // A request that was already in flight when the user finished setup still answers 403.
+    // Re-opening on that would send them back through enrollment and a fresh QR code.
+    const twoFactor = twoFactorLogic.findMounted()
+    return (
+        !twoFactor?.values.isTwoFactorSetupModalOpen &&
+        !twoFactor?.values.is2FAEnabled &&
+        !userLogic.findMounted()?.values.user?.is_2fa_enabled
+    )
+}
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
@@ -107,11 +118,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     } else if (
                         responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
-                        !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen &&
-                        // A request that was already in flight when the user finished setup still
-                        // answers 403. Re-opening on that would send them back through enrollment.
-                        !twoFactorLogic.findMounted()?.values.is2FAEnabled &&
-                        !userLogic.findMounted()?.values.user?.is_2fa_enabled
+                        shouldOpenTwoFactorSetupModal()
                     ) {
                         twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
                     } else if (
