@@ -4,7 +4,6 @@ import { render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,9 +28,6 @@ describe('PlayerSidebarExperimentsSection', () => {
             },
         })
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT], {
-            [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true,
-        })
     })
 
     // Pinning lifts the arrived-from experiment out of the enrolled group, and so out of that group's
