@@ -1033,7 +1033,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.loadSubscription()
         },
         '/subscriptions/new': (_, searchParams) => {
-            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: SubscriptionResourceTypes.AiPrompt })
+            // The subscriptions scene can now pick an insight or dashboard to send, which
+            // arrives as props. Without one there is nothing to snapshot, so the only thing
+            // this route can create is a report from a prompt.
+            const isParentless = !props.insightShortId && !props.dashboardId
+            actions.loadSubscriptionSuccess({
+                ...NEW_SUBSCRIPTION,
+                ...(isParentless ? { resource_type: SubscriptionResourceTypes.AiPrompt } : {}),
+            })
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }

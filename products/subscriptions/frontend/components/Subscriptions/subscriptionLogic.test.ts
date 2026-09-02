@@ -370,6 +370,19 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    // The subscriptions scene can pick an insight to send, and reaches the same URL. Forcing
+    // the AI type there would turn every snapshot subscription started from that scene into a
+    // report from a prompt.
+    it('keeps a snapshot subscription when the parent-less URL carries an insight', async () => {
+        const insightLogic = subscriptionLogic({ insightShortId: Insight1, id: 'new' })
+        insightLogic.mount()
+
+        router.actions.push('/subscriptions/new')
+        await expectLogic(insightLogic).toFinishListeners()
+
+        expect(insightLogic.values.subscription.resource_type).toBe('insight')
+    })
+
     it.each([
         ['an unsupported frequency', 'frequency=hourly', 'frequency', 'weekly'],
         ['a blank prompt', 'prompt=', 'prompt', undefined],
