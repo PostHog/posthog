@@ -414,6 +414,9 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
 
     if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
         return "signals_scout_reports"
+    # The suggestion scan only reads; a reconciled run must not inherit the generic full posture.
+    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
+        return "read_only"
 
     # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
     # degrade to read_only, never escalate to the full write surface the generic fallback
