@@ -24,6 +24,8 @@ from django.utils import timezone
 
 import structlog
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
@@ -83,8 +85,25 @@ ALERT_THROTTLE_KEY_PREFIX = "error_tracking:alert_throttle:v1"
 MAX_RECORDED_ERROR_LENGTH = 500
 
 
-class AlertDeliveryError(Exception):
-    pass
+# Slack error codes that no retry can fix: the bot was removed, the channel is gone
+# or archived, or the token lost a scope. Recorded on the destination and skipped.
+SLACK_TERMINAL_ERRORS = frozenset(
+    {
+        "not_in_channel",
+        "account_inactive",
+        "is_archived",
+        "channel_not_found",
+        "invalid_auth",
+        "token_revoked",
+        "missing_scope",
+        "not_allowed_token_type",
+    }
+)
+
+
+class AlertDeliveryError(ApplicationError):
+    def __init__(self, message: str, *, retry_after: timedelta | None = None) -> None:
+        super().__init__(message, next_retry_delay=retry_after)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -173,6 +192,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
     throttle_allowed: dict = {}
     delivered = 0
     failures = 0
+    retry_after = timedelta(0)
     for delivery in planned:
         if delivery.is_opener:
             verdict = filter_matches.get(delivery.alert.id, True)
@@ -211,6 +231,31 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 notification_id=inputs.notification_id,
             )
             failures += 1
+        except SlackApiError as error:
+            code = _slack_error_code(error)
+            _record_delivery_outcome(delivery.destination, error=f"Slack error: {code}")
+            if code in SLACK_TERMINAL_ERRORS:
+                # A configuration gap, like the missing-integration path: retrying
+                # would burn every attempt for the same outcome.
+                logger.warning(
+                    "error_tracking_alert_destination_rejected",
+                    team_id=inputs.team_id,
+                    alert_id=str(delivery.alert.id),
+                    destination_id=str(delivery.destination.id),
+                    slack_error=code,
+                )
+                continue
+            if code == "ratelimited":
+                retry_after = max(retry_after, _slack_retry_after(error))
+            logger.warning(
+                "error_tracking_alert_delivery_failed",
+                team_id=inputs.team_id,
+                alert_id=str(delivery.alert.id),
+                destination_id=str(delivery.destination.id),
+                slack_error=code,
+                notification_id=inputs.notification_id,
+            )
+            failures += 1
         except Exception as error:
             # Give every destination a chance before surfacing the failure to
             # Temporal; the per-notification claim makes the retry safe for the
@@ -227,8 +272,26 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
             _record_delivery_outcome(delivery.destination, error=str(error))
             failures += 1
     if failures:
-        raise AlertDeliveryError(f"{failures} of {len(planned)} alert deliveries failed")
+        # Slack's Retry-After drives the next attempt so early retries do not land
+        # inside the rate-limit window and burn the budget.
+        raise AlertDeliveryError(
+            f"{failures} of {len(planned)} alert deliveries failed", retry_after=retry_after or None
+        )
     return delivered
+
+
+def _slack_error_code(error: SlackApiError) -> str:
+    try:
+        return str(error.response["error"])
+    except (KeyError, TypeError):
+        return "unknown"
+
+
+def _slack_retry_after(error: SlackApiError) -> timedelta:
+    try:
+        return timedelta(seconds=int(error.response.headers.get("Retry-After", 0)))
+    except (AttributeError, TypeError, ValueError):
+        return timedelta(0)
 
 
 def _opener_throttle_allows(alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs) -> bool:

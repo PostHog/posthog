@@ -12,6 +12,8 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web.slack_response import SlackResponse
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.cdp.filters import compile_filters_bytecode
@@ -474,6 +476,45 @@ class TestSlackThreadDelivery(AlertTestMixin):
         with team_scope(self.team.id):
             rooted = [t for t in ErrorTrackingAlertThread.objects.filter(issue=self.issue) if t.external_ref.get("ts")]
         assert len(rooted) == 1
+
+    def _slack_error(self, code: str, status: int = 200, headers: dict | None = None) -> SlackApiError:
+        response = SlackResponse(
+            client=None,
+            http_verb="POST",
+            api_url="https://slack.com/api/chat.postMessage",
+            req_args={},
+            data={"ok": False, "error": code},
+            headers=headers or {},
+            status_code=status,
+        )
+        return SlackApiError(f"slack {code}", response)
+
+    def test_terminal_slack_errors_are_recorded_and_not_retried(self):
+        # The bot is not in the channel: no retry fixes that, so the destination is
+        # marked failed and the notification completes without burning attempts.
+        client = self._mock_slack()
+        client.chat_postMessage.side_effect = self._slack_error("not_in_channel")
+        alert = self._create_alert(triggers=["issue_created"])
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 0
+
+        client.chat_postMessage.assert_called_once()
+        with team_scope(self.team.id):
+            destination = alert.destinations.get()
+            thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
+        assert destination.last_error == "Slack error: not_in_channel"
+        assert destination.consecutive_failures == 1
+        assert thread.pending_notification_id is None
+
+    def test_rate_limited_slack_call_retries_after_the_window(self):
+        client = self._mock_slack()
+        client.chat_postMessage.side_effect = self._slack_error("ratelimited", 429, {"Retry-After": "30"})
+        self._create_alert(triggers=["issue_created"])
+
+        with self.assertRaises(AlertDeliveryError) as raised:
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        assert raised.exception.next_retry_delay == timedelta(seconds=30)
 
 
 class TestAlertFilterEvaluation(AlertTestMixin):
