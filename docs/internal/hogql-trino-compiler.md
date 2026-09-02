@@ -8,7 +8,15 @@ Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backe
 
 The returned SQL uses named placeholders, with values stored in `context.values`. `convert_pyformat_placeholders` converts these into positional placeholders and values for a Trino client; calling this helper does not execute SQL.
 
-Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to a separate connection-integration change. They are not prerequisites for compilation.
+Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to separate integration changes. They are not prerequisites for compilation.
+
+## Managed Trino connections
+
+Call `resolve_managed_warehouse_trino_connection(...)` through the managed-warehouse client facade when a backend job needs a live Trino target. The resolver accepts a target only when the control plane reports the organization as enabled and ready. It reads the catalog plus non-secret host, port, and username from `status.connection`, then combines them with the root password already stored for the managed warehouse. The connection contract redacts that password from its representation.
+
+Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with basic authentication, HTTPS, certificate verification, and a bounded request timeout. The connector has no Duckgres fallback. A disabled target, non-ready state, organization mismatch, malformed endpoint, or missing stored credential fails before opening a socket.
+
+The Django `DuckgresServer` row remains the transitional owner of the existing root secret; it does not become the source of truth for Trino placement. Trino cell assignment, endpoint identity, and catalog naming stay in the control plane. No second Django model or copied control-plane status is required.
 
 For supported string, array, and map arguments, `empty(x)` returns true when the value is NULL or has zero length. `notEmpty(x)` requires a non-NULL value with nonzero length. String predicates use an empty-string comparison; arrays and maps use `cardinality`.
 
@@ -38,6 +46,8 @@ For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the ma
 - `events` and `persons` to the project's provisioned tables in the `posthog` schema;
 - materialized saved queries to their `posthog_data_modeling_team_<team_id>` DuckLake copies;
 - copied warehouse sources to their provisioned data-import schema and table names.
+
+The compiler returns Trino SQL and parameter values by default. Pass `include_hogql=True` to include a normalized HogQL diagnostic; this optional rendering reuses the compilation database.
 
 The control-plane read accepts both `trino_catalog_name` and the earlier `catalog` field during a rolling deployment. A disabled or non-ready Trino target, an organization mismatch, a missing team row, or an unmapped relation fails compilation before SQL submission. The helper only compiles; deploying it does not change query routing or execute Trino SQL.
 
