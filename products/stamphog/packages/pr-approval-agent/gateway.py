@@ -10,8 +10,9 @@ import os
 import json
 from urllib.parse import urlparse
 
-# aio_ matches the other cutovers; no $ai_ prefix (gateway strips those).
-AI_PRODUCT = "aio_stamphog"
+# Hosted runs carry this pinned on their scoped token; the blob copy tags standard-credential
+# (local) runs. No $ai_ prefix (gateway strips those).
+AI_PRODUCT = "stamphog"
 
 
 def analytics_extra_properties() -> dict[str, object]:
