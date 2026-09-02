@@ -30,11 +30,18 @@ CLOUDFLARE_API_TIMEOUT_S = 8.0
 class CloudflareAPIError(Exception):
     """Exception raised when Cloudflare API returns an error."""
 
-    def __init__(self, message: str, errors: t.Optional[list[dict]] = None) -> None:
+    def __init__(
+        self, message: str, errors: t.Optional[list[dict]] = None, status_code: t.Optional[int] = None
+    ) -> None:
         super().__init__(message)
         self.errors = errors or []
+        self.status_code = status_code
 
     def is_rate_limited(self) -> bool:
+        # The status carries the answer when the body does not: Cloudflare can return a 429 with an
+        # HTML body, which names no error code and does not say "rate limit" either.
+        if self.status_code == requests.codes.too_many_requests:
+            return True
         return any(err.get("code") == 10000 for err in self.errors) or "rate limit" in str(self).lower()
 
 
@@ -230,7 +237,10 @@ def _handle_response(response: requests.Response) -> dict:
     try:
         data = response.json()
     except requests.exceptions.JSONDecodeError:
-        raise CloudflareAPIError(f"Invalid JSON response (status {response.status_code}): {response.text[:200]}")
+        raise CloudflareAPIError(
+            f"Invalid JSON response (status {response.status_code}): {response.text[:200]}",
+            status_code=response.status_code,
+        )
 
     if not data.get("success", False):
         errors = data.get("errors", [])
@@ -238,6 +248,7 @@ def _handle_response(response: requests.Response) -> dict:
         raise CloudflareAPIError(
             f"Cloudflare API error: {', '.join(error_messages)}",
             errors=errors,
+            status_code=response.status_code,
         )
 
     return data
