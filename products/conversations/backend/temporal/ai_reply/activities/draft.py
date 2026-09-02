@@ -195,6 +195,7 @@ TICKET TYPE: {input.ticket_type} — {TICKET_TYPE_HINTS.get(input.ticket_type, "
 {data_safety_block}{diagnostic_block}
 INSTRUCTIONS:
 - Draft a helpful, accurate reply to the customer's question. Lead with the answer, be concise and friendly.
+- Write the reply in the same language the customer used in the ticket. Search for sources in any language, but answer in theirs.
 - The KNOWLEDGE BASE RESULTS above are a starting point, not a ceiling. Use your tools to search for additional information:
   - docs-search: searches the official PostHog documentation (https://posthog.com/docs) via Inkeep. Best for product features, billing, setup, SDKs, APIs, etc.
   - business-knowledge-documents-search: searches this team's own business knowledge for team-specific answers.{config_tools_block}
