@@ -18,7 +18,11 @@ logger = structlog.get_logger()
 logging.basicConfig(level=logging.INFO)
 
 # Cluster trouble the next attempt can get past: a busy or unreachable ClickHouse host.
-RETRIABLE_ERRORS = (*CH_TRANSIENT_ERRORS, NetworkError, SocketTimeoutError)
+# The clickhouse_driver classes cover a host refused while the connection opens. The native socket
+# classes cover a host that dies mid-read, after the connection is up: the driver re-raises those
+# unwrapped (EOFError, ConnectionResetError and other ConnectionError subclasses, and a client-side
+# TimeoutError), so no clickhouse_driver class or server code names them.
+RETRIABLE_ERRORS = (*CH_TRANSIENT_ERRORS, NetworkError, SocketTimeoutError, ConnectionError, EOFError, TimeoutError)
 # A socket timeout (209) or network error (210) raised server-side reaches this activity wrapped by
 # sync_execute into a fresh dynamic class on every call, which no isinstance tuple can name, so those
 # transient transport failures must be matched by code too.

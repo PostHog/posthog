@@ -27,6 +27,12 @@ from posthog.temporal.quota_limiting.run_quota_limiting import (
         (wrap_clickhouse_query_error(ServerException("Socket timeout.", code=209)), True),
         (wrap_clickhouse_query_error(ServerException("Network error.", code=210)), True),
         (SocketTimeoutError("Read timed out."), True),
+        # A host that dies mid-read, after the connection is up, reaches the activity as a native
+        # socket class the driver re-raises unwrapped and no server code names, so the run must
+        # retry these too.
+        (ConnectionResetError("Connection reset by peer."), True),
+        (EOFError("Unexpected EOF while reading bytes."), True),
+        (TimeoutError("Read timed out."), True),
         # A bug in the run repeats on every attempt, so retrying only adds cluster load.
         (ValueError("bad usage row"), False),
     ],
