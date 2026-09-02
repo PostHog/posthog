@@ -41849,6 +41849,16 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * * `loops` - Loops
+     */
+    export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
+
+
+    export const HogFlowOriginProductEnum = {
+      Loops: 'loops',
+    } as const;
+
     export interface HogFlowMasking {
       /**
          * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
@@ -42149,6 +42159,10 @@ export namespace Schemas {
        * * `active` - Active
        * * `archived` - Archived */
       status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+       *
+       * * `loops` - Loops */
+      origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -42331,6 +42345,7 @@ export namespace Schemas {
       readonly description: string;
       readonly version: number;
       readonly status: HogFlowStateEnum;
+      readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -42561,6 +42576,88 @@ export namespace Schemas {
          */
       abort_action?: string | null;
       variables?: HogFlowTemplateVariablesItem[];
+    }
+
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
+    export type HogFlowUpdateVariablesItem = {[key: string]: string};
+
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type HogFlowUpdateActionRedirects = {[key: string]: string} | null;
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface HogFlowUpdate {
+      readonly id: string;
+      /**
+         * Workflow name.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional description. */
+      description?: string;
+      readonly version: number;
+      /** draft (no execution), active (live), archived (disabled).
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow. This value cannot change after creation.
+       *
+       * * `loops` - Loops */
+      readonly origin_product: HogFlowOriginProductEnum | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      readonly trigger: unknown;
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+      trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+      actions: HogFlowAction[];
+      /** @nullable */
+      readonly abort_action: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
+      variables?: HogFlowUpdateVariablesItem[];
+      readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects: HogFlowUpdateActionRedirects;
     }
 
     /**
@@ -57050,9 +57147,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly scheduled_at: string | null;
-      /** Channel snapshot at send time (email or slack). */
+      /** Channel snapshot at send time: email, slack, or teams. */
       readonly target_type: string;
-      /** Destination snapshot at send time (emails, channel id, URL). */
+      /** Destination snapshot at send time: the email list, the Slack channel id, or the host of the Microsoft Teams webhook. The webhook URL itself is never returned. */
       readonly target_value: string;
       /**
          * ExportedAsset ids generated for this send.
@@ -57134,6 +57231,7 @@ export namespace Schemas {
     /**
      * * `email` - Email
      * * `slack` - Slack
+     * * `teams` - Microsoft Teams
      */
     export type SubscriptionTargetEnum = typeof SubscriptionTargetEnum[keyof typeof SubscriptionTargetEnum];
 
@@ -57141,6 +57239,7 @@ export namespace Schemas {
     export const SubscriptionTargetEnum = {
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
     } as const;
 
     /**
@@ -57199,12 +57298,13 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
-      /** Delivery channel: email or slack.
+      /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
-       * * `slack` - Slack */
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams */
       target_type: SubscriptionTargetEnum;
-      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
       target_value: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
        *
@@ -62820,84 +62920,6 @@ export namespace Schemas {
       readonly resolved_at?: string | null;
     }
 
-    /**
-     * Variable: {key, type: string|number|boolean, default}.
-     */
-    export type PatchedHogFlowVariablesItem = {[key: string]: string};
-
-    /**
-     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
-     * @nullable
-     */
-    export type PatchedHogFlowActionRedirects = {[key: string]: string} | null;
-
-    /**
-     * Mixin for serializers to add user access control fields
-     */
-    export interface PatchedHogFlow {
-      readonly id?: string;
-      /**
-         * Workflow name.
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** Optional description. */
-      description?: string;
-      readonly version?: number;
-      /** draft (no execution), active (live), archived (disabled).
-       *
-       * * `draft` - Draft
-       * * `active` - Active
-       * * `archived` - Archived */
-      status?: HogFlowStateEnum;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly updated_at?: string;
-      readonly trigger?: unknown;
-      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
-      trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-      conversion?: HogFlowConversion | null;
-      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
-       *
-       * * `exit_on_conversion` - Conversion
-       * * `exit_on_trigger_not_matched` - Trigger Not Matched
-       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
-       * * `exit_only_at_end` - Only At End */
-      exit_condition?: ExitConditionEnum;
-      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
-      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
-      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
-      edges?: HogFlowEdge[];
-      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
-      actions?: HogFlowAction[];
-      /** @nullable */
-      readonly abort_action?: string | null;
-      /** Workflow vars (key, type, default). Total <5KB. */
-      variables?: PatchedHogFlowVariablesItem[];
-      readonly billable_action_types?: unknown;
-      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
-      readonly schedules?: readonly HogFlowSchedule[];
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
-      readonly draft?: unknown;
-      /**
-         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
-         * @nullable
-         */
-      readonly draft_updated_at?: string | null;
-      /**
-         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
-         * @nullable
-         */
-      readonly action_redirects?: PatchedHogFlowActionRedirects;
-    }
-
     export interface PatchedHogFlowActionEmailUpdate {
       /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
       base_updated_at?: string;
@@ -62984,6 +63006,88 @@ export namespace Schemas {
          */
       abort_action?: string | null;
       variables?: PatchedHogFlowTemplateVariablesItem[];
+    }
+
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
+    export type PatchedHogFlowUpdateVariablesItem = {[key: string]: string};
+
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type PatchedHogFlowUpdateActionRedirects = {[key: string]: string} | null;
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface PatchedHogFlowUpdate {
+      readonly id?: string;
+      /**
+         * Workflow name.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional description. */
+      description?: string;
+      readonly version?: number;
+      /** draft (no execution), active (live), archived (disabled).
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow. This value cannot change after creation.
+       *
+       * * `loops` - Loops */
+      readonly origin_product?: HogFlowOriginProductEnum | null;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      readonly updated_at?: string;
+      readonly trigger?: unknown;
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+      trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+      actions?: HogFlowAction[];
+      /** @nullable */
+      readonly abort_action?: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
+      variables?: PatchedHogFlowUpdateVariablesItem[];
+      readonly billable_action_types?: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules?: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft?: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects?: PatchedHogFlowUpdateActionRedirects;
     }
 
     /**
@@ -66177,12 +66281,13 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
-      /** Delivery channel: email or slack.
+      /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
-       * * `slack` - Slack */
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams */
       target_type?: SubscriptionTargetEnum;
-      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
       target_value?: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
        *
@@ -94813,6 +94918,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     */
+    origin_product?: HogFlowsListOriginProduct;
+    /**
      * Case-insensitive search across workflow name and description.
      */
     search?: string;
@@ -94832,6 +94941,13 @@ export namespace Schemas {
     type?: HogFlowsListType;
     updated_at?: string;
     };
+
+    export type HogFlowsListOriginProduct = typeof HogFlowsListOriginProduct[keyof typeof HogFlowsListOriginProduct];
+
+
+    export const HogFlowsListOriginProduct = {
+      Loops: 'loops',
+    } as const;
 
     export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
 
@@ -98764,7 +98880,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Filter by delivery channel (email or Slack).
+     * Filter by delivery channel: email, Slack, or Microsoft Teams.
      */
     target_type?: SubscriptionsListTargetType;
     };
@@ -98784,6 +98900,7 @@ export namespace Schemas {
     export const SubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
     } as const;
 
     export type SubscriptionsDeliveriesListParams = {

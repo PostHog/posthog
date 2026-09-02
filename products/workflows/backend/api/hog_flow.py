@@ -2370,6 +2370,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2431,6 +2432,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2441,6 +2443,13 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=HogFlow.OriginProduct.choices,
+        required=False,
+        allow_null=True,
+        help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
+        "creating a workflow. Filter the list with `?origin_product=`.",
+    )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )
@@ -2642,6 +2651,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "description",
             "version",
             "status",
+            "origin_product",
             "created_at",
             "created_by",
             "updated_at",
@@ -2846,6 +2856,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def update(self, instance, validated_data):
         self._strip_secret_inputs(validated_data)
         return super().update(instance, validated_data)
+
+
+class HogFlowUpdateSerializer(HogFlowSerializer):
+    origin_product = serializers.ChoiceField(
+        choices=HogFlow.OriginProduct.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Product surface that owns this workflow. This value cannot change after creation.",
+    )
+
+    def validate(self, data: dict) -> dict:
+        instance = cast(Optional[HogFlow], self.instance)
+        submitted_origin_product = self.initial_data.get("origin_product", serializers.empty)
+        if (
+            instance is not None
+            and submitted_origin_product is not serializers.empty
+            and submitted_origin_product != instance.origin_product
+        ):
+            raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
+        return super().validate(data)
 
 
 GRAPH_OPERATION_TYPES = [
@@ -3348,6 +3378,12 @@ def mint_audience_confirm_token(
                 description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
             ),
             OpenApiParameter(
+                "origin_product",
+                OpenApiTypes.STR,
+                enum=HogFlow.OriginProduct.values,
+                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            ),
+            OpenApiParameter(
                 "trigger",
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
@@ -3454,6 +3490,8 @@ class HogFlowViewSet(
             if self.request is not None and self._is_mcp_request(self.request):
                 return HogFlowSummarySerializer
             return HogFlowMinimalSerializer
+        if self.action in ("update", "partial_update"):
+            return HogFlowUpdateSerializer
         return HogFlowSerializer
 
     def get_serializer_context(self) -> dict:
@@ -3500,6 +3538,14 @@ class HogFlowViewSet(
                 queryset = (
                     queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
                 )
+
+            origin_product = self.request.GET.get("origin_product")
+            if origin_product:
+                if origin_product not in HogFlow.OriginProduct.values:
+                    raise exceptions.ValidationError(
+                        {"origin_product": f"Must be one of: {', '.join(HogFlow.OriginProduct.values)}"}
+                    )
+                queryset = queryset.filter(origin_product=origin_product)
 
         if self.request.GET.get("trigger"):
             try:
