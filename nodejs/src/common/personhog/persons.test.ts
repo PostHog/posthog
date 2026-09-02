@@ -300,7 +300,6 @@ describe('PersonHogPersonOperations', () => {
                     const metadata = new Headers()
                     metadata.set('x-person-fenced', 'true')
                     metadata.set('x-person-fenced-op-id', 'merge:op-77')
-                    metadata.set('x-person-fenced-creator', 'creator-event-42')
                     throw new ConnectError('person 42 is held by a lifecycle operation', code, metadata)
                 },
             })
@@ -319,35 +318,6 @@ describe('PersonHogPersonOperations', () => {
             expect(error).toBeInstanceOf(PersonhogFencedError)
             expect(error.personId).toBe('42')
             expect(error.fencingOpId).toBe('merge:op-77')
-            expect(error.fencingCreatorEventUuid).toBe('creator-event-42')
-        })
-
-        it('a fence carrying no creator leaves the field unset', async () => {
-            const { ops } = createOperations({
-                updatePersonProperties: () => {
-                    const metadata = new Headers()
-                    metadata.set('x-person-fenced', 'true')
-                    throw new ConnectError(
-                        'person 42 is held by a lifecycle operation',
-                        Code.FailedPrecondition,
-                        metadata
-                    )
-                },
-            })
-
-            const error = await ops
-                .updatePersonProperties({
-                    teamId: 7,
-                    personId: '42',
-                    eventName: '$folded_person_update',
-                    setProperties: { a: '1' },
-                    setOnceProperties: {},
-                    unsetProperties: [],
-                })
-                .catch((e) => e)
-
-            expect(error).toBeInstanceOf(PersonhogFencedError)
-            expect(error.fencingCreatorEventUuid).toBeUndefined()
         })
     })
 })

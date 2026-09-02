@@ -29,12 +29,6 @@ const FENCED_METADATA_KEY = 'x-person-fenced'
 /** Carries the holding operation's id on that refusal. */
 const FENCED_OP_ID_METADATA_KEY = 'x-person-fenced-op-id'
 /**
- * The holding operation's creator event uuid, where the fence carries
- * one: the identity of the event behind the derived op id.
- */
-const FENCED_CREATOR_METADATA_KEY = 'x-person-fenced-creator'
-
-/**
  * The leader rejected an update at the person-properties size ceiling;
  * callers re-wrap it into their own error vocabulary.
  */
@@ -57,9 +51,7 @@ export class PersonhogFencedError extends Error {
     constructor(
         message: string,
         public readonly personId: string,
-        public readonly fencingOpId: string | undefined,
-        /** The uuid of the event whose merge holds the person, where the fence carries one. */
-        public readonly fencingCreatorEventUuid?: string
+        public readonly fencingOpId: string | undefined
     ) {
         super(message)
         this.name = 'PersonhogFencedError'
@@ -253,8 +245,7 @@ export class PersonHogPersonOperations {
                     throw new PersonhogFencedError(
                         error.rawMessage,
                         update.personId,
-                        error.metadata.get(FENCED_OP_ID_METADATA_KEY) ?? undefined,
-                        error.metadata.get(FENCED_CREATOR_METADATA_KEY) ?? undefined
+                        error.metadata.get(FENCED_OP_ID_METADATA_KEY) ?? undefined
                     )
                 }
             }
