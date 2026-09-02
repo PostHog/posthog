@@ -38,13 +38,12 @@ from products.notebooks.backend.util import (
     _iter_markdown_component_blocks,
     _parse_markdown_component_props,
 )
+from products.notebooks.backend.widget_models import MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH, MAX_WIDGET_PROMPT_LENGTH
 
 logger = logging.getLogger(__name__)
 
 GENERATOR_VERSION = "4"
 MAX_INPUT_NAME_LENGTH = 128
-MAX_PROMPT_LENGTH = 20_000
-MAX_EFFECTIVE_PROMPT_LENGTH = 50_000
 MAX_COLUMNS = 100
 MAX_CELL_STRING_LENGTH = 4_096
 MAX_FRAME_BYTES = 512 * 1_024
@@ -234,12 +233,17 @@ def _security_review_state(version: GeneratedWidgetVersion) -> WidgetSecurityRev
     )
 
 
-def normalize_widget_prompt(prompt: str) -> str:
+def normalize_widget_prompt(prompt: str, operation: str) -> str:
     normalized = prompt.strip()
     if not normalized:
         raise WidgetError("Add instructions before generating the widget.", "missing_prompt")
-    if len(normalized) > MAX_PROMPT_LENGTH:
-        raise WidgetError("The widget instructions are too long.", "prompt_too_long")
+    max_length = (
+        MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH
+        if operation == GeneratedWidgetVersion.Operation.REGENERATE
+        else MAX_WIDGET_PROMPT_LENGTH
+    )
+    if len(normalized) > max_length:
+        raise WidgetError(f"Keep widget instructions to {max_length:,} characters or fewer.", "prompt_too_long")
     return normalized
 
 
@@ -263,7 +267,7 @@ def _widget_node_ids(content: object) -> set[str]:
     if markdown is not None:
         occurrences: dict[str, int] = {}
         for tag_name, raw, _next_line_index in _iter_markdown_component_blocks(markdown):
-            if tag_name not in {"Widget", "GeneratedWidget", "GenUI"}:
+            if tag_name != "Widget":
                 continue
             props = _parse_markdown_component_props(raw)
             fingerprint = _get_markdown_component_fingerprint(tag_name, props)
@@ -556,6 +560,7 @@ def _validate_generation_retry(
     prompt: str,
     model: str,
     operation: str,
+    expected_current_version_id: UUID | None,
 ) -> None:
     if job.team_id != notebook.team_id or job.instance.notebook_id != notebook.id or job.instance.node_id != node_id:
         raise WidgetConflictError("This generation identifier belongs to another widget.", "generation_id_conflict")
@@ -567,6 +572,11 @@ def _validate_generation_retry(
     if job.prompt != prompt or job.model != model or job.operation != expected_operation:
         raise WidgetConflictError(
             "This generation identifier was already used with different instructions.",
+            "generation_id_conflict",
+        )
+    if operation == GeneratedWidgetVersion.Operation.IMPROVE and job.base_version_id != expected_current_version_id:
+        raise WidgetConflictError(
+            "This generation identifier was already used for a different widget version.",
             "generation_id_conflict",
         )
 
@@ -645,9 +655,10 @@ def start_widget_generation(
     model: str,
     generation_id: UUID,
     operation: str,
+    expected_current_version_id: UUID | None = None,
 ) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
-    normalized_prompt = normalize_widget_prompt(prompt)
+    normalized_prompt = normalize_widget_prompt(prompt, operation)
     if not Team.objects.filter(id=notebook.team_id, organization__is_ai_data_processing_approved=True).exists():
         raise WidgetError(
             "Approve AI data processing in organization settings before generating widgets.",
@@ -662,6 +673,7 @@ def start_widget_generation(
             prompt=normalized_prompt,
             model=model,
             operation=operation,
+            expected_current_version_id=expected_current_version_id,
         )
         _dispatch_widget_generation(existing_job.id, existing_job.team_id)
         return get_widget_status(notebook=notebook, node_id=node_id)
@@ -683,6 +695,7 @@ def start_widget_generation(
                 prompt=normalized_prompt,
                 model=model,
                 operation=operation,
+                expected_current_version_id=expected_current_version_id,
             )
             return get_widget_status(notebook=notebook, node_id=node_id)
         _fail_stale_generation_jobs(notebook.team_id)
@@ -715,8 +728,20 @@ def start_widget_generation(
                 "generation_in_progress",
             )
         base_version = locked_instance.widget.current_version
-        if operation == GeneratedWidgetVersion.Operation.IMPROVE and base_version is None:
-            raise WidgetConflictError("Generate the widget before improving it.", "version_missing")
+        if operation == GeneratedWidgetVersion.Operation.IMPROVE:
+            if base_version is None:
+                raise WidgetConflictError("Generate the widget before improving it.", "version_missing")
+            if expected_current_version_id is None or base_version.id != expected_current_version_id:
+                raise WidgetConflictError(
+                    "This widget changed since you opened it. Reload the latest version before improving it.",
+                    "generation_conflict",
+                )
+            next_prompt_history = _extend_prompt_history(_prompt_history(base_version), normalized_prompt)
+            if len(_materialize_prompt_history(next_prompt_history)) > MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH:
+                raise WidgetError(
+                    "The widget's full instructions are too long to improve. Regenerate it with shorter instructions first.",
+                    "effective_prompt_too_long",
+                )
         resolved_operation = operation
         if base_version is None:
             resolved_operation = GeneratedWidgetVersion.Operation.INITIAL
@@ -820,7 +845,7 @@ def _materialize_prompt_history(history: list[str]) -> str:
 
 def _extend_prompt_history(history: list[str], prompt: str) -> list[str]:
     bounded = [*history, prompt]
-    while len(bounded) > 2 and len(_materialize_prompt_history(bounded)) > MAX_EFFECTIVE_PROMPT_LENGTH:
+    while len(bounded) > 2 and len(_materialize_prompt_history(bounded)) > MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH:
         del bounded[1]
     return bounded
 
