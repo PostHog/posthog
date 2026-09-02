@@ -722,10 +722,12 @@ from .marketstack.source import MarketstackSource
 from .mastodon.source import MastodonSource
 from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
+from .medusa.source import MedusaSource
 from .meetup.source import MeetupSource
 from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
+from .membrain.source import MembrainSource
 from .mendeley.source import MendeleySource
 from .mention.source import MentionSource
 from .mercado_ads.source import MercadoAdsSource
@@ -970,6 +972,7 @@ from .raygun.source import RaygunSource
 from .razorpay.source import RazorpaySource
 from .rb2b.source import RB2BSource
 from .rd_station_marketing.source import RDStationMarketingSource
+from .recall_ai.source import RecallAISource
 from .recharge.source import RechargeSource
 from .recreation.source import RecreationSource
 from .recruitee.source import RecruiteeSource

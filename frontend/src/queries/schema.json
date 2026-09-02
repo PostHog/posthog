@@ -27352,7 +27352,10 @@
                 "Anvil",
                 "Coolify",
                 "SocialPilot",
-                "RoktAds"
+                "RoktAds",
+                "Medusa",
+                "Membrain",
+                "RecallAI"
             ],
             "type": "string"
         },
