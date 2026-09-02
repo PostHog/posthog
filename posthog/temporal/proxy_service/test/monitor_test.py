@@ -313,6 +313,18 @@ class TestCheckCloudflareCertificateStatus(TestCase):
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
+    async def test_unreachable_cloudflare_api_warns_instead_of_failing_the_run(self, mock_get):
+        # An escaping transport error fails the activity, which discards the DNS and liveness
+        # results the monitor run already collected.
+        mock_get.side_effect = requests.exceptions.ProxyError()
+
+        result = await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(len(result.warnings), 1)
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
     async def test_active_hostname_and_cert_passes(self, mock_get):
         mock_get.return_value = _hostname(status=CustomHostnameStatus.ACTIVE)
 

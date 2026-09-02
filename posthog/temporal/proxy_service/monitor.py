@@ -251,6 +251,19 @@ async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckAct
             warnings=[],
         )
 
+    except requests.RequestException as e:
+        # The call never reached Cloudflare (timeout, DNS or egress failure), so it says nothing
+        # about the proxy. If it escaped, the activity would fail and the run would lose the DNS
+        # and liveness results it already collected.
+        logger.warning(
+            "Could not reach the Cloudflare API to check the certificate for domain %s: %s",
+            proxy_record.domain,
+            e,
+        )
+        return CheckActivityOutput(
+            errors=[],
+            warnings=["Could not check the TLS certificate: Cloudflare did not respond. This check runs again soon."],
+        )
     except CloudflareAPIError as e:
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
