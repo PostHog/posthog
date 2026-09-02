@@ -99828,6 +99828,7 @@ export namespace Schemas {
 
 
     export const UploadedMediaListPurpose = {
+      Canvas: 'canvas',
       Email: 'email',
     } as const;
 
@@ -99839,6 +99840,7 @@ export namespace Schemas {
 
     export const UploadedMediaCreateBodyPurpose = {
       Email: 'email',
+      Canvas: 'canvas',
     } as const;
 
     export type UploadedMediaCreateBody = {

@@ -5193,6 +5193,7 @@ export type UploadedMediaListParams = {
 export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
 
 export const UploadedMediaListPurpose = {
+    Canvas: 'canvas',
     Email: 'email',
 } as const
 
@@ -5204,6 +5205,7 @@ export type UploadedMediaCreateBodyPurpose =
 
 export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
+    Canvas: 'canvas',
 } as const
 
 export type UploadedMediaCreateBody = {

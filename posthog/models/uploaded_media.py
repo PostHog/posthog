@@ -26,7 +26,8 @@ class ObjectStorageUnavailable(Exception):
 # line here, but the API accepts nothing outside this set: a typo would otherwise open a
 # second library that nothing lists, and give the caller no sign that it had.
 MEDIA_PURPOSE_EMAIL = "email"
-MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL]
+MEDIA_PURPOSE_CANVAS = "canvas"
+MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS]
 
 # A pending row older than this is abandoned: the presigned URL it was created for expires in
 # minutes, so nothing can complete it, and nothing else revisits it. Generous because the only
