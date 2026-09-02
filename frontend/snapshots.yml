@@ -1916,6 +1916,10 @@ snapshots:
         hash: v1.k794b7964.9f74f04645220e7f649d8086c82e822766320c8a29bcbfd3d5aa5345e9da964f.rzsACSxaLP53U_YzFwcDYxpVsCy4XN4Qg0U8-5SsCyk
     components-product-empty-state--web-vitals-waiting-for-data--light:
         hash: v1.k794b7964.eaac20368e776886dceff3b45c056fb19f21b7a09a22e6d7e229e9dab7140512.55yNDBmaE14aOQD_JQRC28OIos3A7vEZatViEIlgLSs
+    components-product-empty-state--workflows-needs-setup--dark:
+        hash: v1.k794b7964.63935ffbe9eb50a42da1299be2d30d74f63d40f8bd45f5c596b1bca660af45b5.5cSx0FK8vg7vXmIQR49wqJIEAv0ecNV3X8lHsQQaB3g
+    components-product-empty-state--workflows-needs-setup--light:
+        hash: v1.k794b7964.112e706a8e35787676a7c3023ce64ccfb8ac34ad710531d8f6276ed69cee375b.9kdpK9mKYvA75kyckBYxf6XDxVAMRr2bIRkFsPkWB1g
     components-productsetup-productsetuppopover--default--dark:
         hash: v1.k794b7964.8577f1ec7bdb47266c031df353e220d017de2e86125924d5da8b0f052c6ce1a6.cA5-fWqyOm-PbSjy7Y8JZ4rQXAe7hn0soi6VkQ36dfc
     components-productsetup-productsetuppopover--default--light:
