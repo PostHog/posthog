@@ -84,6 +84,14 @@ MAX_BODY_BYTES = 16 * 1024
 _encrypted_fields = EncryptedFieldMixin()
 
 
+# A misconfigured app ships its invalid token inside every install, and the SDK re-posts it on
+# every app open, so one bad build is a fleet-sized 401 storm that only self-resolves when the
+# burst drains. Allow a trickle of real 401s per token (visible while integrating, and enough to
+# attribute the burst) and answer the excess with a 429, which matches what the traffic actually
+# is: not an auth problem, one app sending too many requests.
+_INVALID_TOKEN_401_WINDOW_SECONDS = 60
+_INVALID_TOKEN_401_LIMIT = 10
+
 # Verification-mode precedence. An app_id can match more than one integration — config identifiers
 # (project_id / bundle_id) aren't covered by a uniqueness constraint — so mode resolution must fail
 # closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
@@ -192,6 +200,7 @@ def _rejection_response(
     detail: str | None = None,
     api_key_fingerprint: str | None = None,
     exc_info: bool = False,
+    log: bool = True,
 ) -> HttpResponse:
     # request.method is an arbitrary attacker-controlled token on the method_not_allowed path (any
     # HTTP verb reaches this view), so bound the counter label to the supported verbs to keep
@@ -202,20 +211,21 @@ def _rejection_response(
     # exc_info attaches the active exception's traceback for paths that swallow one (capture_failed),
     # so a 500 is diagnosable from this single labeled event rather than just the counter.
     sdk = _parse_user_agent_sdk(request)
-    logger.warning(
-        "push_subscription_rejected",
-        code=code,
-        status_code=status_code,
-        method=request.method,
-        team_id=team_id,
-        # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
-        app_id=app_id[:128] if isinstance(app_id, str) else app_id,
-        detail=detail,
-        sdk_name=sdk.name,
-        sdk_version=sdk.version,
-        api_key_fingerprint=api_key_fingerprint,
-        exc_info=exc_info,
-    )
+    if log:
+        logger.warning(
+            "push_subscription_rejected",
+            code=code,
+            status_code=status_code,
+            method=request.method,
+            team_id=team_id,
+            # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
+            app_id=app_id[:128] if isinstance(app_id, str) else app_id,
+            detail=detail,
+            sdk_name=sdk.name,
+            sdk_version=sdk.version,
+            api_key_fingerprint=api_key_fingerprint,
+            exc_info=exc_info,
+        )
     return cors_response(
         request,
         generate_exception_response(
@@ -226,6 +236,21 @@ def _rejection_response(
             status_code=status_code,
         ),
     )
+
+
+def _invalid_token_401_allowed(fingerprint: str) -> bool:
+    """Fixed-window budget for invalid-token 401s, keyed on the fingerprint. Key expiry bounds
+    the keyspace: keys only ever exist inside the window that created them. Fails closed: if
+    the cache is down every invalid token reads as over budget, which quiets the storm the
+    limit exists to prevent and changes nothing for a client that was already failing."""
+    window = int(time.time()) // _INVALID_TOKEN_401_WINDOW_SECONDS
+    key = f"push_subscriptions:invalid_token_401:{fingerprint}:{window}"
+    try:
+        if cache.add(key, 1, 2 * _INVALID_TOKEN_401_WINDOW_SECONDS):
+            return True
+        return cache.incr(key) <= _INVALID_TOKEN_401_LIMIT
+    except Exception:
+        return False
 
 
 @csrf_exempt
@@ -288,15 +313,26 @@ def push_subscriptions(request: Request):
 
     team = Team.objects.get_team_from_cache_or_token(api_key)
     if not team:
-        # Fingerprint the rejected token so a cohort of these can be traced to one bad app
-        # configuration, which is the usual cause of a burst of invalid-token rejections.
+        fingerprint = _api_key_fingerprint(api_key)
+        if _invalid_token_401_allowed(fingerprint):
+            # Fingerprint the rejected token so a cohort of these can be traced to one bad app
+            # configuration, which is the usual cause of a burst of invalid-token rejections.
+            return _rejection_response(
+                request,
+                "Invalid project token.",
+                error_type="authentication_error",
+                code="invalid_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                api_key_fingerprint=fingerprint,
+            )
         return _rejection_response(
             request,
-            "Invalid project token.",
-            error_type="authentication_error",
-            code="invalid_api_key",
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            api_key_fingerprint=_api_key_fingerprint(api_key),
+            "Too many requests.",
+            error_type="throttled",
+            code="rate_limited",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            api_key_fingerprint=fingerprint,
+            log=False,
         )
 
     distinct_id = data.get("distinct_id")

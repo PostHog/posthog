@@ -20,6 +20,7 @@ from posthog.models.team.team_caching import set_team_in_cache
 
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
 from products.messaging.backend.api.push_subscriptions import (
+    _INVALID_TOKEN_401_LIMIT,
     PUSH_SUBSCRIPTION_DISCARD_COUNTER,
     PUSH_SUBSCRIPTION_REJECTION_COUNTER,
     _api_key_fingerprint,
@@ -254,13 +255,33 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_invalid_token_returns_401(self):
-        response = self._post(
-            {"distinct_id": "user-1", "device_token": "t", "platform": "android", "app_id": "proj"},
-            api_key="phc_invalid_token",
-        )
+    @parameterized.expand([("post",), ("delete",)])
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_invalid_token_401s_are_rate_limited(self, method: str, mock_capture: MagicMock):
+        request = self._post if method == "post" else self._delete
+        payload = {"distinct_id": "user-1", "device_token": "t", "platform": "android", "app_id": "proj"}
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        for _ in range(_INVALID_TOKEN_401_LIMIT):
+            response = request(payload, api_key="phc_invalid_token")
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert response.json()["code"] == "invalid_api_key"
+
+        response = request(payload, api_key="phc_invalid_token")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["code"] == "rate_limited"
+        mock_capture.assert_not_called()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_invalid_token_rate_limit_fails_closed_when_cache_unavailable(self, mock_capture: MagicMock):
+        with patch("products.messaging.backend.api.push_subscriptions.cache") as mock_cache:
+            mock_cache.add.side_effect = Exception("redis down")
+            response = self._post(
+                {"distinct_id": "user-1", "device_token": "t", "platform": "android", "app_id": "proj"},
+                api_key="phc_invalid_token",
+            )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_capture.assert_not_called()
 
     def test_missing_required_fields(self):
         response = self._post({"distinct_id": "user-1"})
@@ -615,6 +636,20 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert entry["api_key_fingerprint"] and entry["api_key_fingerprint"] != bad_token
         # The raw token is a credential, so it must never reach the log, in any field.
         assert bad_token not in json.dumps(entry)
+
+    def test_rate_limited_rejection_increments_the_counter_without_logging(self):
+        counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code="rate_limited", method="POST")
+        before = counter._value.get()
+        payload = {"distinct_id": "user-1", "device_token": "t", "platform": "android", "app_id": "proj"}
+        for _ in range(_INVALID_TOKEN_401_LIMIT):
+            self._post(payload, api_key="phc_invalid_token")
+
+        with capture_logs() as logs:
+            for _ in range(3):
+                assert self._post(payload, api_key="phc_invalid_token").status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        assert counter._value.get() == before + 3
+        assert [entry for entry in logs if entry["event"] == "push_subscription_rejected"] == []
 
     def test_unsupported_method_collapses_counter_label(self):
         counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code="method_not_allowed", method="other")
