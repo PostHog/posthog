@@ -396,7 +396,7 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.fit is not None and outcome.fit.score == 100
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_score"] == 100
-        assert record.data["icp_fit_version"] == "v0.5"
+        assert record.data["icp_fit_version"] == "v0.6"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "test-lists-1"
         assert record.data["icp_fit_components"] == {
@@ -433,7 +433,7 @@ class TestEnrichmentCore(BaseTest):
         person_mock.assert_not_called()
         pha_client.set.assert_called_once_with(
             distinct_id="signer-distinct-id",
-            properties={"icp_fit_score": 100, "icp_fit_version": "v0.5", "icp_fit_status": "scored"},
+            properties={"icp_fit_score": 100, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
         )
 
     def test_student_role_disqualifies_fit_regardless_of_the_payload(self):
@@ -500,7 +500,7 @@ class TestEnrichmentCore(BaseTest):
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data == {
             "icp_fit_status": "not_found",
-            "icp_fit_version": "v0.5",
+            "icp_fit_version": "v0.6",
             "icp_fit_lists_version": "test-lists-1",
         }
 
@@ -577,7 +577,7 @@ class TestEnrichmentCore(BaseTest):
         assert outcome.fit is not None
         assert outcome.fit.wizard_ai_sdk is True
         assert outcome.fit.ai_pilled_source == "wizard"
-        assert (outcome.fit.components or {}).get("ai_pilled") == 0  # evidence only, no score change
+        assert (outcome.fit.components or {}).get("ai_pilled") == 15
 
     def test_first_attempt_does_not_read_the_wizard_bridge(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)

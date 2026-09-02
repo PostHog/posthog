@@ -1,7 +1,8 @@
 """The ICP fit score — encodes the Aug 2026 "who we build for" definition.
 
 Definitional score, not an MRR predictor: components are Traction (35), Capital (30),
-AIPilled (15), HeadcountGrowth (10), SoftwareRelevance (10), summing to 100. Spec:
+AIPilled (15), HeadcountGrowth (10), SoftwareRelevance (10), summing to 100. AIPilled
+awards its 15 points on the Harmonic AI signal OR a detected wizard AI SDK stamp. Spec:
 https://posthog.com/handbook/growth/revops/icp-scoring. Weights and rules are owned by
 RevOps and validated against a 382-company exemplar/customer set plus a 9.7k-signup
 cohort. The curated tag and investor lists ride in versioned DB rows (see icp_lists.py);
@@ -29,7 +30,7 @@ from typing import Any, Optional
 
 from products.growth.backend.enrichment.icp_lists import CuratedLists, norm
 
-SCORE_VERSION = "v0.5"
+SCORE_VERSION = "v0.6"
 
 STATUS_SCORED = "scored"
 STATUS_INSUFFICIENT_DATA = "insufficient_data"
@@ -113,10 +114,9 @@ def score_company(
     matched but empty-shell profile is insufficient_data (no numeric score — "no data yet"
     must never read as "evaluated and low"); everything else is scored 0–100.
 
-    `wizard_ai_sdk` is evidence only: AIPilled still scores on the Harmonic signal alone
-    (`ai_pilled_source` records "harmonic" / "wizard" / "both" so the wizard's contribution
-    is visible without a weight change), until post-disclosure coverage justifies wiring it
-    into the formula itself.
+    `wizard_ai_sdk` earns AIPilled's 15 points on its own, same as the Harmonic signal:
+    either one fires the full award, and `ai_pilled_source` records "harmonic" / "wizard" /
+    "both" so which source fired stays visible.
     """
     if (role or "").strip().lower() == "student":
         return IcpFitResult(status=STATUS_DISQUALIFIED, score=0, dq_reason="role=student", lists_version=lists.version)
@@ -203,7 +203,7 @@ def score_company(
     harmonic_ai = bool(
         tags & lists.ai_positive or (description and AI_DESC.search(description)) or (domain or "").endswith(".ai")
     )
-    ai_pilled = 15 if harmonic_ai else 0
+    ai_pilled = 15 if (harmonic_ai or wizard_ai_sdk) else 0
     ai_pilled_source = (
         "both" if harmonic_ai and wizard_ai_sdk else "harmonic" if harmonic_ai else "wizard" if wizard_ai_sdk else None
     )
