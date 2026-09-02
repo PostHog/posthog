@@ -27,6 +27,16 @@ const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
 
 type JsonSchema = Record<string, unknown>
 
+function toolGroupOrder(definition: ToolDefinition): number {
+    if (definition.annotations.readOnlyHint) {
+        return 0
+    }
+    if (definition.annotations.destructiveHint) {
+        return 2
+    }
+    return 1
+}
+
 /**
  * Merge a top-level anyOf/oneOf of object variants into a single object schema,
  * or return null if any variant is not a plain object schema.
@@ -180,7 +190,17 @@ export class ToolCatalog {
 
     getFilteredTools(options: ToolCatalogFilterOptions): Tool<ZodObjectAny>[] {
         const { scopes = [], excludeTools = [], ...filterOptions } = options
-        const allowedToolNames = getToolsForFeatures(filterOptions).filter((name) => !excludeTools.includes(name))
+        const definitions = getToolDefinitions()
+        const allowedToolNames = getToolsForFeatures(filterOptions)
+            .filter((name) => !excludeTools.includes(name))
+            .sort((left, right) => {
+                const leftDefinition = definitions[left]
+                const rightDefinition = definitions[right]
+                if (!leftDefinition || !rightDefinition) {
+                    return 0
+                }
+                return toolGroupOrder(leftDefinition) - toolGroupOrder(rightDefinition)
+            })
 
         const tools: Tool<ZodObjectAny>[] = []
 
