@@ -14,12 +14,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from posthog.management.migration_profiling.dead_code.models import Finding
-from posthog.management.migration_profiling.dead_code.waste_analysis import (
-    AVOIDABLE_CATEGORIES,
-    WasteBreakdown,
-    WasteCategory,
-)
 from posthog.management.migration_profiling.pyinstrument_parse import PyinstrumentAggregate
 from posthog.management.migration_profiling.spy import SpyAggregate
 
@@ -146,13 +140,10 @@ def render_report(
     spy_results: dict[str, tuple[SpyAggregate, Path | None]],
     pyinstrument_paths: dict[str, Path] | None = None,
     pyinstrument_aggregates: dict[str, PyinstrumentAggregate] | None = None,
-    findings: list[Finding] | None = None,
-    waste: WasteBreakdown | None = None,
 ) -> str:
     """Build the full Markdown report."""
     pyinstrument_paths = pyinstrument_paths or {}
     pyinstrument_aggregates = pyinstrument_aggregates or {}
-    findings = findings or []
 
     # ---- executive summary (computed up front) ----
     all_ops_local = [op for run in runs for op in _effective_ops(run.ops)]
@@ -170,11 +161,6 @@ def render_report(
     )
     parts: list[str] = []
     parts.append("# Migration profile report\n")
-
-    # ---- waste distribution (top of report) ----
-    if waste and waste.apply_total_ms:
-        parts.append("\n## Where does the time go?\n\n")
-        parts.append(_waste_distribution_section(waste))
 
     # ---- executive summary ----
     parts.append("\n## Executive summary\n\n")
@@ -205,12 +191,7 @@ def render_report(
 
     # ---- top opportunities (synthesized) ----
     parts.append("\n## Top opportunities\n\n")
-    parts.append(_top_opportunities_section(runs, all_ops_local, findings, waste))
-
-    # ---- dead-code findings (AST detectors) ----
-    if findings:
-        parts.append("\n## Dead-code findings\n\n")
-        parts.append(_findings_section(findings))
+    parts.append(_top_opportunities_section(runs, all_ops_local))
 
     # ---- run metadata ----
     parts.append("\n## Run metadata\n")
@@ -244,7 +225,7 @@ def render_report(
     # ---- slowest migrations ----
     summaries_by_db = {run.database: run.migration_summaries for run in runs}
     parts.append(f"\n## Top {TOP_MIGRATIONS} slowest migrations\n")
-    parts.append(_md_table(*_slowest_migrations(all_ops, summaries_by_db, waste)))
+    parts.append(_md_table(*_slowest_migrations(all_ops, summaries_by_db)))
 
     # ---- slowest SQL ----
     parts.append(f"\n## Top {TOP_SQL} slowest SQL statements\n")
@@ -455,17 +436,11 @@ def _verdict_for_ops(key_ops: list[dict[str, Any]]) -> str:
 def _slowest_migrations(
     ops: list[dict[str, Any]],
     summaries_by_db: dict[str, dict[tuple[str, str], float]] | None = None,
-    waste: WasteBreakdown | None = None,
 ) -> tuple[list[str], list[list[Any]]]:
     summaries_by_db = summaries_by_db or {}
     by_mig: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for op in ops:
         by_mig[(op["database"], op["app_label"], op["migration_name"])].append(op)
-
-    def _migration_verdict(key_ops: list[dict[str, Any]]) -> str:
-        if waste is None:
-            return ""
-        return _verdict_for_ops(key_ops)
 
     aggregates = []
     for key, key_ops in by_mig.items():
@@ -474,7 +449,7 @@ def _slowest_migrations(
         apply_total = summaries_by_db.get(db, {}).get((app, name))
         rank_total = apply_total if apply_total is not None else sql_total
         heaviest = max(key_ops, key=lambda o: o["duration_ms"])
-        verdict = _migration_verdict(key_ops)
+        verdict = _verdict_for_ops(key_ops)
         aggregates.append((key, rank_total, sql_total, apply_total, len(key_ops), heaviest, verdict))
     aggregates.sort(key=lambda x: -x[1])
     rows = []
@@ -544,148 +519,9 @@ def _squash_candidates(ops: list[dict[str, Any]]) -> tuple[list[str], list[list[
     return ["DB", "App", "Migration", "Duration", "Ops", "Op types"], rows
 
 
-_CATEGORY_LABELS: dict[str, str] = {
-    WasteCategory.ESSENTIAL_CREATE: "Essential creates",
-    WasteCategory.ESSENTIAL_RESHAPE: "Essential reshapes",
-    WasteCategory.REDUNDANT_RESHAPE: "Redundant reshapes",
-    WasteCategory.DEAD_TARGET: "Ops on dead targets",
-    WasteCategory.REMOVAL: "Removals",
-    WasteCategory.BACKFILL: "RunPython backfills (no rows on fresh DB)",
-    WasteCategory.STATE_ONLY: "State-only ops (SDAS etc.)",
-    WasteCategory.BOOTSTRAP: "Bootstrap DDL",
-    WasteCategory.UNKNOWN: "Unclassified",
-}
-
-
-def _waste_distribution_section(waste: WasteBreakdown) -> str:
-    """Render the headline 'where does the time go' breakdown.
-
-    The framing: the final schema is the goal. The cheapest way to reach it
-    is one squashed initial migration. Time spent beyond that is reclaimable.
-    """
-    apply_total = waste.apply_total_ms
-    essential_sql = waste.essential_sql_ms
-    avoidable_sql = waste.avoidable_sql_ms
-    sm_total = waste.state_machine_total_ms
-    floor = waste.theoretical_floor_ms
-    avoidable = waste.total_avoidable_ms
-    avoid_pct = waste.avoidable_share * 100.0
-
-    parts: list[str] = []
-    parts.append(
-        f"**Of {_fmt_ms(apply_total)} total `Migration.apply` wall-clock, "
-        f"~{_fmt_ms(avoidable)} ({avoid_pct:.0f}%) is reclaimable if you re-squash to the final schema.**\n\n"
-        f"Theoretical floor: ~{_fmt_ms(floor)} — what it would cost to build "
-        "the current schema as one mega-squashed initial migration. Everything "
-        "above that line is migration history overhead.\n\n"
-        f"_Floor basis: {waste.one_migration_apply_floor_basis}_\n\n"
-    )
-
-    # Top-level slabs (the bar's view).
-    slab_rows = [
-        [
-            "Essential SQL (final schema construction)",
-            _fmt_ms(essential_sql),
-            f"{essential_sql / apply_total * 100:.1f}%",
-            "essential",
-        ],
-        [
-            "Avoidable SQL (dead targets, backfills, etc.)",
-            _fmt_ms(avoidable_sql),
-            f"{avoidable_sql / apply_total * 100:.1f}%",
-            "avoidable",
-        ],
-        [
-            "Django state-machine (squashable to ~1 pass)",
-            _fmt_ms(sm_total),
-            f"{sm_total / apply_total * 100:.1f}%",
-            f"~{_fmt_ms(min(sm_total, waste.one_migration_apply_floor_ms))} stays, rest amortizes",
-        ],
-    ]
-    parts.append("### Top-level breakdown\n\n")
-    parts.append(_md_table(["Category", "Time", "% of total", "Verdict"], slab_rows))
-
-    parts.append("\n### Per-operation SQL breakdown\n\n")
-    rows: list[list[Any]] = []
-    for cat in (
-        WasteCategory.ESSENTIAL_CREATE,
-        WasteCategory.ESSENTIAL_RESHAPE,
-        WasteCategory.REDUNDANT_RESHAPE,
-        WasteCategory.DEAD_TARGET,
-        WasteCategory.REMOVAL,
-        WasteCategory.BACKFILL,
-        WasteCategory.STATE_ONLY,
-        WasteCategory.BOOTSTRAP,
-        WasteCategory.UNKNOWN,
-    ):
-        ms = waste.sql_ms_by_category.get(cat, 0.0)
-        n = waste.op_count_by_category.get(cat, 0)
-        if ms <= 0 and n == 0:
-            continue
-        pct = ms / apply_total * 100.0 if apply_total else 0.0
-        verdict = "avoidable" if cat in AVOIDABLE_CATEGORIES else "essential"
-        rows.append([_CATEGORY_LABELS[cat], n, _fmt_ms(ms), f"{pct:.1f}%", verdict])
-    parts.append(_md_table(["Category", "Ops", "Time", "% of total", "Verdict"], rows))
-
-    # ASCII bar: three slabs (essential SQL / avoidable SQL / state machine).
-    parts.append("\n```\n")
-    parts.append(_ascii_three_slab_bar(essential_sql, avoidable_sql, sm_total, apply_total))
-    parts.append("\n```\n")
-
-    return "".join(parts)
-
-
-def _ascii_three_slab_bar(essential_sql: float, avoidable_sql: float, sm: float, total: float, width: int = 60) -> str:
-    if total <= 0:
-        return ""
-    es_chars = max(int(round(essential_sql / total * width)), 1 if essential_sql > 0 else 0)
-    av_chars = max(int(round(avoidable_sql / total * width)), 1 if avoidable_sql > 0 else 0)
-    sm_chars = max(width - es_chars - av_chars, 0)
-    bar = "[" + "#" * es_chars + "X" * av_chars + "~" * sm_chars + "]"
-    legend = f"  # essential SQL ({essential_sql / total * 100:.0f}%)  X avoidable SQL ({avoidable_sql / total * 100:.0f}%)  ~ state machine ({sm / total * 100:.0f}%)"
-    return bar + legend
-
-
-def _findings_section(findings: list[Finding]) -> str:
-    """Render the AST-detector findings as a per-detector breakdown.
-
-    Findings are grouped by detector + confidence tier so the eye can scan
-    "what's safe to act on" first.
-    """
-    by_detector: dict[str, list[Finding]] = defaultdict(list)
-    for f in findings:
-        by_detector[f.detector_name].append(f)
-
-    parts: list[str] = []
-    for detector_name, hits in sorted(by_detector.items(), key=lambda kv: -len(kv[1])):
-        parts.append(f"### `{detector_name}` ({len(hits)} hits)\n\n")
-        # Confidence histogram for the detector.
-        tier_counts: dict[str, int] = defaultdict(int)
-        for f in hits:
-            tier_counts[f.confidence_tier.value] += 1
-        bits = []
-        for tier in ("high", "medium", "low"):
-            n = tier_counts.get(tier, 0)
-            if n:
-                bits.append(f"{n} {tier}")
-        if bits:
-            parts.append("_Confidence: " + ", ".join(bits) + "_\n\n")
-        rows = []
-        for f in sorted(hits, key=lambda x: -x.confidence)[:50]:
-            migs = ", ".join(f"`{a}.{n}`" for a, n in f.migrations[:3])
-            if len(f.migrations) > 3:
-                migs += f" (+{len(f.migrations) - 3} more)"
-            rows.append([f.confidence_tier.value, f.summary, migs])
-        parts.append(_md_table(["Confidence", "Finding", "Migrations"], rows))
-        parts.append("\n")
-    return "".join(parts)
-
-
 def _top_opportunities_section(
     runs: list[ProfileRun],
     all_ops: list[dict[str, Any]],
-    findings: list[Finding] | None = None,
-    waste: WasteBreakdown | None = None,
 ) -> str:
     """Synthesize a short prioritized action list from the rest of the report.
 
@@ -695,45 +531,6 @@ def _top_opportunities_section(
     can walk down: each row points to a concrete migration set or SQL pattern.
     """
     items: list[tuple[str, str, float, int]] = []  # (title, detail, savings_ms, ease)
-    findings = findings or []
-
-    # 0a. Headline: re-squash to floor. This dominates everything else and
-    # makes the smaller opportunities subsets of itself.
-    if waste and waste.apply_total_ms:
-        reclaimable = waste.total_avoidable_ms
-        floor = waste.theoretical_floor_ms
-        items.append(
-            (
-                "Re-squash all migrations into one initial",
-                f"Total Migration.apply is {_fmt_ms(waste.apply_total_ms)}. Theoretical floor "
-                f"(one squashed initial with the current schema): ~{_fmt_ms(floor)}. "
-                f"Everything else (~{_fmt_ms(reclaimable)}) is Django state-rebuild around dead "
-                "operations and historical reshapes. See _Where does the time go?_. "
-                "Subsumes all the smaller opportunities below.",
-                reclaimable,
-                1,  # not literally easy, but the ROI dwarfs everything else
-            )
-        )
-
-    # 0b. AST-detected dead code (highest confidence findings are safest of all).
-    high_conf_findings = [f for f in findings if f.confidence >= 0.9]
-    if high_conf_findings:
-        # Group by detector for the headline.
-        from collections import Counter
-
-        per_detector = Counter(f.detector_name for f in high_conf_findings)
-        # Estimate savings: for now use the count × avg-low-SQL-apply-ms as a
-        # rough proxy. Real value lives in the per-finding detail.
-        items.append(
-            (
-                f"Audit and remove {len(high_conf_findings)} HIGH-confidence dead-code findings",
-                "AST scan found mechanical dead-code (e.g. AddField/RemoveField loops, empty RunPython). "
-                + " ".join(f"`{name}`: {n}" for name, n in per_detector.most_common())
-                + ". See _Dead-code findings_.",
-                float(len(high_conf_findings)) * 100.0,  # placeholder ms-equivalent
-                3,
-            )
-        )
 
     # 1. RunPython no-ops on fresh DB (high impact, mechanical to remove)
     inert_or_drained = [

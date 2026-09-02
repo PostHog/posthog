@@ -20,12 +20,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from posthog.management.migration_profiling.dead_code.models import Finding
-from posthog.management.migration_profiling.dead_code.waste_analysis import (
-    AVOIDABLE_CATEGORIES,
-    WasteBreakdown,
-    WasteCategory,
-)
 from posthog.management.migration_profiling.formatters import (
     P95,
     ProfileRun,
@@ -176,20 +170,10 @@ details pre { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word;
 .pill.ease-medium { background: #fef3c7; color: #92400e; }
 .pill.ease-hard { background: #fee2e2; color: #991b1b; }
 
-.waste-headline { font-size: 15px; background: var(--surface); border: 1px solid var(--border);
   border-left: 3px solid var(--warn); padding: 14px 18px; border-radius: 6px; margin: 0 0 18px; }
-.waste-bar { display: flex; height: 36px; border-radius: 6px; overflow: hidden;
   border: 1px solid var(--border); margin: 0 0 12px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); }
-.waste-seg { height: 100%; transition: opacity 0.15s; }
-.waste-seg:hover { opacity: 0.7; }
-.waste-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 8px; margin: 0 0 24px; font-size: 13px; }
-.waste-legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
-.waste-sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
-.waste-legend-label { flex: 1; }
-.waste-legend-time { color: var(--muted); font-variant-numeric: tabular-nums; }
-.waste-legend-verdict { font-size: 10px; padding: 2px 6px; border-radius: 8px;
   font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 .verdict-avoid { background: #fee2e2; color: #991b1b; }
 .verdict-essential { background: #dcfce7; color: #166534; }
@@ -235,12 +219,9 @@ def render_html_report(
     runs: list[ProfileRun],
     pyinstrument_paths: dict[str, Path] | None = None,
     pyinstrument_aggregates: dict[str, PyinstrumentAggregate] | None = None,
-    findings: list[Finding] | None = None,
-    waste: WasteBreakdown | None = None,
 ) -> str:
     pyinstrument_paths = pyinstrument_paths or {}
     pyinstrument_aggregates = pyinstrument_aggregates or {}
-    findings = findings or []
 
     all_ops = [op for run in runs for op in _effective_ops(run.ops)]
     sql_total_ms = sum(op["duration_ms"] for op in all_ops)
@@ -259,10 +240,8 @@ def render_html_report(
 
     body.append('<nav class="toc">')
     for section_id, label in [
-        ("waste", "Where time goes"),
         ("summary", "Summary"),
         ("opportunities", "Opportunities"),
-        ("dead-code", "Dead code"),
         ("aggregates", "Aggregates"),
         ("slowest-migrations", "Slowest migrations"),
         ("slowest-ops", "Slowest operations"),
@@ -277,9 +256,6 @@ def render_html_report(
 
     body.append("<h1>Migration profile report</h1>")
 
-    if waste and waste.apply_total_ms:
-        body.append('<h2 id="waste">Where does the time go?</h2>')
-        body.append(_html_waste_distribution(waste))
     # Metadata line.
     meta_bits = []
     for run in runs:
@@ -329,11 +305,7 @@ def render_html_report(
     body.append("</div>")
 
     body.append('<h2 id="opportunities">Top opportunities</h2>')
-    body.append(_html_top_opportunities(runs, all_ops, findings, waste))
-
-    if findings:
-        body.append('<h2 id="dead-code">Dead-code findings (AST detectors)</h2>')
-        body.append(_html_findings(findings))
+    body.append(_html_top_opportunities(runs, all_ops))
 
     # ---- aggregates ----
     body.append('<h2 id="aggregates">Aggregates</h2>')
@@ -352,7 +324,7 @@ def render_html_report(
         '<span><span class="sw sw-py"></span> Python overhead</span>'
         "</div>"
     )
-    body.append(_html_table_slowest_migrations(runs, waste))
+    body.append(_html_table_slowest_migrations(runs))
 
     # ---- slowest ops ----
     body.append('<h2 id="slowest-ops">Top 50 slowest operations</h2>')
@@ -485,7 +457,7 @@ def _html_table_by_optype(ops: list[dict[str, Any]]) -> str:
     )
 
 
-def _html_table_slowest_migrations(runs: list[ProfileRun], waste: WasteBreakdown | None = None) -> str:
+def _html_table_slowest_migrations(runs: list[ProfileRun]) -> str:
     sql_by_mig: dict[tuple[str, str, str], float] = defaultdict(float)
     ops_count_by_mig: dict[tuple[str, str, str], int] = defaultdict(int)
     heaviest_by_mig: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -503,8 +475,6 @@ def _html_table_slowest_migrations(runs: list[ProfileRun], waste: WasteBreakdown
     # nosemgrep: tuple-return-prefer-dataclass -- tuples serve as graph and dict keys here
     def _verdict(key: tuple[str, str, str]) -> tuple[str, str]:
         """Returns (label, pill_class)."""
-        if waste is None:
-            return ("", "")
         from posthog.management.migration_profiling.formatters import _verdict_for_ops
 
         label = _verdict_for_ops(ops_by_mig.get(key, []))
@@ -615,12 +585,10 @@ def _html_table_slowest_sql(ops: list[dict[str, Any]]) -> str:
 def _html_top_opportunities(
     runs: list[ProfileRun],
     all_ops: list[dict[str, Any]],
-    findings: list[Finding] | None = None,
-    waste: WasteBreakdown | None = None,
 ) -> str:
     """Pull the synthesized opportunity items from the markdown helper but
     render as a richer HTML table with effort-pill styling."""
-    md = _top_opportunities_section(runs, all_ops, findings or [], waste)
+    md = _top_opportunities_section(runs, all_ops)
     # If "no opportunities" — bail.
     if "no opportunities" in md:
         return '<p class="muted"><em>no opportunities identified</em></p>'
@@ -663,210 +631,6 @@ def _html_top_opportunities(
         "<th>Opportunity</th><th>Est. savings</th><th>Effort</th><th>Detail</th>"
         "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>"
     )
-
-
-_WASTE_CATEGORY_LABELS = {
-    WasteCategory.ESSENTIAL_CREATE: "Essential creates",
-    WasteCategory.ESSENTIAL_RESHAPE: "Essential reshapes",
-    WasteCategory.REDUNDANT_RESHAPE: "Redundant reshapes",
-    WasteCategory.DEAD_TARGET: "Ops on dead targets",
-    WasteCategory.REMOVAL: "Removals",
-    WasteCategory.BACKFILL: "RunPython backfills (no rows)",
-    WasteCategory.STATE_ONLY: "State-only ops (SDAS etc.)",
-    WasteCategory.BOOTSTRAP: "Bootstrap DDL",
-    WasteCategory.UNKNOWN: "Unclassified",
-}
-
-# Color per category for the stacked bar.
-_WASTE_CATEGORY_COLORS = {
-    WasteCategory.ESSENTIAL_CREATE: "#16a34a",  # green
-    WasteCategory.ESSENTIAL_RESHAPE: "#22c55e",  # green-ish
-    WasteCategory.REDUNDANT_RESHAPE: "#f59e0b",  # amber
-    WasteCategory.DEAD_TARGET: "#ef4444",  # red
-    WasteCategory.REMOVAL: "#dc2626",  # darker red
-    WasteCategory.BACKFILL: "#f97316",  # orange
-    WasteCategory.STATE_ONLY: "#fbbf24",  # yellow
-    WasteCategory.BOOTSTRAP: "#64748b",  # slate
-    WasteCategory.UNKNOWN: "#94a3b8",  # gray
-    "state_essential": "#3b82f6",  # blue (Django state, essential mig)
-    "state_avoidable": "#a855f7",  # purple (Django state, avoidable mig)
-}
-
-
-def _html_waste_distribution(waste: WasteBreakdown) -> str:
-    """Render the headline 'where time goes' as two stacked bars:
-
-    1. **Top-level slab bar**: essential SQL / avoidable SQL / state-machine.
-    2. **Per-category bar**: same segments as the markdown breakdown, with
-       individual hover tooltips.
-    """
-    apply_total = waste.apply_total_ms
-    if apply_total <= 0:
-        return ""
-    essential_sql = waste.essential_sql_ms
-    avoidable_sql = waste.avoidable_sql_ms
-    sm_total = waste.state_machine_total_ms
-    sm_floor = min(sm_total, waste.one_migration_apply_floor_ms)
-    sm_amortizable = waste.amortizable_state_machine_ms
-    avoidable = waste.total_avoidable_ms
-    floor = waste.theoretical_floor_ms
-    avoid_pct = waste.avoidable_share * 100.0
-
-    headline = (
-        f"<p class='waste-headline'><strong>~{_fmt_ms(avoidable)} of {_fmt_ms(apply_total)} "
-        f"({avoid_pct:.0f}%) is reclaimable</strong> if you re-squash to the final schema. "
-        f"Theoretical floor: <strong>{_fmt_ms(floor)}</strong> — what it would cost to build "
-        "the current schema as one mega-squashed initial migration. Everything above that "
-        "line is migration history overhead.</p>"
-    )
-
-    # ---- Top-level slab bar.
-    top_slabs = [
-        ("essential_sql", essential_sql, "Essential SQL (final schema)", "#16a34a"),
-        ("avoidable_sql", avoidable_sql, "Avoidable SQL (dead, backfills)", "#dc2626"),
-        ("sm_floor", sm_floor, "Django state-machine floor (one Migration.apply)", "#3b82f6"),
-        ("sm_amortizable", sm_amortizable, "Django state-machine (amortizable via squash)", "#a855f7"),
-    ]
-    top_bar_parts = []
-    for _key, ms, label, color in top_slabs:
-        if ms <= 0:
-            continue
-        pct = ms / apply_total * 100.0
-        top_bar_parts.append(
-            f'<div class="waste-seg" style="width:{pct:.2f}%;background:{color}" '
-            f'title="{_esc(label)}: {_fmt_ms(ms)} ({pct:.1f}%)"></div>'
-        )
-    top_legend_parts = []
-    for key, ms, label, color in top_slabs:
-        if ms <= 0:
-            continue
-        pct = ms / apply_total * 100.0
-        is_avoid = key in {"avoidable_sql", "sm_amortizable"}
-        top_legend_parts.append(
-            f'<div class="waste-legend-item">'
-            f'<span class="waste-sw" style="background:{color}"></span>'
-            f'<span class="waste-legend-label">{_esc(label)}</span>'
-            f'<span class="waste-legend-time">{_fmt_ms(ms)} ({pct:.1f}%)</span>'
-            f'<span class="waste-legend-verdict {"verdict-avoid" if is_avoid else "verdict-essential"}">'
-            f"{'reclaimable' if is_avoid else 'floor'}</span>"
-            "</div>"
-        )
-
-    # ---- Per-category bar.
-    detail_segments: list[tuple[str, float, str, str]] = []
-    for cat in (
-        WasteCategory.ESSENTIAL_CREATE,
-        WasteCategory.ESSENTIAL_RESHAPE,
-        WasteCategory.REDUNDANT_RESHAPE,
-        WasteCategory.DEAD_TARGET,
-        WasteCategory.REMOVAL,
-        WasteCategory.BACKFILL,
-        WasteCategory.STATE_ONLY,
-        WasteCategory.BOOTSTRAP,
-        WasteCategory.UNKNOWN,
-    ):
-        ms = waste.sql_ms_by_category.get(cat, 0.0)
-        if ms <= 0:
-            continue
-        detail_segments.append((cat, ms, _WASTE_CATEGORY_LABELS[cat], _WASTE_CATEGORY_COLORS[cat]))
-    if waste.state_machine_essential_ms > 0:
-        detail_segments.append(
-            (
-                "state_essential",
-                waste.state_machine_essential_ms,
-                "Django state (essential mig)",
-                _WASTE_CATEGORY_COLORS["state_essential"],
-            )
-        )
-    if waste.state_machine_avoidable_ms > 0:
-        detail_segments.append(
-            (
-                "state_avoidable",
-                waste.state_machine_avoidable_ms,
-                "Django state (avoidable mig)",
-                _WASTE_CATEGORY_COLORS["state_avoidable"],
-            )
-        )
-
-    detail_bar_parts = []
-    for _key, ms, label, color in detail_segments:
-        pct = ms / apply_total * 100.0
-        detail_bar_parts.append(
-            f'<div class="waste-seg" style="width:{pct:.2f}%;background:{color}" '
-            f'title="{_esc(label)}: {_fmt_ms(ms)} ({pct:.1f}%)"></div>'
-        )
-    detail_legend_parts = []
-    for key, ms, label, color in detail_segments:
-        pct = ms / apply_total * 100.0
-        is_avoidable = (key in AVOIDABLE_CATEGORIES) or key == "state_avoidable"
-        detail_legend_parts.append(
-            f'<div class="waste-legend-item">'
-            f'<span class="waste-sw" style="background:{color}"></span>'
-            f'<span class="waste-legend-label">{_esc(label)}</span>'
-            f'<span class="waste-legend-time">{_fmt_ms(ms)} ({pct:.1f}%)</span>'
-            f'<span class="waste-legend-verdict {"verdict-avoid" if is_avoidable else "verdict-essential"}">'
-            f"{'avoidable' if is_avoidable else 'essential'}</span>"
-            "</div>"
-        )
-
-    return (
-        headline
-        + "<h3>Top-level breakdown</h3>"
-        + '<div class="waste-bar">'
-        + "".join(top_bar_parts)
-        + "</div>"
-        + '<div class="waste-legend">'
-        + "".join(top_legend_parts)
-        + "</div>"
-        + "<h3>Per-category breakdown</h3>"
-        + '<div class="waste-bar">'
-        + "".join(detail_bar_parts)
-        + "</div>"
-        + '<div class="waste-legend">'
-        + "".join(detail_legend_parts)
-        + "</div>"
-    )
-
-
-def _html_findings(findings: list[Finding]) -> str:
-    """Render AST-detected dead code grouped by detector + confidence."""
-    by_detector: dict[str, list[Finding]] = defaultdict(list)
-    for f in findings:
-        by_detector[f.detector_name].append(f)
-    parts: list[str] = []
-    for detector_name, hits in sorted(by_detector.items(), key=lambda kv: -len(kv[1])):
-        parts.append(f"<h3>{_esc(detector_name)} <span class='muted'>({len(hits)} hits)</span></h3>")
-        tier_counts: dict[str, int] = defaultdict(int)
-        for f in hits:
-            tier_counts[f.confidence_tier.value] += 1
-        chips = []
-        for tier in ("high", "medium", "low"):
-            n = tier_counts.get(tier, 0)
-            if n:
-                chips.append(
-                    f"<span class='pill ease-{ {'high': 'easy', 'medium': 'medium', 'low': 'hard'}[tier] }'>{n} {tier}</span>"
-                )
-        if chips:
-            parts.append("<p>" + " ".join(chips) + "</p>")
-        rows = []
-        for f in sorted(hits, key=lambda x: -x.confidence)[:50]:
-            migs = ", ".join(f"<code>{_esc(a)}.{_esc(n)}</code>" for a, n in f.migrations[:3])
-            if len(f.migrations) > 3:
-                migs += f" <span class='muted'>(+{len(f.migrations) - 3} more)</span>"
-            rows.append(
-                "<tr>"
-                f"<td><span class='pill ease-{ {'high': 'easy', 'medium': 'medium', 'low': 'hard'}[f.confidence_tier.value] }'>{f.confidence_tier.value}</span></td>"
-                f"<td>{_esc(f.summary)}</td>"
-                f"<td>{migs}</td>"
-                f"<td><details><summary>view</summary><pre>{_esc(f.detail)}</pre></details></td>"
-                "</tr>"
-            )
-        parts.append(
-            '<table class="sortable"><thead><tr>'
-            "<th>Confidence</th><th>Finding</th><th>Migrations</th><th>Detail</th>"
-            "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
-        )
-    return "".join(parts)
 
 
 def _html_useless_runpython(runs: list[ProfileRun]) -> str:

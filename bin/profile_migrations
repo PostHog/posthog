@@ -110,8 +110,11 @@ fi
 # Probe DB freshness via direct psql (no Django bootstrap), based on the
 # alias's NAME/HOST from settings. One small Python helper renders the env.
 load_db_env() {
+    # Sets NAME/HOST/PORT/USER/PASSWORD. Values are read line-by-line in fixed
+    # order — never eval'd — so a password with shell metacharacters stays data.
     local alias="$1"
-    python - "$alias" <<'PY'
+    local rendered
+    rendered=$(python - "$alias" <<'PY'
 import os, sys
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 import django
@@ -119,12 +122,14 @@ django.setup()
 from django.conf import settings
 alias = sys.argv[1]
 conf = settings.DATABASES[alias]
-print(f"NAME={conf.get('NAME')}")
-print(f"HOST={conf.get('HOST') or 'localhost'}")
-print(f"PORT={conf.get('PORT') or 5432}")
-print(f"USER={conf.get('USER') or 'posthog'}")
-print(f"PASSWORD={conf.get('PASSWORD') or ''}")
+print(conf.get("NAME"))
+print(conf.get("HOST") or "localhost")
+print(conf.get("PORT") or 5432)
+print(conf.get("USER") or "posthog")
+print(conf.get("PASSWORD") or "")
 PY
+    ) || return 1
+    { IFS= read -r NAME && IFS= read -r HOST && IFS= read -r PORT && IFS= read -r USER && IFS= read -r PASSWORD; } <<<"$rendered"
 }
 
 UNIQUE_ALIASES=()
@@ -147,11 +152,23 @@ JSONL_ARGS=()
 SPY_ARGS=()
 
 for ALIAS in "${UNIQUE_ALIASES[@]}"; do
-    # Render env once per alias and probe django_migrations row count.
-    eval "$(load_db_env "$ALIAS" 2>/dev/null | grep -E '^(NAME|HOST|PORT|USER|PASSWORD)=')"
-    ROW_COUNT=$(PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -U "$USER" -d "$NAME" -tAc \
-        "SELECT count(*) FROM django_migrations" 2>/dev/null | tr -d ' ' || true)
-    ROW_COUNT="${ROW_COUNT:-0}"
+    # Render env once per alias and probe django_migrations row count. Fail
+    # closed: an unreachable DB or a broken probe must stop the run, not read
+    # as "fresh" and let migrate loose on a database we could not verify.
+    if ! load_db_env "$ALIAS"; then
+        echo "Cannot read database settings for alias $ALIAS." >&2
+        exit 1
+    fi
+    if ! ROW_COUNT=$(PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -U "$USER" -d "$NAME" -tAc \
+        "SELECT count(*) FROM django_migrations" 2>/dev/null | tr -d ' '); then
+        # No django_migrations table on an otherwise reachable DB is the one
+        # legitimate "fresh" shape — verify the DB answers at all.
+        if ! PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -U "$USER" -d "$NAME" -tAc "SELECT 1" >/dev/null 2>&1; then
+            echo "Cannot reach database $NAME for alias $ALIAS — refusing to run a blind migrate." >&2
+            exit 1
+        fi
+        ROW_COUNT=0
+    fi
     if [[ "$ROW_COUNT" =~ ^[0-9]+$ ]] && [[ "$ROW_COUNT" -gt 0 ]]; then
         echo "Refusing to profile $ALIAS — django_migrations has $ROW_COUNT rows." >&2
         echo "Drop and recreate the DB first." >&2

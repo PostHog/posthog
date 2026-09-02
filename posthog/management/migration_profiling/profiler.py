@@ -32,7 +32,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, cast
 
 import django
 from django.conf import settings
@@ -45,7 +45,6 @@ from posthog.management.migration_profiling.metadata import STATE_ONLY_OPERATION
 from posthog.management.migration_profiling.models import SCHEMA_VERSION, SQL_TRUNCATION_LIMIT, OpRecord, SqlRecord
 
 MAX_SQL_PER_OP = 1000
-PARAMS_REPR_LIMIT = 256
 
 
 @dataclass(frozen=False)
@@ -115,15 +114,16 @@ def _git_sha() -> str | None:
 
 
 def _safe_repr(params: Any) -> str | None:
+    # Deliberately never serializes the bound values: against a data-bearing
+    # database a RunPython's queries bind real row contents, and the JSONL
+    # profile gets shared around. Shape and arity are enough for analysis.
     if params is None:
         return None
     try:
-        out = repr(params)
-    except Exception:
-        return "<unrepresentable>"
-    if len(out) > PARAMS_REPR_LIMIT:
-        return out[:PARAMS_REPR_LIMIT] + "...(truncated)"
-    return out
+        count = len(params)
+    except TypeError:
+        return "<params: uncounted>"
+    return f"<params: {count}>"
 
 
 def _truncate_sql(sql: str, limit: int | None) -> tuple[str, bool]:
@@ -293,7 +293,7 @@ def _patch_migration_apply(state: _ProfilerState) -> Any:
             state.current_migration_app = prev_app
             state.current_op_index = prev_op_index
 
-    Migration.apply = wrapped  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    Migration.apply = cast(Any, wrapped)  # type: ignore[method-assign]
     return original
 
 

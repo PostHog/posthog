@@ -11,7 +11,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("dashboards", "0001_squash_2026_08_21_initial"),
-        ("dashboards", "0001_squash_2026_08_21_initial"),
         ("product_analytics", "0001_squash_2026_08_21_initial"),
     ]
 

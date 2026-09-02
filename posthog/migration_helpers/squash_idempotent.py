@@ -7,6 +7,13 @@ the schema it adds is already there — the historical chain built it — and th
 file runs once as a real migration (it carries no `replaces`, so Django plans
 it). Each operation here probes the catalog and skips instead of failing.
 State handling is inherited unchanged.
+
+Backwards is a deliberate no-op on every operation: when the forward pass
+skipped (the historical chain had already built the object), the inherited
+reverse would drop a column, index, or constraint the squash never created —
+destroying data on any database that migrates back below the finalize file.
+Migration tests walk backwards through these files, so they must be safely
+reversible; re-applying forward is idempotent either way.
 """
 
 from django.db import migrations
@@ -42,6 +49,9 @@ class AddFieldIfMissing(migrations.AddField):
                     return
         super().database_forwards(app_label, schema_editor, from_state, to_state)
 
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        pass  # see module docstring: reversing must not drop pre-existing schema
+
 
 class AddIndexIfMissing(migrations.AddIndex):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
@@ -51,6 +61,9 @@ class AddIndexIfMissing(migrations.AddIndex):
         if self.index.name in _existing_constraint_names(schema_editor, model._meta.db_table):
             return
         super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        pass  # see module docstring: reversing must not drop pre-existing schema
 
 
 class AddConstraintIfMissing(migrations.AddConstraint):
@@ -66,6 +79,9 @@ class AddConstraintIfMissing(migrations.AddConstraint):
             return
         super().database_forwards(app_label, schema_editor, from_state, to_state)
 
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        pass  # see module docstring: reversing must not drop pre-existing schema
+
 
 class AlterUniqueTogetherIfMissing(migrations.AlterUniqueTogether):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
@@ -80,3 +96,6 @@ class AlterUniqueTogetherIfMissing(migrations.AlterUniqueTogether):
         if wanted <= existing:
             return
         super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        pass  # see module docstring: reversing must not drop pre-existing schema

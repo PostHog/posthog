@@ -7,7 +7,10 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(next(p for p in Path(__file__).resolve().parents if (p / "manage.py").exists())))
+_repo_root = next((p for p in Path(__file__).resolve().parents if (p / "manage.py").exists()), None)
+if _repo_root is None:
+    raise RuntimeError("nextgensquash must run from inside a PostHog checkout (no manage.py found above the package)")
+sys.path.insert(0, str(_repo_root))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 import django  # noqa: E402
 

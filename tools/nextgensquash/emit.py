@@ -860,7 +860,9 @@ class Emitter:
                 raise RuntimeError(f"index_together deferral for {model_name} has no idempotent emitter")
 
         # finalize_fks depends on this app's initial + every foreign app's
-        # initial, so its target tables exist.
+        # initial, so its target tables exist. A deferred FK can point within
+        # this app; discard it or the own-initial dep appears twice.
+        finalize_dep_apps.discard(self.app)
         finalize_deps: list[tuple[str, str]] = [(self.app, self.INITIAL_NAME)]
         finalize_deps.extend((a, self.INITIAL_NAME) for a in sorted(finalize_dep_apps))
         return SquashFile(

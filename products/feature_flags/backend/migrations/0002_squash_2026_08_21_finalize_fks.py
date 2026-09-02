@@ -10,7 +10,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("feature_flags", "0001_squash_2026_08_21_initial"),
-        ("feature_flags", "0001_squash_2026_08_21_initial"),
     ]
 
     operations = [

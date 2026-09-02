@@ -20,6 +20,7 @@ import subprocess
 from pathlib import Path
 
 from django.conf import settings
+from django.core.management import call_command
 from django.core.management.commands.migrate import Command as DjangoMigrateCommand
 from django.db import DEFAULT_DB_ALIAS
 from django.db.migrations.recorder import MigrationRecorder
@@ -391,3 +392,15 @@ class Command(DjangoMigrateCommand):
                 if app_label in managed_apps:
                     if cache_migration(app_label, migration_name):
                         self.stdout.write(self.style.SUCCESS(f"  Cached: {app_label}.{migration_name}"))
+
+        # A fresh database takes the squash path, which folds the historical
+        # RunPython seeds (auth groups, default theme, dashboard templates,
+        # ...). Re-seed after every default-DB migrate; the command is
+        # idempotent and a no-op on databases that already carry the rows.
+        # Skipped when targeting another alias or checking, never on failure —
+        # a migrate that raised has already propagated by this point.
+        if database == DEFAULT_DB_ALIAS and not options.get("check_unapplied") and not options.get("plan"):
+            try:
+                call_command("ensure_migration_defaults", verbosity=0)
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(f"ensure_migration_defaults failed: {exc}"))
