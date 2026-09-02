@@ -8,6 +8,107 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `PostHogWarehouse` - PostHog warehouse
+ * * `Redshift` - Redshift
+ * * `Snowflake` - Snowflake
+ * * `BigQuery` - BigQuery
+ * * `Postgres` - Postgres
+ * * `Databricks` - Databricks
+ * * `AzureBlob` - Azure Blob
+ * * `S3` - S3
+ */
+export type ExternalDataDestinationTypeEnumApi =
+    (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
+
+export const ExternalDataDestinationTypeEnumApi = {
+    PostHogWarehouse: 'PostHogWarehouse',
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+} as const
+
+export interface ExternalDataDestinationApi {
+    readonly id: string
+    /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+     *
+     * * `PostHogWarehouse` - PostHog warehouse
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    type: ExternalDataDestinationTypeEnumApi
+    /**
+     * Human-readable name shown when picking destinations for a source or table.
+     * @maxLength 400
+     */
+    name: string
+    /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+    config?: unknown
+    /**
+     * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+     * @nullable
+     */
+    integration?: number | null
+    /** Whether this is the managed PostHog warehouse destination. */
+    readonly is_posthog_warehouse: boolean
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedExternalDataDestinationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataDestinationApi[]
+}
+
+export interface PatchedExternalDataDestinationApi {
+    readonly id?: string
+    /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+     *
+     * * `PostHogWarehouse` - PostHog warehouse
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    type?: ExternalDataDestinationTypeEnumApi
+    /**
+     * Human-readable name shown when picking destinations for a source or table.
+     * @maxLength 400
+     */
+    name?: string
+    /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+    config?: unknown
+    /**
+     * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+     * @nullable
+     */
+    integration?: number | null
+    /** Whether this is the managed PostHog warehouse destination. */
+    readonly is_posthog_warehouse?: boolean
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
  * * `append` - append
@@ -416,6 +517,29 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+/**
+ * Response shape for a table's destination override.
+ */
+export interface SchemaDestinationsApi {
+    /**
+     * The table's own destinations, or null when it follows its source.
+     * @nullable
+     */
+    destination_ids: string[] | null
+    /** Whether this table follows its source rather than having its own destinations. */
+    inherits_from_source: boolean
+    /** Where the table actually syncs, after inheritance is resolved. */
+    effective_destination_ids?: string[]
+}
+
+export interface PatchedDestinationLinkApi {
+    /**
+     * Destinations to sync to. On a table, null clears the override so the table follows its source again.
+     * @nullable
+     */
+    destination_ids?: string[] | null
 }
 
 /**
@@ -4597,6 +4721,8 @@ export interface ExternalDataSourceCreateApi {
     created_via?: ExternalDataSourceCreateCreatedViaEnumApi
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Destinations every table on this source writes to. Set here rather than afterwards, so the opening sync already carries them. Omit to write to the PostHog warehouse only. */
+    destination_ids?: string[]
 }
 
 export interface ExternalDataSourceCreateResponseApi {
@@ -4753,6 +4879,14 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
     /** Schema updates to apply in a single batch. */
     schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
+}
+
+/**
+ * Response shape for a source's destination set.
+ */
+export interface SourceDestinationsApi {
+    /** Destinations every table on this source syncs to. */
+    destination_ids: string[]
 }
 
 /**
@@ -13033,6 +13167,17 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
     /** @nullable */
     previous?: string | null
     results: WarehouseColumnStatisticsApi[]
+}
+
+export type ExternalDataDestinationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ExternalDataSchemasListParams = {
