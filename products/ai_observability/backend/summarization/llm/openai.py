@@ -83,14 +83,32 @@ def summarize_with_openai(
 
     try:
         if flex and model in FLEX_CAPABLE_MODELS:
+            fell_back = False
             try:
                 response = _create("flex", SUMMARIZATION_FLEX_TIMEOUT)
-            except (RateLimitError, APIConnectionError, InternalServerError):
+            except (RateLimitError, APIConnectionError, InternalServerError) as flex_error:
                 # Flex runs on spare provider capacity, so the call can be refused (429), stall
                 # past the client deadline or be reset by an intermediary (APIConnectionError,
                 # which covers its APITimeoutError subclass), or die at the gateway's response
                 # ceiling (5xx). Retry once at the standard tier so the window gets its summary.
+                logger.info(
+                    "summarization_flex_fell_back",
+                    error_type=type(flex_error).__name__,
+                    model=str(model),
+                    team_id=team_id,
+                )
+                fell_back = True
                 response = _create(omit, SUMMARIZATION_TIMEOUT)
+            # The response reports the tier that actually served, so production logs answer the
+            # two open rollout questions on day one: does the gateway forward service_tier, and
+            # how often does flex refuse.
+            logger.info(
+                "summarization_served_tier",
+                service_tier=response.service_tier,
+                fell_back=fell_back,
+                model=str(model),
+                team_id=team_id,
+            )
         else:
             response = _create(omit, SUMMARIZATION_TIMEOUT)
 
