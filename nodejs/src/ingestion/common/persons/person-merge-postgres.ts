@@ -136,6 +136,12 @@ export interface PostgresMergePolicy {
 export class PostgresPersonMerge {
     private batchStore: PersonsStoreForBatch
     private createService: PersonCreateService
+    /**
+     * The bootstrap's produced messages, when one committed before the fold
+     * ran. Held on the request rather than inside the fold, because an abort
+     * unwinds past that scope while the commit it produced for stands.
+     */
+    private bootstrapAck?: Promise<void>
 
     constructor(
         private store: BatchWritingPersonsStore,
@@ -410,7 +416,9 @@ export class PostgresPersonMerge {
                 reason,
                 error,
             })
-            return { survivor: null, results: [], foldAborted: reason }
+            // A committed bootstrap's messages still have to reach the
+            // event's ack; the rollback did not unmake that commit.
+            return { survivor: null, results: [], foldAborted: reason, kafkaAck: this.bootstrapAck }
         }
     }
 
@@ -462,7 +470,6 @@ export class PostgresPersonMerge {
     private async executeFoldInner(): Promise<MergePersonsResult> {
         const teamId = this.teamId
         const outcomes: MergePersonsSourceResult[] = []
-        let bootstrapAck: Promise<void> | undefined
 
         let target = await this.store.fetchForUpdate(teamId, this.targetDistinctId, this.batchId)
         let sourcesToFold = this.request.sources
@@ -484,7 +491,7 @@ export class PostgresPersonMerge {
             }
             target = bootstrap.survivor
             outcomes.push(...bootstrap.results)
-            bootstrapAck = bootstrap.kafkaAck
+            this.bootstrapAck = bootstrap.kafkaAck
             sourcesToFold = this.request.sources.filter((source) => source !== bootstrapSource)
         }
 
@@ -536,7 +543,7 @@ export class PostgresPersonMerge {
         }
 
         if (mergeSources.length === 0 && missingSources.length === 0) {
-            return { survivor: target, results: outcomes, kafkaAck: bootstrapAck }
+            return { survivor: target, results: outcomes, kafkaAck: this.bootstrapAck }
         }
 
         // Sequential property precedence: each source merges its properties
@@ -643,7 +650,7 @@ export class PostgresPersonMerge {
         // The bootstrap's produce, when there was one, joins the fold's own
         // ack so the caller observes every message this merge produced.
         const foldAck = this.produceMessages(kafkaMessages)
-        const kafkaAck = bootstrapAck ? joinAcks(bootstrapAck, foldAck) : foldAck
+        const kafkaAck = this.bootstrapAck ? joinAcks(this.bootstrapAck, foldAck) : foldAck
         for (const source of mergeSources) {
             // Same fire-and-forget contract as executeTransaction.
             void this.producePersonMergeEvent(source, mergedPerson).catch(() => {})

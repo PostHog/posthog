@@ -18,3 +18,22 @@ export function uuidFromDistinctId(teamId: number, distinctId: string): string {
 export function lifecycleOpIdFromEvent(teamId: number, eventUuid: string): string {
     return uuidv5(`${teamId}:${eventUuid}`, LIFECYCLE_OP_UUIDV5_NAMESPACE)
 }
+
+/**
+ * The merge saga's idempotency key; a folded merge and its fallback
+ * single-source merges must not share one. Source order and the
+ * length-prefixed encoding are part of the identity, so a comma inside a
+ * distinct id cannot make two source lists read as one.
+ */
+export function mergeOpIdFromRequest(
+    teamId: number,
+    eventUuid: string,
+    sourceDistinctIds: string[],
+    moveLimit: number
+): string {
+    // The move limit is part of the op's identity: a redirected re-attempt
+    // with a raised limit must derive a fresh op rather than attach to the
+    // recorded skip it exists to overcome.
+    const sources = sourceDistinctIds.map((distinctId) => `${distinctId.length}:${distinctId}`).join(',')
+    return uuidv5(`${teamId}:${eventUuid}:${moveLimit}:${sources}`, LIFECYCLE_OP_UUIDV5_NAMESPACE)
+}

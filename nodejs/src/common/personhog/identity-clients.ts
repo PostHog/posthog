@@ -10,13 +10,16 @@ import { PersonhogIdentityOperations } from './identity'
  * PersonHogClient because it answers on a different address than the
  * router.
  */
-export function createIdentityClients(config: PersonHogClientConfig): {
+export function createIdentityClients(
+    config: PersonHogClientConfig,
+    options: { mergeTimeoutMs?: number } = {}
+): {
     identity: PersonhogIdentityOperations
     close: () => void
 } {
     const { transport, stateMonitor } = createPersonhogTransport(config)
     return {
-        identity: new PersonhogIdentityOperations(createClient(PersonHogIdentity, transport)),
+        identity: new PersonhogIdentityOperations(createClient(PersonHogIdentity, transport), options),
         close: () => stateMonitor.close(),
     }
 }
