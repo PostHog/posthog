@@ -62,7 +62,7 @@ export function HeaderTitleEditor({
       onKeyDown={handleKeyDown}
       onBlur={handleSubmit}
       className={cn(
-        "no-drag h-5 min-w-0 flex-1 rounded-sm border border-accent-8 bg-gray-2 px-1 font-medium text-[12px] text-gray-12 outline-none",
+        "h-5 min-w-0 flex-1 rounded-sm border border-accent-8 bg-gray-2 px-1 font-medium text-[12px] text-gray-12 outline-none",
         className,
       )}
     />
