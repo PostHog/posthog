@@ -152,9 +152,11 @@ describe('EmptyDashboardComponent', () => {
         expect(screen.getByText('Content')).toBeInTheDocument()
         expect(screen.getByText('Charts')).toBeInTheDocument()
         expect(screen.getByText('Add text')).toBeInTheDocument()
+        expect(screen.getByText('Image')).toBeInTheDocument()
         expect(screen.getByText('Button')).toBeInTheDocument()
         expect(screen.getByText('Widget')).toBeInTheDocument()
         expect(screen.getByText('BETA')).toBeInTheDocument()
+        expect(screen.getAllByText('NEW')).toHaveLength(1)
 
         logic.unmount()
     })
@@ -165,7 +167,7 @@ describe('EmptyDashboardComponent', () => {
         await openAddFirstChartDropdown()
 
         expect(screen.getByText('Widget')).toBeInTheDocument()
-        expect(screen.getByText('NEW')).toBeInTheDocument()
+        expect(screen.getAllByText('NEW')).toHaveLength(2)
 
         logic.unmount()
     })
