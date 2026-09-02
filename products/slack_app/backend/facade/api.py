@@ -30,8 +30,14 @@ def invalidate_slack_integration_auth_state(integration_id: int) -> None:
     gate must not keep judging the new bot's replies against the old id.
     """
     invalidate_auth_state(integration_id)
+    # Cache invalidation on the caller's own row, id straight from core's OAuth completion
+    # path rather than user input; only the Slack workspace id is read off it.
     slack_team_id = (
-        Integration.objects.filter(id=integration_id, kind="slack").values_list("integration_id", flat=True).first()
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id, kind="slack"
+        )
+        .values_list("integration_id", flat=True)
+        .first()
     )
     if slack_team_id:
         invalidate_workspace_bot_user_id(slack_team_id)

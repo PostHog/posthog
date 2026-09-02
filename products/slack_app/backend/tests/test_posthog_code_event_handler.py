@@ -124,7 +124,8 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
             ("message_dm_routes", "message", "handled_locally", 202, True),
             ("app_uninstalled_routes", "app_uninstalled", "handled_locally", 202, True),
-            ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
+            ("reaction_added_routes", "reaction_added", "handled_locally", 202, True),
+            ("non_handled_event_type_skips_routing", "emoji_changed", "handled_locally", 202, False),
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
