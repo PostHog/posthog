@@ -1474,18 +1474,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if integration is None:
                 raise serializers.ValidationError(f"Integration is required for {destination_type} batch exports")
 
-            # Credentials and the provider endpoint live in the integration. Only the submitted
-            # config is checked: rows migrated off inline credentials still hold these keys in
-            # stored config, and patching one must not resurface them as an error. Any other
-            # credential field is already rejected as unknown, since the input dataclasses never
-            # declared it.
-            integration_owned_fields = {"aws_access_key_id", "aws_secret_access_key", "endpoint_url"}
-            submitted_owned_fields = sorted(integration_owned_fields & config.keys())
-            if submitted_owned_fields:
-                raise serializers.ValidationError(
-                    f"{destination_type} batch exports authenticate through their integration. "
-                    f"Remove these fields from the configuration: {submitted_owned_fields}"
-                )
+            # Credentials and the provider endpoint are not declared on the input dataclasses, so
+            # `BatchExportDestinationSerializer.validate` already rejects them as unknown fields.
 
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty

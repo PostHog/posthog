@@ -203,9 +203,8 @@ def test_run_test_step_rejects_destination_type_change(
 ):
     """A test step must not be able to change the destination type of an existing export.
 
-    Otherwise a caller could, for example, switch an "AwsS3" export (no `endpoint_url`) to the
-    legacy "S3" type, supply an `endpoint_url` they control, and have the integration's credentials
-    tested against that endpoint.
+    Otherwise a caller could point an export's integration at a destination it was never linked to,
+    and have its credentials tested against that destination.
     """
 
     client.force_login(user)
@@ -215,7 +214,8 @@ def test_run_test_step_rejects_destination_type_change(
         "name": "my-production-s3-bucket-destination",
         "destination": {
             "type": "S3",
-            "config": {"endpoint_url": "https://attacker.example"},
+            # Valid configuration for the submitted type, so the type change is what gets rejected.
+            "config": {"bucket_name": "my-bucket", "region": "us-east-1", "prefix": "events/"},
         },
         "interval": "hour",
     }

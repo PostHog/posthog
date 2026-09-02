@@ -132,57 +132,16 @@ def test_create_s3_family_batch_export_validates_empty_inputs(
 
 
 @pytest.mark.parametrize(
-    "destination_type,integration_fixture,owned_field",
-    [
-        ("AwsS3", "aws_s3_integration", "aws_access_key_id"),
-        ("AwsS3", "aws_s3_integration", "aws_secret_access_key"),
-        ("S3Compatible", "s3_compatible_integration", "aws_access_key_id"),
-        ("S3Compatible", "s3_compatible_integration", "aws_secret_access_key"),
-        # `endpoint_url` is an S3Compatible-only field; AwsS3 rejects it as unknown instead.
-        ("S3Compatible", "s3_compatible_integration", "endpoint_url"),
-    ],
-)
-def test_create_s3_family_batch_export_rejects_integration_owned_fields(
-    client: HttpClient,
-    temporal,
-    organization,
-    team,
-    user,
-    destination_type,
-    integration_fixture,
-    owned_field,
-    request,
-):
-    """Credentials and the provider endpoint belong to the integration, so config may not carry them.
-
-    An accepted value here would be persisted in `config` and copied into the export's Temporal
-    schedule arguments.
-    """
-    integration = request.getfixturevalue(integration_fixture)
-    client.force_login(user)
-    response = create_batch_export(
-        client,
-        team.pk,
-        {
-            "name": "my-export",
-            "interval": "hour",
-            "destination": {
-                "type": destination_type,
-                "config": {**_S3_FAMILY_BASE_CONFIG, owned_field: "belongs-in-the-integration"},
-                "integration": integration.id,
-            },
-        },
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == (
-        f"{destination_type} batch exports authenticate through their integration. "
-        f"Remove these fields from the configuration: ['{owned_field}']"
-    )
-
-
-@pytest.mark.parametrize(
     "destination_type,extra_config,offending_field",
     [
+        # Credentials and the provider endpoint live in the integration, so they are not
+        # configuration. An accepted value would be persisted in `config` and copied into the
+        # export's Temporal schedule arguments.
+        ("AwsS3", {"aws_access_key_id": "belongs-in-the-integration"}, "aws_access_key_id"),
+        ("AwsS3", {"aws_secret_access_key": "belongs-in-the-integration"}, "aws_secret_access_key"),
+        ("S3Compatible", {"aws_access_key_id": "belongs-in-the-integration"}, "aws_access_key_id"),
+        ("S3Compatible", {"aws_secret_access_key": "belongs-in-the-integration"}, "aws_secret_access_key"),
+        ("S3Compatible", {"endpoint_url": "https://localhost:9000"}, "endpoint_url"),
         # AwsS3 rejects S3-compatible-only fields.
         ("AwsS3", {"endpoint_url": "https://localhost:9000"}, "endpoint_url"),
         ("AwsS3", {"use_virtual_style_addressing": True}, "use_virtual_style_addressing"),
