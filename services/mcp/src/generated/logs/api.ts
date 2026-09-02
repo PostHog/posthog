@@ -1781,7 +1781,9 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
     window_minutes: zod
         .number()
         .default(logsAlertsCreateBodyWindowMinutesDefault)
-        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
+        .describe(
+            'Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60, and, only with threshold_operator=below, also 120, 360, 720, 1440 (for detecting a service gone silent).'
+        ),
     evaluation_periods: zod
         .number()
         .min(1)
@@ -3594,7 +3596,9 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     window_minutes: zod
         .number()
         .optional()
-        .describe('Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.'),
+        .describe(
+            'Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60, and, only with threshold_operator=below, also 120, 360, 720, 1440 (for detecting a service gone silent).'
+        ),
     evaluation_periods: zod
         .number()
         .min(1)

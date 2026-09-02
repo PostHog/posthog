@@ -47967,7 +47967,7 @@ export namespace Schemas {
        * * `above` - Above
        * * `below` - Below */
       threshold_operator?: LogsAlertThresholdOperatorEnum;
-      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60, and, only with threshold_operator=below, also 120, 360, 720, 1440 (for detecting a service gone silent). */
       window_minutes?: number;
       /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes: number;
@@ -48095,7 +48095,7 @@ export namespace Schemas {
        * * `above` - Above
        * * `below` - Below */
       threshold_operator?: LogsAlertThresholdOperatorEnum;
-      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60, and, only with threshold_operator=below, also 120, 360, 720, 1440 (for detecting a service gone silent). */
       window_minutes?: number;
       /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes: number;
@@ -63571,7 +63571,7 @@ export namespace Schemas {
        * * `above` - Above
        * * `below` - Below */
       threshold_operator?: LogsAlertThresholdOperatorEnum;
-      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60, and, only with threshold_operator=below, also 120, 360, 720, 1440 (for detecting a service gone silent). */
       window_minutes?: number;
       /** How often the alert is evaluated, in minutes. Server-managed. */
       readonly check_interval_minutes?: number;
