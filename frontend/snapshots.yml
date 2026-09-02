@@ -7944,6 +7944,10 @@ snapshots:
         hash: v1.k794b7964.4ef60f727ace235099b7180e0b8e6e96a81e3626ce2ccae46f74c29508f85c15.Mp6FnYUKmqMQBB2sni9IukHvqlxQSXt5l1F91H6F8Zg
     scenes-app-replay-vision--scanner-editor-goal-overview--light:
         hash: v1.k794b7964.2820672a63528051df5cbb805e984c645eaf35a5f3437b59eaa70e90f1a5f118.S63d60T6vwVkop1Z_-KvK0rTZiRymODAiDvjaaJD7Do
+    scenes-app-replay-vision--scanner-editor-goal-overview-loading--dark:
+        hash: v1.k794b7964.fe62cd969ce6bd55970c1e9cf78fe6de964c46ec4fc544b7a7bcf40aa4b16011.sh_jB5tLnqum3YbI99V6GH8nWno2Ll-Mkram9K8qHLk
+    scenes-app-replay-vision--scanner-editor-goal-overview-loading--light:
+        hash: v1.k794b7964.cb882e5afca7dc0bf22f4d9341d7979f06500f25120c5020a1f797f6fa578486.davCiLjyEwLLRw5kh0JjVAtrghRONwHitTruNrTpoZ8
     scenes-app-replay-vision--scanner-editor-triggers--dark:
         hash: v1.k794b7964.5bc5dc77d7346163d92585657a949d38938bdbabf11a2a0341bc3a6b9c980c80.AL7y75QUTSwtUvG6XKJvD4CPhbEXC4TmNPkxG_57CQ4
     scenes-app-replay-vision--scanner-editor-triggers--light:
