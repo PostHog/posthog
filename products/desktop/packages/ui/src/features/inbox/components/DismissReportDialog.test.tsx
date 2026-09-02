@@ -17,7 +17,7 @@ const report = {
 } satisfies SignalReport;
 
 describe("DismissReportDialog", () => {
-  it("distinguishes a project-wide dismissal from a temporary pause", async () => {
+  it("keeps dismiss nomenclature while explaining temporary behavior", async () => {
     const user = userEvent.setup();
     render(
       <DismissReportDialog
@@ -38,11 +38,11 @@ describe("DismissReportDialog", () => {
     await user.click(screen.getByRole("radio", { name: "Already fixed" }));
 
     expect(
-      screen.getByText('Pause report "Checkout errors"?'),
+      screen.getByText('Dismiss report "Checkout errors"?'),
     ).toBeInTheDocument();
-    expect(screen.getByText(/pauses the report until/)).toBeTruthy();
+    expect(screen.getByText(/dismisses the report until/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Pause report" }),
+      screen.getByRole("button", { name: "Dismiss report" }),
     ).toBeInTheDocument();
   });
 
