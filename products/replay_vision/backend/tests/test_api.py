@@ -2107,11 +2107,20 @@ class TestObserveAction(_VisionAPITestCase):
             self.assertEqual(resp.status_code, 400, f"{url}: {resp.json()}")
         start_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("replay_present", True),
+            ("replay_expired", False),
+        ]
+    )
     def test_a_settled_session_returns_the_existing_observation_and_starts_nothing(
-        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock, _name: str, replay_present: bool
     ) -> None:
         # A terminal row owns the (scanner, session) slot for good, so starting a workflow would claim
-        # an enqueue slot and burn a run only to lose the INSERT and hand back this same row.
+        # an enqueue slot and burn a run only to lose the INSERT and hand back this same row. The
+        # recording can expire after the scan (replay lookup False); the idempotent 200 must still hand
+        # back the row rather than fall into the first-time replay guard's 400.
+        self.mock_session_has_replay_data.return_value = replay_present
         mock_sync_connect.return_value = MagicMock()
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
