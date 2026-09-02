@@ -1,8 +1,10 @@
 name: CI backend GC experiment
 
-# Throwaway experiment: runs one fixed pytest-split shard of the Core Django suite under
-# several garbage collector, allocator, and Postgres configurations, several repetitions
-# each, and tabulates test-phase wall time, collector time, and peak RSS per variant.
+# Throwaway experiment: measures how garbage collector, allocator, and Postgres settings
+# change backend test time. Every variant runs back to back on the same runner, so a
+# variant is compared against a baseline that saw the same machine, and machine-to-machine
+# variance becomes a blocking factor instead of a confounder. Each block rotates the order
+# so a variant cannot alias with its position in the sequence.
 # The setup steps mirror the "Django tests" job of ci-backend.yml so the numbers transfer.
 
 on:
@@ -15,11 +17,15 @@ on:
         inputs:
             splits:
                 description: Number of pytest-split shards the Core suite is cut into
-                default: '30'
+                default: '60'
                 type: string
             group:
                 description: Which of those shards to run
                 default: '7'
+                type: string
+            blocks:
+                description: How many runners each run the whole variant sequence
+                default: '6'
                 type: string
 
 concurrency:
@@ -54,7 +60,7 @@ env:
     DISPLAY: ':99.0'
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    SPLITS: ${{ github.event.inputs.splits || '30' }}
+    SPLITS: ${{ github.event.inputs.splits || '60' }}
     GROUP: ${{ github.event.inputs.group || '7' }}
 
 jobs:
@@ -95,33 +101,19 @@ jobs:
                   retention-days: 3
 
     test:
-        name: ${{ matrix.variant }} (rep ${{ matrix.rep }})
+        name: block ${{ matrix.block }}
         needs: plan
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 90
         strategy:
             fail-fast: false
             matrix:
-                variant:
-                    - baseline # what master runs: boot window, freeze, thresholds (50000, 20, 20)
-                    - stock_gc # interpreter defaults, no boot window, no freeze: the pre-June setup
-                    - freeze_stock_thresholds # boot window + freeze, thresholds back to the 3.13 defaults (2000, 10, 10)
-                    - high_thresholds # boot window + freeze, thresholds (200000, 50, 50)
-                    - no_gc # boot window + freeze, collector off for the whole test phase
-                    - hashseed0 # baseline + PYTHONHASHSEED=0
-                    - malloc_arena2 # baseline + MALLOC_ARENA_MAX=2
-                    - jemalloc # baseline + libjemalloc via LD_PRELOAD
-                    - pg_nofsync # baseline + Postgres fsync/synchronous_commit/full_page_writes off
-                rep: [1, 2, 3]
-                include:
-                    - variant: baseline
-                      rep: 4
-                    - variant: baseline
-                      rep: 5
+                # Each block is one runner that executes every variant in sequence.
+                block: [1, 2, 3, 4, 5, 6]
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-            COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml${{ matrix.variant == 'pg_nofsync' && ':docker-compose.gc-experiment-pg.yml' || '' }}
+            COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
             COMPOSE_PROFILES: temporal,azure
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -277,69 +269,107 @@ jobs:
                   restore-keys: |
                       ${{ steps.hyp-constants-key.outputs.restore_prefix }}
 
-            - name: Run the shard under the variant
+            - name: Install jemalloc
+              shell: bash
+              run: sudo apt-get install -y -qq libjemalloc2
+
+            - name: Run every variant on this runner
               id: run
               continue-on-error: true
               env:
-                  VARIANT: ${{ matrix.variant }}
-                  REP: ${{ matrix.rep }}
+                  BLOCK: ${{ matrix.block }}
                   PERSON_ON_EVENTS_V2_ENABLED: 'true'
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: 'false'
-                  GC_EXPERIMENT: ${{ matrix.variant }}
-                  GC_EXPERIMENT_RESULT: gc-experiment-result.json
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
-                  case "$VARIANT" in
-                      hashseed0) export PYTHONHASHSEED=0 ;;
-                      malloc_arena2) export MALLOC_ARENA_MAX=2 ;;
-                      jemalloc)
-                          sudo apt-get install -y -qq libjemalloc2
-                          export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
-                          ;;
-                  esac
-                  if [ ! -f .test_durations ]; then
-                      echo "::warning::No durations file, the shard is cut by test count instead"
-                  fi
-                  set +e
-                  start=$(date +%s.%N)
-                  pytest -v --tb=short --reuse-db -p pytest_gc_experiment posthog ee/ -m "not async_migrations" \
-                      --ignore=posthog/temporal \
-                      --ignore=posthog/dags \
-                      --ignore=common/hogvm/python/test \
-                      --ignore=posthog/test/repo_invariants \
-                      --splits "$SPLITS" --group "$GROUP" \
-                      --splitting-algorithm=optimal_chunks --split-granularity=file \
-                      -r fEsxX \
-                      --junitxml=junit-gc-experiment.xml
-                  exit_code=$?
-                  step_wall=$(echo "$(date +%s.%N) - $start" | bc)
-                  set -e
-                  python - "$VARIANT" "$REP" "$exit_code" "$step_wall" <<'PY'
+                  mkdir -p results
+                  # baseline appears twice: the gap between the two measures how much this
+                  # runner drifts across the block, which is the noise floor every other
+                  # comparison is read against.
+                  SEQUENCE=(baseline hashseed0 malloc_arena2 jemalloc high_thresholds no_gc baseline_late)
+                  # Rotate by block so a variant never keeps the same position in the sequence.
+                  rotate=$(( (BLOCK - 1) % ${#SEQUENCE[@]} ))
+                  ORDERED=("${SEQUENCE[@]:$rotate}" "${SEQUENCE[@]:0:$rotate}")
+                  echo "Block $BLOCK order: ${ORDERED[*]}"
+
+                  run_variant() {
+                      local variant="$1" position="$2" stack="$3"
+                      local result="results/${variant}.json"
+                      (
+                          case "$variant" in
+                              hashseed0) export PYTHONHASHSEED=0 ;;
+                              malloc_arena2) export MALLOC_ARENA_MAX=2 ;;
+                              jemalloc) export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 ;;
+                          esac
+                          # baseline_late and pg_nofsync run the baseline collector settings.
+                          case "$variant" in
+                              baseline_late|pg_nofsync) export GC_EXPERIMENT=baseline ;;
+                              *) export GC_EXPERIMENT="$variant" ;;
+                          esac
+                          export GC_EXPERIMENT_RESULT="$result"
+                          set +e
+                          pytest --tb=line -q --reuse-db -p pytest_gc_experiment posthog ee/ -m "not async_migrations" \
+                              --ignore=posthog/temporal \
+                              --ignore=posthog/dags \
+                              --ignore=common/hogvm/python/test \
+                              --ignore=posthog/test/repo_invariants \
+                              --splits "$SPLITS" --group "$GROUP" \
+                              --splitting-algorithm=optimal_chunks --split-granularity=file \
+                              --snapshot-warn-unused \
+                              -p no:cacheprovider
+                          local exit_code=$?
+                          set -e
+                          if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 5 ]; then
+                              echo "::warning::pytest exited $exit_code for $variant in block $BLOCK"
+                          fi
+                          python - "$variant" "$position" "$stack" "$exit_code" "$result" <<'PY'
                   import json
                   import os
                   import sys
 
-                  path = "gc-experiment-result.json"
-                  data = json.load(open(path)) if os.path.exists(path) else {"variant": sys.argv[1]}
+                  variant, position, stack, exit_code, path = sys.argv[1:6]
+                  data = json.load(open(path)) if os.path.exists(path) else {}
                   data.update(
-                      rep=int(sys.argv[2]),
-                      pytest_exit_code=int(sys.argv[3]),
-                      step_wall_s=round(float(sys.argv[4]), 1),
+                      variant=variant,
+                      block=int(os.environ["BLOCK"]),
+                      position=int(position),
+                      stack=stack,
+                      pytest_exit_code=int(exit_code),
                       runner=os.environ.get("RUNNER_NAME"),
-                      run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
                   )
                   json.dump(data, open(path, "w"), indent=2)
-                  print(json.dumps(data))
+                  print(json.dumps({k: data.get(k) for k in ("variant", "block", "position", "stack", "test_phase_wall_s", "gc_seconds_total", "max_rss_mb", "tests")}))
                   PY
-                  if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 5 ]; then
-                      echo "::warning::pytest exited $exit_code for $VARIANT rep $REP; the timing is still recorded"
-                  fi
+                      )
+                  }
 
-            - name: Upload the result
+                  position=0
+                  for variant in "${ORDERED[@]}"; do
+                      position=$((position + 1))
+                      echo "::group::block $BLOCK position $position: $variant"
+                      run_variant "$variant" "$position" normal || echo "::warning::$variant did not finish cleanly in block $BLOCK"
+                      echo "::endgroup::"
+                  done
+
+                  # Postgres durability is a stack setting, so it needs its own container.
+                  # The named volume keeps the migrated test_posthog across the recreate.
+                  echo "::group::block $BLOCK position $((position + 1)): pg_nofsync"
+                  COMPOSE_FILE="$COMPOSE_FILE:docker-compose.gc-experiment-pg.yml" \
+                      docker compose up -d --force-recreate db
+                  for _ in $(seq 1 30); do
+                      if docker compose exec -T db pg_isready -U posthog > /dev/null 2>&1; then break; fi
+                      sleep 2
+                  done
+                  echo "Postgres settings now in force:"
+                  docker compose exec -T db psql -U posthog -c "show fsync" -c "show synchronous_commit" -c "show full_page_writes"
+                  run_variant pg_nofsync "$((position + 1))" nofsync || echo "::warning::pg_nofsync did not finish cleanly in block $BLOCK"
+                  echo "::endgroup::"
+
+            - name: Upload the block's results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: gc-experiment-result-${{ matrix.variant }}-${{ matrix.rep }}
-                  path: gc-experiment-result.json
+                  name: gc-experiment-result-block-${{ matrix.block }}
+                  path: results/*.json
                   if-no-files-found: warn
                   retention-days: 14
 
@@ -353,9 +383,8 @@ jobs:
             - name: Download every result
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  pattern: gc-experiment-result-*
+                  pattern: gc-experiment-result-block-*
                   path: results
-                  merge-multiple: false
 
             - name: Write the comparison table
               shell: bash
@@ -367,41 +396,51 @@ jobs:
                   import statistics
 
                   rows = [json.load(open(p)) for p in sorted(glob.glob("results/**/*.json", recursive=True))]
-                  rows = [r for r in rows if "test_phase_wall_s" in r]
-                  groups: dict[str, list[dict]] = {}
-                  for row in rows:
-                      groups.setdefault(row["variant"], []).append(row)
+                  rows = [r for r in rows if "test_phase_wall_s" in r and r.get("block")]
 
-                  def mean(values):
+                  by_block: dict[int, dict[str, dict]] = {}
+                  for row in rows:
+                      by_block.setdefault(row["block"], {})[row["variant"]] = row
+
+                  # Each block is one runner. A variant is scored against the baseline that ran
+                  # on that same runner, so machine-to-machine variance cancels.
+                  deltas: dict[str, list[float]] = {}
+                  for block, runs in by_block.items():
+                      anchors = [runs[v]["test_phase_wall_s"] for v in ("baseline", "baseline_late") if v in runs]
+                      if not anchors:
+                          continue
+                      anchor = statistics.fmean(anchors)
+                      for variant, row in runs.items():
+                          deltas.setdefault(variant, []).append((row["test_phase_wall_s"] - anchor) / anchor * 100)
+
+                  def agg(variant, key):
+                      values = [r[key] for b in by_block.values() if variant in b for r in [b[variant]]]
                       return statistics.fmean(values) if values else float("nan")
 
-                  def spread(values):
-                      return statistics.pstdev(values) / mean(values) * 100 if len(values) > 1 else 0.0
+                  lines = [
+                      "### Paired comparison (each variant against the baseline on its own runner)",
+                      "",
+                      "| variant | blocks | delta vs same-runner baseline | spread of that delta | wall s | gc s | gen0 | peak RSS MB |",
+                      "|---|---|---|---|---|---|---|---|",
+                  ]
+                  for variant, values in sorted(deltas.items(), key=lambda kv: statistics.fmean(kv[1])):
+                      mean = statistics.fmean(values)
+                      sd = statistics.pstdev(values) if len(values) > 1 else 0.0
+                      gen0 = agg(variant, "gc_runs")
+                      lines.append(
+                          f"| {variant} | {len(values)} | {mean:+.1f}% | +/- {sd:.1f} | {agg(variant, 'test_phase_wall_s'):.0f} "
+                          f"| {agg(variant, 'gc_seconds_total'):.1f} | {by_block[min(by_block)][variant]['gc_runs'][0] if variant in by_block[min(by_block)] else 0} "
+                          f"| {agg(variant, 'max_rss_mb'):.0f} |"
+                      )
 
-                  base = mean([r["test_phase_wall_s"] for r in groups.get("baseline", [])])
-                  header = (
-                      "| variant | n | test wall s mean | min | max | cv % | vs baseline | cpu s | gc s | gc runs g0/g1/g2 | max RSS MB | tests | failed |\n"
-                      "|---|---|---|---|---|---|---|---|---|---|---|---|---|"
-                  )
-                  lines = [header]
-                  for variant, runs in sorted(groups.items(), key=lambda kv: mean([r["test_phase_wall_s"] for r in kv[1]])):
-                      walls = [r["test_phase_wall_s"] for r in runs]
-                      m = mean(walls)
-                      delta = f"{(m - base) / base * 100:+.1f}%" if base == base and base else "n/a"
-                      gc_runs = [mean([r["gc_runs"][g] for r in runs]) for g in range(3)]
+                  lines += ["", "### Every run", "", "| block | position | variant | stack | wall s | gc s | gen0/gen1/gen2 | peak RSS MB | tests | runner |", "|---|---|---|---|---|---|---|---|---|---|"]
+                  for row in sorted(rows, key=lambda r: (r["block"], r["position"])):
+                      g = row["gc_runs"]
                       lines.append(
-                          f"| {variant} | {len(runs)} | {m:.0f} | {min(walls):.0f} | {max(walls):.0f} | {spread(walls):.1f} | {delta} "
-                          f"| {mean([r['test_phase_cpu_s'] for r in runs]):.0f} | {mean([r['gc_seconds_total'] for r in runs]):.1f} "
-                          f"| {gc_runs[0]:.0f}/{gc_runs[1]:.0f}/{gc_runs[2]:.0f} | {mean([r['max_rss_mb'] for r in runs]):.0f} "
-                          f"| {runs[0]['tests']} | {max(r['failed'] for r in runs)} |"
+                          f"| {row['block']} | {row['position']} | {row['variant']} | {row['stack']} | {row['test_phase_wall_s']:.0f} "
+                          f"| {row['gc_seconds_total']:.1f} | {g[0]}/{g[1]}/{g[2]} | {row['max_rss_mb']:.0f} | {row['tests']} | {row.get('runner')} |"
                       )
-                  lines += ["", "| variant | rep | test wall s | step wall s | cpu s | gc s | max RSS MB | exit | runner |", "|---|---|---|---|---|---|---|---|---|"]
-                  for row in sorted(rows, key=lambda r: (r["variant"], r.get("rep", 0))):
-                      lines.append(
-                          f"| {row['variant']} | {row.get('rep')} | {row['test_phase_wall_s']:.0f} | {row.get('step_wall_s', 0):.0f} "
-                          f"| {row['test_phase_cpu_s']:.0f} | {row['gc_seconds_total']:.1f} | {row['max_rss_mb']:.0f} "
-                          f"| {row.get('pytest_exit_code')} | {row.get('runner')} |"
-                      )
+
                   table = "\n".join(lines)
                   print(table)
                   with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
