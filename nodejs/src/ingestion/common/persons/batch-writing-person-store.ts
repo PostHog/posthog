@@ -446,9 +446,23 @@ class BatchWritingPersonsCache {
             is_identified: existingPersonUpdate.is_identified || person.is_identified,
         }
 
+        // A read for another distinct id of this person brings a fresh database snapshot. Writes
+        // this batch queued since its last flush have to survive it. `properties_to_set` also
+        // holds keys folded in from an earlier snapshot, so re-apply only the keys that differ
+        // from this entry's own baseline. The rest stay free to take the newer value.
+        const pendingSets: Properties = {}
+        if (existingPersonUpdate.needs_write) {
+            for (const [key, value] of Object.entries(existingPersonUpdate.properties_to_set)) {
+                if (existingPersonUpdate.properties[key] !== value) {
+                    pendingSets[key] = value
+                }
+            }
+        }
+
         mergedPersonUpdate.properties_to_set = {
             ...existingPersonUpdate.properties_to_set,
             ...person.properties,
+            ...pendingSets,
             ...person.properties_to_set,
         }
         for (const key of person.properties_to_unset) {
