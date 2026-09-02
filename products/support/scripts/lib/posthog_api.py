@@ -9,6 +9,7 @@ timer is resetting as expected.
 """
 
 import time
+import itertools
 from datetime import UTC, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -23,6 +24,11 @@ BACKOFF_BASE_SECONDS = 2.0
 RETRY_AFTER_MAX_SECONDS = 60.0
 REGION_HOSTS = {"us": "https://us.posthog.com", "eu": "https://eu.posthog.com"}
 
+# Sequential id per request_with_retries() call, so "rate limited" log lines can be told
+# apart: a repeated id means the same request is still retrying, a new id means a different
+# request just got rate-limited for the first time - not that the run is stuck.
+_request_counter = itertools.count(1)
+
 
 def resolve_host(value: str) -> str:
     """Map a region shorthand ('us'/'eu', any case) to its Cloud host; pass explicit hosts through."""
@@ -33,7 +39,9 @@ def request_with_retries(
     session: requests.Session, method: str, url: str, max_retries: int = MAX_RETRIES, **kwargs: Any
 ) -> requests.Response:
     """Issue a request, retrying on 429 (honoring Retry-After) and 5xx with backoff."""
+    request_id = next(_request_counter)
     last_error = ""
+    was_rate_limited = False
     for attempt in range(max_retries):
         try:
             response = session.request(method, url, timeout=60, **kwargs)
@@ -42,6 +50,7 @@ def request_with_retries(
             time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
             continue
         if response.status_code == 429:
+            was_rate_limited = True
             last_error = f"HTTP {response.status_code}: {response.text[:200]}"
             default_wait = BACKOFF_BASE_SECONDS * 2**attempt
             raw_retry_after = response.headers.get("Retry-After")
@@ -51,15 +60,17 @@ def request_with_retries(
             except ValueError:
                 retry_after = default_wait
             retry_after = min(max(retry_after, 0.0), RETRY_AFTER_MAX_SECONDS)
-            log(f"  rate limited, retrying in {retry_after:.0f}s...")
+            log(f"  [req {request_id}] rate limited, retrying in {retry_after:.0f}s...")
             time.sleep(retry_after)
             continue
         if response.status_code >= 500:
             last_error = f"HTTP {response.status_code}: {response.text[:200]}"
             time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
             continue
+        if was_rate_limited:
+            log(f"  [req {request_id}] succeeded after being rate limited")
         return response
-    raise PostHogScriptError(f"{method} {url} failed after {max_retries} attempts: {last_error}")
+    raise PostHogScriptError(f"[req {request_id}] {method} {url} failed after {max_retries} attempts: {last_error}")
 
 
 def run_hogql_query(
