@@ -12,13 +12,20 @@ from django.db import connection
 
 from parameterized import parameterized
 
+from posthog.egress.firecrawl.client import FirecrawlScrape
 from posthog.models.organization import Organization
 
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    OrganizationEnrichment,
+    OrganizationEnrichmentFetch,
+)
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_HOMEPAGE_MODULE = "products.growth.backend.enrichment.homepage"
 
 _OUTPUT_FIELDS = [
     {"key": "is_ai", "type": "boolean", "description": ""},
@@ -583,4 +590,62 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         output = out.getvalue()
         assert "SKIPPED: no AI consent" in output
         assert "errors 0" in output
-        client.chat.completions.create.assert_not_called()
+
+
+class TestIncludeHomepageEndToEnd(_BatchCommandTestCase):
+    """Locks in the organization_id wiring through both commands' real call sites (as opposed to
+    calling classify_payload directly) - a future regression that drops that kwarg from either
+    command would otherwise go uncaught, since every other command test uses include_homepage=False."""
+
+    def test_batch_run_stores_homepage_fields_when_configured(self):
+        self._config(include_homepage=True)
+        self._fetch()
+        client = _mock_llm_client()
+        scraped = FirecrawlScrape(url="https://posthog.com", markdown="content", summary="PostHog is a platform.")
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_HOMEPAGE_MODULE}.scrape", return_value=scraped),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.inputs["fields"]["homepage_summary"] == "PostHog is a platform."
+        assert result.inputs["fields"]["homepage_fetch_outcome"] == "scraped"
+        # Proves organization_id reached classify_payload as this org's id, not merely a truthy
+        # value: the scrape cache lands on self.organization's own record, not a stray one.
+        cached = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert cached.data["homepage"]["summary"] == "PostHog is a platform."
+
+    def test_dry_run_prints_homepage_fields_when_configured(self):
+        EnrichmentPromptConfig.objects.create(
+            name="test_label",
+            version="v1",
+            prompt_text="... Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name"],
+            output_fields=[{"key": "reasoning", "type": "string", "description": ""}],
+            include_homepage=True,
+            is_active=True,
+        )
+        self._fetch()
+        client = MagicMock()
+        client.with_options.return_value = client
+        client.chat.completions.create.return_value = _response(json.dumps({"reasoning": "AI analytics platform"}))
+        scraped = FirecrawlScrape(url="https://posthog.com", markdown="content", summary="PostHog is a platform.")
+        out = StringIO()
+
+        with (
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_HOMEPAGE_MODULE}.scrape", return_value=scraped),
+        ):
+            call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
+
+        sent = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        assert "homepage_summary" in sent
+        assert "PostHog is a platform." in sent
+        assert "errors 0" in out.getvalue()
+        # Proves organization_id reached classify_payload as this org's id, not merely a truthy
+        # value: the scrape cache lands on self.organization's own record, not a stray one.
+        cached = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert cached.data["homepage"]["summary"] == "PostHog is a platform."

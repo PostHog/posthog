@@ -17,6 +17,7 @@ from posthog.egress.firecrawl.client import FirecrawlScrape
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.growth.backend.enrichment.labels import (
+    MAX_INPUT_COLUMNS,
     MAX_INPUT_LIST_ITEMS,
     MAX_INPUT_VALUE_CHARS,
     UNKNOWN,
@@ -628,6 +629,23 @@ class TestClassifyPayloadHomepage(BaseTest):
 
         assert output["is_ai"] is True
         assert output["inputs"]["fields"]["homepage_fetch_outcome"] == "no_domain"
+
+    def test_homepage_fields_survive_column_truncation_at_the_input_fields_cap(self):
+        # bound_inputs keeps only the first MAX_INPUT_COLUMNS keys (labels.py); homepage fields
+        # must be placed ahead of the archived-payload fields so a config with input_fields near
+        # the cap doesn't silently lose the homepage input it opted into.
+        config = self._config(include_homepage=True)
+        config.input_fields = [f"field_{i}" for i in range(MAX_INPUT_COLUMNS)]
+        payload = {f"field_{i}": f"value_{i}" for i in range(MAX_INPUT_COLUMNS)}
+        client = _mock_llm_client()
+        scraped = FirecrawlScrape(url="https://acme.example", markdown="content", summary="Acme builds AI tools.")
+
+        with patch(f"{_HOMEPAGE_MODULE}.scrape", return_value=scraped):
+            output = classify_payload(config, payload, "acme.example", client, organization_id=self.organization.id)
+
+        fields = output["inputs"]["fields"]
+        assert fields["homepage_fetch_outcome"] == "scraped"
+        assert fields["homepage_summary"] == "Acme builds AI tools."
 
 
 class TestSignupDomainForOrganization(BaseTest):

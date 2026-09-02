@@ -38,10 +38,7 @@ class TestHomepageInputFields(BaseTest):
             "homepage_excerpt": "# Acme\nWe build things.",
         }
         scrape.assert_called_once_with(
-            "https://acme.example",
-            source="growth_ai_enrichment",
-            formats=("markdown", "summary"),
-            timeout=(5.0, 45.0),
+            "https://acme.example", source="growth_ai_enrichment", formats=("markdown", "summary")
         )
 
     def test_the_excerpt_is_truncated_to_the_cap(self):
@@ -94,6 +91,27 @@ class TestHomepageInputFields(BaseTest):
 
         scrape.assert_called_once()
         assert fields["homepage_summary"] == "fresh summary"
+
+    def test_a_cached_scrape_for_a_different_domain_is_not_reused(self):
+        OrganizationEnrichment.objects.create(
+            organization=self.organization,
+            data={
+                "homepage": {
+                    "domain": "old-domain.example",
+                    "fetched_at": timezone.now().isoformat(),
+                    "outcome": "scraped",
+                    "summary": "old domain summary",
+                    "excerpt": "old domain excerpt",
+                }
+            },
+        )
+        scraped = FirecrawlScrape(url="https://new-domain.example", markdown="fresh", summary="new domain summary")
+
+        with patch(f"{_HOMEPAGE_MODULE}.scrape", return_value=scraped) as scrape:
+            fields = homepage_input_fields(self.organization.id, "new-domain.example")
+
+        scrape.assert_called_once()
+        assert fields["homepage_summary"] == "new domain summary"
 
     def test_a_scrape_within_the_cache_window_is_not_refetched(self):
         OrganizationEnrichment.objects.create(

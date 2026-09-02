@@ -458,9 +458,12 @@ def classify_payload(
     # paths would otherwise bill a call to ask the model about "Company data: {}".
     extracted = extract_input_fields(payload, config.input_fields)
     if config.include_homepage:
+        # Homepage keys go first: bound_inputs' MAX_INPUT_COLUMNS truncation keeps the first N
+        # keys, so a config with input_fields near that cap would otherwise silently drop the
+        # homepage input it opted into rather than a trailing archived-payload field.
         # Never raises: degraded outcomes (not configured, busy, unreachable, no domain) come
         # back as a homepage_fetch_outcome value, not an exception - see homepage.py.
-        extracted = {**extracted, **homepage_input_fields(organization_id, signup_domain)}
+        extracted = {**homepage_input_fields(organization_id, signup_domain), **extracted}
     inputs = bound_inputs(extracted)
     if not inputs:
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
